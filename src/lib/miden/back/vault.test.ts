@@ -25,6 +25,8 @@ import { Vault } from './vault';
 import * as CanonicalReads from '../recovery/canonical-reads';
 import { StorageContinuityError } from '../recovery/continuity';
 import { installProviderReceiptBackend } from '../recovery/receipt-backend';
+import { decryptRecoveryDataFile } from '../recovery/external-file';
+import type { RecoveryJournalSnapshot } from '../recovery/types';
 import { checkpointProviderReceipt } from '../recovery/receipt-writer';
 import { oneClickReceiptRow } from '../recovery/testing/provider-receipts';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
@@ -6279,6 +6281,118 @@ describe('Vault storage continuity', () => {
       }
     };
   }
+
+  async function recoveryFileCustody() {
+    const credential = 'disposable-storage-recovery-custody';
+    const raw = await Passworder.exportKey(fixtureKey);
+    try {
+      await savePlain(keys.vaultKeyPassword, await Passworder.encryptVaultKeyWithPassword(raw, credential));
+    } finally {
+      raw.fill(0);
+    }
+    return credential;
+  }
+
+  async function independentRecoveryFile(snapshot: RecoveryJournalSnapshot, password: string): Promise<string> {
+    const { toSerializable } = await import('../recovery/serialization');
+    const salt = Passworder.generateSalt();
+    const cipher = await Passworder.deriveKey(await Passworder.generateKey(password), salt);
+    return JSON.stringify({
+      format: 'miden-recovery-data',
+      formatVersion: 1,
+      salt: Array.from(salt),
+      payload: await Passworder.encryptJson(
+        { format: 'miden-recovery-data', formatVersion: 1, snapshot: toSerializable(snapshot) },
+        cipher
+      ),
+      passwordCheck: await Passworder.encryptJson('miden-recovery-data-password-check-v1', cipher)
+    });
+  }
+
+  it('Task5 recovery Vault exports last verified data while locked and unavailable without adopting a Vault', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    vault.retire();
+    readSnapshot.mockClear();
+    const setup = jest.spyOn(Vault, 'setup');
+    try {
+      await expect(
+        Vault.exportRecoveryData('disposable-file-password', credential).then(content =>
+          decryptRecoveryDataFile(content, 'disposable-file-password')
+        )
+      ).resolves.toEqual(retained);
+      expect(setup).not.toHaveBeenCalled();
+      expect(readSnapshot).not.toHaveBeenCalled();
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      setup.mockRestore();
+    }
+  });
+
+  it('Task5 recovery Vault imports data after both journal and physical wallet marker loss without resuming', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const content = await independentRecoveryFile(retained, 'disposable-file-password');
+    const { RECOVERY_JOURNAL_KEYS } = await import('../recovery/journal');
+    for (const key of RECOVERY_JOURNAL_KEYS) delete memoryStore[key];
+    await removeMany([ck('recoverycontinuity')]);
+    await Repo.metadata.delete('generation');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, 'disposable-file-password', incident.epoch, credential)
+    ).resolves.toMatchObject({ imported: true });
+    expect(getStorageHealth()).toEqual(incident);
+    const imported = await vault.readRecoveryJournal();
+    expect(imported?.accounts).toEqual(retained.accounts);
+    expect(imported?.scope.network).toBe(retained.scope.network);
+    expect(imported?.entries).toEqual(expect.arrayContaining(retained.entries));
+    expect(await Repo.metadata.get('generation')).toMatchObject({ origin: 'authorized' });
+    expect(initializeGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it('Task5 recovery Vault rejects a foreign network without changing retained evidence', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const foreign = { ...retained, scope: { ...retained.scope, network: 'other:https://other.invalid' } };
+    const content = await independentRecoveryFile(foreign, 'disposable-file-password');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, 'disposable-file-password', incident.epoch, credential)
+    ).rejects.toThrow('RecoveryDataFile:network');
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 recovery Vault retired import ownership permits no late journal publication', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const content = await independentRecoveryFile(retained, 'disposable-file-password');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    let live = true;
+    const pending = Vault.importRecoveryData(
+      content,
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      credential,
+      () => {
+        if (!live) throw new Error('retired recovery import');
+      }
+    );
+    live = false;
+    await expect(pending).rejects.toThrow('retired recovery import');
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+  });
 
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
