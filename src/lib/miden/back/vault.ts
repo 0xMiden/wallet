@@ -822,15 +822,22 @@ export class Vault {
           });
           check();
           if (!capability) {
-            if (observed.generation !== next.scope.sdkGeneration)
-              await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);
-            assertWasmHoldCurrent(hold, 'after storage generation initialization');
-            check();
-            const snapshot = await this.recoveryJournal(epoch).update(() => ({
+            const assertCheckpoint = () => {
+              assertWasmHoldCurrent(hold, 'storage continuity checkpoint');
+              check();
+              this.assertRealmSinkIsMine();
+              if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== next.scope.network)
+                throw new StorageUnavailableError();
+            };
+            const snapshot = await this.recoveryJournal(epoch, assertCheckpoint).update(() => ({
               ...next,
               entries: [...observed.notes, ...financial]
             }));
-            await this.saveRecoveryContinuity(snapshot, epoch);
+            assertCheckpoint();
+            if (observed.generation !== next.scope.sdkGeneration)
+              await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);
+            assertCheckpoint();
+            await this.saveRecoveryContinuity(snapshot, epoch, assertCheckpoint);
           }
           check();
           return true;
