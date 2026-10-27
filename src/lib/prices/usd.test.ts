@@ -434,3 +434,19 @@ describe('Task5 cache USD', () => {
     });
   });
 });
+
+describe('Task5 cache canonical equality', () => {
+  it('persists pruning of oversized unrecognized quote fields even when the accepted price and stamp match', async () => {
+    let retained: unknown = {
+      ETH: { priceMicro: '2000000', fetchedAt: 1000, unused: '界'.repeat(30_000) }
+    };
+    mockedRead.mockImplementation(async () => retained);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      retained = value;
+    });
+    await writeUsdPriceCache({ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }, 1000);
+    expect(mockedWrite).toHaveBeenCalledTimes(1);
+    expect(new TextEncoder().encode(JSON.stringify(retained)).byteLength).toBeLessThanOrEqual(65_536);
+    expect(retained).toEqual({ ETH: { priceMicro: '2000000', fetchedAt: 1000 } });
+  });
+});

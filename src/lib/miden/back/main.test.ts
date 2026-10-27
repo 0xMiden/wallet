@@ -200,6 +200,9 @@ jest.mock('lib/miden/back/actions', () => ({
   updateCurrentAccount: jest.fn(),
   revealMnemonic: jest.fn(),
   exportWalletBackupMaterial: jest.fn(),
+  exportRecoveryDataFile: jest.fn(),
+  importRecoveryDataFile: jest.fn(),
+  cancelRecoveryDataOperation: jest.fn(),
   revealPrivateKey: jest.fn(),
   exportAccountFile: jest.fn(),
   removeAccount: jest.fn(),
@@ -1978,5 +1981,54 @@ describe('Task4C3F operation-bound acquisition reverse IPC', () => {
       release();
       await f.restore();
     }
+  });
+});
+
+describe('Task5 recovery file transport extension', () => {
+  it('exports encrypted recovery data through the authenticated action boundary', async () => {
+    Actions.exportRecoveryDataFile.mockResolvedValueOnce('encrypted-disposable-file');
+    await expect(
+      dispatch({
+        type: WalletMessageType.ExportRecoveryDataRequest,
+        filePassword: 'disposable-file-password',
+        expectedEpoch: 9,
+        operationId: 'disposable-operation',
+        credential: 'disposable-credential'
+      })
+    ).resolves.toEqual({ type: WalletMessageType.ExportRecoveryDataResponse, content: 'encrypted-disposable-file' });
+    expect(Actions.exportRecoveryDataFile).toHaveBeenCalledWith(
+      'disposable-file-password',
+      9,
+      'disposable-operation',
+      'disposable-credential'
+    );
+  });
+  it('imports inert evidence through the authenticated action boundary', async () => {
+    Actions.importRecoveryDataFile.mockResolvedValueOnce({ imported: true, retainedEntries: 2 });
+    await expect(
+      dispatch({
+        type: WalletMessageType.ImportRecoveryDataRequest,
+        content: 'encrypted-disposable-file',
+        filePassword: 'disposable-file-password',
+        expectedEpoch: 9,
+        operationId: 'disposable-operation',
+        credential: 'disposable-credential'
+      })
+    ).resolves.toEqual({ type: WalletMessageType.ImportRecoveryDataResponse, imported: true, retainedEntries: 2 });
+    expect(Actions.importRecoveryDataFile).toHaveBeenCalledWith(
+      'encrypted-disposable-file',
+      'disposable-file-password',
+      9,
+      'disposable-operation',
+      'disposable-credential'
+    );
+  });
+  it('retires an outstanding file operation without invoking unlock or a wallet reset', async () => {
+    Actions.cancelRecoveryDataOperation.mockResolvedValueOnce(undefined);
+    await expect(
+      dispatch({ type: WalletMessageType.CancelRecoveryDataRequest, operationId: 'disposable-operation' })
+    ).resolves.toEqual({ type: WalletMessageType.CancelRecoveryDataResponse });
+    expect(Actions.cancelRecoveryDataOperation).toHaveBeenCalledWith('disposable-operation');
+    expect(Actions.unlock).not.toHaveBeenCalled();
   });
 });

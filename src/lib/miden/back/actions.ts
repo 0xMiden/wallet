@@ -40,6 +40,7 @@ import {
   uninstallRealmKeystore,
   withWasmClientLock
 } from 'lib/miden/sdk/miden-client';
+import { RecoveryDataFileError, type RecoveryDataImportResult } from 'lib/miden/recovery/external-file';
 import {
   readSpendingLimit as readStoredSpendingLimit,
   saveSpendingLimit as saveStoredSpendingLimit
@@ -813,6 +814,29 @@ export async function assessOutgoingSpendingLimit(
     spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
   });
   return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
+}
+
+export async function exportRecoveryDataFile(
+  _filePassword: string,
+  _expectedEpoch: number,
+  _operationId: string,
+  _credential?: string
+): Promise<string> {
+  throw new RecoveryDataFileError('unavailable');
+}
+
+export async function importRecoveryDataFile(
+  _content: string,
+  _filePassword: string,
+  _expectedEpoch: number,
+  _operationId: string,
+  _credential?: string
+): Promise<RecoveryDataImportResult> {
+  throw new RecoveryDataFileError('unavailable');
+}
+
+export async function cancelRecoveryDataOperation(_operationId: string): Promise<void> {
+  throw new RecoveryDataFileError('unavailable');
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {

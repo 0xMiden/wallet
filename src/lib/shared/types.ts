@@ -1,4 +1,5 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type { RecoveryDataImportResult } from 'lib/miden/recovery/external-file';
 import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   PersistedSpendingLimit,
@@ -12,6 +13,12 @@ import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
+  ExportRecoveryDataRequest = 'EXPORT_RECOVERY_DATA_REQUEST',
+  ExportRecoveryDataResponse = 'EXPORT_RECOVERY_DATA_RESPONSE',
+  ImportRecoveryDataRequest = 'IMPORT_RECOVERY_DATA_REQUEST',
+  ImportRecoveryDataResponse = 'IMPORT_RECOVERY_DATA_RESPONSE',
+  CancelRecoveryDataRequest = 'CANCEL_RECOVERY_DATA_REQUEST',
+  CancelRecoveryDataResponse = 'CANCEL_RECOVERY_DATA_RESPONSE',
   FinancialRecoveryRequest = 'FINANCIAL_RECOVERY_REQUEST',
   FinancialRecoveryResponse = 'FINANCIAL_RECOVERY_RESPONSE',
   ProviderReceiptRequest = 'PROVIDER_RECEIPT_REQUEST',
@@ -983,6 +990,36 @@ export interface ProviderReceiptResponse extends WalletMessageBase {
   type: WalletMessageType.ProviderReceiptResponse;
 }
 
+export interface ExportRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportRecoveryDataRequest;
+  filePassword: string;
+  credential?: string;
+  expectedEpoch: number;
+  operationId: string;
+}
+export interface ExportRecoveryDataResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportRecoveryDataResponse;
+  content: string;
+}
+export interface ImportRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportRecoveryDataRequest;
+  content: string;
+  filePassword: string;
+  credential?: string;
+  expectedEpoch: number;
+  operationId: string;
+}
+export interface ImportRecoveryDataResponse extends WalletMessageBase, RecoveryDataImportResult {
+  type: WalletMessageType.ImportRecoveryDataResponse;
+}
+export interface CancelRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.CancelRecoveryDataRequest;
+  operationId: string;
+}
+export interface CancelRecoveryDataResponse extends WalletMessageBase {
+  type: WalletMessageType.CancelRecoveryDataResponse;
+}
+
 export interface StorageRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.StorageRecoveryRequest;
   expectedEpoch: number;
@@ -1407,6 +1444,9 @@ export type WalletRequest =
   | FinancialRecoveryRequest
   | ProviderReceiptRequest
   | StorageRecoveryRequest
+  | ExportRecoveryDataRequest
+  | ImportRecoveryDataRequest
+  | CancelRecoveryDataRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
@@ -1488,6 +1528,9 @@ export type WalletResponse =
   | FinancialRecoveryResponse
   | ProviderReceiptResponse
   | StorageRecoveryResponse
+  | ExportRecoveryDataResponse
+  | ImportRecoveryDataResponse
+  | CancelRecoveryDataResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse

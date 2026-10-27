@@ -80,3 +80,7 @@ export function getFallbackLetter(origin: string): string {
     return origin.charAt(0).toUpperCase() || '?';
   }
 }
+
+export function __getFaviconCacheUsageForTests(): { entries: number; bytes: number } {
+  return { entries: cache.size, bytes: new TextEncoder().encode(JSON.stringify(Object.fromEntries(cache))).byteLength };
+}
