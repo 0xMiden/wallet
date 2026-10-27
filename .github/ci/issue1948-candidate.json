@@ -1,0 +1,30 @@
+{
+  "base": "343c597012510114118ba4e2eeb1492c396f5d19",
+  "patch": "docs/superpowers/task-4c3-green-5c.patch",
+  "sha256": "83316f9483ce9369c67ca765eb69bec6d2bdbc763cc42befcacc071dd74e7de4",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.ts",
+      "sha256": "112c112702df1f497944214edfceaa9ba92131c2584417167a1a10cac4d0e6bf"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/sdk/miden-client-interface.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --testNamePattern=Task4C3E --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/sdk/miden-client-interface.recovery.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage"
+  ],
+  "purpose": "Guardian E3 classifiedSDKfailure fix plus all12E/E3regressions and complete53recoverysuite,currenttypes/lint,expected65;347declaredfiltered/fullVaultnextcoherentgate. No fullcoverage/native/offscreenclaim.",
+  "expected_group_cases": [
+    12,
+    53
+  ],
+  "expected_group_filtered": [
+    347,
+    0
+  ],
+  "original_manifest_sha256": "27a12cb0e1be27235ef024f26b76749bae619d39bb8a347a4a5b82bfc4b445e6",
+  "closureFiles": {
+    "src/lib/miden/back/vault.test.ts": "e8b9697c357b4a2805e6753f54f04c2a3a2fda6edf1a1be36a4e68607221f55c"
+  }
+}
