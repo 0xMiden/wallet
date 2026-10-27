@@ -14,7 +14,7 @@ import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
-const DEFAULT_PASSWORD = 'Password123!';
+const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
 const POLL_INTERVAL_MS = 500;
 
@@ -379,10 +379,17 @@ export class AndroidWalletPage implements WalletPage {
 
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
     await this.navigateHome();
-    await this.pollForSelector('input[type="password"], input', 15_000);
-    await this.fillInputAny(['input[type="password"]', 'input'], password);
-    await this.clickByText('button', /unlock|continue|submit/i);
-    await sleep(3_000);
+    await this.pollForSelector('[data-testid="unlock-passcode"]', 15_000);
+    for (const digit of password) {
+      await this.click(`[data-testid="numpad-${digit}"]`);
+      await sleep(150);
+    }
+    await this.pollForCondition(
+      `if (document.querySelector('[data-testid="unlock-passcode"]')) return false; ` +
+        `var state = window.__TEST_STORE__?.getState(); ` +
+        `return !!state && (state.status === 2 || state.status === 'Ready') && !!state.currentAccount;`,
+      30_000
+    );
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {
