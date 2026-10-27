@@ -8,6 +8,11 @@ import {
 import { toSerializable } from './serialization';
 import type { RecoveryJournalSnapshot } from './types';
 
+jest.mock('../passworder', () => {
+  const actual = jest.requireActual<typeof import('../passworder')>('../passworder');
+  return { ...actual, deriveKey: jest.fn(actual.deriveKey) };
+});
+
 jest.setTimeout(60_000);
 
 const snapshot: RecoveryJournalSnapshot = {
@@ -87,12 +92,13 @@ describe('Task5 recovery file crypto', () => {
     ['version', JSON.stringify({ format: 'miden-recovery-data', formatVersion: 2 })],
     ['size', 'x'.repeat(RECOVERY_DATA_FILE_MAX_BYTES + 1)]
   ])('refuses %s before deriving a password key', async (code, content) => {
-    const derive = jest.spyOn(Passworder, 'deriveKey');
+    const derive = jest.mocked(Passworder.deriveKey);
+    derive.mockClear();
     try {
       await expect(decryptRecoveryDataFile(content, filePassword)).rejects.toMatchObject({ code });
       expect(derive).not.toHaveBeenCalled();
     } finally {
-      derive.mockRestore();
+      derive.mockClear();
     }
   });
 });
