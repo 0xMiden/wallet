@@ -58,6 +58,8 @@ const memoryStore: Record<string, any> = {};
 const mockStorageSets: string[][] = [];
 let retainedStorageKey: string | undefined;
 let mockBeforeRecoveryWrite: (() => Promise<void>) | undefined;
+let mockBeforeStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
+let mockAfterStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -68,7 +70,9 @@ jest.mock('lib/platform/storage-adapter', () => ({
     set: async (items: Record<string, any>) => {
       if (Object.keys(items).some(key => /^miden_recovery_v1_[01]$/.test(key))) await mockBeforeRecoveryWrite?.();
       mockStorageSets.push(Object.keys(items));
+      if (mockBeforeStorageWrite) await mockBeforeStorageWrite(items);
       Object.assign(memoryStore, items);
+      if (mockAfterStorageWrite) await mockAfterStorageWrite(items);
     },
     remove: async (keys: string[]) => {
       for (const k of keys) {
@@ -6405,6 +6409,110 @@ describe('Vault storage continuity', () => {
     live = false;
     await expect(pending).rejects.toThrow('retired recovery import');
     expect(await vault.readRecoveryJournal()).toEqual(retained);
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence even when later continuity-floor persistence rejects', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const floorFailure = new Error('Injected continuity-floor write refusal');
+    let floorWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, ck('recoverycontinuity'))) {
+        floorWrites++;
+        throw floorFailure;
+      }
+    };
+    const epoch = getStorageHealth().epoch;
+    const sdkWrites = initializeGeneration.mock.calls.length;
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, epoch, credential)).rejects.toBe(floorFailure);
+      expect(floorWrites).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+      expect(initializeGeneration).toHaveBeenCalledTimes(sdkWrites);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence when an accepted pointer outlives its capability', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const epoch = getStorageHealth().epoch;
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    let acceptedPointers = 0;
+    mockAfterStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, 'miden_recovery_v1_active')) {
+        acceptedPointers++;
+        clock.mockReturnValue(now + 5001);
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, epoch, credential)).rejects.toThrow(
+        'StorageUnavailableError'
+      );
+      expect(acceptedPointers).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    } finally {
+      mockAfterStorageWrite = undefined;
+      clock.mockRestore();
+    }
+  });
+
+  it('Task5 recovery Vault leaves an ordinary cancellation before journal publication healthy', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const cancellation = new DOMException('Cancelled', 'AbortError');
+    let attemptedWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.keys(items).some(key => key.startsWith('miden_recovery_v1_'))) {
+        attemptedWrites++;
+        throw cancellation;
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, health.epoch, credential)).rejects.toBe(
+        cancellation
+      );
+      expect(attemptedWrites).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+      expect(getStorageHealth()).toEqual(health);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
   });
 
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
