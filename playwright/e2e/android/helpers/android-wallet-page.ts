@@ -483,16 +483,6 @@ export class AndroidWalletPage implements WalletPage {
     }
   }
 
-  private async clickByText(tag: string, pattern: RegExp): Promise<void> {
-    const ok = await this.cdp.eval<boolean>(
-      `var els = Array.from(document.querySelectorAll(${JSON.stringify(tag)})); ` +
-        `var re = ${pattern.toString()}; ` +
-        `var target = els.find(function(el) { return re.test(el.textContent || ''); }); ` +
-        `if (!target) return false; target.click(); return true;`
-    );
-    if (!ok) throw new Error(`clickByText: no <${tag}> matched ${pattern}`);
-  }
-
   private async clickWhenEnabled(selector: string, timeoutMs: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -520,18 +510,7 @@ export class AndroidWalletPage implements WalletPage {
     );
   }
 
-  private async fillInputAny(selectors: string[], value: string): Promise<void> {
-    for (const sel of selectors) {
-      const ok = await this.cdp
-        .eval<boolean>(`return !!document.querySelector(${JSON.stringify(sel)});`)
-        .catch(() => false);
-      if (ok) {
-        await this.fillInput(sel, value);
-        return;
-      }
-    }
-    throw new Error(`fillInputAny: none of the selectors matched: ${selectors.join(', ')}`);
-  }
+
 }
 
 function sleep(ms: number): Promise<void> {
