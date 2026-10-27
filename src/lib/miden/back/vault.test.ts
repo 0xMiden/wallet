@@ -6165,6 +6165,42 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('Task4C3I2R retains the complete baseline when SDK marker initialization rejects', async () => {
+    const note = {
+      kind: 'note',
+      id: '56'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 95]),
+      provenance: 'input',
+      format: 'full'
+    } satisfies import('../recovery/types').RecoveryNoteEntry;
+    await completedBaseline([note]);
+    const { readFinancialRecoveryBaseline } = await import('../recovery/financial');
+    const { getEffectiveNetworkName, getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const financial = await readFinancialRecoveryBaseline(['retained']);
+    const markerFailure = new Error('Marker not acknowledged');
+    initializeGeneration.mockRejectedValueOnce(markerFailure);
+    const outcome = await vault.verifyStorageContinuity().then(
+      () => 'completed',
+      error => error
+    );
+    expect(outcome).toBe(markerFailure);
+    expect(initializeGeneration).toHaveBeenCalledTimes(1);
+    const retained = await vault.readRecoveryJournal();
+    expect(retained).toMatchObject({
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      scope: {
+        network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        walletGeneration: 'wallet-fixture',
+        sdkGeneration: initializeGeneration.mock.calls[0]?.[0]
+      },
+      entries: expect.arrayContaining([note, ...financial])
+    });
+    expect(retained?.entries).toHaveLength(financial.length + 1);
+    expect(generation).toBeNull();
+    expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+    expect(getStorageHealth().status).toBe('healthy');
+  });
+
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
     const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
