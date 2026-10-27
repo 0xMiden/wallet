@@ -158,8 +158,8 @@ const mockSettingsUpdated = jest.fn();
 const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
-let mockStoreState = {
-  vault: mockVault,
+let mockStoreState: { inited: boolean; status: WalletStatus; vault: typeof mockVault | null } = {
+  vault: null,
   inited: true,
   status: WalletStatus.Ready,
   accounts: [],
@@ -168,6 +168,7 @@ let mockStoreState = {
   settings: null,
   ownMnemonic: null
 };
+const mockGetStoreState = jest.fn(() => mockStoreState);
 
 // The realm keystore (#878): init installs the signer; lock retires the vault, which uninstalls its sink.
 // The store's real `locked` drops the vault and the Ready status, so an action that
@@ -234,7 +235,7 @@ const mockUnlocked = jest.fn();
 
 jest.mock('./store', () => ({
   store: {
-    getState: jest.fn(() => mockStoreState)
+    getState: mockGetStoreState
   },
   toFront: jest.fn(state => state),
   inited: jest.fn((...args: any[]) => mockInited(...args)),
@@ -352,7 +353,7 @@ describe('actions', () => {
       if (callbacks.getKey === mockRealmGetKey) mockRealmGetKey = null;
     });
     mockStoreState = {
-      vault: mockVault,
+      vault: null,
       inited: true,
       status: WalletStatus.Ready,
       accounts: [],
@@ -2877,6 +2878,7 @@ describe('Task5 recovery file action ownership', () => {
   }>('lib/miden/back/vault');
 
   beforeEach(async () => {
+    mockGetStoreState.mockImplementation(() => mockStoreState);
     module.Vault.exportRecoveryData.mockReset();
     module.Vault.importRecoveryData.mockReset();
     mockStoreState = { ...mockStoreState, inited: true, status: WalletStatus.Ready, vault: mockVault };
