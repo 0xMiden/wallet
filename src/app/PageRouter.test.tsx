@@ -998,3 +998,25 @@ describe('Task5 availability', () => {
 jest.mock('./StorageRecoveryPage', () => ({
   StorageRecoveryPage: () => <div data-testid="storage-recovery-page" />
 }));
+
+describe('Task5 availability recovery navigation', () => {
+  it.each(['/developer-settings', '/settings/network-endpoints'])(
+    'keeps the existing authenticated network route %s available without a wallet page layer',
+    pathname => {
+      const storageAvailability: StorageHealth = {
+        status: 'unavailable',
+        epoch: 9,
+        reason: 'continuity',
+        backend: 'sdk',
+        operation: 'open',
+        time: 1000
+      };
+      const view = renderAt(pathname, ready);
+      mockMiden = { ...mockMiden, storageAvailability, state: { ...mockMiden.state, storageAvailability } };
+      view.rerender(<PageRouter />);
+      expect(screen.getByTestId('developer-settings')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+      expect(view.container.querySelectorAll('[data-page-layer]')).toHaveLength(0);
+    }
+  );
+});
