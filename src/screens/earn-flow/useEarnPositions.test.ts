@@ -5,7 +5,7 @@ import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import { fetchEarnPositions, getEarnDepositEvmAddresses, positionsBudgetDelayMs } from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -58,6 +58,7 @@ jest.mock('lib/epoch', () => {
   const pools = jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read');
   return {
     carryForward: positions.carryForward,
+    positionsBudgetDelayMs: jest.fn(() => 0),
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
@@ -949,6 +950,7 @@ describe('useEarnPositions', () => {
 
       beforeEach(() => {
         jest.useFakeTimers();
+        jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
         jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       });
 
@@ -970,8 +972,14 @@ describe('useEarnPositions', () => {
 
       it('keeps two-owner polling and a page return inside ten requests per minute', async () => {
         const starts: number[] = [];
+        let budget!: typeof import('lib/epoch/positions');
+        await jest.isolateModulesAsync(async () => {
+          budget = await import('lib/epoch/positions');
+        });
+        jest.mocked(positionsBudgetDelayMs).mockImplementation(budget.positionsBudgetDelayMs);
         jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue(['0x1111111111111111111111111111111111111111']);
         jest.mocked(fetchEarnPositions).mockImplementation(async args => {
+          budget.notePositionsRequests(args?.owners?.length ?? 1);
           starts.push(...(args?.owners ?? []).map(() => Date.now()));
           return liveResult;
         });

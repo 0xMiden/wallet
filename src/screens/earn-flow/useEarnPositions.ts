@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import {
+  carryForward,
+  type EarnPositionsResult,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses,
+  positionsBudgetDelayMs
+} from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
@@ -241,12 +247,18 @@ export function useEarnPositions(): {
     onScreen && configured ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
-      const startedAt = Date.now();
-      reads.at = startedAt;
-      reads.rearms.forEach(rearm => rearm());
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
+      const count = owners.length > 10 ? 1 : owners.length;
+      while (count > 0) {
+        const delay = positionsBudgetDelayMs(count);
+        if (delay === 0) break;
+        await new Promise<void>(resolve => setTimeout(resolve, delay));
+      }
+      const startedAt = Date.now();
+      reads.at = startedAt;
+      reads.rearms.forEach(rearm => rearm());
       const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
       // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
       // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the

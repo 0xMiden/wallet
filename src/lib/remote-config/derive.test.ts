@@ -1,5 +1,4 @@
-import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, getAddress, http, keccak256, toBytes } from 'viem';
+import { getAddress, keccak256, toBytes } from 'viem';
 
 import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import {
@@ -24,16 +23,14 @@ import {
   type DerivedBridgeConfig,
   type DerivedChainConfig,
   type DeriveDeps,
-  deriveBridgeConfig,
-  type EvmReads,
-  NotAFaucetError,
-  NotDeployedError,
-  readMidenFaucetMetadata
+  type EvmReads
 } from './derive';
 import { parseStoredDerived } from './derived-snapshot';
 import type { BridgeConfig } from './schema';
 import { parseSwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
+let { deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } =
+  jest.requireActual<typeof import('./derive')>('./derive');
 
 const mockGetAccountDetails = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -268,7 +265,9 @@ const HEALTHY: DerivedBridgeConfig = {
 
 const SKIPPED = { state: 'skipped' };
 
-beforeEach(() => {
+beforeEach(async () => {
+  jest.resetModules();
+  ({ deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } = await import('./derive'));
   jest.clearAllMocks();
   mockGetAccountDetails.mockReset();
   mockFromAccountStorage.mockReset();
@@ -1137,7 +1136,7 @@ describe('deriveBridgeConfig default I/O', () => {
       symbol: 'USDC',
       decimals: 6
     });
-    expect(Endpoint).toHaveBeenCalledWith(RPC);
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(RPC);
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');
   });
@@ -1148,7 +1147,9 @@ describe('deriveBridgeConfig default I/O', () => {
     mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
     const derived = await deriveBridgeConfig(faucetOnly);
     expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 6 } });
-    expect(Endpoint).toHaveBeenCalledWith('https://rpc.effective.example');
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(
+      'https://rpc.effective.example'
+    );
     expect(mockGetAccountDetails).toHaveBeenCalledWith({ id: '0x537c15a622074e91188aa894456c52' });
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     expect(derived.derivedAt).toEqual(expect.any(Number));
@@ -1214,8 +1215,11 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     };
     const derived = await deriveBridgeConfig(evmOnly);
-    expect(http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, { timeout: 10_000, retryCount: 1 });
-    expect(createPublicClient).toHaveBeenCalledTimes(1);
+    expect(jest.requireMock('viem').http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, {
+      timeout: 10_000,
+      retryCount: 1
+    });
+    expect(jest.requireMock('viem').createPublicClient).toHaveBeenCalledTimes(1);
     expect(derived.chains[SEPOLIA]?.agglayer).toMatchObject({
       l1BridgeCode: { state: 'ok', value: true },
       evmNetworkId: { state: 'ok', value: 0 }
@@ -1242,7 +1246,7 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     });
     expect(derived.chains[999999999]?.agglayer.l1BridgeCode).toEqual(SKIPPED);
-    expect(createPublicClient).not.toHaveBeenCalled();
+    expect(jest.requireMock('viem').createPublicClient).not.toHaveBeenCalled();
   });
 
   it('fetches the health routes with the global fetch', async () => {

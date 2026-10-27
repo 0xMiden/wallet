@@ -97,7 +97,7 @@ jest.mock('./e2e-overrides', () => ({ getE2eOverrides: () => mockOverrides }));
 
 const NOW = 1_800_000_000_000;
 const CACHE = 'bridge_config_v1:testnet';
-const DERIVED = 'bridge_config_derived_v1:testnet';
+const DERIVED = 'bridge_config_derived_v2:testnet';
 
 const config = (version: number, network = 'testnet'): BridgeConfig => ({
   network,
@@ -157,7 +157,7 @@ const seed = (
   }: { fetchedAt?: number; derivedAt?: number; network?: string } = {}
 ) => {
   const entry = storeEntry(network, version, fetchedAt);
-  mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(entry.config, derivedAt));
+  mockStorage.set(`bridge_config_derived_v2:${network}`, derivedFor(entry.config, derivedAt));
 };
 const serve = (version: number) => mockFetch.mockImplementation(async network => storeEntry(network, version));
 const failFetch = (message = 'HTTP 503') => mockFetch.mockRejectedValue(new Error(message));
@@ -1294,7 +1294,7 @@ describe('the Guardian operators', () => {
   const seedGuardians = (version: number, guardians: GuardianConfig[] | undefined, network = 'testnet') => {
     const document = { ...config(version, network), ...(guardians === undefined ? {} : { guardians }) };
     mockStorage.set(`bridge_config_v1:${network}`, { config: document, fetchedAt: NOW });
-    mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(document, NOW));
+    mockStorage.set(`bridge_config_derived_v2:${network}`, derivedFor(document, NOW));
   };
   const ids = (network = 'testnet') => getNetworkGuardians(network).map(option => option.id);
 

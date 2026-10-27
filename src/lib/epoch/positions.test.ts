@@ -1,15 +1,11 @@
 import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 
-import { readEarnVaults } from './pools-read';
-import {
-  carryForward,
-  type EarnPosition,
-  type EarnPositionsResult,
-  fetchEarnPositions,
-  getEarnDepositEvmAddresses
-} from './positions';
+import { carryForward, type EarnPosition, type EarnPositionsResult, getEarnDepositEvmAddresses } from './positions';
 import { TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
 import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
+
+let readEarnVaults: typeof import('./pools-read').readEarnVaults;
+let fetchEarnPositions: typeof import('./positions').fetchEarnPositions;
 
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
@@ -24,7 +20,11 @@ const AAVE_LISTING = listingFor(
   'aave-v3-sepolia-usdc',
   'Aave V3 USDC'
 );
-beforeEach(() => {
+beforeEach(async () => {
+  await jest.isolateModulesAsync(async () => {
+    ({ fetchEarnPositions } = await import('./positions'));
+    ({ readEarnVaults } = await import('./pools-read'));
+  });
   jest.mocked(getEarnVaults).mockReturnValue([AAVE_LISTING, TEST_EARN_VAULT]);
 });
 
