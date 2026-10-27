@@ -1,0 +1,44 @@
+{
+  "source": "bf02102a03a13c60f2a4b76c5f298a018bdc9f20",
+  "source_tree": "c42aa1b59206e05483c83ff9f1eb2c7f4400b654",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "global-material-capacity-predicate",
+      "path": "src/lib/miden/recovery/validation.ts",
+      "before": "    entries.reduce((count, item) => count + (item.kind === 'note' ? recoveryNoteMaterials(item).length : 1), 0) > 256 ||",
+      "after": "    entries.reduce((count, item) => count + (item.kind === 'note' ? recoveryNoteMaterials(item).length : 1), 0) > 257 ||",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ refuses\\ a\\ distinct\\ canonical\\ export\\ at\\ global\\ material\\ capacity\\ without\\ losing\\ the\\ primary$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 refuses a distinct canonical export at global material capacity without losing the primary",
+      "prediction": "Mutate the actual aggregate schema predicate. Existing fixture has254 top-level entries/256materials, so its next new canonical material reaches257 while all other unchanged account/top-level/candidate/byte bounds remain below limits. Refusal assertion must fail.",
+      "expected_functional_assertion": "expect(vault.reconcileStorageRecovery()).rejects.toThrow()",
+      "source_file_sha256": "f06fcf53e3cd7677b37b717bd2446e1c14795f6e5c1f71b340f9ecdee344f3e5"
+    }
+  ],
+  "baseline_evidence": {
+    "run": 40463223373,
+    "passed": 1091,
+    "groups": [
+      115,
+      353,
+      254,
+      369
+    ],
+    "suites": 14,
+    "failed": 0,
+    "pending": 0,
+    "runtime": 0,
+    "types": "pass with exact fd SDK",
+    "vault_results_sha256": "a0b681c8633e50197e66289789847032acd92764e247bb874f6e98eaa799bb93",
+    "scope": "Every mutation also establishes its own exact one-test passing baseline"
+  },
+  "scope_limits": [
+    "Focused actual aggregate-material predicate only; no local execution.",
+    "Original run40465316621 remains7kills/1survivor because another schema guard blocked its different constant mutation.",
+    "One exact passing baseline, intended ordinary assertion kill, runtime0 and source restoration required."
+  ]
+}
