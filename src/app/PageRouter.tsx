@@ -533,6 +533,8 @@ const PageRouter: FC = () => {
   if (availability?.status !== 'healthy') {
     if (availability?.status !== 'unavailable') return <RootSuspenseFallback />;
     const lifecycleRoute =
+      pathname === '/developer-settings' ||
+      pathname === '/settings/network-endpoints' ||
       pathname === '/reset-wallet' ||
       pathname === '/reset-required' ||
       pathname === '/forgot-password' ||

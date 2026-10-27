@@ -98,6 +98,7 @@ export const useRetireLockoutOnReady = (ready: boolean) => {
 };
 
 interface UnlockProps {
+  onStorageRecovery?: () => void;
   openForgotPasswordInFullPage?: boolean;
 }
 

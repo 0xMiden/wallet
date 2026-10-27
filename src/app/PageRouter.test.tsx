@@ -185,7 +185,15 @@ jest.mock('app/pages/Unlock', () => {
   const R = require('react');
   return {
     __esModule: true,
-    default: () => <div data-testid="unlock" />,
+    default: ({ onStorageRecovery }: { onStorageRecovery?: () => void }) => (
+      <div data-testid="unlock">
+        {onStorageRecovery && (
+          <button type="button" onClick={onStorageRecovery}>
+            storageRecoveryTitle
+          </button>
+        )}
+      </div>
+    ),
     retireLockoutRecord: () => mockRetireLockoutRecord(),
     // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
     useRetireLockoutOnReady: (ready: boolean) =>
@@ -998,3 +1006,61 @@ describe('Task5 availability', () => {
 jest.mock('./StorageRecoveryPage', () => ({
   StorageRecoveryPage: () => <div data-testid="storage-recovery-page" />
 }));
+
+describe('Task5 availability recovery navigation', () => {
+  it.each(['/developer-settings', '/settings/network-endpoints'])(
+    'keeps the existing authenticated network route %s available without a wallet page layer',
+    pathname => {
+      const storageAvailability: StorageHealth = {
+        status: 'unavailable',
+        epoch: 9,
+        reason: 'continuity',
+        backend: 'sdk',
+        operation: 'open',
+        time: 1000
+      };
+      const view = renderAt(pathname, ready);
+      mockMiden = { ...mockMiden, storageAvailability, state: { ...mockMiden.state, storageAvailability } };
+      view.rerender(<PageRouter />);
+      expect(screen.queryByTestId('developer-settings')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+      expect(view.container.querySelectorAll('[data-page-layer]')).toHaveLength(0);
+    }
+  );
+});
+
+describe('Task5 locked recovery data navigation', () => {
+  const unavailable: StorageHealth = {
+    status: 'unavailable',
+    epoch: 19,
+    reason: 'journal',
+    backend: 'wallet',
+    operation: 'query',
+    time: 1
+  };
+
+  it('opens explicit storage recovery while locked without a healthy transition', () => {
+    const view = renderAt('/storage-recovery', { ...ready, locked: true });
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability: unavailable,
+      state: { ...mockMiden.state, storageAvailability: unavailable }
+    };
+    view.rerender(<PageRouter />);
+    expect(screen.queryByTestId('storage-recovery-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('unlock')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('keeps the ordinary locked screen with an explicit recovery entry', () => {
+    const view = renderAt('/', { ...ready, locked: true });
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability: unavailable,
+      state: { ...mockMiden.state, storageAvailability: unavailable }
+    };
+    view.rerender(<PageRouter />);
+    expect(screen.queryByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'storageRecoveryTitle' })).toBeInTheDocument();
+  });
+});
