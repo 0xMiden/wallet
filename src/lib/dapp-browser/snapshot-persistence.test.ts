@@ -161,8 +161,10 @@ describe('readSnapshotFromDisk', () => {
   });
 
   it('returns null when the underlying filesystem read returns a non-string (web fallback)', async () => {
+    fsStore[`${DIR}/blob.txt`] = { data: DATA_URL };
     mockReadFile.mockResolvedValueOnce({ data: new Uint8Array([1, 2, 3]) as unknown as string });
     expect(await readSnapshotFromDisk('blob')).toBeNull();
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
   });
 });
 
