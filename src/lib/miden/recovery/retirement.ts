@@ -18,6 +18,22 @@ export interface RecoveryRetirementContext {
   assertCurrent: () => void;
   retain: (entries: RecoveryEntry[]) => Promise<void>;
 }
+
+export function selectRecoveryNoteFamilies(entries: readonly RecoveryEntry[]): RecoveryNoteEntry[] {
+  return entries
+    .filter((entry): entry is RecoveryNoteEntry => entry.kind === 'note')
+    .filter(
+      note =>
+        !entries.some(
+          entry =>
+            entry.kind === 'transaction' &&
+            !entry.resolved &&
+            (note.accountId === undefined || entry.accountId === note.accountId)
+        )
+    )
+    .sort((a, b) => (a.scan?.nextBlock ?? 0) - (b.scan?.nextBlock ?? 0))
+    .slice(0, 4);
+}
 function canRetireTransaction(entry: RecoveryTransactionEntry, entries: RecoveryEntry[]): boolean {
   const row = entry.row;
   if (
@@ -94,19 +110,7 @@ export async function retireRecoveryNotes(context: RecoveryRetirementContext): P
           } else entries.splice(index, 1);
           retired++;
         }
-        const notes = entries
-          .filter((entry): entry is RecoveryNoteEntry => entry.kind === 'note')
-          .filter(
-            note =>
-              !entries.some(
-                entry =>
-                  entry.kind === 'transaction' &&
-                  !entry.resolved &&
-                  (note.accountId === undefined || entry.accountId === note.accountId)
-              )
-          )
-          .sort((a, b) => (a.scan?.nextBlock ?? 0) - (b.scan?.nextBlock ?? 0))
-          .slice(0, 4);
+        const notes = selectRecoveryNoteFamilies(entries);
         for (const note of notes) {
           try {
             check();

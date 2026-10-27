@@ -97,6 +97,7 @@ import {
 import { clearGuardianHistoryCheckpoints } from '../guardian/history-storage';
 import { normalizeHex } from '../guardian/operator-map';
 import { WalletSigner } from '../guardian/signer';
+import type { CanonicalNoteReadback } from '../recovery/canonical-note-readback';
 import { createRecoveryCanonicalReads } from '../recovery/canonical-reads';
 import { decodeRecoveryCapture } from '../recovery/capture';
 import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
@@ -117,9 +118,10 @@ import {
   type NoteAcquisitionSink
 } from '../recovery/note-acquisition';
 import { retainNoteCandidates } from '../recovery/note-candidates';
+import { promoteRecoveryNotePrimaries } from '../recovery/note-primary';
 import { reconcileRecoveryTransactions } from '../recovery/reconcile';
 import { restoreWalletRecoveryGeneration, restoreWalletRecoveryRows } from '../recovery/restore';
-import { retireRecoveryNotes } from '../recovery/retirement';
+import { retireRecoveryNotes, selectRecoveryNoteFamilies } from '../recovery/retirement';
 import { fromSerializable, toSerializable } from '../recovery/serialization';
 import { verifyRetainedTransactionRows } from '../recovery/transaction-continuity';
 import {
@@ -871,11 +873,30 @@ export class Vault {
           if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network) throw new StorageContinuityError();
         };
         check();
-        const journal = new RecoveryJournal(this.vaultKey, getStorageProvider(), async () => {
-          check();
-          await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey);
-          check();
-        });
+        const journal = new RecoveryJournal(
+          this.vaultKey,
+          getStorageProvider(),
+          async () => {
+            check();
+            await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey);
+            check();
+          },
+          error => {
+            try {
+              check();
+            } catch {
+              return;
+            }
+            if (reportStorageFailure(error, { backend: 'independent', operation: 'mutate' })) return;
+            if (
+              error instanceof Error &&
+              ['Recovery journal readback mismatch', 'Recovery journal pointer readback mismatch'].includes(
+                error.message
+              )
+            )
+              markStorageUnavailable('journal', { backend: 'independent', operation: 'validate' });
+          }
+        );
         let snapshot = await journal.read();
         check();
         const floor = await this.readRecoveryContinuity(epoch);
@@ -889,16 +910,20 @@ export class Vault {
         )
           throw new StorageContinuityError();
         const retained = snapshot;
+        let canonicalNotes: CanonicalNoteReadback[] = [];
         await withWasmClientLock(
           async hold => {
             const sdk = await midenClientProxy.readStorageContinuity(
               retained.accounts.map(account => account.accountId),
               false,
-              capability
+              capability,
+              [],
+              selectRecoveryNoteFamilies(retained.entries)
             );
             assertWasmHoldCurrent(hold, 'after recovery reconciliation identity');
             check();
             if (sdk.generation !== retained.scope.sdkGeneration) throw new StorageContinuityError();
+            canonicalNotes = sdk.canonicalNotes ?? [];
           },
           { label: 'storage-reconciliation-identity' }
         );
@@ -909,16 +934,19 @@ export class Vault {
           const marker = validateWalletGeneration(await database.table('metadata').get('generation'));
           check();
           if (marker.generation !== retained.scope.walletGeneration) throw new StorageContinuityError();
+          const retain = async (entries: RecoveryEntry[]) => {
+            check();
+            snapshot = await journal.replaceEntries(snapshot!, entries, check);
+            check();
+          };
+          const promoted = promoteRecoveryNotePrimaries(snapshot!, canonicalNotes);
+          if (promoted !== snapshot!.entries) await retain(promoted);
+          check();
           const reads = await createRecoveryCanonicalReads();
           try {
             check();
-            const retain = async (entries: RecoveryEntry[]) => {
-              check();
-              snapshot = await journal.replaceEntries(snapshot!, entries, check);
-              check();
-            };
             const reconciled = await reconcileRecoveryTransactions({
-              snapshot: retained,
+              snapshot: snapshot!,
               database,
               node: reads.node,
               nullifiers: reads,
