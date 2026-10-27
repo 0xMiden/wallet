@@ -1,0 +1,309 @@
+name: Issue1948 exact backend412 split
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  types:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 83ff10b822e8080528d17b676124df55673bc002
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py bind --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py packages --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py inject --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py generate-lock --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py replay --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py identities --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: backend eight named lint
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          cd wallet
+          yarn eslint src/lib/miden/back/vault.ts src/lib/miden/back/vault.test.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/external-import.ts src/lib/miden/recovery/external-import.test.ts src/lib/miden/recovery/external-file.ts src/lib/miden/recovery/external-file.test.ts src/lib/miden/recovery/external-import-lifecycle.test.ts --max-warnings=0 2>&1 | tee ../proof/backend-eight-lint.log
+      - name: checks
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py checks --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py receipt --config controller/.github/ci/issue1948-backend412-split/types-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend412-split-types-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
+  vault182:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 83ff10b822e8080528d17b676124df55673bc002
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py bind --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py packages --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py inject --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py generate-lock --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py replay --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py identities --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: checks
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py checks --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py receipt --config controller/.github/ci/issue1948-backend412-split/vault182-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend412-split-vault182-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
+  vault213:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 83ff10b822e8080528d17b676124df55673bc002
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py bind --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py packages --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py inject --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py generate-lock --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py replay --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py identities --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: checks
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py checks --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py receipt --config controller/.github/ci/issue1948-backend412-split/vault213-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend412-split-vault213-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
+  other17:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 83ff10b822e8080528d17b676124df55673bc002
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py bind --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py packages --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py inject --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py generate-lock --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py replay --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py identities --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: checks
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py checks --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-backend412-split/inject.py receipt --config controller/.github/ci/issue1948-backend412-split/other17-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend412-split-other17-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
