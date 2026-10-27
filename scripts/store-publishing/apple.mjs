@@ -15,6 +15,7 @@ const ACTIVE_REVIEW_STATES = new Set([
   'CANCELING',
   'COMPLETING'
 ]);
+const RECEIVED_REVIEW_STATES = new Set(['WAITING_FOR_REVIEW', 'IN_REVIEW']);
 const linkage = (type, id) => ({ data: { type, id } });
 const pathWithQuery = (path, query) => `${path}?${new URLSearchParams(query)}`;
 
@@ -207,7 +208,7 @@ function requireLinkedBuild(version, build, releaseType = 'MANUAL') {
     throw new Error(`Apple version release policy changed or does not match ${releaseType}`);
 }
 
-async function requireReviewItems(client, review, version, allowEmpty = false) {
+async function requireReviewItems(client, review, version, allowEmpty = false, submitted = false) {
   const items = await list(
     client,
     `/v1/reviewSubmissions/${review.id}/items?include=appStoreVersion&limit=50`,
@@ -221,7 +222,44 @@ async function requireReviewItems(client, review, version, allowEmpty = false) {
   ) {
     throw new Error('Apple review draft does not contain only the requested app version');
   }
+  if (submitted && !['READY_FOR_REVIEW', 'ACCEPTED', 'APPROVED'].includes(items[0].attributes?.state))
+    throw new Error('Apple review item is rejected, removed or has an unknown state');
   return true;
+}
+
+async function reconcileSubmittedReview(client, options, version, build, review, releaseType) {
+  const deadline = Date.now() + 30000;
+  let remainingRequests = 10;
+  const readOnly = {
+    async request(method, path) {
+      const timeoutMs = deadline - Date.now();
+      if (method !== 'GET' || remainingRequests-- <= 0 || timeoutMs <= 0)
+        throw new Error('Apple submission verification budget exhausted');
+      return client.request('GET', path, { timeoutMs });
+    }
+  };
+  await appIdentity(readOnly, options);
+  const received = resource(
+    (await readOnly.request('GET', `/v1/reviewSubmissions/${review.id}?include=app`)).data,
+    'reviewSubmissions'
+  );
+  if (
+    received.id !== review.id ||
+    !RECEIVED_REVIEW_STATES.has(received.attributes?.state) ||
+    (received.attributes.platform !== null && received.attributes.platform !== 'IOS') ||
+    received.relationships?.app?.data?.type !== 'apps' ||
+    received.relationships.app.data.id !== options.appId
+  )
+    throw new Error('Apple has not confirmed receipt of the exact review submission');
+  await requireReviewItems(readOnly, received, version, false, true);
+  const current = await currentVersion(readOnly, options, version);
+  if (!RECEIVED_REVIEW_STATES.has(stateOf(current)))
+    throw new Error('Apple has not confirmed receipt of the exact app version');
+  requireLinkedBuild(current, build, releaseType);
+  const currentBuild = await exactBuild(readOnly, options);
+  if (currentBuild.id !== build.id) throw new Error('Apple submitted build identity changed');
+  if (Date.now() >= deadline) throw new Error('Apple submission verification budget exhausted');
+  return { data: received };
 }
 
 async function existingReview(client, options, version, allowEmpty = false) {
@@ -388,15 +426,29 @@ export async function submit(client, options) {
   requireLinkedBuild(current, build, releaseType);
   const finalReview = await existingReview(client, options, current);
   if (!finalReview || finalReview.id !== review.id) throw new Error('Apple review draft changed before submission');
-  const response = await client.request('PATCH', `/v1/reviewSubmissions/${review.id}`, {
-    body: {
-      data: {
-        type: 'reviewSubmissions',
-        id: review.id,
-        attributes: { submitted: true }
+  let response;
+  let submissionReconciled = false;
+  try {
+    response = await client.request('PATCH', `/v1/reviewSubmissions/${review.id}`, {
+      body: {
+        data: {
+          type: 'reviewSubmissions',
+          id: review.id,
+          attributes: { submitted: true }
+        }
       }
+    });
+  } catch (error) {
+    if (error?.status !== undefined && !(Number.isInteger(error.status) && error.status >= 500 && error.status <= 599))
+      throw error;
+    // A lost acknowledgement never authorizes replaying a mutation.
+    try {
+      response = await reconcileSubmittedReview(client, options, version, build, review, releaseType);
+      submissionReconciled = true;
+    } catch {
+      throw error;
     }
-  });
+  }
   resource(response?.data, 'reviewSubmissions');
   return {
     platform: 'ios',
@@ -405,6 +457,7 @@ export async function submit(client, options) {
     buildNumber: options.buildNumber,
     reviewSubmissionId: review.id,
     submissionRequested: true,
+    ...(submissionReconciled ? { submissionReconciled: true } : {}),
     releaseType,
     autoReleaseAfterApproval: releaseType === 'AFTER_APPROVAL',
     state: response.data.attributes?.state,
