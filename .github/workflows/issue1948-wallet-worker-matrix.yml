@@ -1,0 +1,121 @@
+name: Issue1948 actual normal wallet worker matrix20
+on:
+  push:
+    branches: ['ci/1948-wallet-worker-matrix-*']
+permissions:
+  contents: read
+jobs:
+  factory6:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+      WALLET_MATRIX_BUILD_ROOT: ${{ github.workspace }}/matrix-builds
+      WALLET_MATRIX_RESULT_FILE: ${{ github.workspace }}/proof/results.json
+      WALLET_MATRIX_OUTPUT_DIR: ${{ github.workspace }}/proof/test-results
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: f89e727e5d6368a11fe5b6d97a11ff8541826e60
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: injection-bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py bind --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-bind.log
+      - name: factory-bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py bind 2>&1 | tee proof/stage-factory-bind.log
+      - name: injection-packages
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py packages --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-packages.log
+      - name: injection-inject
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py inject --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-inject.log
+      - name: injection-generate-lock
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py generate-lock --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-generate-lock.log
+      - name: injection-replay
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py replay --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-replay.log
+      - name: injection-identities
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/inject.py identities --config controller/.github/ci/issue1948-wallet-worker-matrix/injection-inputs.json 2>&1 | tee proof/stage-injection-identities.log
+      - name: snapshot
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py snapshot 2>&1 | tee proof/stage-snapshot.log
+      - name: browser-install
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py browser-install 2>&1 | tee proof/stage-browser-install.log
+      - name: build-st
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py build-st 2>&1 | tee proof/stage-build-st.log
+      - name: build-mt
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py build-mt 2>&1 | tee proof/stage-build-mt.log
+      - name: run
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py run 2>&1 | tee proof/stage-run.log
+      - name: Collect focused diagnostic only
+        if: always() && hashFiles('proof/browser-tests.log') != ''
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/diagnostic.py 2>&1 | tee proof/stage-verify.log
+      - name: Preserve source payload lock and emitted assets after any failure
+        if: always() && hashFiles('proof/installed-dist-before.json') != ''
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-wallet-worker-matrix/run.py preserve 2>&1 | tee proof/final-preservation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-wallet-worker-matrix-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
