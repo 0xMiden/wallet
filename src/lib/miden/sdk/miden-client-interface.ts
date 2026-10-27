@@ -1235,21 +1235,7 @@ export class MidenClientInterface {
     try {
       try {
         const noteFile = deserializeNoteFileOrNote(noteBytes);
-        const check = () => {
-          assertStorageHealthy(storageEpoch);
-          assertWasmHoldCurrent(hold, 'importNoteBytes', 'independent retention');
-          if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
-        };
-        check();
-        const assertRetained = await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
-        // String(...) tolerates both return shapes across the 0.15 alpha line:
-        // alpha.4 resolves a NoteId object, current `next` resolves the hex
-        // string directly.
-        try {
-          return String(await (assertRetained(), this.client.notes.import(noteFile)));
-        } finally {
-          assertRetained();
-        }
+        return await this.importAcquiredNoteFile(noteFile, hold, storageEpoch);
       } catch (error) {
         // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
         // note's failure and go on, so the lock may never see it.
@@ -1259,6 +1245,21 @@ export class MidenClientInterface {
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
       throw error;
+    }
+  }
+
+  private async importAcquiredNoteFile(noteFile: NoteFile, hold: WasmLockHold, storageEpoch: number): Promise<string> {
+    const check = () => {
+      assertStorageHealthy(storageEpoch);
+      assertWasmHoldCurrent(hold, 'note acquisition', 'independent retention');
+      if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
+    };
+    check();
+    const assertRetained = await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
+    try {
+      return String(await (assertRetained(), this.client.notes.import(noteFile)));
+    } finally {
+      assertRetained();
     }
   }
 
@@ -1363,7 +1364,7 @@ export class MidenClientInterface {
           const inputNote = inclusionProof
             ? InputNote.authenticated(note, inclusionProof)
             : InputNote.unauthenticated(note);
-          await (assertStorageHealthy(storageEpoch), this.client.notes.import(NoteFile.fromInputNote(inputNote)));
+          await this.importAcquiredNoteFile(NoteFile.fromInputNote(inputNote), hold, storageEpoch);
           imported++;
         } catch (error) {
           rethrowClientFault(error, hold);
