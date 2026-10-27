@@ -5584,8 +5584,13 @@ describe('Vault storage continuity', () => {
   it('Task4C3G3 refuses a distinct canonical export at global material capacity without losing the primary', async () => {
     const fixture = await canonicalAcquisition({ distinctExport: true });
     try {
+      const initial = await fixture.savedFamily();
+      const countMaterials = (snapshot: typeof initial.snapshot) =>
+        journalNoteBodies(snapshot).length + snapshot.entries.filter(entry => entry.kind !== 'note').length;
+      const remaining = 256 - countMaterials(initial.snapshot);
+      expect(remaining).toBeGreaterThan(0);
       await vault.retainRecoveryEntries(
-        Array.from({ length: 253 }, (_, index) => ({
+        Array.from({ length: remaining }, (_, index) => ({
           kind: 'note',
           id: `g-capacity-${index}`,
           noteFile: new Uint8Array([97, index]),
@@ -5593,7 +5598,10 @@ describe('Vault storage continuity', () => {
         }))
       );
       const before = await fixture.savedFamily();
-      expect(journalNoteBodies(before.snapshot)).toHaveLength(256);
+      expect(countMaterials(before.snapshot)).toBe(256);
+      expect(before.snapshot.entries.filter(entry => entry.kind !== 'note')).toEqual(
+        initial.snapshot.entries.filter(entry => entry.kind !== 'note')
+      );
       await expect(vault.reconcileStorageRecovery()).rejects.toThrow();
       expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
       expect(getStorageHealth().status).toBe('healthy');
