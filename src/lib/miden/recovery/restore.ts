@@ -75,6 +75,17 @@ export async function restoreWalletRecoveryRows(
           )
             throw new StorageContinuityError();
           await target.table('recoveryDebits').put(resolveRecoveryDebit(entry));
+        } else if (entry.kind === 'receipt') {
+          const current = await target.table<ITransaction>('transactions').get(entry.id);
+          if (current && !sameWalletAccountId(current.accountId, entry.accountId)) throw new StorageContinuityError();
+          if (current && JSON.stringify(toSerializable(current.extraInputs)) !== JSON.stringify(toSerializable(entry.row.extraInputs)))
+            throw new StorageContinuityError();
+          await target.table('transactions').put({
+            ...(current ?? entry.row),
+            restoredFromBackup: true,
+            restoredFromJournal: (current?.restoredFromBackup && !current.restoredFromJournal) ||
+              (entry.row.restoredFromBackup && !entry.row.restoredFromJournal) ? undefined : true
+          });
         } else if (entry.kind === 'transaction') {
           if (!entry.row) throw new Error('Recovery transaction details unavailable');
           const current: ITransaction | undefined = await target.table<ITransaction>('transactions').get(entry.id);

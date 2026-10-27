@@ -22,6 +22,8 @@ import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-autho
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 import * as CanonicalReads from '../recovery/canonical-reads';
+import { checkpointProviderReceipt } from '../recovery/receipt-writer';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { StorageContinuityError } from '../recovery/continuity';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -5251,9 +5253,91 @@ describe('Vault storage continuity', () => {
       });
   });
   afterEach(() => {
+    installProviderReceiptBackend(undefined);
     readSnapshot.mockRestore();
     initializeGeneration.mockRestore();
   });
+
+  it.each(['held source callback', 'retired vault'])(
+    'Task4C2 actual receipt route handles %s without reentering SDK continuity',
+    async scenario => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      readSnapshot.mockClear();
+      const row: ITransaction = {
+        id: 'provider-receipt', accountId: 'retained', type: 'bridged-receive', status: ITransactionStatus.Completed,
+        initiatedAt: 1, displayIcon: 'RECEIVE', extraInputs: {
+          provider: 'agglayer', phase: 'delivering', sourceAddress: '0x1111111111111111111111111111111111111111',
+          sourceAmount: '1', sourceSymbol: 'ETH', evmTxHash: `0x${'1'.repeat(64)}`,
+          agglayerRoute: { chainId: 1, contractAddress: '0x1111111111111111111111111111111111111111', midenBridgeId: 'bridge', indexerUrl: 'https://indexer.example', rollupId: 1, evmNetworkId: 0 }
+        }
+      };
+      await Repo.transactions.put(row);
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      const { withWasmClientLock } = await import('../sdk/miden-client');
+      const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+      const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+      if (scenario === 'retired vault') vault.retire();
+      const result = getAccountsWriteQueue().add(() => withWasmClientLock(async () => {
+        await checkpointProviderReceipt(row);
+      }));
+      if (scenario === 'retired vault') {
+        await expect(result).rejects.toMatchObject({ reason: 'locked' });
+        expect((await vault.readRecoveryJournal())?.entries.some(entry => entry.id === row.id)).toBe(false);
+      } else {
+        await expect(result).resolves.toBeUndefined();
+        const retained = await vault.readRecoveryJournal();
+        expect(retained?.entries.find(entry => entry.id === row.id)).toMatchObject({ kind: 'receipt', accountId: 'retained', row: { status: ITransactionStatus.Completed, extraInputs: { evmTxHash: `0x${'1'.repeat(64)}` } } });
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+      }
+      expect(readSnapshot).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['receipt after critical', 'critical after receipt'])(
+    'Task4C2 lifecycle preserves critical bytes and provider receipt for %s',
+    async ordering => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const row: ITransaction = {
+        id: 'receipt-critical-race', accountId: 'retained', type: 'bridged-send',
+        status: ITransactionStatus.Completed, initiatedAt: 1, displayIcon: 'SEND', mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', intentNonce: '22', evmTxHash: 'hash-a', claimStatus: 'pending' }
+      };
+      await Repo.transactions.put(row);
+      await vault.retainTransactionRecovery(row.id, { requestBytes: new Uint8Array([1]), notes: [] });
+      const first = (await vault.readRecoveryJournal())?.entries.find(entry => entry.kind === 'transaction' && entry.id === row.id);
+      if (first?.kind !== 'transaction') throw new Error('Missing critical fixture');
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      const retain = vault.retainRecoveryEntries.bind(vault);
+      const latestEvidence = { transactionId: 'latest-chain-id', finalCommitment: 'latest-state' };
+      if (ordering === 'receipt after critical') {
+        let interleaved = false;
+        const spy = jest.spyOn(vault, 'retainRecoveryEntries').mockImplementation(async (entries, retries) => {
+          if (!interleaved) {
+            interleaved = true;
+            await vault.retainTransactionRecovery(row.id, { requestBytes: new Uint8Array([9]), notes: [] }, latestEvidence);
+          }
+          await retain(entries, retries);
+        });
+        const current = await Repo.transactions.get(row.id);
+        if (!current) throw new Error('Missing receipt fixture');
+        await checkpointProviderReceipt(current).catch(() => {});
+        spy.mockRestore();
+      } else {
+        await Repo.transactions.update(row.id, { extraInputs: { ...row.extraInputs, evmTxHash: 'hash-b' } });
+        const current = await Repo.transactions.get(row.id);
+        if (!current) throw new Error('Missing receipt fixture');
+        await checkpointProviderReceipt(current);
+        await vault.retainRecoveryEntries([{ ...first, requestBytes: new Uint8Array([9]), evidence: latestEvidence }]);
+      }
+      const entries = (await vault.readRecoveryJournal())?.entries;
+      const critical = entries?.find(entry => entry.kind === 'transaction' && entry.id === row.id);
+      expect(critical?.kind === 'transaction' && Array.from(critical.requestBytes)).toEqual([9]);
+      expect(critical?.kind === 'transaction' && critical.evidence.transactionId).toBe('latest-chain-id');
+      const receipt = entries?.find(entry => entry.kind === 'receipt' && entry.id === row.id);
+      expect(receipt?.kind === 'receipt' && receipt.row.extraInputs?.evmTxHash).toBe(ordering === 'receipt after critical' ? 'hash-a' : 'hash-b');
+      expect(getStorageHealth().status).toBe('healthy');
+    }
+  );
 
   it('establishes an encrypted first checkpoint after coherent retained account reads', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
