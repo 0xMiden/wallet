@@ -97,3 +97,112 @@ jobs:
           .github/workflows/ui-smoothness.yml
           .github/workflows/feature-eligibility.yml
           .github/workflows/probe-feature-eligibility.yml
+
+  sidebar-startup-proof:
+    name: Sidebar startup focused and mutation proof
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Verify exact candidate and predicted mutations
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+
+          candidate = "ee69b4f53e0ca4c50eb53c5c40c4fd8f482c0cfb"
+          out = Path("sidebar-startup-proof")
+          out.mkdir(exist_ok=True)
+          suites = ["src/lib/miden/back/actions.test.ts", "src/lib/store/hooks/useIntercomSync.test.ts", "src/lib/miden/front/provider-startup-sync.test.tsx"]
+          provider = "src/lib/miden/front/provider.tsx"
+          hook = "src/lib/store/hooks/useIntercomSync.ts"
+          actions = "src/lib/miden/back/actions.ts"
+          formats = suites + [provider, hook, actions, "src/lib/shared/types.ts", "src/app/PageRouter.tsx", "src/app/a11y/RootSuspenseFallback.tsx", "playwright/toolbar/action-surfaces.spec.ts"]
+          originals = {name: Path(name).read_bytes() for name in formats}
+          for name, content in originals.items():
+              assert subprocess.check_output(["git", "show", f"{candidate}:{name}"]) == content, name
+          report = {"candidate": candidate, "source_hashes": {name: hashlib.sha256(data).hexdigest() for name, data in originals.items()}, "mutations": []}
+          def save():
+              (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+          def command(name, args, timeout=180):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+              (out / f"{name}.log").write_text(result.stdout)
+              return result.returncode, re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+          def restore():
+              for name, content in originals.items():
+                  Path(name).write_bytes(content)
+          def tests(name, files, expected_failure=False, needle=None, minimum=1):
+              status, output = command(name, ["yarn", "jest", *files, "--maxWorkers=2"], 180)
+              count = re.search(r"Tests:.*?(\d+) total", output)
+              assert count and int(count.group(1)) >= minimum, f"{name}: selected tests missing"
+              if expected_failure:
+                  failed = re.search(r"Tests:\s+(\d+) failed", output)
+                  assert status == 1 and failed and int(failed.group(1)) > 0 and needle in output, f"{name}: intended functional failure missing"
+              else:
+                  assert status == 0, f"{name}: baseline failed"
+              return {"name": name, "exit_code": status, "total": int(count.group(1)), "functional_failure": expected_failure}
+          try:
+              status, _ = command("format-check", ["yarn", "prettier", *formats, "--check"])
+              if status:
+                  command("format-output", ["yarn", "prettier", *formats, "--write"])
+                  (out / "formatter.patch").write_bytes(subprocess.check_output(["git", "diff", "--", *formats]))
+                  restore()
+                  raise AssertionError("Candidate format check failed; exact formatter patch retained")
+              status, _ = command("lint", ["yarn", "eslint", *formats])
+              assert status == 0, "Scoped lint failed"
+              status, _ = command("types", ["yarn", "tsc", "--noEmit", "-p", "."], 240)
+              assert status == 0, "Type check failed"
+              report["baseline"] = tests("baseline", suites, minimum=199)
+              mutations = [
+                ("serial-sync", provider, "const canStartSync = ready || (isExtension() && overridesReady);", "const canStartSync = ready || (isExtension() && overridesReady && ready);", [suites[2]], "hydrates the live extension backend"),
+                ("premature-ui", provider, "{ready && (", "{(ready || overridesReady) && (", [suites[2]], "hydrates the live extension backend"),
+                ("missed-notification", hook, "if (msg?.type === WalletMessageType.StateUpdated) {", "if (false && msg?.type === WalletMessageType.StateUpdated) {", [suites[2]], "uses a lock notification"),
+                ("trust-pending-idle", hook, "if (res.state.backendInitialized === false) {", "if (false && res.state.backendInitialized === false) {", [suites[2]], "temporary empty backend snapshot"),
+                ("non-atomic-state", actions, "return { ...toFront(state), backendInitialized: true };", "return { ...toFront(state), backendInitialized: store.getState().inited };", [suites[0]], "returns initialized status"),
+                ("sync-before-overrides", provider, "await loadEndpointOverrides();\n      if (!cancelled) setOverridesReady(true);", "if (!cancelled) setOverridesReady(true);\n      await loadEndpointOverrides();", [suites[2]], "waits for endpoint overrides")
+              ]
+              for name, file, before, after, selected, needle in mutations:
+                  try:
+                      source = Path(file).read_text()
+                      assert source.count(before) == 1, f"{name}: mutation site drifted"
+                      Path(file).write_text(source.replace(before, after))
+                      result = tests(name, selected, True, needle)
+                      result["prediction"] = needle
+                      report["mutations"].append(result)
+                      save()
+                  finally:
+                      restore()
+              report["restored_baseline"] = tests("restored-baseline", suites, minimum=199)
+              for name, content in originals.items():
+                  assert Path(name).read_bytes() == content, f"Source restoration failed: {name}"
+              subprocess.run(["git", "diff", "--exit-code", "--", *formats], check=True)
+              report["source_restored"] = True
+              report["status"] = "success"
+          except Exception as error:
+              report["status"] = "failure"
+              report["error"] = str(error)
+              raise
+          finally:
+              restore()
+              save()
+          PYTHON
+      - name: Retain bounded proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidebar-startup-proof-ee69b
+          path: sidebar-startup-proof/
+          retention-days: 7
+          if-no-files-found: error
