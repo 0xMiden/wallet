@@ -2,6 +2,7 @@ import { NoteAcquisitionRetentionError, type NoteAcquisitionOptions } from '@mid
 
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, type WasmLockHold } from './miden-client';
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from '../recovery/journal';
+import { acknowledgeRetainedNativeNote } from '../recovery/native-note-receipt';
 import { captureNoteAcquisitionRetainer } from '../recovery/note-acquisition';
 import type { RecoveryNoteEntry } from '../recovery/types';
 import { assertStorageHealthy, getStorageHealth, reportStorageFailure } from '../storage-health';
@@ -111,7 +112,11 @@ function copyCandidate(
   ];
 }
 
-export function nativeNoteAcquisition(network: string, ownsClient: () => boolean): NoteAcquisitionOptions {
+export function nativeNoteAcquisition(
+  network: string,
+  ownsClient: () => boolean,
+  getClient: () => object | undefined
+): NoteAcquisitionOptions {
   const batchesByHold = new WeakMap<WasmLockHold, Map<string, NativeBatch>>();
   return {
     noteAcquisitionLimits: {
@@ -133,7 +138,7 @@ export function nativeNoteAcquisition(network: string, ownsClient: () => boolean
         assertOwner();
         assertStorageHealthy(epoch);
       };
-      check();
+      assertOwner();
       let claimedBatch: NativeBatch | undefined;
       const notes = copyCandidate(candidate, (operationId, index, count, bytes) => {
         let batches = batchesByHold.get(hold);
@@ -158,16 +163,25 @@ export function nativeNoteAcquisition(network: string, ownsClient: () => boolean
         batch.pending = true;
         claimedBatch = batch;
       });
+      const acknowledgeBatch = () => {
+        if (claimedBatch) {
+          claimedBatch.nextIndex += 1;
+          claimedBatch.pending = false;
+        }
+      };
+      if (acknowledgeRetainedNativeNote(getClient(), hold, candidate)) {
+        assertOwner();
+        acknowledgeBatch();
+        return;
+      }
+      check();
       let retentionFailure: unknown;
       try {
         await retain(notes, network, check, error => {
           retentionFailure = error;
         });
         check();
-        if (claimedBatch) {
-          claimedBatch.nextIndex += 1;
-          claimedBatch.pending = false;
-        }
+        acknowledgeBatch();
       } catch (error) {
         assertOwner();
         const health = getStorageHealth();

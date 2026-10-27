@@ -30,7 +30,8 @@ export interface RecoverySdkWriter extends RecoverySdkReader {
 export async function restoreSdkRecovery(
   client: RecoverySdkWriter,
   command: SdkRecoveryCommand,
-  assertCurrent: () => void
+  assertCurrent: () => void,
+  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>
 ): Promise<void> {
   assertCurrent();
   if (command.kind === 'account') {
@@ -66,7 +67,8 @@ export async function restoreSdkRecovery(
         }
       }
       assertCurrent();
-      await client.notes.import(file);
+      if (acquire) await acquire(file, () => client.notes.import(file));
+      else await client.notes.import(file);
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
     } finally {

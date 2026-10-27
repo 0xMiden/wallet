@@ -19,6 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { assertCanonicalNoteRequest } from 'lib/miden/recovery/canonical-note-readback';
+import type { RetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
 import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -1159,7 +1160,8 @@ export function dispatchGuardianPipeline(
 export const midenClientProxy = {
   async restoreStorageRecovery(
     command: import('../recovery/sdk-restore').SdkRecoveryCommand,
-    capability: StorageRecoveryCapability
+    capability: StorageRecoveryCapability,
+    receipt?: RetainedNoteReceipt
   ): Promise<void> {
     assertStorageRecoveryAllowed(capability);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
@@ -1168,8 +1170,11 @@ export const midenClientProxy = {
       const client = await getMidenClientForRecovery(capability);
       assertStorageRecoveryAllowed(capability);
       assertWasmHoldCurrent(hold, 'before inline storage reconstruction');
-      await client.restoreStorageRecovery(command, capability, () =>
-        assertWasmHoldCurrent(hold, 'during inline storage reconstruction')
+      await client.restoreStorageRecovery(
+        command,
+        capability,
+        () => assertWasmHoldCurrent(hold, 'during inline storage reconstruction'),
+        receipt
       );
     } else {
       await dispatchOp(newOpId(), 'restoreStorageRecovery', [toSerializable(command)], 5000, false, capability);

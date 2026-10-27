@@ -110,6 +110,7 @@ import {
 import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
 import { RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
+import { withRetainedNoteReceipt } from '../recovery/native-note-receipt';
 import {
   installNoteAcquisitionSink,
   isNoteAcquisitionSinkInstalled,
@@ -1218,9 +1219,21 @@ export class Vault {
               await step(capability =>
                 withWasmClientLock(
                   async hold => {
-                    await midenClientProxy.restoreStorageRecovery(
-                      { kind: 'note', note, accountId: note.accountId ?? accounts[0]!.publicKey },
-                      capability
+                    const accountId = note.accountId ?? accounts[0]!.publicKey;
+                    await withRetainedNoteReceipt(
+                      snapshot,
+                      note,
+                      accountId,
+                      capability,
+                      () => {
+                        check();
+                        assertStorageRecoveryAllowed(capability);
+                        assertWasmHoldCurrent(hold, 'retained note recovery owner');
+                        if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network)
+                          throw new StorageContinuityError();
+                      },
+                      receipt =>
+                        midenClientProxy.restoreStorageRecovery({ kind: 'note', note, accountId }, capability, receipt)
                     );
                     assertWasmHoldCurrent(hold, 'after retained note reconstruction');
                   },

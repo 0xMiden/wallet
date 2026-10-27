@@ -3935,6 +3935,7 @@ describe('MidenClientInterface', () => {
       fromExpectedNote?: jest.Mock;
     }) {
       jest.dontMock('./miden-client');
+      jest.dontMock('./note-details-commitment');
       const fakeMidenClient = buildFakeMidenClient();
       const importMock = fakeMidenClient.notes.import as jest.Mock;
       // Only `fromExpectedNote` is exposed: `fromNoteDetails` is the

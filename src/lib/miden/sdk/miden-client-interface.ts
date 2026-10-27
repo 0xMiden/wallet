@@ -144,6 +144,7 @@ import {
   reclaimDisabledP2ideTarget
 } from '../helpers';
 import { captureRecoveryNotes } from '../recovery/capture';
+import { withPreparedNativeNoteReceipt, type RetainedNoteReceipt } from '../recovery/native-note-receipt';
 import { initializeSdkGeneration, readSdkRecoverySnapshot } from '../recovery/sdk-snapshot';
 
 export interface GuardianAccountCreationResult {
@@ -724,7 +725,7 @@ export class MidenClientInterface {
           const mockClient = await sdk.MidenClient.createMock({
             seed: options.seed,
             indexedDb,
-            ...nativeNoteAcquisition(network, ownsClient)
+            ...nativeNoteAcquisition(network, ownsClient, () => created)
           });
           created = mockClient;
           assertCreation();
@@ -739,7 +740,7 @@ export class MidenClientInterface {
         const midenClient = await (assertCreation(),
         MidenClient.create({
           indexedDb,
-          ...nativeNoteAcquisition(network, ownsClient),
+          ...nativeNoteAcquisition(network, ownsClient, () => created),
           autoSync: false,
           rpcUrl: getEffectiveRpcUrl(),
           noteTransportUrl: getEffectiveNoteTransportUrl(),
@@ -1715,17 +1716,37 @@ export class MidenClientInterface {
   async restoreStorageRecovery(
     command: import('../recovery/sdk-restore').SdkRecoveryCommand,
     capability: StorageRecoveryCapability,
-    assertLive: AssertLive = noAssertLive
+    assertLive: AssertLive = noAssertLive,
+    receipt?: RetainedNoteReceipt
   ): Promise<void> {
     const check = () => {
       assertStorageRecoveryAllowed(capability);
       assertLive();
+      if (this.isDisposed || this.storageGeneration !== wasmClientGeneration() || this.scope !== cacheScope())
+        throw new Error('SDK recovery owner replaced');
     };
     check();
     try {
       const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
       check();
-      await restoreSdkRecovery(this.client, command, check);
+      await restoreSdkRecovery(
+        this.client,
+        command,
+        check,
+        receipt && command.kind === 'note'
+          ? (file, importNote) =>
+              withPreparedNativeNoteReceipt(
+                this.client,
+                receipt,
+                capability,
+                command.note,
+                command.accountId,
+                file,
+                check,
+                importNote
+              )
+          : undefined
+      );
       check();
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
