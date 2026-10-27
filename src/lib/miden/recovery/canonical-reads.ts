@@ -2,9 +2,12 @@ import { NoteFile, NoteId, RpcClient, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
+import { bindCanonicalNoteFamilies } from './canonical-note-bindings';
+import type { CanonicalNoteReadback } from './canonical-note-readback';
 import type { RecoveryRetirementReads } from './retirement';
 import type { RecoveryNoteEntry } from './types';
 import { accountRefToSdk } from '../sdk/helpers';
+import { normalizedCommitment } from '../sdk/note-details-commitment';
 import { normalizeHex } from '../sdk/submit-evidence';
 import type { AccountRead, NodeReads } from '../transaction/reconcile-reads';
 
@@ -13,7 +16,7 @@ export function retainedNoteIdentity(note: RecoveryNoteEntry): { nullifier: stri
   try {
     const id = file.noteId();
     try {
-      if (!id || normalizeHex(id.toString()) !== normalizeHex(note.id)) return undefined;
+      if (!id || normalizedCommitment(id.toString()) !== normalizedCommitment(note.id)) return undefined;
       const nullifier = file.nullifier();
       if (!nullifier) return undefined;
       const proof = file.inclusionProof();
@@ -32,10 +35,12 @@ export function retainedNoteIdentity(note: RecoveryNoteEntry): { nullifier: stri
   }
 }
 
-export async function createRecoveryCanonicalReads(): Promise<
-  RecoveryRetirementReads & { node: NodeReads; dispose: () => void }
-> {
+export async function createRecoveryCanonicalReads(
+  families: readonly RecoveryNoteEntry[] = [],
+  canonicalNotes: readonly CanonicalNoteReadback[] = []
+): Promise<RecoveryRetirementReads & { node: NodeReads; dispose: () => void }> {
   await ensureSdkWasmReady();
+  const boundIdentity = bindCanonicalNoteFamilies(families, canonicalNotes);
   const rpc = new RpcClient(getRpcEndpoint());
   let pending = 0;
   let disposed = false;
@@ -72,7 +77,15 @@ export async function createRecoveryCanonicalReads(): Promise<
       disposed = true;
       release();
     },
-    identity: note => read(async () => retainedNoteIdentity(note)),
+    identity: (note, family) =>
+      read(async () => {
+        if (family) {
+          const bound = boundIdentity(note, family);
+          if (bound) return bound.identity;
+          if (normalizedCommitment(note.id) !== normalizedCommitment(family.id)) return undefined;
+        }
+        return retainedNoteIdentity(note);
+      }),
     header,
     node: {
       blockCommitment: header,
@@ -121,7 +134,7 @@ export async function createRecoveryCanonicalReads(): Promise<
     },
     scan: (nullifier, block) =>
       read(async () => {
-        const word = Word.fromHex(nullifier);
+        const word = Word.fromHex(`0x${normalizedCommitment(nullifier)}`);
         let prefix: number;
         try {
           prefix = Number(word.toU64s()[3]! >> 48n);

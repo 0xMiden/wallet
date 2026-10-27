@@ -942,7 +942,10 @@ export class Vault {
           const promoted = promoteRecoveryNotePrimaries(snapshot!, canonicalNotes);
           if (promoted !== snapshot!.entries) await retain(promoted);
           check();
-          const reads = await createRecoveryCanonicalReads();
+          const reads = await createRecoveryCanonicalReads(
+            selectRecoveryNoteFamilies(retained.entries),
+            canonicalNotes
+          );
           try {
             check();
             const reconciled = await reconcileRecoveryTransactions({

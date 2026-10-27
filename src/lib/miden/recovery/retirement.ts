@@ -7,7 +7,10 @@ import { validateJournal } from './validation';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 
 export interface RecoveryRetirementReads {
-  identity: (note: RecoveryNoteEntry) => Promise<{ nullifier: string; fromBlock: number } | undefined>;
+  identity: (
+    note: RecoveryNoteEntry,
+    family?: RecoveryNoteEntry
+  ) => Promise<{ nullifier: string; fromBlock: number } | undefined>;
   header: (block: number) => Promise<string | undefined>;
   scan: (nullifier: string, block: number) => Promise<readonly { nullifier: string; block: number }[]>;
 }
@@ -116,7 +119,7 @@ export async function retireRecoveryNotes(context: RecoveryRetirementContext): P
             check();
             let identity: { nullifier: string; fromBlock: number } | undefined;
             for (const material of recoveryNoteMaterials(note)) {
-              const candidate = await context.reads.identity({ ...material, kind: 'note' });
+              const candidate = await context.reads.identity({ ...material, kind: 'note' }, note);
               check();
               if (
                 !candidate ||
