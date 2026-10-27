@@ -238,6 +238,7 @@ export interface IConsumedNote {
  * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
  */
 export interface IUsdcxCctpLeg {
+  executeSubmission?: 'not-started' | 'attempted' | 'known';
   /** Circle's domain of the source chain, the key of its Iris messages. */
   sourceDomain: number;
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
@@ -277,6 +278,7 @@ export interface IAgglayerDelivery {
 }
 
 export interface IBridgedReceiveExtraInputs {
+  sourceSubmission?: 'not-started' | 'attempted' | 'known';
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -1784,6 +1786,7 @@ export class BridgedReceiveTransaction implements ITransaction {
     this.displayMessage = 'Bridging from EVM';
     this.displayIcon = 'RECEIVE';
     this.extraInputs = {
+      sourceSubmission: 'not-started',
       provider,
       sourceAddress,
       sourceAmount,

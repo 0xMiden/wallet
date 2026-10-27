@@ -1,5 +1,7 @@
 import { withRecoveryReadTurn } from './read-turn';
-import type { RecoveryEntry, RecoveryJournalSnapshot, RecoveryNoteEntry } from './types';
+import { validateRecoveryReceipt } from './transaction-record';
+import { resolveRecoveryDebit } from './retry-transition';
+import type { RecoveryEntry, RecoveryJournalSnapshot, RecoveryNoteEntry, RecoveryTransactionEntry } from './types';
 import { validateJournal } from './validation';
 
 export interface RecoveryRetirementReads {
@@ -14,6 +16,25 @@ export interface RecoveryRetirementContext {
   assertCurrent: () => void;
   retain: (entries: RecoveryEntry[]) => Promise<void>;
 }
+function canRetireTransaction(entry: RecoveryTransactionEntry, entries: RecoveryEntry[]): boolean {
+  const row = entry.row;
+  if (!row || entry.resolved?.outcome !== 'landed' || !entry.resolved.transactionId ||
+    row.transactionId !== entry.resolved.transactionId || row.noteType !== 'public' ||
+    !row.inputNoteIds || !row.outputNoteIds || row.heldNoteIds?.length ||
+    row.noteDelivery === 'pending' || row.noteDelivery === 'undelivered' ||
+    (row.restoredFromBackup && !row.restoredFromJournal)) return false;
+  if (row.spentUsd !== undefined || row.spendingLimitAuthorizationId !== undefined) {
+    const debit = entries.find(value => value.kind === 'debit' && value.id === row.id && value.accountId === row.accountId);
+    if (debit?.kind !== 'debit') return false;
+    const charge = resolveRecoveryDebit(debit);
+    if (charge.initiatedAt !== row.initiatedAt || charge.spentUsd !== row.spentUsd ||
+      charge.authorizationId !== row.spendingLimitAuthorizationId) return false;
+  }
+  if (row.type === 'consume') return row.outputNoteIds.length === 0 && Object.values(row.extraInputs ?? {}).every(value => value === undefined);
+  if (row.type === 'send' && !row.extraInputs?.oneClick) return Object.values(row.extraInputs ?? {}).every(value => value === undefined);
+  return row.type === 'bridged-send' || row.type === 'earn-deposit' || (row.type === 'send' && Boolean(row.extraInputs?.oneClick));
+}
+
 export async function retireRecoveryNotes(context: RecoveryRetirementContext): Promise<number> {
   const snapshot = validateJournal(context.snapshot);
   return (
@@ -24,6 +45,21 @@ export async function retireRecoveryNotes(context: RecoveryRetirementContext): P
       async check => {
         let retired = 0;
         const entries = [...snapshot.entries];
+        for (const entry of snapshot.entries) {
+          check();
+          if (entry.kind !== 'transaction' || !canRetireTransaction(entry, entries) || !entry.row) continue;
+          const index = entries.indexOf(entry);
+          if (entry.row.extraInputs?.oneClick || entry.row.type === 'bridged-send' || entry.row.type === 'earn-deposit') {
+            const existing = entries.find(value => value.kind === 'receipt' && value.id === entry.id);
+            if (!existing) {
+              try {
+                const row = validateRecoveryReceipt(entry.row);
+                entries[index] = { kind: 'receipt', id: entry.id, accountId: entry.accountId, row };
+              } catch { continue; }
+            } else entries.splice(index, 1);
+          } else entries.splice(index, 1);
+          retired++;
+        }
         const notes = entries
           .filter((entry): entry is RecoveryNoteEntry => entry.kind === 'note')
           .filter(

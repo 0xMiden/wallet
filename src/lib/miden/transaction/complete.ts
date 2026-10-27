@@ -25,6 +25,8 @@ import {
 } from 'lib/miden/guardian/post-switch-state';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { UsdcxExecutorSource, UsdcxSourceChain } from 'lib/usdcx/constant';
 import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
 import { annotateCrash, withCompletionStep, type CompletionGuard } from 'lib/telemetry/crash-diagnostics';
@@ -73,6 +75,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
+import { checkpointProviderReceipt } from '../recovery/receipt-writer';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
@@ -1387,7 +1390,7 @@ export async function prepareEarnWithdrawExecution(
   expected: ExpectedEarnWithdrawIntent,
   isCurrent: () => boolean
 ): Promise<boolean> {
-  let applied = false;
+  let retained: ITransaction | undefined;
   const count = await Repo.transactions.where({ id }).modify(tx => {
     const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
     if (!identity) return;
@@ -1403,7 +1406,7 @@ export async function prepareEarnWithdrawExecution(
         !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)
       )
         return;
-      applied = true;
+      retained = tx;
       return;
     }
     if (
@@ -1418,9 +1421,15 @@ export async function prepareEarnWithdrawExecution(
       preparedExecution: validated.preparedExecution,
       submissionState: 'prepared'
     };
-    applied = true;
+    retained = tx;
   });
-  return applied && count > 0;
+  if (!retained || count === 0) return false;
+  await checkpointProviderReceipt(retained);
+  const fresh = await Repo.transactions.get(id);
+  const identity = fresh && currentEarnWithdrawExecution(fresh, expected, isCurrent);
+  if (!fresh || !identity) return false;
+  const stored = validateEarnWithdrawPreparedExecution(fresh.extraInputs.preparedExecution, identity);
+  return Boolean(stored && sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution));
 }
 
 export async function markEarnWithdrawNotSent(
@@ -1480,7 +1489,7 @@ export async function markEarnWithdrawAccepted(
   expected: ExpectedEarnWithdrawIntent,
   isCurrent: () => boolean
 ): Promise<boolean> {
-  let applied = false;
+  let retained: ITransaction | undefined;
   const count = await Repo.transactions.where({ id }).modify(tx => {
     const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
     if (!identity) return;
@@ -1494,9 +1503,12 @@ export async function markEarnWithdrawAccepted(
     )
       return;
     tx.extraInputs = { ...inputs, submissionState: 'accepted' };
-    applied = true;
+    retained = tx;
   });
-  return applied && count > 0;
+  if (!retained || count === 0) return false;
+  await checkpointProviderReceipt(retained);
+  const fresh = await Repo.transactions.get(id);
+  return Boolean(fresh && currentEarnWithdrawExecution(fresh, expected, isCurrent) && fresh.extraInputs.submissionState === 'accepted');
 }
 
 /**
@@ -1526,6 +1538,7 @@ export const updateEarnWithdrawPhase = async (
   expected?: ExpectedEarnWithdrawIntent
 ) => {
   let settled: ITransaction | undefined;
+  let retained: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (
       expected &&
@@ -1544,8 +1557,10 @@ export const updateEarnWithdrawPhase = async (
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    retained = tx;
     return undefined;
   });
+  if (retained) await checkpointProviderReceipt(retained);
 
   if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
     reportTransactionFailure({
@@ -1598,6 +1613,10 @@ const canMoveBridgedReceivePhase = (from: IBridgedReceivePhase | undefined, to: 
   return BRIDGED_RECEIVE_PHASE_ORDER.indexOf(to) >= BRIDGED_RECEIVE_PHASE_ORDER.indexOf(from);
 };
 
+export type ProviderSourceExecution =
+  | { provider: 'usdcx'; source: UsdcxSourceChain; recipient: string }
+  | { provider: 'agglayer'; route: AgglayerRecoveryConfig; sourceAddress: string; amount: string };
+
 export const updateBridgedReceivePhase = async (
   id: string,
   phase: IBridgedReceivePhase,
@@ -1622,13 +1641,37 @@ export const updateBridgedReceivePhase = async (
   received?: { amount: bigint; faucetId: string; transactionId?: string },
   // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
   // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
-  { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
+  { onlyIfNoExecuteHash = false, claimSourceExecution, continueSourceExecution, claimCctpExecution }: {
+    onlyIfNoExecuteHash?: boolean;
+    claimSourceExecution?: ProviderSourceExecution;
+    continueSourceExecution?: ProviderSourceExecution;
+    claimCctpExecution?: { source: UsdcxExecutorSource; message: string; attestation: string; sourceDomain: number };
+  } = {}
 ) => {
   const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
+  let retained: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    const execution = claimSourceExecution ?? continueSourceExecution;
+    if (execution && (
+      tx.type !== 'bridged-receive' || tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed ||
+      inputs?.provider !== execution.provider || inputs.phase !== 'submitting' ||
+      inputs.sourceSubmission !== (claimSourceExecution ? 'not-started' : 'attempted') || inputs.evmTxHash ||
+      (execution.provider === 'usdcx'
+        ? JSON.stringify(inputs.usdcxSource) !== JSON.stringify(execution.source)
+        : JSON.stringify(inputs.agglayerRoute) !== JSON.stringify(execution.route) ||
+          inputs.sourceAddress.toLowerCase() !== execution.sourceAddress.toLowerCase() || inputs.sourceAmount.trim() !== execution.amount.trim())
+    )) throw new Error('Bridge source execution is not current');
+    if (claimCctpExecution && (
+      tx.type !== 'bridged-receive' || tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed ||
+      inputs?.provider !== 'usdcx' || inputs.phase !== 'delivering' || inputs.cctp?.executeTxHash ||
+      inputs.cctp?.executeSubmission === 'attempted' || inputs.cctp?.executeSubmission === 'known' ||
+      inputs.cctp?.sourceDomain !== claimCctpExecution.sourceDomain ||
+      inputs.cctp.message !== claimCctpExecution.message || inputs.cctp.attestation !== claimCctpExecution.attestation ||
+      JSON.stringify(inputs.usdcxSource) !== JSON.stringify(claimCctpExecution.source)
+    )) throw new Error('CCTP execution is not current');
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
     // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
     // stands.
@@ -1642,6 +1685,9 @@ export const updateBridgedReceivePhase = async (
     const savedHash = extra?.cctp?.executeTxHash;
     const cctp = merged && {
       ...merged,
+      ...(claimCctpExecution ? { executeSubmission: 'attempted' } : {}),
+      ...(savedHash !== undefined ? { executeSubmission: 'known' } : {}),
+      ...(reopened !== undefined ? { executeSubmission: 'not-started' } : {}),
       // The stall window runs from when the current hash was saved.
       ...(savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash ? { executeSavedAt: nowSec } : {}),
       // A revert drops the message that kept the leg from timing out, so its week runs from here.
@@ -1667,6 +1713,9 @@ export const updateBridgedReceivePhase = async (
       ...inputs,
       phase,
       ...details,
+      ...(claimSourceExecution ? { sourceSubmission: 'attempted',
+        ...(claimSourceExecution.provider === 'usdcx' ? { usdcxRemoteRecipient: claimSourceExecution.recipient.toLowerCase() } : {}) } : {}),
+      ...(extra?.evmTxHash ? { sourceSubmission: 'known' } : {}),
       ...(cctp ? { cctp } : {}),
       ...(readyAt === undefined ? {} : { readyAt })
     };
@@ -1677,7 +1726,10 @@ export const updateBridgedReceivePhase = async (
       tx.displayMessage = 'Bridged from EVM';
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    retained = tx;
   });
+  if ((claimSourceExecution || continueSourceExecution || claimCctpExecution) && !retained) throw new Error('Bridge source execution is not current');
+  if (retained) await checkpointProviderReceipt(retained);
 
   if (failed !== undefined && !failed.restoredFromBackup) {
     const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
