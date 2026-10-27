@@ -1,0 +1,142 @@
+{
+  "source": "bf02102a03a13c60f2a4b76c5f298a018bdc9f20",
+  "source_tree": "c42aa1b59206e05483c83ff9f1eb2c7f4400b654",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "discard-authenticated-primary",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "          const promoted = promoteRecoveryNotePrimaries(snapshot!, canonicalNotes);",
+      "after": "          const promoted = promoteRecoveryNotePrimaries(snapshot!, []);",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ reorders\\ an\\ exact\\ candidate\\ into\\ a\\ full\\ primary\\ and\\ restores\\ it\\ after\\ encrypted\\ restart$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 reorders an exact candidate into a full primary and restores it after encrypted restart",
+      "prediction": "Dropping authenticated readback leaves Expected primary unchanged before encrypted restart/restore.",
+      "expected_functional_assertion": "expect(after.note).toMatchObject(canonical full primary)",
+      "source_file_sha256": "ce45da861d045fb0935133c2e95643863a95385ae31eb41a69be99a80067507a"
+    },
+    {
+      "id": "retain-old-primary-body",
+      "path": "src/lib/miden/recovery/note-primary.ts",
+      "before": "    const retained = materials.filter((_, materialIndex) => materialIndex !== canonicalIndex);",
+      "after": "    const retained = materials.filter((_, materialIndex) => materialIndex !== canonicalIndex && materialIndex !== 0);",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ retains\\ every\\ older\\ body\\ when\\ the\\ authenticated\\ export\\ adds\\ distinct\\ required\\ material$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 retains every older body when the authenticated export adds distinct required material",
+      "prediction": "Distinct canonical export still has nonempty candidates but loses the old Expected body; body preservation assertion fails.",
+      "expected_functional_assertion": "expect(journalNoteBodies(after.snapshot)).toEqual(arrayContaining(before bodies and export))",
+      "source_file_sha256": "8b6ad6729d10b30592cc0293a0ff4863b1a3b871e8bb7273e0301ca959c55da3"
+    },
+    {
+      "id": "retain-conflicting-candidate",
+      "path": "src/lib/miden/recovery/note-primary.ts",
+      "before": "    const retained = materials.filter((_, materialIndex) => materialIndex !== canonicalIndex);",
+      "after": "    const retained = materials.filter((_, materialIndex) => materialIndex !== canonicalIndex).slice(0, 1);",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ preserves\\ a\\ conflicting\\ candidate\\ while\\ upgrading\\ the\\ authenticated\\ primary$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 preserves a conflicting candidate while upgrading the authenticated primary",
+      "prediction": "Clipping retained material keeps the previous primary but discards the unresolved conflict.",
+      "expected_functional_assertion": "expect(after.note.candidates).toEqual(arrayContaining(old Expected and conflict))",
+      "source_file_sha256": "8b6ad6729d10b30592cc0293a0ff4863b1a3b871e8bb7273e0301ca959c55da3"
+    },
+    {
+      "id": "reuse-existing-canonical-material",
+      "path": "src/lib/miden/recovery/note-primary.ts",
+      "before": "    const canonicalIndex = materials.findIndex(matches);",
+      "after": "    const canonicalIndex = -1;",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ reorders\\ an\\ exact\\ candidate\\ into\\ a\\ full\\ primary\\ and\\ restores\\ it\\ after\\ encrypted\\ restart$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 reorders an exact candidate into a full primary and restores it after encrypted restart",
+      "prediction": "Treating exact existing canonical bytes as new retains a duplicate full candidate; exact candidate/count assertion fails.",
+      "expected_functional_assertion": "expect(after.note.candidates).toEqual([old Expected])",
+      "source_file_sha256": "8b6ad6729d10b30592cc0293a0ff4863b1a3b871e8bb7273e0301ca959c55da3"
+    },
+    {
+      "id": "global-capacity-off-by-one",
+      "path": "src/lib/miden/recovery/journal.ts",
+      "before": "export const JOURNAL_MAX_ENTRIES = 256;",
+      "after": "export const JOURNAL_MAX_ENTRIES = 257;",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ refuses\\ a\\ distinct\\ canonical\\ export\\ at\\ global\\ material\\ capacity\\ without\\ losing\\ the\\ primary$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 refuses a distinct canonical export at global material capacity without losing the primary",
+      "prediction": "Fixture remains exactly256 including financial evidence, but the extra primary is allowed as257 and expected refusal fails.",
+      "expected_functional_assertion": "expect(vault.reconcileStorageRecovery()).rejects.toThrow()",
+      "source_file_sha256": "5c6ad84e9961285d998a762d03965ee1e660a600ab1b2183056047a6bb4d7128"
+    },
+    {
+      "id": "stale-encrypted-snapshot-cas",
+      "path": "src/lib/miden/recovery/journal.ts",
+      "before": "          serialize(current.snapshot) !== serialize(validateJournal(expected))",
+      "after": "          false",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ refuses\\ stale\\ canonical\\ replacement\\ when\\ candidate\\ evidence\\ changes\\ during\\ the\\ SDK\\ read$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 refuses stale canonical replacement when candidate evidence changes during the SDK read",
+      "prediction": "Existing valid current journal is accepted despite a candidate added during the parked SDK read; stale replacement loses new material and resolves instead of refusing.",
+      "expected_functional_assertion": "expect((await outcome).error).toBeDefined()",
+      "source_file_sha256": "5c6ad84e9961285d998a762d03965ee1e660a600ab1b2183056047a6bb4d7128"
+    },
+    {
+      "id": "independent-quota-latch",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "            if (reportStorageFailure(error, { backend: 'independent', operation: 'mutate' })) return;",
+      "after": "            if (false) return;",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ latches\\ a\\ real\\ canonical\\ primary\\ write\\ quota\\ while\\ preserving\\ the\\ last\\ readable\\ generation$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 latches a real canonical primary write quota while preserving the last readable generation",
+      "prediction": "Explicit fixture provider throws actual DOMException quota without its own reporter; suppressing this callback leaves health healthy after rejected journal write.",
+      "expected_functional_assertion": "expect(getStorageHealth().status).toBe(unavailable)",
+      "source_file_sha256": "ce45da861d045fb0935133c2e95643863a95385ae31eb41a69be99a80067507a"
+    },
+    {
+      "id": "pending-family-exclusion",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "        !entries.some(",
+      "after": "        true || entries.some(",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "^Vault\\ storage\\ continuity\\ Task4C3G3\\ preserves\\ pending\\ aliases\\ and\\ transaction\\ receipt\\ evidence\\ after\\ the\\ primary\\ ID\\ changes$",
+      "expected_assertion": "Vault storage continuity Task4C3G3 preserves pending aliases and transaction receipt evidence after the primary ID changes",
+      "prediction": "Account-owned pending transaction no longer excludes the family; positive RPC fixture permits note retirement and protected pending assertion fails.",
+      "expected_functional_assertion": "expect(vault.reconcileStorageRecovery()).toEqual({reconciled:0,retired:0})",
+      "source_file_sha256": "263b0c4712accc19252454019a3cf5e2d15298d2e6135ac70df6a510c6ee6f16"
+    }
+  ],
+  "baseline_evidence": {
+    "run": 40463223373,
+    "passed": 1091,
+    "groups": [
+      115,
+      353,
+      254,
+      369
+    ],
+    "suites": 14,
+    "failed": 0,
+    "pending": 0,
+    "runtime": 0,
+    "types": "pass with exact fd SDK",
+    "vault_results_sha256": "a0b681c8633e50197e66289789847032acd92764e247bb874f6e98eaa799bb93",
+    "scope": "Every mutation also establishes its own exact one-test passing baseline"
+  },
+  "scope_limits": [
+    "Prepared only; no local mutation execution.",
+    "Eight journal preservation/ownership/limit/latch behaviors only; no exhaustive native SDK or physical durability proof.",
+    "Every selected baseline must be exactly one passing test, mutation must fail intended ordinary expect with no runtime-suite error, and original source must be restored."
+  ]
+}
