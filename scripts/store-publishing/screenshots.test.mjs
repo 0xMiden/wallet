@@ -55,7 +55,8 @@ function appleClient({
   app = 'com.miden.bread',
   pollStates = ['COMPLETE'],
   operations,
-  operationsOnlyOnReservation = false
+  operationsOnlyOnReservation = false,
+  reservationResponse = structuredClone
 } = {}) {
   const calls = [];
   let reserved;
@@ -103,7 +104,7 @@ function appleClient({
             }
           ]
         });
-        return { data: structuredClone(reserved) };
+        return { data: reservationResponse(reserved) };
       }
       if (method === 'PATCH' && reserved && path === `/v1/appScreenshots/${reserved.id}`) {
         committed = true;
@@ -417,7 +418,7 @@ test('Apple screenshot processing waits out the old twenty-poll ceiling by defau
     fetchImpl: async url => ({ ok: true, redirected: false, url })
   });
   assert.equal(result.changed, true);
-  assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 22);
+  assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 21);
   assert.deepEqual(sleeps, Array(20).fill(5000));
 });
 test('an Apple screenshot with no delivery state cannot verify by checksum', async () => {
@@ -576,4 +577,62 @@ test('Apple owned reservation metadata drift blocks replacement without writes',
     await assert.rejects(syncScreenshots(c.client, options()), /drift|journal/);
     assert.ok(c.calls.slice(before).every(call => call.method === 'GET'));
   }
+});
+
+test('Apple validates the retained reservation response before uploading bytes', async () => {
+  for (const field of ['id', 'fileName', 'fileSize']) {
+    const c = appleClient({
+      shots: [],
+      operationsOnlyOnReservation: true,
+      reservationResponse: resource => {
+        const response = structuredClone(resource);
+        if (field === 'id') response.id = 'foreign';
+        else response.attributes[field] = field === 'fileName' ? 'foreign.png' : bytes.length + 1;
+        return response;
+      }
+    });
+    let transfers = 0;
+    await assert.rejects(
+      syncScreenshots(c.client, {
+        ...ios(),
+        allowWrites: true,
+        fetchImpl: async () => {
+          transfers++;
+        }
+      }),
+      /identity|metadata/
+    );
+    assert.equal(transfers, 0);
+    assert.ok(!c.calls.some(call => call.method === 'PATCH' || call.method === 'DELETE'));
+  }
+});
+
+test('Apple does not replace a reservation that completes before the recovery delete', async () => {
+  const c = appleClient({ shots: [], operationsOnlyOnReservation: true });
+  let journal;
+  const options = () => ({
+    ...ios(),
+    allowWrites: true,
+    screenshotJournal: structuredClone(journal),
+    persistScreenshotJournal: async value => {
+      journal = structuredClone(value);
+    },
+    fetchImpl: async () => {
+      throw new Error('byte transfer interrupted');
+    }
+  });
+  await assert.rejects(syncScreenshots(c.client, options()), /partial/);
+  const request = c.client.request;
+  c.client.request = async (method, path, options) => {
+    const response = await request(method, path, options);
+    if (method === 'GET' && path === '/v1/appScreenshots/new') {
+      c.reservation().attributes.sourceFileChecksum = digest('md5');
+      c.reservation().attributes.assetDeliveryState.state = 'COMPLETE';
+    }
+    return response;
+  };
+  const before = c.calls.length;
+  await assert.rejects(syncScreenshots(c.client, options()), /no longer awaiting upload/);
+  assert.ok(c.calls.slice(before).every(call => call.method === 'GET'));
+  assert.equal((await syncScreenshots(c.client, options())).changed, false);
 });
