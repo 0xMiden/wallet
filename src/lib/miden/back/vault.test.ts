@@ -5354,26 +5354,40 @@ describe('Vault storage continuity', () => {
       RpcClient: jest.Mock;
     }>('@miden-sdk/miden-sdk/lazy');
     const rawNote = fixture.setCandidate(fixture.noteFile).note();
+    const laterRawBytes = new Uint8Array([19, 48, 44, 250]);
+    const laterFileBytes = new Uint8Array([19, 48, 43, 251]);
+    const laterId = '0x' + 'ab'.repeat(32);
+    const laterNote = fixture.setCandidate(laterRawBytes, { identity: laterId }).note();
     const proof = { proofFor: fixture.noteId };
     const getNotesById = jest.fn(async () => (withProof ? [{ noteId: fixture.noteId, inclusionProof: proof }] : []));
-    sdk.Note.deserialize.mockReturnValue(rawNote);
+    sdk.Note.deserialize.mockImplementation((bytes: Uint8Array) =>
+      bytes.length === laterRawBytes.length && bytes.every((byte, index) => byte === laterRawBytes[index])
+        ? laterNote
+        : rawNote
+    );
     sdk.RpcClient.mockImplementation(() => ({ getNotesById }));
     sdk.InputNote.authenticated.mockImplementation((note: unknown, inclusionProof: unknown) => ({
       note,
       inclusionProof
     }));
     sdk.InputNote.unauthenticated.mockImplementation((note: unknown) => ({ note }));
-    sdk.NoteFile.fromInputNote.mockImplementation((input: { inclusionProof?: unknown }) =>
-      fixture.setCandidate(noteFile, {
-        detailsOnly: input.inclusionProof === undefined,
-        tag: 71,
-        afterBlock: input.inclusionProof === undefined ? 0 : 19
-      })
+    sdk.NoteFile.fromInputNote.mockImplementation(
+      (input: { note: { id: () => { toString: () => string } }; inclusionProof?: unknown }) => {
+        const identity = input.note.id().toString();
+        return fixture.setCandidate(identity === laterId ? laterFileBytes : noteFile, {
+          identity,
+          detailsOnly: input.inclusionProof === undefined,
+          tag: 71,
+          afterBlock: input.inclusionProof === undefined ? 0 : 19
+        });
+      }
     );
     return {
       ...fixture,
       rawNoteBytes: fixture.noteFile,
       noteFile,
+      laterRawBytes,
+      laterFileBytes,
       getNotesById,
       deserialize: sdk.Note.deserialize,
       restore: () => {
@@ -5386,6 +5400,48 @@ describe('Vault storage continuity', () => {
       }
     };
   }
+
+  it('Task4C3E3 classified SDK quota stops the Guardian batch with retained preimport bytes', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.imported.mockRejectedValueOnce(new DOMException('SDK storage full', 'QuotaExceededError'));
+    try {
+      const result = await fixture.runRecovery([fixture.rawNoteBytes, fixture.laterRawBytes]).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(result).toBe('refused');
+      expect(fixture.imported).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('unavailable');
+      const retained = await vault.readRecoveryJournal();
+      expect(retained).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+      const bodies = journalNoteBodies({ entries: retained?.entries });
+      expect(bodies).toContainEqual(fixture.noteFile);
+      expect(bodies).not.toContainEqual(fixture.laterFileBytes);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['generic refusal', 'AbortError'])(
+    'Task4C3E3 Guardian %s retains bytes and remains an ordinary healthy failure',
+    async kind => {
+      const fixture = await guardianAcquisition();
+      fixture.imported.mockRejectedValueOnce(
+        kind === 'AbortError' ? new DOMException('cancelled', 'AbortError') : new Error('node request refused')
+      );
+      try {
+        await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+        expect(fixture.imported).toHaveBeenCalledTimes(1);
+        expect(getStorageHealth().status).toBe('healthy');
+        expect(journalNoteBodies({ entries: (await vault.readRecoveryJournal())?.entries })).toContainEqual(
+          fixture.noteFile
+        );
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
 
   it.each([true, false])(
     'Task4C3E Guardian proof=%s retains its generated file before counting success',
