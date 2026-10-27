@@ -3,10 +3,12 @@ import Dexie from 'dexie';
 import { restoreSdkRecovery, decodeSdkRecoveryCommand, type RecoverySdkWriter } from './sdk-restore';
 import type { RecoveryNoteEntry } from './types';
 
+const mockConsumedNoteFiles = new WeakSet<object>();
+
 function mockNoteFile(bytes: Uint8Array) {
   const expected = bytes[0] === 2 || bytes[0] === 4;
   const details = { commitment: 'details-a' };
-  return {
+  const file = {
     noteDetails: () => (expected ? details : undefined),
     note: () => (expected ? undefined : details),
     noteId: () => (expected ? undefined : { toString: () => 'note-a', free: () => {} }),
@@ -14,8 +16,11 @@ function mockNoteFile(bytes: Uint8Array) {
     noteTag: () => (expected ? { asU32: () => (bytes[0] === 2 ? 71 : 0), free: () => {} } : undefined),
     afterBlockNum: () => (expected ? (bytes[0] === 2 ? 19 : 0) : undefined),
     serialize: () => bytes.slice(),
-    free: () => {}
+    free: () => {
+      if (mockConsumedNoteFiles.has(file)) throw new Error('SDK note file handle was consumed');
+    }
   };
+  return file;
 }
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -126,6 +131,28 @@ it('imports a retained input file and verifies its body before acknowledging the
   expect(records).toHaveLength(1);
   expect(client.notes.import).toHaveBeenCalledTimes(1);
 });
+
+it.each(['accepted', 'rejected'])(
+  'Task4C3O preserves the %s import outcome after SDK consumes the note file handle',
+  async outcome => {
+    const refusal = new Error('SDK import refused the retained note');
+    jest.mocked(client.notes.import).mockImplementationOnce(async file => {
+      mockConsumedNoteFiles.add(file);
+      if (outcome === 'rejected') throw refusal;
+      records = [record(2)];
+      await db.table('inputNotes').put({ detailsCommitment: 'details-a', stateDiscriminant: 2 });
+      return 'note-a';
+    });
+    const result = await restoreSdkRecovery(client, { kind: 'note', note, accountId: 'retained' }, () => {}).then(
+      () => 'restored',
+      (error: unknown) => error
+    );
+    expect(result).toBe(outcome === 'accepted' ? 'restored' : refusal);
+    expect(client.notes.import).toHaveBeenCalledTimes(1);
+    expect(records.map(item => item.isAuthenticated())).toEqual(outcome === 'accepted' ? [true] : []);
+    expect(client.settings.set).not.toHaveBeenCalled();
+  }
+);
 
 it('preserves a matching already consumed record without importing it again', async () => {
   records = [record(6)];
