@@ -367,7 +367,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   return {
     ...base,
     NoteType: { Private: 0, Public: 1 },
-    NoteFile: { deserialize: jest.fn() },
+    NoteFile: { deserialize: jest.fn(), fromInputNote: jest.fn() },
+    Note: Object.assign(base.Note, { deserialize: jest.fn() }),
+    InputNote: { authenticated: jest.fn(), unauthenticated: jest.fn() },
+    RpcClient: jest.fn(),
+    Endpoint: jest.fn(),
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
       rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' })),
@@ -5294,7 +5298,7 @@ describe('Vault storage continuity', () => {
     ) => {
       const metadata = () => ({ noteType: () => 0, tag: () => ({ asU32: () => tag, free: () => {} }), free: () => {} });
       const id = () => ({ toString: () => identity, free: () => {} });
-      sdk.NoteFile.deserialize.mockReturnValue({
+      const file = {
         noteId: () => (detailsOnly ? undefined : id()),
         note: () => (detailsOnly ? undefined : { ...details, metadata, id }),
         noteDetails: () => (detailsOnly ? details : undefined),
@@ -5308,7 +5312,9 @@ describe('Vault storage continuity', () => {
         nullifier: () => (detailsOnly ? undefined : '0x' + '56'.repeat(32)),
         serialize: () => bytes.slice(),
         free: () => {}
-      });
+      };
+      sdk.NoteFile.deserialize.mockReturnValue(file);
+      return file;
     };
     setCandidate(noteFile);
     const imported = jest.fn(async () => noteId);
@@ -5325,8 +5331,11 @@ describe('Vault storage continuity', () => {
       noteId,
       imported,
       setCandidate,
+      client,
       run: (bytes = noteFile) =>
         getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(bytes, hold))),
+      runRecovery: (bytes = [noteFile]) =>
+        getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importRecoveryNoteBytes(bytes, hold))),
       restore: () => {
         hash.mockRestore();
         sdk.NoteFile.deserialize.mockReset();
@@ -5334,6 +5343,236 @@ describe('Vault storage continuity', () => {
       }
     };
   }
+
+  async function guardianAcquisition(withProof = true) {
+    const fixture = await acquisition();
+    const sdk = jest.requireMock<{
+      Note: { deserialize: jest.Mock };
+      NoteFile: { fromInputNote: jest.Mock };
+      InputNote: { authenticated: jest.Mock; unauthenticated: jest.Mock };
+      RpcClient: jest.Mock;
+    }>('@miden-sdk/miden-sdk/lazy');
+    const rawNote = fixture.setCandidate(fixture.noteFile).note();
+    const proof = { proofFor: fixture.noteId };
+    const getNotesById = jest.fn(async () => (withProof ? [{ noteId: fixture.noteId, inclusionProof: proof }] : []));
+    sdk.Note.deserialize.mockReturnValue(rawNote);
+    sdk.RpcClient.mockImplementation(() => ({ getNotesById }));
+    sdk.InputNote.authenticated.mockImplementation((note: unknown, inclusionProof: unknown) => ({
+      note,
+      inclusionProof
+    }));
+    sdk.InputNote.unauthenticated.mockImplementation((note: unknown) => ({ note }));
+    sdk.NoteFile.fromInputNote.mockImplementation((input: { inclusionProof?: unknown }) =>
+      fixture.setCandidate(fixture.noteFile, {
+        detailsOnly: input.inclusionProof === undefined,
+        tag: 71,
+        afterBlock: input.inclusionProof === undefined ? 0 : 19
+      })
+    );
+    return {
+      ...fixture,
+      getNotesById,
+      deserialize: sdk.Note.deserialize,
+      restore: () => {
+        fixture.restore();
+        sdk.Note.deserialize.mockReset();
+        sdk.NoteFile.fromInputNote.mockReset();
+        sdk.InputNote.authenticated.mockReset();
+        sdk.InputNote.unauthenticated.mockReset();
+        sdk.RpcClient.mockReset();
+      }
+    };
+  }
+
+  it.each([true, false])(
+    'Task4C3E Guardian proof=%s retains its generated file before counting success',
+    async withProof => {
+      const fixture = await guardianAcquisition(withProof);
+      let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+      fixture.imported.mockImplementation(async () => {
+        atImport = await vault.readRecoveryJournal();
+        return fixture.noteId;
+      });
+      const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+      try {
+        await expect(fixture.runRecovery()).resolves.toEqual({ imported: 1, failures: 0 });
+        expect(fixture.getNotesById).toHaveBeenCalledTimes(1);
+        expect(atImport?.entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'note',
+              id: withProof ? fixture.noteId.slice(2) : '34'.repeat(32),
+              noteFile: fixture.noteFile,
+              provenance: 'input',
+              format: withProof ? 'full' : 'details'
+            })
+          ])
+        );
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+        expect(readSnapshot).not.toHaveBeenCalled();
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3E Guardian import and recovery count wait for independent readback', async () => {
+    const fixture = await guardianAcquisition();
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    mockBeforeRecoveryWrite = async () => {
+      reached();
+      await paused;
+    };
+    let settled = false;
+    const pending = fixture.runRecovery().finally(() => {
+      settled = true;
+    });
+    try {
+      await Promise.race([entered, pending]);
+      const beforeRelease = { settled, imports: fixture.imported.mock.calls.length };
+      release();
+      await expect(pending).resolves.toEqual({ imported: 1, failures: 0 });
+      expect(beforeRelease).toEqual({ settled: false, imports: 0 });
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: fixture.noteFile })])
+      );
+    } finally {
+      release();
+      await pending.catch(() => {});
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian quota refusal never imports or reports successful recovery', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    mockBeforeRecoveryWrite = async () => {
+      throw new DOMException('independent storage full', 'QuotaExceededError');
+    };
+    try {
+      const result = await fixture.runRecovery().catch(() => ({ imported: 0, failures: 1 }));
+      expect(result).toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian owner lost during proof lookup cannot enter SDK import', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.getNotesById.mockImplementationOnce(async () => {
+      vault.retire();
+      return [];
+    });
+    try {
+      const result = await fixture.runRecovery().catch(() => ({ imported: 0, failures: 1 }));
+      expect(fixture.getNotesById).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian generic SDK refusal keeps retained bytes without poisoning storage', async () => {
+    const fixture = await guardianAcquisition();
+    fixture.imported.mockRejectedValueOnce(new Error('node proof lookup interrupted'));
+    try {
+      await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).toHaveBeenCalledTimes(1);
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: fixture.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E malformed Guardian input stays an ordinary healthy recovery failure', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.deserialize.mockImplementationOnce(() => {
+      throw new Error('invalid raw note bytes');
+    });
+    try {
+      await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+      expect(fixture.getNotesById).not.toHaveBeenCalled();
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['paused', 'quota'])(
+    'Task4C3E pending queue preserves bytes while independent retention is %s',
+    async outcome => {
+      const fixture = await acquisition();
+      const { importAllNotes, queueNoteImport } = await import('../activity/notes');
+      const { __resetSyncFuseStateForTests } = await import('../front/sync-fuse');
+      __resetSyncFuseStateForTests();
+      const imported = jest
+        .spyOn(midenClientProxy, 'importNoteBytes')
+        .mockImplementation((bytes, hold) => fixture.client.importNoteBytes(bytes, hold));
+      const sync = jest.spyOn(midenClientProxy, 'syncState').mockResolvedValue(undefined);
+      const encoded = Buffer.from(fixture.noteFile).toString('base64');
+      await queueNoteImport(encoded);
+      let release = () => {};
+      let reached = () => {};
+      const paused = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const entered = new Promise<void>(resolve => {
+        reached = resolve;
+      });
+      mockBeforeRecoveryWrite = async () => {
+        reached();
+        await paused;
+        if (outcome === 'quota') throw new DOMException('independent storage full', 'QuotaExceededError');
+      };
+      let settled = false;
+      const pending = importAllNotes().finally(() => {
+        settled = true;
+      });
+      try {
+        await Promise.race([entered, pending]);
+        expect(settled).toBe(false);
+        expect(fixture.imported).not.toHaveBeenCalled();
+        expect(await getPlain('miden-notes-pending-import')).toEqual([encoded]);
+        release();
+        await pending.catch(() => {});
+        const carried = expect.objectContaining({ bytes: encoded });
+        expect(fixture.imported).toHaveBeenCalledTimes(outcome === 'quota' ? 0 : 1);
+        expect(await getPlain('miden-notes-pending-import')).toEqual(outcome === 'quota' ? [carried] : []);
+        expect(getStorageHealth().status).toBe(outcome === 'quota' ? 'unavailable' : 'healthy');
+        const retained = journalNoteBodies({ entries: (await vault.readRecoveryJournal())?.entries }).filter(
+          bytes => bytes.length === fixture.noteFile.length && bytes.every((byte, i) => byte === fixture.noteFile[i])
+        );
+        expect(retained).toEqual(outcome === 'quota' ? [] : [fixture.noteFile]);
+      } finally {
+        release();
+        await pending.catch(() => {});
+        imported.mockRestore();
+        sync.mockRestore();
+        fixture.restore();
+        __resetSyncFuseStateForTests();
+      }
+    }
+  );
 
   it('Task4C3 acquisition retains bytes before SDK acceptance without custody reentry', async () => {
     const fixture = await acquisition();
