@@ -54,6 +54,7 @@ const memoryStore: Record<string, any> = {};
 // The keys of each storage write, so a test can count the saves one call makes.
 const mockStorageSets: string[][] = [];
 let retainedStorageKey: string | undefined;
+let mockBeforeRecoveryWrite: (() => Promise<void>) | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -62,6 +63,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
       return out;
     },
     set: async (items: Record<string, any>) => {
+      if (Object.keys(items).some(key => /^miden_recovery_v1_[01]$/.test(key))) await mockBeforeRecoveryWrite?.();
       mockStorageSets.push(Object.keys(items));
       Object.assign(memoryStore, items);
     },
@@ -363,6 +365,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...base,
+    NoteType: { Private: 0, Public: 1 },
+    NoteFile: { deserialize: jest.fn() },
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
       rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' })),
@@ -495,6 +499,7 @@ function clearMemoryStore() {
 
 beforeEach(() => {
   retainedStorageKey = undefined;
+  mockBeforeRecoveryWrite = undefined;
   clearMemoryStore();
   jest.clearAllMocks();
   (isDesktop as jest.Mock).mockReturnValue(false);
@@ -5257,6 +5262,183 @@ describe('Vault storage continuity', () => {
     installProviderReceiptBackend(undefined);
     readSnapshot.mockRestore();
     initializeGeneration.mockRestore();
+  });
+
+  async function acquisition() {
+    await encryptAndSaveMany(
+      [
+        [
+          keys.accounts,
+          [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]
+        ]
+      ],
+      fixtureKey
+    );
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    readSnapshot.mockClear();
+    const noteFile = new Uint8Array([19, 48, 7, 255]);
+    const noteId = '0x' + '12'.repeat(32);
+    const details = {
+      recipient: () => ({ digest: () => ({ toFelts: () => [] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => {}
+    };
+    const sdk = jest.requireMock<{
+      NoteFile: { deserialize: jest.Mock };
+      Poseidon2: { hashElements: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    const hash = jest.spyOn(sdk.Poseidon2, 'hashElements').mockReturnValue({
+      toHex: () => '0x' + '34'.repeat(32),
+      toFelts: () => [],
+      free: () => {}
+    });
+    const metadata = () => ({ noteType: () => 0, tag: () => ({ asU32: () => 7, free: () => {} }), free: () => {} });
+    const id = () => ({ toString: () => noteId, free: () => {} });
+    sdk.NoteFile.deserialize.mockReturnValue({
+      noteId: id,
+      note: () => ({ ...details, metadata, id }),
+      noteDetails: () => undefined,
+      noteType: () => 'NoteWithProof',
+      noteTag: () => undefined,
+      afterBlockNum: () => undefined,
+      inclusionProof: () => ({ location: () => ({ blockNum: () => 10, free: () => {} }), free: () => {} }),
+      nullifier: () => '0x' + '56'.repeat(32),
+      serialize: () => noteFile.slice(),
+      free: () => {}
+    });
+    const imported = jest.fn(async () => noteId);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      MidenClientInterface.fromClient,
+      MidenClientInterface,
+      [{ notes: { import: imported } }, 'testnet']
+    );
+    const { withWasmClientLock } = await import('../sdk/miden-client');
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    return {
+      noteFile,
+      noteId,
+      imported,
+      run: () => getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(noteFile, hold))),
+      restore: () => {
+        hash.mockRestore();
+        sdk.NoteFile.deserialize.mockReset();
+        mockBeforeRecoveryWrite = undefined;
+      }
+    };
+  }
+
+  it('Task4C3 acquisition retains bytes before SDK acceptance without custody reentry', async () => {
+    const fixture = await acquisition();
+    let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+    fixture.imported.mockImplementation(async () => {
+      atImport = await vault.readRecoveryJournal();
+      return fixture.noteId;
+    });
+    const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+    try {
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect(atImport?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+      expect(readSnapshot).not.toHaveBeenCalled();
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3 acquisition waits for independent storage before acknowledging SDK import', async () => {
+    const fixture = await acquisition();
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    mockBeforeRecoveryWrite = async () => {
+      reached();
+      await paused;
+    };
+    let settled = false;
+    const pending = fixture.run().then(
+      () => {
+        settled = true;
+        return 'accepted';
+      },
+      () => {
+        settled = true;
+        return 'refused';
+      }
+    );
+    try {
+      await Promise.race([entered, pending]);
+      const beforeRelease = { settled, imports: fixture.imported.mock.calls.length };
+      release();
+      const outcome = await pending;
+      expect(beforeRelease).toEqual({ settled: false, imports: 0 });
+      expect(outcome).toBe('accepted');
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+    } finally {
+      release();
+      await pending;
+      fixture.restore();
+    }
+  });
+
+  it.each(['quota failure', 'retired sink'])('Task4C3 acquisition refuses %s before SDK acceptance', async failure => {
+    const fixture = await acquisition();
+    const before = await vault.readRecoveryJournal();
+    if (failure === 'retired sink') vault.retire();
+    else
+      mockBeforeRecoveryWrite = async () => {
+        throw new DOMException('independent storage full', 'QuotaExceededError');
+      };
+    try {
+      const outcome = await fixture.run().then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(outcome).toBe('refused');
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe(failure === 'retired sink' ? 'healthy' : 'unavailable');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3 public-only capture keeps unresolved prebroadcast transaction evidence', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const row: ITransaction = {
+      id: 'public-pending',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      noteType: 'public',
+      attemptId: 'attempt-public',
+      mayHaveSubmitted: true
+    };
+    await Repo.transactions.put(row);
+    const requestBytes = new Uint8Array([5, 6, 7]);
+    const evidence = { transactionId: 'candidate-public', outputNoteIds: ['output-public'] };
+    await vault.retainTransactionRecovery(row.id, { requestBytes, notes: [] }, evidence, row.attemptId);
+    const retained = (await vault.readRecoveryJournal())?.entries.find(
+      entry => entry.kind === 'transaction' && entry.id === row.id
+    );
+    expect(retained).toMatchObject({
+      kind: 'transaction',
+      requestBytes,
+      mayHaveSubmitted: true,
+      evidence,
+      row: { attemptId: row.attemptId, status: row.status, requestBytes }
+    });
   });
 
   it.each(['held source callback', 'retired vault'])(
