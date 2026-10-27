@@ -1040,7 +1040,7 @@ describe('Task5 locked recovery data navigation', () => {
   };
 
   it('opens explicit storage recovery while locked without a healthy transition', () => {
-    const view = renderAt('/storage-recovery', { ...ready, locked: true });
+    const view = renderAt('/storage-recovery', { ready: false, locked: true, hydrated: true });
     mockMiden = {
       ...mockMiden,
       storageAvailability: unavailable,
@@ -1053,7 +1053,7 @@ describe('Task5 locked recovery data navigation', () => {
   });
 
   it('keeps the ordinary locked screen with an explicit recovery entry', () => {
-    const view = renderAt('/', { ...ready, locked: true });
+    const view = renderAt('/', { ready: false, locked: true, hydrated: true });
     mockMiden = {
       ...mockMiden,
       storageAvailability: unavailable,
