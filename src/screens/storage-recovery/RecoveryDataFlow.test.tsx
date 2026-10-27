@@ -2,12 +2,16 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { StorageRecoveryPage } from 'app/StorageRecoveryPage';
 import { RECOVERY_DATA_FILE_MAX_BYTES } from 'lib/miden/recovery/external-file';
 import type { StorageHealth } from 'lib/miden/storage-health';
 import type { ExportFilePasswordProps } from 'screens/encrypted-file-flow/ExportFileSetNamePassword';
 
 import { RecoveryDataFlow } from './RecoveryDataFlow';
+import { RecoveryDataSettings } from './RecoveryDataSettings';
 
+let mockPlatform: 'extension' | 'desktop' = 'extension';
+let mockReady = true;
 const mockExport = jest.fn<Promise<string>, [string, number, string, string | undefined]>();
 const mockImport = jest.fn<
   Promise<{ imported: boolean; retainedEntries: number }>,
@@ -23,7 +27,7 @@ let mockDeliveryProps: { preparedContent?: string; fileKind?: string } | undefin
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     storageAvailability: mockAvailability,
-    ready: true,
+    ready: mockReady,
     exportRecoveryDataFile: mockExport,
     importRecoveryDataFile: mockImport,
     cancelRecoveryDataOperation: mockCancel
@@ -129,6 +133,8 @@ function enterFilePassword(): void {
 }
 
 beforeEach(() => {
+  mockPlatform = 'extension';
+  mockReady = true;
   jest.clearAllMocks();
   readers = [];
   mockPlatform = 'extension';
@@ -265,3 +271,67 @@ describe('Task5 recovery file UI', () => {
     expect(screen.queryByText('smthWentWrong')).not.toBeInTheDocument();
   });
 });
+
+it('Task5 recovery hardware file failure does not masquerade as biometric authentication failure', async () => {
+  mockPlatform = 'desktop';
+  mockProtectors.mockResolvedValue({ hardware: true, password: false });
+  const unavailable = new Error('Wallet storage unavailable');
+  unavailable.name = 'StorageUnavailableError';
+  mockExport.mockRejectedValueOnce(unavailable);
+  render(<RecoveryDataFlow mode="export" onClose={jest.fn()} />);
+  fireEvent.change(input('recovery-test-file-password'), { target: { value: crypto.randomUUID() } });
+  fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
+  await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.queryByText('recoveryDataUnavailable')).toBeInTheDocument());
+  expect(screen.queryByText('biometricFailed')).not.toBeInTheDocument();
+});
+
+it('Task5 recovery file read failure is distinct from malformed file contents', async () => {
+  render(<RecoveryDataFlow mode="import" onClose={jest.fn()} />);
+  choose(new File(['{}'], 'recovery-data.json', { type: 'application/json' }));
+  expect(readers).toHaveLength(1);
+  const pending = readers[0];
+  if (!pending?.onerror) throw new Error('Missing real reader error handler');
+  act(() => pending.onerror?.());
+  expect(screen.queryByText('recoveryDataReadFailed')).toBeInTheDocument();
+  expect(screen.queryByText('recoveryDataMalformed')).not.toBeInTheDocument();
+  expect(mockImport).not.toHaveBeenCalled();
+});
+
+it.each([
+  { surface: 'settings', mode: 'export' },
+  { surface: 'settings', mode: 'import' },
+  { surface: 'unavailable-ready', mode: 'export' },
+  { surface: 'unavailable-ready', mode: 'import' },
+  { surface: 'unavailable-locked', mode: 'export' },
+  { surface: 'unavailable-locked', mode: 'import' }
+])(
+  'Task5 recovery file entry connects $surface to $mode and returns without ordinary authentication',
+  async ({ surface, mode }) => {
+    mockReady = surface !== 'unavailable-locked';
+    mockAvailability =
+      surface === 'settings'
+        ? { status: 'healthy', epoch: 17 }
+        : { status: 'unavailable', epoch: 17, reason: 'journal', backend: 'independent', operation: 'mutate', time: 1 };
+    render(surface === 'settings' ? <RecoveryDataSettings /> : <StorageRecoveryPage />);
+    const name = mode === 'export' ? 'recoveryDataExport' : 'recoveryDataImport';
+    const button = screen.queryByRole('button', { name });
+    expect(button).toBeInTheDocument();
+    if (!button) throw new Error('Missing asserted recovery file entry');
+    fireEvent.click(button);
+    expect(
+      screen.queryByLabelText(mode === 'export' ? 'recovery-test-file-password' : 'recoveryDataChooseFile')
+    ).toBeInTheDocument();
+    expect(mockVerify).not.toHaveBeenCalled();
+    expect(mockExport).not.toHaveBeenCalled();
+    expect(mockImport).not.toHaveBeenCalled();
+    const { useMobileBackHandler } = await import('lib/mobile/useMobileBackHandler');
+    const back = jest.mocked(useMobileBackHandler).mock.calls.at(-1)?.[0];
+    if (!back) throw new Error('Missing registered recovery back handler');
+    act(() => {
+      back();
+    });
+    expect(screen.queryByRole('button', { name })).toBeInTheDocument();
+  }
+);
