@@ -124,3 +124,17 @@ index 2970b05..94237ba 100644
      /**
       * Relayer pays the gas. Requires a LOCAL signer that is already 7702-delegated
       * (see `setupSmartAccount`); injected wallets must use `false`.
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
+@@ -32,8 +32,8 @@
+     external: "0xb1AfC1092c40d32f72AD065c93f6d27843458b95",
+     protocolInteraction: "0xf1afC1092c40d32F72Ad065C93f6D27843458B95",
+ };
+-export { COMPACT_ABI } from "./abis/compact";
+-export { ERC20_ABI } from "./abis/erc20";
++export { COMPACT_ABI } from "./abis/compact.js";
++export { ERC20_ABI } from "./abis/erc20.js";
+ export const MIDEN_VIRTUAL_CHAIN_ID = 999999999;
+ /** Output-address sentinel: an EVM→Miden intent has no EVM output token. */
+ export const EVM_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
