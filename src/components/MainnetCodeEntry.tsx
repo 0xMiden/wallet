@@ -7,6 +7,7 @@ import { CodeInput } from 'components/ui/CodeInput';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { TextAction } from 'components/ui/TextAction';
 import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH, type MainnetAccessOutcome } from 'lib/mainnet-access';
+import { isMobile } from 'lib/platform';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
@@ -157,9 +158,11 @@ export const MainnetCodeEntryFields: React.FC<MainnetCodeEntryFieldsProps> = ({ 
     <div className={cn('flex flex-col gap-3', className)}>
       <div className="flex items-center justify-between px-1">
         <span className="text-label text-muted">{t('mainnetAccessCodeLabel')}</span>
-        <TextAction onClick={pasteCode} disabled={submitting || pasting} data-testid={`${testIdPrefix}-paste`}>
-          {t('paste')}
-        </TextAction>
+        {isMobile() && (
+          <TextAction onClick={pasteCode} disabled={submitting || pasting} data-testid={`${testIdPrefix}-paste`}>
+            {t('paste')}
+          </TextAction>
+        )}
       </div>
       <CodeInput
         value={code}
