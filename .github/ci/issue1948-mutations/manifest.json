@@ -1,0 +1,188 @@
+{
+  "source": "ecec7b0be1a7efe5c878a4563c103e9a4209edda",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "candidate_packet": "d7f6b31bfc4f856ba8e069f6984004f8825951a411a48edf297a7cdbf3d38f1d",
+  "mutants": [
+    {
+      "id": "status-binding",
+      "path": "src/lib/miden/recovery/provider-record.ts",
+      "before": "value.statusResponse.correlationId === value.quote.correlationId &&",
+      "after": "true &&",
+      "suites": [
+        "src/lib/miden/recovery/transaction-record.test.ts"
+      ],
+      "pattern": "Task4C2\\ typed\\ receipts\\ reject\\ invalid\\ status\\-correlation\\ evidence\\ before\\ journal\\ mutation$",
+      "expected_assertion": "Task4C2 typed receipts reject invalid status-correlation evidence before journal mutation",
+      "prediction": "Invalid status correlation accepted; toThrow fails."
+    },
+    {
+      "id": "backend-ack",
+      "path": "src/lib/miden/recovery/receipt-writer.ts",
+      "before": "await backend(value, epoch);",
+      "after": "void backend(value, epoch);",
+      "suites": [
+        "src/lib/miden/recovery/receipt-writer.test.ts"
+      ],
+      "pattern": "Task4C2\\ writer\\ awaits\\ its\\ role\\-bound\\ backend\\ without\\ reentering\\ unlocked\\ custody$",
+      "expected_assertion": "Task4C2 writer awaits its role-bound backend without reentering unlocked custody",
+      "prediction": "Caller fulfills before independent ACK."
+    },
+    {
+      "id": "epoch-fence",
+      "path": "src/lib/miden/recovery/receipt-writer.ts",
+      "before": "  assertStorageHealthy(epoch);",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/receipt-writer.test.ts"
+      ],
+      "pattern": "Task4C2\\ writer\\ refuses\\ an\\ acknowledgement\\ from\\ an\\ obsolete\\ storage\\ epoch$",
+      "expected_assertion": "Task4C2 writer refuses an acknowledgement from an obsolete storage epoch",
+      "prediction": "Stale ACK resolves instead of refusing."
+    },
+    {
+      "id": "held-receipt",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "if (!unchanged) await this.retainRecoveryEntries([entry]);",
+      "after": "if (!unchanged) void 0;",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "Task4C2\\ actual\\ receipt\\ route\\ handles\\ held\\ source\\ callback\\ without\\ reentering\\ SDK\\ continuity$",
+      "expected_assertion": "Task4C2 actual receipt route handles held source callback without reentering SDK continuity",
+      "prediction": "Encrypted journal lacks receipt after held route returns."
+    },
+    {
+      "id": "stable-poll",
+      "path": "src/lib/miden/recovery/transaction-record.ts",
+      "before": "oneClick: { ...inputs.oneClick, updatedAt: undefined }",
+      "after": "oneClick: { ...inputs.oneClick, updatedAt: inputs.oneClick.updatedAt }",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "Task4C2\\ finalseams\\ reuses\\ identical\\ provider\\ evidence\\ despite\\ refreshed\\ poll\\ timestamps$",
+      "expected_assertion": "Task4C2 finalseams reuses identical provider evidence despite refreshed poll timestamps",
+      "prediction": "Timestamp-only polling increases encrypted sequence."
+    },
+    {
+      "id": "external-provenance",
+      "path": "src/lib/miden/recovery/restore.ts",
+      "before": "} else if (entry.kind === 'receipt') {\n          const current = await target.table<ITransaction>('transactions').get(entry.id);\n          if (current && !sameWalletAccountId(current.accountId, entry.accountId)) throw new StorageContinuityError();\n          const critical = snapshot.entries.find(value => value.kind === 'transaction' && value.id === entry.id);\n          if (\n            current &&\n            !sameRecoveryFields(current.extraInputs, entry.row.extraInputs) &&\n            !(\n              critical?.kind === 'transaction' &&\n              critical.row &&\n              sameRecoveryFields(current.extraInputs, critical.row.extraInputs)\n            )\n          )\n            throw new StorageContinuityError();\n          await target.table('transactions').put({\n            ...(current ?? entry.row),\n            extraInputs: entry.row.extraInputs,\n            amount: entry.row.amount,\n            faucetId: entry.row.faucetId,\n            restoredFromBackup: true,\n            restoredFromJournal:\n              (current?.restoredFromBackup && !current.restoredFromJournal) ||\n              (entry.row.restoredFromBackup && !entry.row.restoredFromJournal)\n                ? undefined\n                : true\n          });\n        ",
+      "after": "} else if (entry.kind === 'receipt') {\n          const current = await target.table<ITransaction>('transactions').get(entry.id);\n          if (current && !sameWalletAccountId(current.accountId, entry.accountId)) throw new StorageContinuityError();\n          const critical = snapshot.entries.find(value => value.kind === 'transaction' && value.id === entry.id);\n          if (\n            current &&\n            !sameRecoveryFields(current.extraInputs, entry.row.extraInputs) &&\n            !(\n              critical?.kind === 'transaction' &&\n              critical.row &&\n              sameRecoveryFields(current.extraInputs, critical.row.extraInputs)\n            )\n          )\n            throw new StorageContinuityError();\n          await target.table('transactions').put({\n            ...(current ?? entry.row),\n            extraInputs: entry.row.extraInputs,\n            amount: entry.row.amount,\n            faucetId: entry.row.faucetId,\n            restoredFromBackup: true,\n            restoredFromJournal: true\n          });\n        ",
+      "suites": [
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts"
+      ],
+      "pattern": "Task4C2\\ lifecycle\\ never\\ upgrades\\ an\\ external\\ imported\\ row\\ through\\ a\\ retained\\ receipt\\ and\\ later\\ restore$",
+      "expected_assertion": "Task4C2 lifecycle never upgrades an external imported row through a retained receipt and later restore",
+      "prediction": "Later restore promotes external provenance."
+    },
+    {
+      "id": "current-debit",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "    if (\n      !charge ||\n      charge.initiatedAt !== row.initiatedAt ||\n      charge.spentUsd !== row.spentUsd ||\n      charge.authorizationId !== row.spendingLimitAuthorizationId\n    )\n      return false;\n",
+      "after": "    if (\n      !charge ||\n      charge.initiatedAt !== row.initiatedAt ||\n      charge.spentUsd !== row.spentUsd ||\n      charge.authorizationId !== row.spendingLimitAuthorizationId\n    )\n      return true;\n",
+      "suites": [
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts"
+      ],
+      "pattern": "Task4C2\\ expiry\\ retains\\ current\\ charged\\ history\\ when\\ its\\ independent\\ debit\\ is\\ missing$",
+      "expected_assertion": "Task4C2 expiry retains current charged history when its independent debit is missing",
+      "prediction": "Retirement count becomes one with missing current debit."
+    },
+    {
+      "id": "ordinary-capacity",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "if (row.type === 'send' && !row.extraInputs?.oneClick)\n    return Object.values(row.extraInputs ?? {}).every(value => value === undefined);",
+      "after": "if (row.type === 'send' && !row.extraInputs?.oneClick) return false;",
+      "suites": [
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts"
+      ],
+      "pattern": "Task4C2\\ lifecycle\\ retires\\ canonically\\ settled\\ ordinary\\ evidence\\ while\\ preserving\\ its\\ future\\ debit\\ and\\ used\\ grant$",
+      "expected_assertion": "Task4C2 lifecycle retires canonically settled ordinary evidence while preserving its future debit and used grant",
+      "prediction": "Obsolete ordinary history is retained; retirement count becomes zero."
+    },
+    {
+      "id": "source-permission",
+      "path": "src/lib/one-click/tracking.ts",
+      "before": "  await checkpointProviderReceipt(claimed);",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/provider-writers.test.ts"
+      ],
+      "pattern": "Task4C2\\ OneClick\\ funding\\ waits\\ for\\ retained\\ attempted\\ evidence\\ before\\ sending$",
+      "expected_assertion": "Task4C2 OneClick funding waits for retained attempted evidence before sending",
+      "prediction": "Actual source send starts without retained attempted receipt."
+    },
+    {
+      "id": "earn-permission",
+      "path": "src/lib/miden/transaction/complete.ts",
+      "before": "export async function prepareEarnWithdrawExecution(\n  id: string,\n  preparedExecution: IEarnWithdrawPreparedExecution,\n  expected: ExpectedEarnWithdrawIntent,\n  isCurrent: () => boolean\n): Promise<boolean> {\n  let retained: ITransaction | undefined;\n  const count = await Repo.transactions.where({ id }).modify(tx => {\n    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);\n    if (!identity) return;\n    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;\n    if (inputs.phase !== 'redeeming' && inputs.phase !== 'delivering') return;\n    const validated = validateEarnWithdrawPreparedExecution(preparedExecution, identity);\n    if (!validated || (expected.nonce !== undefined && expected.nonce !== preparedExecution.delivery.nonce)) return;\n    if (inputs.submissionState === 'prepared' || inputs.submissionState === 'accepted') {\n      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);\n      if (\n        !stored ||\n        inputs.withdrawIntentNonce !== preparedExecution.delivery.nonce ||\n        !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)\n      )\n        return;\n      retained = tx;\n      return;\n    }\n    if (\n      inputs.submissionState !== 'preparing' ||\n      inputs.withdrawIntentNonce !== undefined ||\n      inputs.preparedExecution !== undefined\n    )\n      return;\n    tx.extraInputs = {\n      ...inputs,\n      withdrawIntentNonce: preparedExecution.delivery.nonce,\n      preparedExecution: validated.preparedExecution,\n      submissionState: 'prepared'\n    };\n    retained = tx;\n  });\n  if (!retained || count === 0) return false;\n  await checkpointProviderReceipt(retained);\n  const fresh = await Repo.transactions.get(id);\n  const identity = fresh && currentEarnWithdrawExecution(fresh, expected, isCurrent);\n  if (!fresh || !identity) return false;\n  const stored = validateEarnWithdrawPreparedExecution(fresh.extraInputs.preparedExecution, identity);\n  return Boolean(stored && sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution));\n}\n\n",
+      "after": "export async function prepareEarnWithdrawExecution(\n  id: string,\n  preparedExecution: IEarnWithdrawPreparedExecution,\n  expected: ExpectedEarnWithdrawIntent,\n  isCurrent: () => boolean\n): Promise<boolean> {\n  let retained: ITransaction | undefined;\n  const count = await Repo.transactions.where({ id }).modify(tx => {\n    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);\n    if (!identity) return;\n    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;\n    if (inputs.phase !== 'redeeming' && inputs.phase !== 'delivering') return;\n    const validated = validateEarnWithdrawPreparedExecution(preparedExecution, identity);\n    if (!validated || (expected.nonce !== undefined && expected.nonce !== preparedExecution.delivery.nonce)) return;\n    if (inputs.submissionState === 'prepared' || inputs.submissionState === 'accepted') {\n      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);\n      if (\n        !stored ||\n        inputs.withdrawIntentNonce !== preparedExecution.delivery.nonce ||\n        !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)\n      )\n        return;\n      retained = tx;\n      return;\n    }\n    if (\n      inputs.submissionState !== 'preparing' ||\n      inputs.withdrawIntentNonce !== undefined ||\n      inputs.preparedExecution !== undefined\n    )\n      return;\n    tx.extraInputs = {\n      ...inputs,\n      withdrawIntentNonce: preparedExecution.delivery.nonce,\n      preparedExecution: validated.preparedExecution,\n      submissionState: 'prepared'\n    };\n    retained = tx;\n  });\n  if (!retained || count === 0) return false;\n  const fresh = await Repo.transactions.get(id);\n  const identity = fresh && currentEarnWithdrawExecution(fresh, expected, isCurrent);\n  if (!fresh || !identity) return false;\n  const stored = validateEarnWithdrawPreparedExecution(fresh.extraInputs.preparedExecution, identity);\n  return Boolean(stored && sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution));\n}\n\n",
+      "suites": [
+        "src/lib/miden/recovery/provider-writers.test.ts"
+      ],
+      "pattern": "Task4C2\\ Earn\\ preparation\\ waits\\ for\\ independent\\ acknowledgement\\ before\\ permitting\\ execution$",
+      "expected_assertion": "Task4C2 Earn preparation waits for independent acknowledgement before permitting execution",
+      "prediction": "Preparation returns while ACK is withheld."
+    },
+    {
+      "id": "allocation-ack",
+      "path": "src/lib/epoch/receipt-execution.ts",
+      "before": "await hooks.onAllocated?.(result.submittedIntentData);",
+      "after": "void hooks.onAllocated?.(result.submittedIntentData);",
+      "suites": [
+        "src/lib/epoch/receipt-owners.test.ts"
+      ],
+      "pattern": "Task4C2\\ supplemental\\ waits\\ for\\ the\\ production\\ accepted\\ allocation\\ receipt\\ before\\ reporting\\ pending$",
+      "expected_assertion": "Task4C2 supplemental waits for the production accepted allocation receipt before reporting pending",
+      "prediction": "Store completes before accepted-allocation ACK."
+    },
+    {
+      "id": "usdcx-owner",
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+      "before": "await updateBridgedReceivePhase(txId, phase, details, expected, guards);",
+      "after": "await updateBridgedReceivePhase(txId, phase, details);",
+      "suites": [
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx"
+      ],
+      "pattern": "Task4C2\\ supplemental\\ USDCx\\ owner\\ preserves\\ attempted\\ source\\ after\\ native=false\\ wallet\\ response\\ loss$",
+      "expected_assertion": "Task4C2 supplemental USDCx owner preserves attempted source after native=false wallet response loss",
+      "prediction": "Observed wallet call sees not-started after dropped guard arguments."
+    },
+    {
+      "id": "ambiguous-catch",
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+      "before": "row?.type === 'bridged-receive' && row.extraInputs.sourceSubmission === 'attempted' && !row.extraInputs.evmTxHash",
+      "after": "false",
+      "suites": [
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx"
+      ],
+      "pattern": "Task4C2\\ supplemental\\ preserves\\ AggLayer\\ attempted\\ source\\ after\\ native=false\\ wallet\\ response\\ loss$",
+      "expected_assertion": "Task4C2 supplemental preserves AggLayer attempted source after native=false wallet response loss",
+      "prediction": "Observed ambiguous call is demoted to failed."
+    },
+    {
+      "id": "known-hash-cas",
+      "path": "src/lib/one-click/tracking.ts",
+      "before": "      if (\n        (tracking.originTransactionHash && tracking.originTransactionHash !== transactionHash) ||\n        (transaction.extraInputs.evmTxHash && transaction.extraInputs.evmTxHash !== transactionHash)\n      )\n        return false;\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/provider-enrichment.test.ts"
+      ],
+      "pattern": "Task4C2\\ oneclick\\ consistency\\ refuses\\ replacing\\ a\\ known\\ source\\ hash\\ without\\ poisoning\\ storage$",
+      "expected_assertion": "Task4C2 oneclick consistency refuses replacing a known source hash without poisoning storage",
+      "prediction": "Conflicting known hash resolves and overwrites identity."
+    },
+    {
+      "id": "late-hash-phase",
+      "path": "src/lib/one-click/tracking.ts",
+      "before": "phase: tracking.originTransactionHash || isTerminal(tracking.phase) ? tracking.phase : 'known-deposit-tx'",
+      "after": "phase: 'known-deposit-tx'",
+      "suites": [
+        "src/lib/miden/recovery/provider-enrichment.test.ts"
+      ],
+      "pattern": "Task4C2\\ oneclick\\ consistency\\ keeps\\ delivered\\ status\\ when\\ the\\ original\\ hash\\ callback\\ repeats$",
+      "expected_assertion": "Task4C2 oneclick consistency keeps delivered status when the original hash callback repeats",
+      "prediction": "Repeated original hash reverses delivered status."
+    }
+  ]
+}
