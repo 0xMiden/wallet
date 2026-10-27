@@ -74,8 +74,16 @@ jest.mock('components/ui/SubPageLayout', () => ({
 }));
 jest.mock('screens/encrypted-file-flow/ExportFileSetNamePassword', () => ({
   __esModule: true,
-  default: ({ passwordValue, fileName, handlePasswordChange, onFileNameChange, onGoNext }: ExportFilePasswordProps) => (
+  default: ({
+    passwordValue,
+    fileName,
+    handlePasswordChange,
+    onFileNameChange,
+    onGoNext,
+    error
+  }: ExportFilePasswordProps) => (
     <section data-testid="recovery-file-password-form">
+      {error && <p role="alert">{error}</p>}
       <input aria-label="recovery-test-file-password" value={passwordValue} onChange={handlePasswordChange} />
       <input aria-label="recovery-test-file-name" value={fileName} onChange={onFileNameChange} />
       <button onClick={onGoNext}>continue</button>
