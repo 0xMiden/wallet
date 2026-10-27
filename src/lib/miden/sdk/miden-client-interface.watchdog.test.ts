@@ -10,7 +10,7 @@
  * different mutex than the one the interface pauses.
  */
 
-import { nativeStorageCapability } from '../../../../__mocks__/nativeStorageCapability';
+import { nativeStorageCapability } from './test-fixtures/nativeStorageCapability';
 
 /** The keystore `sign` shape `MidenClientInterface.create` wires into the SDK. */
 type WiredSign = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;

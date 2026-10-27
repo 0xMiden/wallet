@@ -8,11 +8,11 @@
  * Imports are dynamic and per test so the interface, the lock and the transport slot
  * all come from one fresh module registry.
  */
-import { nativeStorageCapability, nativeStorageWasm } from '../../../../__mocks__/nativeStorageCapability';
 import { ConsumeTransaction, SendTransaction, SwapTransaction, type StageDetail } from '../db/types';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { LocalProveOptions, LocalProveRequest } from './local-prove-transport';
+import { nativeStorageCapability, nativeStorageWasm } from './test-fixtures/nativeStorageCapability';
 
 const IN_REALM = 'in-realm prove reached';
 

@@ -1,9 +1,9 @@
 import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
-import { nativeStorageCapability, nativeStorageWasm } from '../../../../__mocks__/nativeStorageCapability';
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { WasmLockHold } from './miden-client';
+import { nativeStorageCapability, nativeStorageWasm } from './test-fixtures/nativeStorageCapability';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 // The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.

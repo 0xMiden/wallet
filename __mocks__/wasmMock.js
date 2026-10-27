@@ -1,4 +1,4 @@
-const { nativeStorageCapability } = require('./nativeStorageCapability');
+const { nativeStorageCapability } = require('../src/lib/miden/sdk/test-fixtures/nativeStorageCapability');
 
 module.exports = {
   ...nativeStorageCapability(),
