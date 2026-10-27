@@ -1,6 +1,11 @@
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import { ITransactionStatus, SendTransaction } from 'lib/miden/db/types';
+import { readRetainedFinancialEntries, verifyFinancialRecoveryEntries } from 'lib/miden/recovery/financial';
+import * as financialBackend from 'lib/miden/recovery/financial-backend';
+import type { RecoveryPolicyEntry } from 'lib/miden/recovery/types';
 import { transactions } from 'lib/miden/repo';
 import { queueOutgoingTransaction, spendsOf } from 'lib/miden/spending-limits/queue';
+import { assertStorageHealthy } from 'lib/miden/storage-health';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import { assertSwapQueueAvailable } from './admission';
@@ -11,6 +16,36 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   canonicalWalletAccountId: (a: string) => a
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({ cacheScope: () => 'testnet|rpc' }));
+const baseline: RecoveryPolicyEntry[] = [{ kind: 'policy', id: 'account', accountId: 'account', configuration: null }];
+const acknowledgements: number[] = [];
+let previousLocks: PropertyDescriptor | undefined;
+let backendSpy: jest.SpyInstance;
+
+beforeEach(() => {
+  previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+  acknowledgements.length = 0;
+  const backend: NonNullable<ReturnType<typeof financialBackend.getFinancialRecoveryBackend>> = async (
+    accountId,
+    entry,
+    expectedEpoch
+  ) => {
+    expect(accountId).toBe('account');
+    expect(entry).toBeUndefined();
+    assertStorageHealthy(expectedEpoch);
+    verifyFinancialRecoveryEntries(baseline, await readRetainedFinancialEntries(baseline));
+    assertStorageHealthy(expectedEpoch);
+    acknowledgements.push(expectedEpoch);
+  };
+  backendSpy = jest.spyOn(financialBackend, 'getFinancialRecoveryBackend').mockReturnValue(backend);
+});
+
+afterEach(() => {
+  backendSpy.mockRestore();
+  if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
+  else Reflect.deleteProperty(navigator, 'locks');
+});
+
 const row = (id: string) => {
   const tx = new SendTransaction('account', 10n, 'recipient', 'pay', NoteTypeEnum.Public);
   tx.id = id;
@@ -18,9 +53,10 @@ const row = (id: string) => {
 };
 const queue = (id: string) => {
   const tx = row(id);
-  return queueOutgoingTransaction(tx, spendsOf(tx), undefined, undefined, () =>
-    assertSwapQueueAvailable('account', 'testnet|rpc')
-  );
+  return queueOutgoingTransaction(tx, spendsOf(tx), undefined, undefined, () => {
+    expect(acknowledgements.length).toBeGreaterThan(0);
+    return assertSwapQueueAvailable('account', 'testnet|rpc');
+  });
 };
 it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction, ITransactionStatus.Unconfirmed])(
   'refuses an unresolved outgoing spend with status %s',
@@ -33,6 +69,8 @@ it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction, IT
 it('admits only one concurrent swap against the same vault', async () => {
   const results = await Promise.allSettled([queue('a'), queue('b')]);
   expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+  const rejected = results.find(result => result.status === 'rejected');
+  expect(rejected?.status === 'rejected' ? rejected.reason : undefined).toEqual(new Error('swapPendingSpend'));
   expect(await transactions.count()).toBe(1);
 });
 it('does not reserve funds for a completed outgoing transaction', async () => {
@@ -41,6 +79,7 @@ it('does not reserve funds for a completed outgoing transaction', async () => {
 });
 it('rejects a changed endpoint before inserting', async () => {
   await expect(assertSwapQueueAvailable('account', 'other')).rejects.toThrow('swapBalanceUnavailable');
+  expect(acknowledgements).toEqual([]);
 });
 
 it('does not assume a pending claim leaves the fee balance available', async () => {

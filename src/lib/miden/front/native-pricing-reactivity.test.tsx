@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 import { create } from 'zustand';
 
+import type { TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { pricesLoaded, type TokenPrices } from 'lib/prices/binance';
@@ -15,7 +16,8 @@ type NativeState = {
   tokenPrices: TokenPrices;
   assetsMetadata: Record<string, AssetMetadata>;
   balances: Record<string, TokenBalanceData[]>;
-  tokenMetadataOverrides: Record<string, never>;
+  tokenMetadataOverrides: TokenMetadataOverrides;
+  hydrateTokenMetadataOverrides(overrides: TokenMetadataOverrides): void;
   setAssetsMetadata(metadata: Record<string, AssetMetadata>): void;
 };
 const mockStore = create<NativeState>((set, get) => ({
@@ -34,6 +36,7 @@ const mockStore = create<NativeState>((set, get) => ({
     ]
   },
   tokenMetadataOverrides: {},
+  hydrateTokenMetadataOverrides: overrides => set({ tokenMetadataOverrides: overrides }),
   setAssetsMetadata: metadata => set({ assetsMetadata: { ...get().assetsMetadata, ...metadata } })
 }));
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
@@ -41,7 +44,7 @@ let mockNativeChanged: ((id: string) => void) | undefined;
 
 beforeEach(() => {
   mockNativeMetadata = null;
-  mockStore.setState({ tokenPrices: {}, assetsMetadata: {} });
+  mockStore.setState({ tokenPrices: {}, assetsMetadata: {}, tokenMetadataOverrides: {} });
 });
 
 jest.mock('lib/store', () => ({

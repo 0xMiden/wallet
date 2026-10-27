@@ -1,4 +1,8 @@
+import { getProviderReceiptBackend, installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
+import { fromSerializable } from 'lib/miden/recovery/serialization';
+import { validateRecoveryReceipt } from 'lib/miden/recovery/transaction-record';
 import * as Repo from 'lib/miden/repo';
+import { assertStorageHealthy } from 'lib/miden/storage-health';
 
 import {
   adoptableNotesOf,
@@ -738,4 +742,25 @@ describe('a registry delivery claimed in a batch', () => {
       expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
     }
   );
+});
+
+let previousReceiptBackend: ReturnType<typeof getProviderReceiptBackend>;
+const retainedReceipts = new Map<string, ReturnType<typeof validateRecoveryReceipt>>();
+
+async function acknowledgeSyntheticReceipt(value: unknown, expectedEpoch: number): Promise<void> {
+  assertStorageHealthy(expectedEpoch);
+  const row = validateRecoveryReceipt(fromSerializable(value));
+  expect(await Repo.transactions.get(row.id)).toMatchObject(row);
+  assertStorageHealthy(expectedEpoch);
+  retainedReceipts.set(row.id, row);
+}
+
+beforeEach(() => {
+  previousReceiptBackend = getProviderReceiptBackend();
+  retainedReceipts.clear();
+  installProviderReceiptBackend(acknowledgeSyntheticReceipt);
+});
+
+afterEach(() => {
+  installProviderReceiptBackend(previousReceiptBackend);
 });
