@@ -159,6 +159,7 @@ const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
 let mockStoreState = {
+  vault: mockVault,
   inited: true,
   status: WalletStatus.Ready,
   accounts: [],
@@ -351,6 +352,7 @@ describe('actions', () => {
       if (callbacks.getKey === mockRealmGetKey) mockRealmGetKey = null;
     });
     mockStoreState = {
+      vault: mockVault,
       inited: true,
       status: WalletStatus.Ready,
       accounts: [],
