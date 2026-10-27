@@ -145,6 +145,13 @@ jest.mock('../sdk/miden-client', () => ({
   resetMidenClient: async () => (globalThis as any).__mainTest.resetMidenClient()
 }));
 
+jest.mock('lib/miden/recovery/serialization', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/recovery/serialization')>(
+    'lib/miden/recovery/serialization'
+  );
+  return { ...actual, fromSerializable: jest.fn(actual.fromSerializable) };
+});
+
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
@@ -1902,6 +1909,44 @@ describe('Task4C3F operation-bound acquisition reverse IPC', () => {
         expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id }));
         expect(f.sink).not.toHaveBeenCalled();
         expect(f.health.getStorageHealth().status).toBe('healthy');
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it.each(['excessive count', 'aggregate bytes', 'account field', 'scan field'])(
+    'Task4C3F2 refuses %s before generic decoding or sink mutation',
+    async boundary => {
+      const f = await fixture();
+      const { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } = await import('../recovery/journal');
+      const decoding = jest.mocked((await import('../recovery/serialization')).fromSerializable);
+      const wireNote = { ...note, noteFile: [19, 48, 61] };
+      const notes =
+        boundary === 'excessive count'
+          ? Array.from({ length: JOURNAL_MAX_ENTRIES + 1 }, () => wireNote)
+          : boundary === 'aggregate bytes'
+            ? Array.from({ length: 2 }, () => ({
+                ...wireNote,
+                noteFile: Array.from({ length: JOURNAL_MAX_BYTES / 2 + 1 }, () => 1)
+              }))
+            : [{ ...wireNote, ...(boundary === 'account field' ? { accountId: 'untrusted-account' } : {}) }];
+      const payload = {
+        ...f.message,
+        notes:
+          boundary === 'scan field'
+            ? [{ ...wireNote, scan: { nextBlock: 1, anchorBlock: 0, anchor: 'untrusted-anchor' } }]
+            : notes
+      };
+      decoding.mockClear();
+      try {
+        const { routed, reply } = f.invoke(payload);
+        await flushStorage();
+        expect(routed).toBe(true);
+        expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id }));
+        expect(f.sink).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth().status).toBe('healthy');
+        expect(decoding).not.toHaveBeenCalled();
       } finally {
         await f.restore();
       }
