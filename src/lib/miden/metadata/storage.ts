@@ -21,7 +21,12 @@ function stableMetadata(metadata: Record<string, AssetMetadata>): string {
   return JSON.stringify(
     Object.entries(metadata)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, value]) => [id, Object.entries(value).sort(([left], [right]) => left.localeCompare(right))])
+      .map(([id, value]) => [
+        id,
+        Object.entries(value)
+          .filter(([, field]) => field !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right))
+      ])
   );
 }
 

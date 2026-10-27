@@ -362,3 +362,15 @@ describe('Task5 cache metadata', () => {
     }
   );
 });
+
+describe('Task5 cache canonical equality', () => {
+  it('treats absent and undefined optional metadata as the same persisted record', async () => {
+    const { updateTokensBaseMetadata } = loadStorageModule();
+    const known: AssetMetadata = { symbol: 'TOK', name: 'Known', decimals: 18 };
+    const storage = memoryStorage({ active: known }, 2);
+    const write = jest.fn(storage.writeMetadata);
+    await updateTokensBaseMetadata({ active: { ...known, description: undefined } }, storage.readMetadata, write);
+    expect(write).not.toHaveBeenCalled();
+    expect(storage.items.metadata).toEqual({ active: known });
+  });
+});

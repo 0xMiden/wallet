@@ -60,7 +60,13 @@ const stablePrices = (cache: UsdPriceCache): string =>
   JSON.stringify(
     Object.entries(cache)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([symbol, entry]) => [symbol, entry?.priceMicro, entry?.fetchedAt])
+      .map(([symbol, entry]) => [
+        symbol,
+        entry &&
+          Object.entries(entry)
+            .filter(([, value]) => value !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+      ])
   );
 
 const boundedPrices = (cache: UsdPriceCache, now: number, preferred: ReadonlySet<string>): UsdPriceCache => {
