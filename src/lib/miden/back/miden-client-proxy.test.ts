@@ -4810,8 +4810,16 @@ describe('Task4C3N offscreen retained-note receipt authority', () => {
       () => undefined,
       (error: unknown) => error
     );
-    for (let index = 0; index < 20 && opId === undefined; index++) await flush();
-    expect(typeof opId).toBe('string');
+    try {
+      for (let index = 0; index < 20 && opId === undefined; index++) await flush();
+      expect(typeof opId).toBe('string');
+    } catch (error) {
+      finish({ ok: false, op_id: opId });
+      await settled;
+      acquisition.uninstallNoteAcquisitionSink(sink);
+      await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+      throw error;
+    }
     if (!opId) throw new Error('Recovery dispatch fixture did not reach the bridge');
     const operationId = opId;
     expect(proxy.__test.inFlightOpIds()).toContain(operationId);
