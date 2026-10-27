@@ -1,0 +1,32 @@
+name: Issue1948 extract existing SDK package evidence
+on:
+  push:
+    branches: ['ci/1948-sdk-evidence-*']
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify and extract existing successful artifact receipts
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 controller/.github/ci/issue1948-sdk-evidence.py 2>&1 | tee evidence/extract.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-small-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            small-proof/
+          if-no-files-found: error

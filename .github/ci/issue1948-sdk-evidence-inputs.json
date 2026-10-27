@@ -1,0 +1,40 @@
+{
+  "artifact_bytes": 295983883,
+  "artifact_digest": "sha256:a2375a3a1d7a16d2b691b01a294ed176a12442f4d76f65f424de8fb07f5bc1af",
+  "artifact_id": 12710677349,
+  "artifact_name": "sdk-package-preparation-fd524-40451498209-1",
+  "package_workflow_sha": "2883ec087286632ef0062df6f8ad9f9d5f5179d6",
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-evidence.yml",
+    ".github/ci/issue1948-sdk-evidence.py",
+    ".github/ci/issue1948-sdk-evidence-inputs.json"
+  ],
+  "required": [
+    "assembly-result.json",
+    "source-bindings.json",
+    "producer-receipt.json",
+    "packages.json",
+    "dist-before.json",
+    "consumer-lock-before.json",
+    "consumer-lock-after-install.json",
+    "consumer-Cargo.lock",
+    "consumer-pnpm-lock.yaml",
+    "consumer-install.log",
+    "react-build.log",
+    "vite-plugin-build.log",
+    "sdk-producer.log",
+    "stage-bind.log",
+    "stage-metadata.log",
+    "stage-restore.log",
+    "stage-install.log",
+    "stage-build.log",
+    "stage-pack.log",
+    "stage-receipt.log"
+  ],
+  "run_id": 40451498209,
+  "sdk_source": "fd52477d7c7d5d475dc14987ebbd7a36dbb703da",
+  "sdk_tree": "0d4504105c5ba62f9ab439cfc19cf3ee503277a5",
+  "small_limit_bytes": 20971520,
+  "wallet_source": "52d576ce799e40c2734fb6d918e54185637c982c",
+  "wallet_tree": "bef16e437bdf8bad033e40fbeb64f2a505e4f532"
+}
