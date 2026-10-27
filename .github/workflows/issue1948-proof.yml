@@ -1,0 +1,98 @@
+name: Issue1948 frozen full coverage
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/3
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      JEST_COVERAGE_SHARD: '1'
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 52d576ce799e40c2734fb6d918e54185637c982c | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 52d576ce799e40c2734fb6d918e54185637c982c
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run complete coverage shard
+        if: steps.install.outcome == 'success'
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          yarn test:coverage --shard="$SHARD/3" --maxWorkers=2 --workerIdleMemoryLimit=768MB --coverageReporters=json --coverageReporters=text-summary --json --outputFile=proof/jest-results.json 2>&1 | tee proof/coverage.log
+      - name: Record exact executed and skipped cases
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/jest-results.json');console.log(JSON.stringify({executed:x.numPassedTests+x.numFailedTests,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites,failedSuites:x.numFailedTestSuites}));for(const s of x.testResults)for(const a of s.assertionResults||[])if(a.status==='pending')console.log('pending: '+a.fullName);if(x.numPassedTests<1||x.numFailedTests||x.numFailedTestSuites||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: |
+            proof/
+            coverage/coverage-final.json
+          if-no-files-found: error
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Require all original shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: test "$SHARDS_RESULT" = success
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install original coverage reporters outside checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: coverage-shards
+      - name: Verify source receipts
+        run: |
+          for shard in 1 2 3; do
+            test "$(cat coverage-shards/coverage-shard-$shard/proof/source-sha.txt)" = 52d576ce799e40c2734fb6d918e54185637c982c
+            test "$(cat coverage-shards/coverage-shard-$shard/proof/workflow-sha.txt)" = "$GITHUB_SHA"
+          done
+      - name: Enforce unchanged merged gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage/coverage-final.json coverage-shards/coverage-shard-2/coverage/coverage-final.json coverage-shards/coverage-shard-3/coverage/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-merged
+          path: coverage/
