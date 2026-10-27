@@ -1,5 +1,7 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { StorageAvailability } from 'lib/miden/storage-health';
+import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -34,6 +36,7 @@ import { WalletType } from 'screens/onboarding/types';
  * Core wallet state (synced from backend)
  */
 export interface WalletSlice {
+  storageAvailability: StorageAvailability;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[];
@@ -169,6 +172,10 @@ export interface WalletActions {
     importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
+  recoverWalletStorage: (
+    operation: 'check' | 'rebuild' | 'reconcile',
+    expectedEpoch: number
+  ) => Promise<StorageRecoveryResult>;
 
   // Account actions
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;

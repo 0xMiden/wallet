@@ -35,6 +35,18 @@ function serialize(data: unknown, capacityError?: Error): string {
   return text;
 }
 
+const integrityFailures = new WeakSet<object>();
+
+function integrityFailure(message: string): Error {
+  const error = new Error(message);
+  integrityFailures.add(error);
+  return error;
+}
+
+export function isRecoveryJournalIntegrityFailure(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && integrityFailures.has(error);
+}
+
 export class RecoveryJournal {
   constructor(
     private key: CryptoKey,
@@ -87,13 +99,13 @@ export class RecoveryJournal {
         await check();
         const verified = await this.decrypt(values[key]);
         await check();
-        if (serialize(verified) !== plaintext) throw new Error('Recovery journal readback mismatch');
+        if (serialize(verified) !== plaintext) throw integrityFailure('Recovery journal readback mismatch');
         await this.storage.set({ [POINTER_KEY]: { slot, sequence: next.sequence } });
         await check();
         const readback = await this.readCurrent(false);
         await check();
         if (readback.degraded || !readback.snapshot || serialize(readback.snapshot) !== plaintext)
-          throw new Error('Recovery journal pointer readback mismatch');
+          throw integrityFailure('Recovery journal pointer readback mismatch');
         return verified;
       });
     } catch (error) {
@@ -133,7 +145,7 @@ export class RecoveryJournal {
       const verified = await this.readCurrent(false);
       await check();
       if (verified.degraded || !verified.snapshot || serialize(verified.snapshot) !== serialize(expected))
-        throw new Error('Recovery journal repair readback mismatch');
+        throw integrityFailure('Recovery journal repair readback mismatch');
       return verified.snapshot;
     });
   }
@@ -271,7 +283,7 @@ export class RecoveryJournal {
         await this.assertCurrent();
         const readback = await this.storage.get([key]);
         const verified = await this.decrypt(readback[key]);
-        if (serialize(verified) !== plaintext) throw new Error('Recovery journal readback mismatch');
+        if (serialize(verified) !== plaintext) throw integrityFailure('Recovery journal readback mismatch');
         await this.assertCurrent();
         await this.storage.set({ [POINTER_KEY]: { slot: nextSlot, sequence: next.sequence } });
         await this.assertCurrent();

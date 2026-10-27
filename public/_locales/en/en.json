@@ -1807,5 +1807,15 @@
   "arcadeBalanceUnknown": "Balance unavailable",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Game Coins",
-  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
+  "storageRecoveryTitle": "Wallet storage unavailable",
+  "storageRecoveryDescription": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked.",
+  "storageRecoverySubmissionWarning": "A submitted transaction may still complete. Check its status before trying again.",
+  "storageRecoveryCheck": "Check storage",
+  "storageRecoveryRebuild": "Rebuild from recovery data",
+  "storageRecoveryReconcile": "Check submitted transactions",
+  "storageRecoveryWorking": "Checking retained wallet data...",
+  "storageRecoveryFailed": "The check could not finish. Wallet actions remain paused.",
+  "storageRecoveryIncomplete": "Storage has not been verified. Wallet actions remain paused.",
+  "storageRecoveryProgress": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$."
 }

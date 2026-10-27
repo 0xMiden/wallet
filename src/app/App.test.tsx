@@ -24,11 +24,14 @@ import React from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 
 import { type AppEnvironment, WindowType } from 'app/env';
+import type { StorageHealth } from 'lib/miden/storage-health';
 import { initFeatureEligibility } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
+import { type WalletAccount, WalletStatus } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 import { initCrashReporting } from 'lib/telemetry/crash';
 import { recordRelaySurface } from 'lib/telemetry/relay-diagnostics';
+import { WalletType } from 'screens/onboarding/types';
 
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
 // `isExtension()` at module scope, and the mock control fns below must be
@@ -143,8 +146,34 @@ jest.mock('lib/woozie', () => ({
   Provider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
 }));
 
+const createHealthyAvailability = (): StorageHealth => ({ status: 'healthy', epoch: 0 });
+const healthyAvailability = createHealthyAvailability();
+const retainedAccount: WalletAccount = {
+  publicKey: 'retained-account',
+  name: 'Retained account',
+  isPublic: true,
+  type: WalletType.Guardian,
+  hdIndex: 0,
+  authScheme: 'ecdsa'
+};
+let mockMiden = {
+  ready: true,
+  locked: false,
+  hydrated: true,
+  storageAvailability: healthyAvailability,
+  state: {
+    status: WalletStatus.Ready,
+    accounts: [retainedAccount],
+    currentAccount: retainedAccount,
+    networks: [],
+    settings: null,
+    ownMnemonic: false,
+    storageAvailability: healthyAvailability
+  }
+};
 jest.mock('lib/miden/front', () => ({
-  MidenProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  MidenProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  useMidenContext: () => mockMiden
 }));
 
 jest.mock('app/a11y/AwaitFonts', () => ({
@@ -171,7 +200,7 @@ jest.mock('app/providers/UpdateNotificationProvider', () => ({
 }));
 
 jest.mock('app/providers/GuardianRecoveryProvider', () => ({
-  GuardianRecoveryProvider: () => null
+  GuardianRecoveryProvider: () => <div data-testid="guardian-recovery-provider" />
 }));
 
 // ---------------------------------------------------------------------------
@@ -221,10 +250,10 @@ jest.mock('app/templates/PinExtensionPrompt', () => ({
 
 // The gate reads useAppEnv and Woozie.useLocation, which the env and router mocks above do not provide.
 jest.mock('app/templates/HotKeyRotationGate', () => ({
-  HotKeyRotationGate: () => null
+  HotKeyRotationGate: () => <div data-testid="hot-key-rotation-gate" />
 }));
 jest.mock('app/templates/HotKeyRotatedOutGate', () => ({
-  HotKeyRotatedOutGate: () => null
+  HotKeyRotatedOutGate: () => <div data-testid="hot-key-rotated-out-gate" />
 }));
 
 jest.mock('app/templates/OpenLinkPrompt', () => ({
@@ -281,6 +310,11 @@ describe('app/App', () => {
 
   beforeEach(() => {
     mockBackupRequired = false;
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability: healthyAvailability,
+      state: { ...mockMiden.state, storageAvailability: healthyAvailability }
+    };
     // Silence the diagnostic `[AppProvider] Rendering ...` log.
     jest.spyOn(console, 'log').mockImplementation(() => {});
     // Reset to the "extension, not mobile, not desktop" baseline; each test
@@ -322,6 +356,50 @@ describe('app/App', () => {
       }
     }
   );
+
+  it('Task5 availability followon unavailable mobile mounts no signing or request prompts', async () => {
+    mockIsExtension.mockReturnValue(false);
+    mockIsMobile.mockReturnValue(true);
+    mockIsDesktop.mockReturnValue(false);
+    const storageAvailability: StorageHealth = {
+      status: 'unavailable',
+      epoch: 9,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1000
+    };
+    mockMiden = { ...mockMiden, storageAvailability, state: { ...mockMiden.state, storageAvailability } };
+    const view = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+    expect(view.queryByTestId('hot-key-rotation-gate')).not.toBeInTheDocument();
+    expect(view.queryByTestId('hot-key-rotated-out-gate')).not.toBeInTheDocument();
+    expect(view.queryByTestId('guardian-recovery-provider')).not.toBeInTheDocument();
+    expect(view.queryByTestId('open-link-prompt')).not.toBeInTheDocument();
+    expect(view.queryByTestId('bread-connect-prompt')).not.toBeInTheDocument();
+    expect(view.queryByTestId('desktop-confirm-modal')).not.toBeInTheDocument();
+    expect(view.queryByTestId('page-router')).toBeInTheDocument();
+  });
+
+  it('Task5 availability unavailable confirm window mounts no confirmation', async () => {
+    const storageAvailability: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability,
+      state: { ...mockMiden.state, storageAvailability }
+    };
+
+    const view = await renderApp({ windowType: WindowType.Popup, confirmWindow: true });
+
+    expect(view.queryByTestId('confirm-page')).not.toBeInTheDocument();
+    expect(view.queryByTestId('page-router')).not.toBeInTheDocument();
+  });
 
   describe('extension surface (not mobile, not desktop, not confirm)', () => {
     it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', async () => {
@@ -546,3 +624,7 @@ describe('app/App', () => {
     });
   });
 });
+
+jest.mock('./StorageRecoveryPage', () => ({
+  StorageRecoveryPage: () => <div data-testid="storage-recovery-page" />
+}));

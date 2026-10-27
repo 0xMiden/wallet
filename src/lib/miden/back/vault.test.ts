@@ -6209,6 +6209,176 @@ describe('Vault storage continuity', () => {
     expect(getStorageHealth().status).toBe('healthy');
   });
 
+  async function nativeVaultRetention() {
+    const fixture = await acquisition();
+    const sdk = jest.requireMock<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const native = await sdk.getWasmOrThrow();
+    const sdkClient = fixture.client.client;
+    Reflect.set(
+      sdkClient,
+      'storeIdentifier',
+      jest.fn(async () => native.resolveStoreName(getEffectiveRpcUrl(), undefined))
+    );
+    Reflect.set(sdkClient, 'terminate', jest.fn());
+    const previousCreate: unknown = Reflect.get(sdk.MidenClient, 'create');
+    const create = jest.fn(async (_options: Parameters<typeof sdk.MidenClient.create>[0]) => sdkClient);
+    Reflect.set(sdk.MidenClient, 'create', create);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client = await MidenClientInterface.create({ useWorker: false });
+    const gate = create.mock.calls[0]?.[0]?.beforeNoteAcquisition;
+    if (!gate) throw new Error('Missing protected native retention fixture');
+    const candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate = {
+      operationId: 'vault-native-retention',
+      noteFileBytes: fixture.noteFile,
+      variant: 'committed',
+      source: 'import',
+      batchIndex: 0,
+      batchCount: 1,
+      detailsCommitment: '0x' + '34'.repeat(32),
+      noteId: fixture.noteId,
+      nullifier: '0x' + '56'.repeat(32),
+      metadata: {
+        sender: '0x' + '11'.repeat(15),
+        noteType: 0,
+        tag: 7,
+        attachmentsCommitment: '0x' + '77'.repeat(32)
+      },
+      tag: 7
+    };
+    let adopted = false;
+    let afterRetention: () => void = () => {};
+    const imported = jest.fn(async () => {
+      await gate(candidate);
+      afterRetention();
+      adopted = true;
+      return fixture.noteId;
+    });
+    const { withWasmClientLock } = await import('../sdk/miden-client');
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    return {
+      ...fixture,
+      RetentionFailure: sdk.NoteAcquisitionRetentionError,
+      invoke: () =>
+        getAccountsWriteQueue()
+          .add(() => withWasmClientLock(() => imported()))
+          .then(
+            () => 'accepted',
+            (error: unknown) => error
+          ),
+      adopted: () => adopted,
+      afterRetention: (operation: () => void) => {
+        afterRetention = operation;
+      },
+      cleanup: async () => {
+        client.free();
+        if (previousCreate === undefined) Reflect.deleteProperty(sdk.MidenClient, 'create');
+        else Reflect.set(sdk.MidenClient, 'create', previousCreate);
+        fixture.restore();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      }
+    };
+  }
+
+  it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
+    const f = await nativeVaultRetention();
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { toSerializable } = await import('../recovery/serialization');
+    const providerFactory = jest.mocked(getStorageProvider);
+    const originalFactory = providerFactory.getMockImplementation();
+    if (!originalFactory) throw new Error('Missing storage provider fixture');
+    const provider = getStorageProvider();
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing native readback journal fixture');
+    const pointer = memoryStore.miden_recovery_v1_active;
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const priorCiphertext = await Passworder.encryptJson(toSerializable(before), fixtureKey);
+    let writtenSlot: string | undefined;
+    let substitutedReadbacks = 0;
+    providerFactory.mockImplementation(() => ({
+      ...provider,
+      set: async items => {
+        await provider.set(items);
+        writtenSlot = Object.keys(items).find(key => /^miden_recovery_v1_[01]$/.test(key)) ?? writtenSlot;
+      },
+      get: async keys => {
+        const values = await provider.get(keys);
+        if (writtenSlot && keys.length === 1 && keys[0] === writtenSlot && substitutedReadbacks === 0) {
+          substitutedReadbacks += 1;
+          return { ...values, [writtenSlot]: priorCiphertext };
+        }
+        return values;
+      }
+    }));
+    try {
+      const outcome = await f.invoke();
+      expect(substitutedReadbacks).toBe(1);
+      expect(f.adopted()).toBe(false);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'journal', backend: 'independent' });
+      expect(memoryStore.miden_recovery_v1_active).toEqual(pointer);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(outcome).toBeInstanceOf(f.RetentionFailure);
+    } finally {
+      providerFactory.mockImplementation(originalFactory);
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3P leaves ordinary SDK Abort after actual Vault retention healthy and unbranded', async () => {
+    const f = await nativeVaultRetention();
+    const cancellation = new DOMException('Import cancelled', 'AbortError');
+    f.afterRetention(() => {
+      throw cancellation;
+    });
+    try {
+      const outcome = await f.invoke();
+      expect(outcome).toBe(cancellation);
+      expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+      expect(f.adopted()).toBe(false);
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: f.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3P refuses actual Vault capacity before write or adoption without a failure brand', async () => {
+    const f = await nativeVaultRetention();
+    try {
+      const initial = await vault.readRecoveryJournal();
+      if (!initial) throw new Error('Missing native capacity journal fixture');
+      const materialCount =
+        journalNoteBodies(initial).length + initial.entries.filter(entry => entry.kind !== 'note').length;
+      await vault.retainRecoveryEntries(
+        Array.from({ length: 256 - materialCount }, (_, index) => ({
+          kind: 'note',
+          id: `native-capacity-${index}`,
+          noteFile: new Uint8Array([19, index]),
+          provenance: 'input',
+          format: 'full'
+        }))
+      );
+      const before = await vault.readRecoveryJournal();
+      if (!before) throw new Error('Missing full native capacity journal fixture');
+      expect(journalNoteBodies(before).length + before.entries.filter(entry => entry.kind !== 'note').length).toBe(256);
+      const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+      const writes = mockStorageSets.length;
+      const outcome = await f.invoke();
+      expect(outcome).toBeInstanceOf(Error);
+      expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+      expect(f.adopted()).toBe(false);
+      expect(mockStorageSets.slice(writes)).toEqual([]);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
   async function nativeRecoveryReceipt({ foreignCallback = false } = {}) {
     let storageTail = Promise.resolve();
     Object.defineProperty(navigator, 'locks', {

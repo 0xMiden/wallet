@@ -456,6 +456,39 @@ describe('actions', () => {
   });
 
   describe('getFrontState', () => {
+    it('Task5 availability initial backend response stays pending before health hydration', async () => {
+      mockStoreState.inited = false;
+      await jest.isolateModulesAsync(async () => {
+        const health: typeof import('lib/miden/storage-health') = jest.requireActual('lib/miden/storage-health');
+        const storage: typeof import('lib/platform/storage-adapter') =
+          jest.requireActual('lib/platform/storage-adapter');
+        let release!: (value: Record<string, unknown>) => void;
+        const retainedHealth = new Promise<Record<string, unknown>>(resolve => {
+          release = resolve;
+        });
+        const read = jest.spyOn(storage.getStorageProvider(), 'get').mockImplementationOnce(() => retainedHealth);
+        const hydration = health.initializeStorageHealth();
+        let hydrated = false;
+        void hydration.then(() => {
+          hydrated = true;
+        });
+        try {
+          const restarted: typeof import('./actions') = jest.requireActual('./actions');
+          const front = await restarted.getFrontState();
+
+          expect(read).toHaveBeenCalledWith([health.STORAGE_HEALTH_KEY]);
+          expect(hydrated).toBe(false);
+          expect(Reflect.get(front, 'storageAvailability')).toEqual({ status: 'pending' });
+        } finally {
+          release({});
+          await hydration;
+          await health.flushStorageHealth();
+          await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+          read.mockRestore();
+        }
+      });
+    });
+
     it('returns state when inited is true', async () => {
       mockStoreState.inited = true;
       mockStoreState.status = WalletStatus.Ready;

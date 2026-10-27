@@ -58,7 +58,8 @@ import {
   assertStorageHealthy,
   getStorageHealth,
   initializeStorageHealth,
-  StorageUnavailableError
+  StorageUnavailableError,
+  type StorageAvailability
 } from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
@@ -197,7 +198,7 @@ export async function init() {
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<WalletState> {
+export async function getFrontState(): Promise<WalletState & { storageAvailability: StorageAvailability }> {
   try {
     const state = store.getState();
     if (state.inited) {
@@ -206,15 +207,16 @@ export async function getFrontState(): Promise<WalletState> {
   } catch {
     // store not initialized yet
   }
-  // Return Idle immediately so the UI can render while backend inits.
+  // Authentication and storage hydration must both settle before onboarding is admitted.
   return {
-    status: 0,
+    storageAvailability: { status: 'pending' },
+    status: WalletStatus.Idle,
     accounts: [],
     currentAccount: null,
     networks: [],
     settings: null,
     ownMnemonic: null
-  } as WalletState;
+  };
 }
 
 export async function isDAppEnabled() {

@@ -1,4 +1,5 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type { StorageAvailability } from 'lib/miden/storage-health';
 import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   PersistedSpendingLimit,
@@ -431,6 +432,7 @@ export type GuardianRecoveryAction =
 export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
 
 export interface WalletState {
+  storageAvailability?: StorageAvailability;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this

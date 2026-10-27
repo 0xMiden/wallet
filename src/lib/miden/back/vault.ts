@@ -108,7 +108,7 @@ import {
   verifyFinancialRecoveryEntries
 } from '../recovery/financial';
 import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
-import { RecoveryJournal } from '../recovery/journal';
+import { isRecoveryJournalIntegrityFailure, RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
 import { withRetainedNoteReceipt } from '../recovery/native-note-receipt';
 import {
@@ -155,10 +155,12 @@ import {
   getStorageHealth,
   markStorageUnavailable,
   reportStorageFailure,
+  confirmStorageFailure,
   StorageUnavailableError,
   validateStorageHealth,
   withStorageRecoveryAccess,
-  type StorageRecoveryCapability
+  type StorageRecoveryCapability,
+  type StorageFailureContext
 } from '../storage-health';
 
 // AUTH SCHEME POLICY
@@ -446,8 +448,11 @@ export class Vault {
           !(error instanceof StorageUnavailableError) &&
           getStorageHealth().epoch === epoch &&
           isRealmKeystoreInstalled({ insertKey: this.insertKeySink })
-        )
-          markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+        ) {
+          const context = { backend: 'independent', operation: 'mutate' } satisfies StorageFailureContext;
+          if (isRecoveryJournalIntegrityFailure(error)) confirmStorageFailure(error, 'journal', context, epoch);
+          else markStorageUnavailable('journal', context);
+        }
       }
     );
   }

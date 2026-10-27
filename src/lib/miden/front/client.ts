@@ -41,6 +41,8 @@ function getIntercom() {
 export const [MidenContextProvider, useMidenContext] = constate(() => {
   // Get state from Zustand store
   const status = useWalletStore(s => s.status);
+  const storageAvailability = useWalletStore(s => s.storageAvailability);
+  const recoverWalletStorage = useWalletStore(s => s.recoverWalletStorage);
   const isInitialized = useWalletStore(s => s.isInitialized);
   const accounts = useWalletStore(s => s.accounts);
   const currentAccount = useWalletStore(s => s.currentAccount);
@@ -94,13 +96,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const state: MidenState = useMemo(
     () => ({
       status,
+      storageAvailability,
       accounts,
       currentAccount,
       networks,
       settings,
       ownMnemonic
     }),
-    [status, accounts, currentAccount, networks, settings, ownMnemonic]
+    [status, storageAvailability, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
   // Derive convenience booleans
@@ -399,6 +402,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     state,
     // Aliases
     status,
+    storageAvailability,
+    recoverWalletStorage,
     defaultNetworks,
     networks: networksCopy,
     accounts,
