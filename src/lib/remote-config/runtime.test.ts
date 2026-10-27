@@ -229,6 +229,21 @@ describe('the store', () => {
     expect(mockReadStored).not.toHaveBeenCalled();
   });
 
+  it('revalidates a legacy allocator admission instead of trusting its warm derived cache', async () => {
+    const entry = storeEntry('testnet', 1, NOW);
+    const legacy = derivedFor(entry.config, NOW);
+    mockStorage.set('bridge_config_derived_v1:testnet', legacy);
+    serve(1);
+
+    const snapshot = await initBridgeConfig();
+
+    expect(snapshot.config).toEqual(entry.config);
+    expect(snapshot.derived?.epoch.allocator).not.toEqual({ state: 'ok', value: true });
+    expect(mockStorage.get('bridge_config_derived_v1:testnet')).toEqual(legacy);
+    await flush();
+    expect(mockDerive).toHaveBeenCalledWith(entry.config);
+  });
+
   it('serves the stored document with its derivation, ready, without fetching a fresh copy', async () => {
     seed(3, { fetchedAt: NOW - 60_000 });
     const snapshot = await initBridgeConfig();
