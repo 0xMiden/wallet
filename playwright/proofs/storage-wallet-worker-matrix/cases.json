@@ -1,0 +1,142 @@
+[
+  {
+    "id": "st/module/normal-create",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "normal-create",
+    "durability": "strict"
+  },
+  {
+    "id": "st/module/public-reader",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "public-reader",
+    "durability": "strict"
+  },
+  {
+    "id": "st/module/late-commit-abort",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "late-commit-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "st/module/intentional-abort",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "intentional-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "st/classic/normal-create",
+    "mode": "st",
+    "workerMode": "classic",
+    "kind": "normal-create",
+    "durability": "strict"
+  },
+  {
+    "id": "st/classic/public-reader",
+    "mode": "st",
+    "workerMode": "classic",
+    "kind": "public-reader",
+    "durability": "strict"
+  },
+  {
+    "id": "st/classic/late-commit-abort",
+    "mode": "st",
+    "workerMode": "classic",
+    "kind": "late-commit-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "st/classic/intentional-abort",
+    "mode": "st",
+    "workerMode": "classic",
+    "kind": "intentional-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/module/normal-create",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "normal-create",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/module/public-reader",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "public-reader",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/module/late-commit-abort",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "late-commit-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/module/intentional-abort",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "intentional-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/classic/normal-create",
+    "mode": "mt",
+    "workerMode": "classic",
+    "kind": "normal-create",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/classic/public-reader",
+    "mode": "mt",
+    "workerMode": "classic",
+    "kind": "public-reader",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/classic/late-commit-abort",
+    "mode": "mt",
+    "workerMode": "classic",
+    "kind": "late-commit-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/classic/intentional-abort",
+    "mode": "mt",
+    "workerMode": "classic",
+    "kind": "intentional-abort",
+    "durability": "strict"
+  },
+  {
+    "id": "st/durability/strict",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "durability",
+    "durability": "strict"
+  },
+  {
+    "id": "st/durability/default",
+    "mode": "st",
+    "workerMode": "module",
+    "kind": "durability",
+    "durability": "default"
+  },
+  {
+    "id": "mt/durability/strict",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "durability",
+    "durability": "strict"
+  },
+  {
+    "id": "mt/durability/default",
+    "mode": "mt",
+    "workerMode": "module",
+    "kind": "durability",
+    "durability": "default"
+  }
+]
