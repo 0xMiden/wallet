@@ -1,6 +1,6 @@
 import * as Passworder from '../passworder';
 import { withRecoveryStorageLock } from './lock';
-import { retainNoteCandidates } from './note-candidates';
+import { recoveryNoteMaterials, retainNoteCandidates } from './note-candidates';
 import { resolveRecoveryDebit } from './retry-transition';
 import { fromSerializable, toSerializable } from './serialization';
 import type { RecoveryEntry, RecoveryJournalData, RecoveryJournalSnapshot } from './types';
@@ -28,9 +28,10 @@ function payload(value: unknown): Passworder.EncryptedPayload {
     throw new Error('Invalid recovery ciphertext');
   return { dt, iv };
 }
-function serialize(data: unknown): string {
+function serialize(data: unknown, capacityError?: Error): string {
   const text = JSON.stringify(toSerializable(data));
-  if (new TextEncoder().encode(text).length > JOURNAL_MAX_BYTES) throw new Error('Recovery journal capacity exceeded');
+  if (new TextEncoder().encode(text).length > JOURNAL_MAX_BYTES)
+    throw capacityError ?? new Error('Recovery journal capacity exceeded');
   return text;
 }
 
@@ -191,6 +192,7 @@ export class RecoveryJournal {
     change: (current: RecoveryJournalSnapshot | undefined) => RecoveryJournalData,
     committedRetries: readonly string[] = []
   ): Promise<RecoveryJournalSnapshot> {
+    const capacityError = new Error('Recovery journal capacity exceeded');
     try {
       return await withRecoveryStorageLock(async () => {
         await this.assertCurrent();
@@ -245,13 +247,21 @@ export class RecoveryJournal {
               : entry
           );
         }
+        const merged = [...entries.values()];
+        if (
+          merged.reduce(
+            (count, entry) => count + (entry.kind === 'note' ? recoveryNoteMaterials(entry).length : 1),
+            0
+          ) > JOURNAL_MAX_ENTRIES
+        )
+          throw capacityError;
         const next = validateJournal({
           ...proposed,
-          entries: [...entries.values()],
+          entries: merged,
           version: 1,
           sequence: (previous?.sequence ?? 0) + 1
         });
-        const plaintext = serialize(next);
+        const plaintext = serialize(next, capacityError);
         if (previous && serialize({ ...next, sequence: previous.sequence }) === serialize(previous)) return previous;
         const encrypted = await Passworder.encryptJson(JSON.parse(plaintext), this.key);
         await this.assertCurrent();
@@ -268,7 +278,7 @@ export class RecoveryJournal {
         return verified;
       });
     } catch (error) {
-      this.onFailure(error);
+      if (error !== capacityError) this.onFailure(error);
       throw error;
     }
   }

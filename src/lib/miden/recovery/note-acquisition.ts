@@ -121,22 +121,32 @@ export function decodeAcquiredNotes(value: unknown): RecoveryNoteEntry[] {
 
 export function captureNoteAcquisitionRetainer() {
   const sink = installedSink;
-  return async (notes: RecoveryNoteEntry[], network: string, assertCurrent: () => void): Promise<() => void> => {
+  const assertSinkCurrent = () => {
+    if (!sink || installedSink !== sink) throw new StorageUnavailableError();
+  };
+  const retain = async (
+    notes: RecoveryNoteEntry[],
+    network: string,
+    assertCurrent: () => void,
+    onFailure?: (error: unknown) => void
+  ): Promise<() => void> => {
     const check = () => {
       assertCurrent();
-      if (!sink || installedSink !== sink) throw new StorageUnavailableError();
+      assertSinkCurrent();
     };
     check();
     if (!sink) throw new StorageUnavailableError();
     try {
       await sink(notes, network, check);
     } catch (error) {
+      onFailure?.(error);
       check();
       throw error;
     }
     check();
     return check;
   };
+  return Object.assign(retain, { assertSinkCurrent });
 }
 
 export function retainAcquiredNotes(notes: RecoveryNoteEntry[], network: string, assertCurrent: () => void) {

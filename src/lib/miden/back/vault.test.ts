@@ -6063,6 +6063,144 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  async function completedBaseline(notes: import('../recovery/types').RecoveryNoteEntry[]) {
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
+      fixtureKey
+    );
+    readSnapshot.mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes
+    }));
+  }
+
+  it('Task4C3I2 refuses initial note plus financial capacity before initializing an SDK marker', async () => {
+    const notes: import('../recovery/types').RecoveryNoteEntry[] = Array.from({ length: 256 }, (_, index) => ({
+      kind: 'note',
+      id: index.toString(16).padStart(64, '0'),
+      noteFile: new Uint8Array([19, index]),
+      provenance: 'input',
+      format: 'full'
+    }));
+    await completedBaseline(notes);
+    const { readFinancialRecoveryBaseline } = await import('../recovery/financial');
+    const financial = await readFinancialRecoveryBaseline(['retained']);
+    expect(notes.length + financial.length).toBe(257);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(generation).toBeNull();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2 refuses encoded journal byte capacity before initializing an SDK marker', async () => {
+    const notes: import('../recovery/types').RecoveryNoteEntry[] = Array.from({ length: 4 }, (_, index) => ({
+      kind: 'note',
+      id: index.toString(16).padStart(64, '0'),
+      noteFile: new Uint8Array(140_000).fill(255),
+      provenance: 'input',
+      format: 'full'
+    }));
+    const { toSerializable } = await import('../recovery/serialization');
+    expect(notes.reduce((sum, note) => sum + note.noteFile.byteLength, 0)).toBeLessThan(2 * 1024 * 1024);
+    expect(new TextEncoder().encode(JSON.stringify(toSerializable(notes))).byteLength).toBeGreaterThan(2 * 1024 * 1024);
+    await completedBaseline(notes);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(generation).toBeNull();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2 preserves a full prior journal and healthy state when the merged baseline cannot fit', async () => {
+    await completedBaseline([
+      { kind: 'note', id: '12'.repeat(32), noteFile: new Uint8Array([19, 48, 93]), provenance: 'input', format: 'full' }
+    ]);
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const initial = await vault.readRecoveryJournal();
+    if (!initial) throw new Error('Missing initial baseline fixture');
+    const materialCount =
+      journalNoteBodies(initial).length + initial.entries.filter(entry => entry.kind !== 'note').length;
+    await vault.retainRecoveryEntries(
+      Array.from({ length: 256 - materialCount }, (_, index) => ({
+        kind: 'note',
+        id: `retained-capacity-${index}`,
+        noteFile: new Uint8Array([19, index]),
+        provenance: 'input',
+        format: 'full'
+      }))
+    );
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing full baseline fixture');
+    expect(journalNoteBodies(before).length + before.entries.filter(entry => entry.kind !== 'note').length).toBe(256);
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const marker = generation;
+    initializeGeneration.mockClear();
+    await completedBaseline([
+      { kind: 'note', id: '34'.repeat(32), noteFile: new Uint8Array([19, 48, 94]), provenance: 'input', format: 'full' }
+    ]);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(generation).toBe(marker);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2R retains the complete baseline when SDK marker initialization rejects', async () => {
+    const note = {
+      kind: 'note',
+      id: '56'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 95]),
+      provenance: 'input',
+      format: 'full'
+    } satisfies import('../recovery/types').RecoveryNoteEntry;
+    await completedBaseline([note]);
+    const { readFinancialRecoveryBaseline } = await import('../recovery/financial');
+    const { getEffectiveNetworkName, getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const financial = await readFinancialRecoveryBaseline(['retained']);
+    const markerFailure = new Error('Marker not acknowledged');
+    initializeGeneration.mockRejectedValueOnce(markerFailure);
+    const outcome = await vault.verifyStorageContinuity().then(
+      () => 'completed',
+      error => error
+    );
+    expect(outcome).toBe(markerFailure);
+    expect(initializeGeneration).toHaveBeenCalledTimes(1);
+    const retained = await vault.readRecoveryJournal();
+    expect(retained).toMatchObject({
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      scope: {
+        network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        walletGeneration: 'wallet-fixture',
+        sdkGeneration: initializeGeneration.mock.calls[0]?.[0]
+      },
+      entries: expect.arrayContaining([note, ...financial])
+    });
+    expect(retained?.entries).toHaveLength(financial.length + 1);
+    expect(generation).toBeNull();
+    expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+    expect(getStorageHealth().status).toBe('healthy');
+  });
+
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
     const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
