@@ -158,7 +158,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Run blockchain E2E (devnet)
         id: e2e
@@ -249,7 +249,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Run blockchain E2E (testnet)
         run: xvfb-run -a yarn test:e2e:blockchain:testnet
@@ -400,7 +400,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Build Chrome extension (devnet)
         run: yarn test:e2e:blockchain:build
@@ -500,7 +500,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Build Chrome extension (testnet)
         run: yarn test:e2e:blockchain:build
@@ -691,7 +691,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
@@ -899,7 +899,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
@@ -1168,7 +1168,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
@@ -1374,7 +1374,7 @@ jobs:
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
         env:
-          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && 'true' || 'false' }}
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
