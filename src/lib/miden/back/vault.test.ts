@@ -6288,6 +6288,21 @@ describe('Vault storage continuity', () => {
       keys.vaultKeyPassword,
       await Passworder.encryptVaultKeyWithPassword(new Uint8Array(32).fill(7), credential)
     );
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(keys.accounts, fixtureKey);
+    await encryptAndSaveMany(
+      [
+        [
+          keys.accounts,
+          accounts.map(account => ({
+            ...account,
+            type: WalletType.Guardian,
+            hdIndex: account.hdIndex ?? 0,
+            authScheme: account.authScheme ?? 'ecdsa'
+          }))
+        ]
+      ],
+      fixtureKey
+    );
     return credential;
   }
 
