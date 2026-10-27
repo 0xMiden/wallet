@@ -13,6 +13,7 @@ import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmatio
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
+  handleOffscreenNoteAcquisition,
   handleOffscreenStageEvent,
   handleOffscreenSubmitGate,
   markOpStarted,
@@ -21,6 +22,7 @@ import {
 } from 'lib/miden/back/miden-client-proxy';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
+  OFFSCREEN_NOTE_ACQUISITION,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_PROVE_MARKER,
@@ -279,6 +281,9 @@ function registerOffscreenSignHandler(): void {
           id?: unknown;
           scope?: unknown;
           health?: unknown;
+          network?: unknown;
+          epoch?: unknown;
+          notes?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -295,6 +300,16 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_NOTE_ACQUISITION) {
+      if (sender.url !== chrome.runtime.getURL('offscreen.html') || typeof m.op_id !== 'string') return false;
+      void handleOffscreenNoteAcquisition({
+        op_id: m.op_id,
+        network: m.network,
+        epoch: m.epoch,
+        notes: m.notes
+      }).then(sendResponse);
+      return true;
+    }
     if (m.type === OFFSCREEN_STORAGE_HEALTH || m.type === OFFSCREEN_STORAGE_FAILURE) {
       if (m.type === OFFSCREEN_STORAGE_FAILURE) adoptStorageHealth(m.health);
       void initializeStorageHealth().then(() => sendResponse(getStorageHealth()));

@@ -1,6 +1,7 @@
 import { type NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { JOURNAL_MAX_BYTES } from './journal';
+import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
+import { fromSerializable } from './serialization';
 import type { RecoveryNoteEntry } from './types';
 import { isRecoveryNote } from './validation';
 import { normalizedCommitment, noteDetailsCommitment } from '../sdk/note-details-commitment';
@@ -67,24 +68,43 @@ export function sameAcquiredNote(left: RecoveryNoteEntry, right: RecoveryNoteEnt
   );
 }
 
-export async function retainAcquiredNotes(
-  notes: RecoveryNoteEntry[],
-  network: string,
-  assertCurrent: () => void
-): Promise<() => void> {
+export function decodeAcquiredNotes(value: unknown): RecoveryNoteEntry[] {
+  const decoded: unknown = fromSerializable(value);
+  if (
+    !Array.isArray(decoded) ||
+    decoded.length > JOURNAL_MAX_ENTRIES ||
+    !decoded.every(
+      (note: unknown): note is RecoveryNoteEntry =>
+        isRecoveryNote(note) &&
+        note.provenance === 'input' &&
+        Object.keys(note).every(key => ['kind', 'id', 'detailsId', 'noteFile', 'provenance', 'format'].includes(key))
+    ) ||
+    decoded.reduce((bytes, note) => bytes + note.noteFile.byteLength, 0) > JOURNAL_MAX_BYTES
+  )
+    throw new Error('Invalid acquired notes');
+  return decoded;
+}
+
+export function captureNoteAcquisitionRetainer() {
   const sink = installedSink;
-  const check = () => {
-    assertCurrent();
-    if (!sink || installedSink !== sink) throw new StorageUnavailableError();
-  };
-  check();
-  if (!sink) throw new StorageUnavailableError();
-  try {
-    await sink(notes, network, check);
-  } catch (error) {
+  return async (notes: RecoveryNoteEntry[], network: string, assertCurrent: () => void): Promise<() => void> => {
+    const check = () => {
+      assertCurrent();
+      if (!sink || installedSink !== sink) throw new StorageUnavailableError();
+    };
     check();
-    throw error;
-  }
-  check();
-  return check;
+    if (!sink) throw new StorageUnavailableError();
+    try {
+      await sink(notes, network, check);
+    } catch (error) {
+      check();
+      throw error;
+    }
+    check();
+    return check;
+  };
+}
+
+export function retainAcquiredNotes(notes: RecoveryNoteEntry[], network: string, assertCurrent: () => void) {
+  return captureNoteAcquisitionRetainer()(notes, network, assertCurrent);
 }

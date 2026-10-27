@@ -18,6 +18,7 @@
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -57,7 +58,13 @@ import {
 } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEndpointState,
+  getEffectiveNetworkName,
+  sameEndpointState,
+  whenEndpointOverridesLoaded,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import {
   annotateTransactionExecution,
@@ -76,6 +83,8 @@ import {
   type OffscreenDeadlineTimer,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
+  type OffscreenNoteAcquisitionRequest,
+  type OffscreenNoteAcquisitionResponse,
   type OffscreenSendDto,
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
@@ -341,6 +350,12 @@ const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
 const COMMIT_WAIT_DEADLINE_MS = 150_000;
 
 interface InFlightOp {
+  acquisition: {
+    retain: ReturnType<typeof captureNoteAcquisitionRetainer>;
+    epoch: number;
+    network: string;
+    endpoints: EndpointState;
+  };
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
   resolveResult: (resultB64: string | null) => void;
   reject: (err: unknown) => void;
@@ -639,6 +654,8 @@ async function dispatchOp(
   critical: boolean,
   recoveryCapability?: StorageRecoveryCapability
 ): Promise<string | null> {
+  const retainAcquisition = captureNoteAcquisitionRetainer();
+  let storageEpoch = getStorageHealth().epoch;
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
@@ -648,6 +665,7 @@ async function dispatchOp(
         throw new Error('Invalid recovery operation');
       assertStorageRecoveryAllowed(recoveryCapability);
     } else assertStorageHealthy();
+    storageEpoch = getStorageHealth().epoch;
     await ensureOffscreenDocument();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
@@ -655,6 +673,8 @@ async function dispatchOp(
   // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
   // envelope carries would still be the build's network. The load settles even when it fails.
   await whenEndpointOverridesLoaded();
+  const acquisitionEndpoints = getEndpointState();
+  const acquisitionNetwork = getEffectiveNetworkName();
   let argsB64: string[];
   try {
     argsB64 = args.map(encodeArg);
@@ -685,6 +705,12 @@ async function dispatchOp(
           )
         : null;
     inFlight.set(op_id, {
+      acquisition: {
+        retain: retainAcquisition,
+        epoch: storageEpoch,
+        network: acquisitionNetwork,
+        endpoints: acquisitionEndpoints
+      },
       resolveResult: resolve,
       reject,
       timer,
@@ -710,7 +736,7 @@ async function dispatchOp(
       method,
       argsB64,
       deadline_ms: deadlineMs,
-      endpoints: getEndpointState()
+      endpoints: acquisitionEndpoints
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
     // closed), or reject ("message port closed"). All three are handled: a
@@ -826,6 +852,32 @@ export async function handleOffscreenSignRequest(
     }
   } finally {
     resumeDeadline(op_id);
+  }
+}
+
+export async function handleOffscreenNoteAcquisition(
+  msg: OffscreenNoteAcquisitionRequest
+): Promise<OffscreenNoteAcquisitionResponse> {
+  const op = inFlight.get(msg.op_id);
+  const check = () => {
+    if (!op || !op.started || inFlight.get(msg.op_id) !== op) throw new Error('Acquisition operation ended');
+    assertStorageHealthy(op.acquisition.epoch);
+    if (
+      msg.epoch !== op.acquisition.epoch ||
+      msg.network !== op.acquisition.network ||
+      !sameEndpointState(op.acquisition.endpoints, getEndpointState())
+    )
+      throw new Error('Acquisition scope changed');
+  };
+  try {
+    check();
+    if (!op) throw new Error('Acquisition operation ended');
+    const notes = decodeAcquiredNotes(msg.notes);
+    const assertRetained = await op.acquisition.retain(notes, op.acquisition.network, check);
+    assertRetained();
+    return { ok: true, op_id: msg.op_id };
+  } catch {
+    return { ok: false, op_id: msg.op_id };
   }
 }
 

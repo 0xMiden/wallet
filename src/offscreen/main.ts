@@ -49,6 +49,7 @@ import {
 import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_NOTE_ACQUISITION,
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
@@ -83,6 +84,11 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { captureRecoveryNotes } from 'lib/miden/recovery/capture';
+import {
+  installNoteAcquisitionSink,
+  uninstallNoteAcquisitionSink,
+  type NoteAcquisitionSink
+} from 'lib/miden/recovery/note-acquisition';
 import { decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
 import { toSerializable } from 'lib/miden/recovery/serialization';
 import type { RecoveryCapture } from 'lib/miden/recovery/types';
@@ -136,7 +142,12 @@ import {
   subscribeStorageHealth
 } from 'lib/miden/storage-health';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
-import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  adoptEndpointState,
+  getEffectiveNetworkName,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
@@ -1669,6 +1680,48 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false, recoveryCapability: capability };
+      const acquisitionNetwork = getEffectiveNetworkName();
+      const acquisitionEndpoints = msg.endpoints;
+      const acquisitionSink: NoteAcquisitionSink = async (notes, network, assertSource) => {
+        const check = () => {
+          assertSource();
+          assertWasmHoldCurrent(hold, 'offscreen note acquisition');
+          assertStorageHealthy(healthEpoch);
+          if (
+            context.settled ||
+            client.isDisposed ||
+            network !== acquisitionNetwork ||
+            !adoptedEndpoints ||
+            !sameEndpointState(acquisitionEndpoints, adoptedEndpoints)
+          )
+            throw new Error('Acquisition operation changed');
+        };
+        check();
+        const response: unknown = await withRpcTimeout(
+          () =>
+            chrome.runtime.sendMessage({
+              target: SW_TARGET,
+              type: OFFSCREEN_NOTE_ACQUISITION,
+              op_id: context.op_id,
+              network,
+              epoch: healthEpoch,
+              notes: toSerializable(notes)
+            }),
+          'offscreen-note-acquisition',
+          { retries: 0 }
+        );
+        check();
+        if (
+          !response ||
+          typeof response !== 'object' ||
+          !('ok' in response) ||
+          response.ok !== true ||
+          !('op_id' in response) ||
+          response.op_id !== context.op_id
+        )
+          throw new Error('Acquisition retention was refused');
+      };
+      installNoteAcquisitionSink(acquisitionSink);
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1677,6 +1730,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         // after this point, its stamps are about a step the SW has already been
         // told the outcome of (see `postStageEvent`).
         context.settled = true;
+        uninstallNoteAcquisitionSink(acquisitionSink);
         // Only if it is still OURS. An evicted dispatch keeps running and can
         // settle long after a successor installed its own id; clearing blindly
         // would leave the healthy successor with no ambient id, so its

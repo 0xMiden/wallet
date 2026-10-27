@@ -1638,6 +1638,7 @@ export class MidenClientInterface {
           } catch (error) {
             // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
             if (isClientFault(error)) throw error;
+            if (reportStorageFailure(error, { backend: 'sdk', operation: 'import' })) throw error;
             failures++;
             console.warn('[GuardianRecovery] Failed to import one public note:', error);
           }

@@ -366,6 +366,59 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       });
     });
 
+    it('Task4C3E4 stops the public range on the first classified SDK quota failure', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('public-a'), committedNote('public-b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('public-a'), fetchedNote('public-b')]);
+      const failure = new DOMException('SDK public import quota', 'QuotaExceededError');
+      noteImport.mockRejectedValueOnce(failure);
+      const client = await loadClient();
+      const { withWasmClientLock } = await import('./miden-client');
+      const health = await import('../storage-health');
+      await health.initializeStorageHealth();
+      expect(health.getStorageHealth().status).toBe('healthy');
+
+      const outcome = await withWasmClientLock(() => client.recoverPublicNotesRange('acct', 0, 999)).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+
+      expect(outcome).toBe('refused');
+      expect(noteImport).toHaveBeenCalledTimes(1);
+      expect(requestedIdBatches).toEqual([['public-a', 'public-b']]);
+      expect(fakeRpc.syncNotes).toHaveBeenCalledTimes(1);
+      expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
+      expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota', backend: 'sdk' });
+    });
+
+    it.each(['generic refusal', 'AbortError'])(
+      'Task4C3E4 preserves healthy public recovery accounting for %s',
+      async reason => {
+        fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('public-a'), committedNote('public-b')] });
+        fakeRpc.getNotesById.mockResolvedValue([fetchedNote('public-a'), fetchedNote('public-b')]);
+        noteImport.mockRejectedValueOnce(
+          reason === 'AbortError' ? new DOMException('cancelled', 'AbortError') : new Error('ordinary import refusal')
+        );
+        const client = await loadClient();
+        const { withWasmClientLock } = await import('./miden-client');
+        const health = await import('../storage-health');
+        await health.initializeStorageHealth();
+        expect(health.getStorageHealth().status).toBe('healthy');
+
+        await expect(withWasmClientLock(() => client.recoverPublicNotesRange('acct', 0, 999))).resolves.toEqual({
+          imported: 1,
+          failures: 1,
+          saturated: false,
+          nextNoteOffset: undefined
+        });
+
+        expect(noteImport).toHaveBeenCalledTimes(2);
+        expect(requestedIdBatches).toEqual([['public-a', 'public-b']]);
+        expect(fakeRpc.syncNotes).toHaveBeenCalledTimes(1);
+        expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
+        expect(health.getStorageHealth().status).toBe('healthy');
+      }
+    );
+
     it('rethrows a trap from a note import for its lock to retire, importing nothing after it', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
       fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
