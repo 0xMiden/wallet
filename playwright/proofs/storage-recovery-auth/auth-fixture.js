@@ -279,11 +279,26 @@ export async function runAuthCase({ build, useWorker }) {
     }
     async function importedRecord(prefix, bytes) {
       const before = acquisitions.length;
-      const file = own(sdk.NoteFile.deserialize(bytes));
-      await client.notes.import(file);
+      const file = sdk.NoteFile.deserialize(bytes);
+      let preparedBytes;
+      let importSucceeded = false;
+      try {
+        preparedBytes = file.serialize().slice();
+        await client.notes.import(file);
+        importSucceeded = true;
+      } finally {
+        if (importSucceeded) phase = `${prefix}-post-import-free-observation`;
+        try {
+          file.free();
+          if (importSucceeded) observations[`${prefix}.postImportFreeAccepted`] = true;
+        } catch {
+          if (importSucceeded) observations[`${prefix}.postImportFreeAccepted`] = false;
+        }
+      }
+      phase = `${prefix}-import-readback`;
       check(`${prefix}.nativeCallback`, acquisitions.length === before + 1 && acquisitions[before].source === 'import');
       const candidate = acquisitions[before];
-      check(`${prefix}.exactCallbackBytes`, (await hash(candidate.bytes)) === (await hash(file.serialize())));
+      check(`${prefix}.exactCallbackBytes`, (await hash(candidate.bytes)) === (await hash(preparedBytes)));
       check(`${prefix}.nativeIdentity`, normalize(candidate.details) === commitment);
       check(`${prefix}.nativeVariant`, candidate.variant === (prefix === 'full' ? 'committed' : 'expectedNote'));
       if (prefix === 'full') {
