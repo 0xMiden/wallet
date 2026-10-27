@@ -1,0 +1,108 @@
+{
+  "source": "7c840989376bd636f097501a523c510c78f6b43c",
+  "source_tree": "4d7896ccdd7d6179410fb014c8af9cba789a4e5b",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "old-expected-canonical-binding",
+      "path": "src/lib/miden/recovery/canonical-note-bindings.ts",
+      "before": "            identity?.detailsId === target.detailsId &&",
+      "after": "            identity?.id === target.id &&\n            identity?.detailsId === target.detailsId &&",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3G6 retires the authenticated family and its old Expected body after exact canonical consumption$",
+      "expected_assertion": "Vault storage continuity Task4C3G6 retires the authenticated family and its old Expected body after exact canonical consumption",
+      "prediction": "Requiring a full note ID on every material denies the old details-only Expected body its canonical binding; retirement returns zero instead of one.",
+      "expected_functional_assertion": "vault.test.ts:5779 reconciliation result equals { reconciled: 0, retired: 1 }",
+      "source_reason": "The selected fixture retains expectedBytes with detailsOnly:true (5369) and full canonical bytes. The original target/source checks still pass for the promoted primary. Only per-material acceptance of an absent ID permits the Expected candidate to inherit the owned authenticated nullifier; retirement refuses an unbound material before RPC.",
+      "source_file_sha256": "5e437c8436f343e677cb0f2a02db2207d52a12d98fd7ea98d56a93b566f2cb94"
+    },
+    {
+      "id": "conflicting-full-id-veto",
+      "path": "src/lib/miden/recovery/canonical-note-bindings.ts",
+      "before": "            (identity.id === undefined || identity.id === target.id) &&",
+      "after": "            true &&",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3G6 preserves a conflicting full note ID even when its fixture has the same nullifier$",
+      "expected_assertion": "Vault storage continuity Task4C3G6 preserves a conflicting full note ID even when its fixture has the same nullifier",
+      "prediction": "The conflicting nested full note gains deletion authority from the shared details/nullifier and the family is retired instead of preserved.",
+      "expected_functional_assertion": "vault.test.ts:5840 reconciliation result equals { reconciled: 0, retired: 0 }, followed by unchanged snapshot and no RPC assertions",
+      "source_reason": "The fixture's conflicting body has a distinct full ID but the same nullifier (5374-5376). The separate source.id guard sees the already promoted canonical primary, not this nested candidate. Its details and nullifier satisfy the remaining material checks, so removing this particular full-ID conjunct is not masked by those guards.",
+      "source_file_sha256": "5e437c8436f343e677cb0f2a02db2207d52a12d98fd7ea98d56a93b566f2cb94"
+    },
+    {
+      "id": "unreadable-candidate-fallback",
+      "path": "src/lib/miden/recovery/canonical-note-bindings.ts",
+      "before": "        } catch {\n          // Unreadable candidates stay quarantined and prevent whole-family deletion.\n        }",
+      "after": "        } catch {\n          bound.identity = { nullifier: `0x${target.nullifier}`, fromBlock: target.fromBlock };\n        }",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3G6 quarantines an unreadable candidate without deleting it or vetoing the authenticated primary$",
+      "expected_assertion": "Vault storage continuity Task4C3G6 quarantines an unreadable candidate without deleting it or vetoing the authenticated primary",
+      "prediction": "A deserialize failure is given the canonical identity as a permissive fallback; all family materials then appear bound and positive consumption deletes the quarantined bytes.",
+      "expected_functional_assertion": "vault.test.ts:5872 reconciliation result equals { reconciled: 0, retired: 0 }, followed by unchanged snapshot and no scan assertions",
+      "source_reason": "The test inserts unreadableBytes which are absent from the fixture's deserialize map. The catch currently leaves that exact material unbound; recoveryNoteMaterials includes it, and retirement stops on undefined identity. Assigning identity in this catch removes that sole preservation barrier while retaining the healthy canonical primary and exact positive scan.",
+      "source_file_sha256": "5e437c8436f343e677cb0f2a02db2207d52a12d98fd7ea98d56a93b566f2cb94"
+    },
+    {
+      "id": "exact-full-nullifier-match",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "            if (updates.some(update => update.nullifier === identity.nullifier)) {",
+      "after": "            if (updates.length > 0) {",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3G6 keeps every family body when the scanned full nullifier differs despite a matching prefix$",
+      "expected_assertion": "Vault storage continuity Task4C3G6 keeps every family body when the scanned full nullifier differs despite a matching prefix",
+      "prediction": "A nonempty same-prefix response containing another full nullifier deletes the retained family instead of advancing only its negative cursor.",
+      "expected_functional_assertion": "vault.test.ts:5801 reconciliation result equals { reconciled: 0, retired: 0 }, and retained bodies/cursor assertions",
+      "source_reason": "The selected scan returns one update at the exact requested block with the same high prefix and a changed final byte. Both headers remain stable, all identities bind, and the earlier update block guard passes; the full-nullifier comparison is the independent remaining authority check.",
+      "source_file_sha256": "8fcadc33d8dc3c520fc73ba8d2cd04520360c8384d281dc21476061cbfb611e9"
+    },
+    {
+      "id": "exact-header-bracket",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "            if (before !== after) continue;",
+      "after": "            if (!after) continue;",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3G6 refuses a consumption result when the exact scanned block header changes$",
+      "expected_assertion": "Vault storage continuity Task4C3G6 refuses a consumption result when the exact scanned block header changes",
+      "prediction": "A changed but nonempty second header permits the exact positive nullifier result to delete the family.",
+      "expected_functional_assertion": "vault.test.ts:5825 reconciliation result equals { reconciled: 0, retired: 0 }, followed by unchanged snapshot",
+      "source_reason": "The selected test changes only the second exact-block header. It has no previous scan anchor, the first header exists, and the full nullifier and update block are correct. The earlier anchor/existence checks cannot replace equality of the before/after header bracket.",
+      "source_file_sha256": "8fcadc33d8dc3c520fc73ba8d2cd04520360c8384d281dc21476061cbfb611e9"
+    },
+    {
+      "id": "native-word-query-prefix",
+      "path": "src/lib/miden/recovery/canonical-reads.ts",
+      "before": "        const word = Word.fromHex(`0x${normalizedCommitment(nullifier)}`);",
+      "after": "        const word = Word.fromHex(normalizedCommitment(nullifier));",
+      "suites": ["src/lib/miden/recovery/canonical-reads.test.ts"],
+      "pattern": "^Task4C3G6 encodes the normalized nullifier for the exact native Word parser before RPC scanning$",
+      "expected_assertion": "Task4C3G6 encodes the normalized nullifier for the exact native Word parser before RPC scanning",
+      "prediction": "The exact-format parser fixture rejects the unprefixed 64-character query; the captured scan outcome contains an error before RPC.",
+      "expected_functional_assertion": "canonical-reads.test.ts:125 expect(outcome.error).toBeUndefined()",
+      "source_reason": "The existing test's parser boundary enforces length66 and lowercase0x, and its promise rejection handler converts parser rejection into an ordinary expect failure. No module/runtime failure is required. This predicts a functional fixture kill only; genuine native/browser acceptance remains separate evidence.",
+      "source_file_sha256": "4b4d3d15f9bd22a171e2e7604d86404c96de0a329aac6162889630fbce47ca85"
+    }
+  ],
+  "baseline_evidence": {
+    "run": 40467109443,
+    "selected_passed": 412,
+    "small_packet_passed": 36,
+    "vault_disjoint_packet_passed": [177, 199],
+    "matching_skips": 0,
+    "runtime_suite_errors": 0,
+    "status": "accepted by controller; exact one-test baselines still required by harness",
+    "sdk_source": "fd52477d7c7d5d475dc14987ebbd7a36dbb703da",
+    "frozen_replay": true
+  },
+  "test_source_sha256": {
+    "src/lib/miden/back/vault.test.ts": "e676f82b8dbb508040494244c5b70905ddb964f94af78acf4b07383196988168",
+    "src/lib/miden/recovery/canonical-reads.test.ts": "f31161e2582599bb5d4e2d5f4f8ad9b14c73716464e61e303182ad6f8fe37909"
+  },
+  "harness_sha256": "b6ccd14bf91683c16333efa88638662b57a22d174ec15ce023e10c8cffcd730b",
+  "scope_limits": [
+    "Predictions only; no mutant, generator, test or check executed locally.",
+    "Six single-test guards only. No independent kill claimed for target/source identity preconditions, previous-anchor mismatch, invalid update block, late-candidate race or pending old-alias transaction protection.",
+    "Canonical reader test is a functional parser-boundary fixture, not a real native/browser proof.",
+    "Harness must prove exactly one passing baseline, intended expect failure with runtime0, and source restoration for each mutant; source inspection alone is not a kill receipt."
+  ]
+}
