@@ -1,0 +1,72 @@
+{
+  "baseline_evidence": {
+    "accepted_selected_tests": 293,
+    "result_sha256": "f6c73ddcbd0aa200fc014b1cb7ba64ca0ad3731e3fc125064ee43b9491974d0c",
+    "run": 40486512418,
+    "runtime_suite_errors": 0,
+    "source": "b2e40840927737a6116138a006c044cddfa88564",
+    "vault_matching_skips": 0,
+    "vault_receipt_selected_passed": 7
+  },
+  "harness_sha256": "b6ccd14bf91683c16333efa88638662b57a22d174ec15ce023e10c8cffcd730b",
+  "mutants": [
+    {
+      "after": "    false",
+      "before": "    candidate.noteFileBytes.byteLength !== prepared.bytes.byteLength ||\n    !candidate.noteFileBytes.every((byte, index) => byte === prepared.bytes[index])",
+      "expected_assertion": "Vault storage continuity Task4C3M refuses changed bytes at the native receipt boundary without completing recovery",
+      "expected_functional_assertion": "vault.test.ts:6439 expect(await f.recover()).toBe(false)",
+      "id": "exact-primary-bytes",
+      "path": "src/lib/miden/recovery/native-note-receipt.ts",
+      "pattern": "^Vault storage continuity Task4C3M refuses changed bytes at the native receipt boundary without completing recovery$",
+      "prediction": "Changed bytes are accepted against the owned prepared receipt and mocked SDK adoption completes; recovery returns true instead of false.",
+      "source_file_sha256": "d265589babcaaff5a974869b762dc2cffb630ec90a1be03b56a2e70f12d89d55",
+      "source_reason": "The selected fixture changes only candidate.noteFileBytes at6433-6434; variant, note ID, details commitment, nullifier, hints, metadata, hold and batch remain identical. Both byte checks must be removed together because either alone rejects this differently sized candidate. The fake import adopts after the delivered callback returns at6312-6314; it does not independently deserialize the mutated DTO bytes. No remaining prepared guard compares them.",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ]
+    },
+    {
+      "after": "",
+      "before": "    !equalWord(candidate.noteId, prepared.noteId) ||\n",
+      "expected_assertion": "Vault storage continuity Task4C3M refuses foreign note at the native receipt boundary without completing recovery",
+      "expected_functional_assertion": "vault.test.ts:6439 expect(await f.recover()).toBe(false)",
+      "id": "exact-primary-note-id",
+      "path": "src/lib/miden/recovery/native-note-receipt.ts",
+      "pattern": "^Vault storage continuity Task4C3M refuses foreign note at the native receipt boundary without completing recovery$",
+      "prediction": "A changed candidate full note ID passes the otherwise exact prepared body receipt and permits recovery to complete.",
+      "source_file_sha256": "d265589babcaaff5a974869b762dc2cffb630ec90a1be03b56a2e70f12d89d55",
+      "source_reason": "The fixture changes only noteId at6435. It leaves the prepared bytes, metadata, details commitment and nullifier unchanged. Those independent fields cannot enforce equality of the callback's separate claimed noteId. The tested boundary must reject inconsistent plain identity even if the bytes were retained; the import fixture adopts only after callback acceptance.",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ]
+    },
+    {
+      "after": "  if (!prepared) return true;",
+      "before": "  if (!prepared) return false;",
+      "expected_assertion": "Vault storage continuity Task4C3M2 refuses another protected client callback during the primary restore",
+      "expected_functional_assertion": "vault.test.ts:6463 expect(await f.recover()).toBe(false)",
+      "id": "prepared-client-ownership",
+      "path": "src/lib/miden/recovery/native-note-receipt.ts",
+      "pattern": "^Vault storage continuity Task4C3M2 refuses another protected client callback during the primary restore$",
+      "prediction": "The second live protected client's callback acknowledges a receipt it does not own, permitting the primary restore to adopt and finish.",
+      "source_file_sha256": "d265589babcaaff5a974869b762dc2cffb630ec90a1be03b56a2e70f12d89d55",
+      "source_reason": "The fixture constructs a genuinely distinct protected client and underlying SDK object at6355-6360 and asserts both live at6459-6462. The primary owns preparedByClient receipt; the foreign callback has no prepared entry. Returning true bypasses ordinary unavailable intake refusal before any prepared guards, so prepared.hold/used/identity checks cannot mask this mutant.",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ]
+    }
+  ],
+  "per_mutant_budget_seconds": 90,
+  "scope_limits": [
+    "Three predictions only; no mutation executed during preparation.",
+    "prepared.used is intentionally excluded because the independent batch fence makes its removal redundant.",
+    "Mocked callback receipt boundary only; no browser/native codec, offscreen recovery, full95 or independent review claim.",
+    "Each exact selector must baseline1pass, then produce the intended ordinary expect failure/runtime0, and restore the original source."
+  ],
+  "source": "b2e40840927737a6116138a006c044cddfa88564",
+  "source_tree": "b14c05728a365af4657b6170dee8fd61a2203518",
+  "test_source_sha256": {
+    "src/lib/miden/back/vault.test.ts": "e6a643f90f4e7fee6a49a15b1ed33d610d97b8fe328e2d2827853a49303b9e32"
+  },
+  "total_budget_seconds": 600
+}
