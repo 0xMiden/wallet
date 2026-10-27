@@ -432,3 +432,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

@@ -98,3 +98,7 @@ describe('declining .modify() callbacks do not rewrite the row', () => {
     expect((await Repo.transactions.get('tx-1'))?.extraInputs?.phase).toBe('delivering');
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

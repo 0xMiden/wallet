@@ -15,7 +15,9 @@ import type {
   updateEarnWithdrawPhase
 } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
 import * as Repo from 'lib/miden/repo';
+import { getStorageHealth } from 'lib/miden/storage-health';
 
 import { createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -198,9 +200,13 @@ function harness() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  installProviderReceiptBackend(async () => {});
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  installProviderReceiptBackend(undefined);
+  jest.restoreAllMocks();
+});
 
 it('durably prepares all allocations before source execution and selects the second nonce', async () => {
   const h = harness();
@@ -595,4 +601,85 @@ it('a second realm recovers the parked prepared execution after its owner closes
   secondPoll.dispose();
   secondSubmission.dispose();
   relayResponse.resolve();
+});
+
+it.each(['initial', 'source', 'allocation'])(
+  'Task4C2 supplemental awaits Earn %s metadata before provider execution',
+  async kind => {
+    const h = kind === 'allocation' ? preparedHarness() : harness();
+    if (kind !== 'initial') h.row.extraInputs.phase = 'failed';
+    h.row.extraInputs.protocol = 'dummy-lending';
+    h.row.extraInputs.chainId = 11155111;
+    h.row.extraInputs.sourceDecimals = 18;
+    if (kind === 'allocation') h.row.extraInputs.submissionState = 'accepted';
+    const entered = deferred<void>();
+    const ack = deferred<void>();
+    let retained: unknown;
+    installProviderReceiptBackend(async value => {
+      retained = value;
+      entered.resolve();
+      await ack.promise;
+    });
+    const operation =
+      kind === 'initial'
+        ? gaslessEarnWithdrawalToMiden(args, h.deps)
+        : kind === 'source'
+          ? resubmitEarnWithdrawal(h.row.id, h.deps)
+          : retryEarnWithdrawal(h.row.id, { ...h.deps, getSdk: async () => h.sdk });
+    try {
+      await Promise.race([entered.promise, operation]);
+      expect(h.executeActions.mock.calls.length + h.retryIntentSolve.mock.calls.length).toBe(0);
+      expect(retained).toMatchObject({
+        id: h.row.id,
+        extraInputs: { phase: 'redeeming', submissionAttemptId: h.row.extraInputs.submissionAttemptId }
+      });
+      expect(h.row.extraInputs.submissionAttemptId === 'attempt-1').toBe(kind === 'allocation');
+      ack.resolve();
+      await operation;
+      expect(h.executeActions.mock.calls.length + h.retryIntentSolve.mock.calls.length).toBe(1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      ack.resolve();
+      await operation;
+      h.locks.dispose();
+    }
+  }
+);
+it('Task4C2 supplemental awaits durable not-sent evidence before reopening Earn source retry', async () => {
+  const h = preparedHarness();
+  const entered = deferred<void>();
+  const ack = deferred<void>();
+  let retained: unknown;
+  let settled = false;
+  installProviderReceiptBackend(async value => {
+    retained = value;
+    entered.resolve();
+    await ack.promise;
+  });
+  const mark = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+    'lib/miden/transaction/complete'
+  ).markEarnWithdrawNotSent;
+  const operation = mark(
+    h.row.id,
+    'User cancelled before permission',
+    { owner: PREPARED_OWNER, attemptId: 'attempt-1', nonce: '22' },
+    h.row.extraInputs.preparedExecution,
+    () => true
+  ).then(result => {
+    settled = true;
+    return result;
+  });
+  try {
+    await Promise.race([entered.promise, operation]);
+    expect(settled).toBe(false);
+    expect(retained).toMatchObject({ extraInputs: { phase: 'failed', submissionState: 'preparing' } });
+    ack.resolve();
+    expect(await operation).toBe(true);
+    expect(earnWithdrawalRetryKind(h.row)).toBe('source');
+    expect(getStorageHealth().status).toBe('healthy');
+  } finally {
+    ack.resolve();
+    await operation;
+    h.locks.dispose();
+  }
 });

@@ -82,6 +82,7 @@ export interface IntentResult {
     };
   };
   error?: string;
+  executionUncertain?: boolean;
   /** The intent nonce used for status tracking (userAddress:intentNonce in SIO) */
   intentNonce?: string;
   /** Chain id the compact deposit landed on (= source EVM chain). */

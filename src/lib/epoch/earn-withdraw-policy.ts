@@ -151,7 +151,9 @@ function decodeAllocations(
   return deliveryIndex < 0 ? undefined : { allocations, requests, deliveryIndex };
 }
 
-export function earnWithdrawExecutionIdentity(row: ITransaction): EarnWithdrawExecutionIdentity | undefined {
+export function earnWithdrawExecutionIdentity(
+  row: Pick<ITransaction, 'id' | 'type' | 'accountId' | 'extraInputs'>
+): EarnWithdrawExecutionIdentity | undefined {
   const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
   if (row.type !== 'earn-withdraw' || !inputs || !isEvmAddress(inputs.evmOwner)) return undefined;
   if (typeof inputs.marketUid !== 'string') return undefined;

@@ -24,6 +24,7 @@ import {
   unlocked,
   withInited,
   withUnlocked,
+  assertUnlocked,
   settingsUpdated,
   seedPhraseStatusUpdated,
   accountsUpdated,
@@ -738,6 +739,12 @@ export async function checkpointFinancialRecovery(
   if (!Number.isSafeInteger(expectedEpoch)) throw new StorageUnavailableError();
   assertStorageHealthy(expectedEpoch);
   return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
+}
+
+export async function checkpointProviderReceipt(value: unknown, expectedEpoch: number): Promise<void> {
+  const state = store.getState();
+  assertUnlocked(state);
+  await state.vault.checkpointProviderReceipt(value, expectedEpoch);
 }
 
 export async function recoverWalletStorage(

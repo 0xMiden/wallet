@@ -5,6 +5,7 @@ import {
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
+import { isUserWalletRejection } from '@epoch-protocol/epoch-intents-sdk/dist/batch';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
@@ -14,7 +15,7 @@ import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { EarnVaultProtocol } from 'lib/remote-config/schema';
 import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
-import { normalizeMidenIdToHex } from './bridge';
+import { normalizeMidenIdToHex, type EpochReceiptHooks } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
@@ -23,6 +24,8 @@ import { readEpochIntentStatus } from './intent-status';
 import { marketUidChainId } from './market-uid';
 import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
+import { createEpochReceiptOwner } from './receipt';
+import { executeRetainedEpochIntent } from './receipt-execution';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
@@ -132,6 +135,7 @@ export async function buildEarnIntent(
   sdk: EpochIntentSDK,
   params: EarnIntentParams & {
     createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
+    recovery?: EpochReceiptHooks;
     /** Pre-fetched quote from `getEarnQuote` — skips the getTaskData step. */
     preFetchedQuote?: EarnQuote;
     /**
@@ -160,7 +164,7 @@ export async function buildEarnIntent(
   }
 
   try {
-    const solveResult = await sdk.solveIntent({
+    const solveParams: SolveIntentParams = {
       isNative: false,
       sponsorAddress: params.evmRecipient,
       taskTypeString,
@@ -170,7 +174,10 @@ export async function buildEarnIntent(
       midenFaucetId: midenFaucetHex,
       midenSourceAccount: midenSourceHex,
       createMidenP2IDENote: params.createMidenP2IDENote
-    });
+    };
+    const solveResult = params.recovery
+      ? await executeRetainedEpochIntent(sdk, solveParams, params.recovery)
+      : await sdk.solveIntent(solveParams);
     // The nonce lands on one of several fields depending on the solve path.
     const nonce =
       solveResult?.nonce ?? solveResult?.submittedIntentData?.nonce ?? solveResult?.allocationResponse?.nonce;
@@ -180,9 +187,7 @@ export async function buildEarnIntent(
     // persistence failure must NOT be mistaken for a solve failure — the intent
     // has landed — so swallow it here rather than let it hit the catch below.
     if (intentNonce && params.persistIntentNonce) {
-      await params
-        .persistIntentNonce(intentNonce)
-        .catch((err: unknown) => console.warn('[epoch] persistIntentNonce failed', err));
+      await params.persistIntentNonce(intentNonce);
     }
     return { taskTypeString, intentData, solveResult, intentNonce };
   } catch (err) {
@@ -190,7 +195,8 @@ export async function buildEarnIntent(
     return {
       taskTypeString,
       intentData,
-      error: err instanceof Error ? err.message : 'Failed to open lending position'
+      error: err instanceof Error ? err.message : 'Failed to open lending position',
+      executionUncertain: params.recovery?.hasPrepared?.() === true && !isUserWalletRejection(err)
     };
   }
 }
@@ -388,18 +394,18 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   let earnTxId: string | undefined;
   let spendingLimitError: unknown;
   const quote = await getEarnQuote(sdk, params, evmRecipient);
+  const receiptOwner = createEpochReceiptOwner(sdk, () => earnTxId);
   const intent = await buildEarnIntent(sdk, {
     ...params,
     preFetchedQuote: quote,
+    recovery: receiptOwner.hooks,
     // Persist the nonce onto the row the moment `solveIntent` yields it — before
     // control returns here — so a WebView teardown in that window still leaves a
     // reconcilable row. `earnTxId` is already set by then (the collateral-note
     // callback below runs during `solveIntent`).
     persistIntentNonce: async intentNonce => {
       if (!earnTxId) return;
-      await updateEarnDepositStatus(earnTxId, 'pending', { intentNonce }).catch((err: unknown) =>
-        console.warn('[epoch] updateEarnDepositStatus(pending) failed', err)
-      );
+      await updateEarnDepositStatus(earnTxId, 'pending', { intentNonce });
     },
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
       try {
@@ -415,6 +421,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
           protocol: args.protocol,
           chainId: market.chainId,
           allocatorUrl,
+          epochExecution: receiptOwner.preparation(),
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization
@@ -432,7 +439,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   if (spendingLimitError !== undefined) throw spendingLimitError;
 
   if (intent.error) {
-    if (earnTxId) {
+    if (earnTxId && !receiptOwner.retentionFailed() && !intent.executionUncertain) {
       await updateEarnDepositStatus(earnTxId, 'failed').catch((err: unknown) =>
         console.warn('[epoch] updateEarnDepositStatus(failed) failed', err)
       );

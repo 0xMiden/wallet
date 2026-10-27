@@ -2151,3 +2151,7 @@ describe('reviewed withdrawals', () => {
     }
   );
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

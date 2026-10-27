@@ -4,6 +4,8 @@ import { revertedExecuteLeg, stalledExecuteLeg } from 'lib/usdcx/cctp';
 
 import { updateBridgedReceivePhase } from './complete';
 
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: jest.fn(async () => {}) }));
+
 const seed = async (phase: IBridgedReceivePhase, extra: Partial<IBridgedReceiveExtraInputs> = {}) => {
   const row = new BridgedReceiveTransaction('account', 5n, '', 'agglayer', '0xsource', '5', 'ETH');
   row.extraInputs = { ...row.extraInputs, phase, ...extra };

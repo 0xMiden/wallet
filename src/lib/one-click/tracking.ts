@@ -9,6 +9,7 @@ import {
   type IOneClickTrackingData,
   type ITransaction
 } from 'lib/miden/db/types';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -156,6 +157,7 @@ export class OneClickEvmDepositAlreadyAttemptedError extends Error {
 }
 
 export async function claimOneClickEvmDepositAttempt(rowId: string): Promise<void> {
+  let claimed: ITransaction | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const row = await Repo.transactions.get(rowId);
     const tracking = row ? oneClickOf(row) : undefined;
@@ -179,17 +181,20 @@ export async function claimOneClickEvmDepositAttempt(rowId: string): Promise<voi
       return blocksEvmDepositRetry(persisted);
     });
     if (conflict) throw new OneClickEvmDepositAlreadyAttemptedError();
-    await Repo.transactions.update(rowId, {
-      extraInputs: {
-        ...row.extraInputs,
-        phase: 'delivering',
-        oneClick: { ...tracking, evmSubmission: 'attempted', updatedAt: Date.now() }
-      }
-    });
+    row.extraInputs = {
+      ...row.extraInputs,
+      phase: 'delivering',
+      oneClick: { ...tracking, evmSubmission: 'attempted', updatedAt: Date.now() }
+    };
+    await Repo.transactions.update(rowId, { extraInputs: row.extraInputs });
+    claimed = row;
   });
+  if (!claimed) throw new Error('The EVM deposit tracking row could not be claimed');
+  await checkpointProviderReceipt(claimed);
 }
 
 export async function retireOneClickEvmPreflightFailure(rowId: string, ownsAttemptClaim = false): Promise<void> {
+  let retained: ITransaction | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const transaction = await Repo.transactions.get(rowId);
     const tracking = transaction ? oneClickOf(transaction) : undefined;
@@ -204,14 +209,18 @@ export async function retireOneClickEvmPreflightFailure(rowId: string, ownsAttem
     ) {
       return;
     }
-    await Repo.transactions.update(rowId, {
+    const updated = {
+      ...transaction,
       extraInputs: {
         ...transaction.extraInputs,
         phase: 'failed',
         oneClick: { ...tracking, evmSubmission: 'not-started', phase: 'failed', updatedAt: Date.now() }
       }
-    });
+    };
+    await Repo.transactions.put(updated);
+    retained = updated;
   });
+  if (retained) await checkpointProviderReceipt(retained);
 }
 
 export async function persistOneClickTrackingRow(input: OneClickTrackingInput): Promise<string> {
@@ -234,6 +243,7 @@ export async function persistOneClickTrackingRow(input: OneClickTrackingInput): 
   row.extraInputs.phase = 'submitting';
   row.displayMessage = 'Swapping through 1Click';
   await Repo.transactions.add(row);
+  await checkpointProviderReceipt(row);
   return row.id;
 }
 
@@ -261,6 +271,7 @@ export async function initiateOneClickMidenDeposit(
 }
 
 export async function recordOneClickOriginTransactionHash(rowId: string, transactionHash: string): Promise<void> {
+  let retained: ITransaction | undefined;
   await Repo.transactions
     .where('id')
     .equals(rowId)
@@ -268,19 +279,27 @@ export async function recordOneClickOriginTransactionHash(rowId: string, transac
       const tracking = oneClickOf(transaction);
       if (!tracking) return false;
       if (tracking.direction !== 'evm-to-miden') return false;
+      if (
+        (tracking.originTransactionHash && tracking.originTransactionHash !== transactionHash) ||
+        (transaction.extraInputs.evmTxHash && transaction.extraInputs.evmTxHash !== transactionHash)
+      )
+        return false;
       transaction.extraInputs = {
         ...transaction.extraInputs,
         evmTxHash: transactionHash,
         oneClick: {
           ...tracking,
           originTransactionHash: transactionHash,
-          phase: 'known-deposit-tx',
+          phase: tracking.originTransactionHash || isTerminal(tracking.phase) ? tracking.phase : 'known-deposit-tx',
           evmSubmission: 'known',
           updatedAt: Date.now()
         }
       };
+      retained = transaction;
       return undefined;
     });
+  if (!retained) throw new Error('The EVM deposit tracking row is unavailable');
+  await checkpointProviderReceipt(retained);
 }
 
 function rowPhaseForOneClick(phase: IOneClickTrackingData['phase']): 'received' | 'failed' | 'delivering' {
@@ -290,6 +309,7 @@ function rowPhaseForOneClick(phase: IOneClickTrackingData['phase']): 'received' 
 }
 
 export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickTrackingData['phase']): Promise<void> {
+  let retained: ITransaction | undefined;
   await Repo.transactions
     .where('id')
     .equals(rowId)
@@ -301,14 +321,17 @@ export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClic
         ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(phase) } : {}),
         oneClick: { ...tracking, phase, updatedAt: Date.now() }
       };
+      retained = transaction;
       return undefined;
     });
+  if (retained) await checkpointProviderReceipt(retained);
 }
 
 const isTerminal = (phase: IOneClickTrackingData['phase']): boolean =>
   phase === 'delivered' || phase === 'refunded' || phase === 'failed';
 
 async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingData>): Promise<void> {
+  let retained: ITransaction | undefined;
   await Repo.transactions
     .where('id')
     .equals(rowId)
@@ -329,8 +352,10 @@ async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingDat
         ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(next.phase) } : {}),
         oneClick: next
       };
+      retained = { ...transaction };
       return undefined;
     });
+  if (retained) await checkpointProviderReceipt(retained);
 }
 
 async function reconcileRow(transaction: ITransaction): Promise<void> {

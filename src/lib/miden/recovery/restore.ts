@@ -2,6 +2,7 @@ import { StorageContinuityError } from './continuity';
 import { recoveryDebit } from './financial';
 import { matchesRecoveryDebit, resolveRecoveryDebit } from './retry-transition';
 import { toSerializable } from './serialization';
+import { sameRecoveryFields } from './transaction-record';
 import type { RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
 import { validateWalletGeneration } from './wallet-generation';
@@ -52,7 +53,11 @@ export async function restoreWalletRecoveryRows(
     assertStorageRecoveryAllowed(capability);
     await target.transaction('rw', target.tables, async () => {
       assertStorageRecoveryAllowed(capability);
-      for (const entry of snapshot.entries) {
+      const ordered = [
+        ...snapshot.entries.filter(entry => entry.kind !== 'receipt'),
+        ...snapshot.entries.filter(entry => entry.kind === 'receipt')
+      ];
+      for (const entry of ordered) {
         if (entry.kind === 'policy') {
           const accountId = canonicalSpendingLimitIdentity(entry.accountId);
           const current: unknown = await target.table('spendingLimits').get(accountId);
@@ -75,6 +80,32 @@ export async function restoreWalletRecoveryRows(
           )
             throw new StorageContinuityError();
           await target.table('recoveryDebits').put(resolveRecoveryDebit(entry));
+        } else if (entry.kind === 'receipt') {
+          const current = await target.table<ITransaction>('transactions').get(entry.id);
+          if (current && !sameWalletAccountId(current.accountId, entry.accountId)) throw new StorageContinuityError();
+          const critical = snapshot.entries.find(value => value.kind === 'transaction' && value.id === entry.id);
+          if (
+            current &&
+            !sameRecoveryFields(current.extraInputs, entry.row.extraInputs) &&
+            !(
+              critical?.kind === 'transaction' &&
+              critical.row &&
+              sameRecoveryFields(current.extraInputs, critical.row.extraInputs)
+            )
+          )
+            throw new StorageContinuityError();
+          await target.table('transactions').put({
+            ...(current ?? entry.row),
+            extraInputs: entry.row.extraInputs,
+            amount: entry.row.amount,
+            faucetId: entry.row.faucetId,
+            restoredFromBackup: true,
+            restoredFromJournal:
+              (current?.restoredFromBackup && !current.restoredFromJournal) ||
+              (entry.row.restoredFromBackup && !entry.row.restoredFromJournal)
+                ? undefined
+                : true
+          });
         } else if (entry.kind === 'transaction') {
           if (!entry.row) throw new Error('Recovery transaction details unavailable');
           const current: ITransaction | undefined = await target.table<ITransaction>('transactions').get(entry.id);
@@ -95,7 +126,11 @@ export async function restoreWalletRecoveryRows(
             mayHaveSubmitted: entry.mayHaveSubmitted,
             status: ITransactionStatus.Unconfirmed,
             restoredFromBackup: true,
-            restoredFromJournal: true
+            restoredFromJournal:
+              (current?.restoredFromBackup && !current.restoredFromJournal) ||
+              (entry.row.restoredFromBackup && !entry.row.restoredFromJournal)
+                ? undefined
+                : true
           });
         }
       }
