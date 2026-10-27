@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.17.9 (TBD)
 
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 
