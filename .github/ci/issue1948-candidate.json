@@ -1,0 +1,93 @@
+{
+  "base": "30f515b1003d6be9726b651ee275802aeb50eca3",
+  "patch": "docs/superpowers/task-4c3-green-4-combined.patch",
+  "sha256": "7546f5c50993be1e94ea5a562477848bd5957cca010abd052da74ef4e26fe4e3",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/recovery/note-candidates.ts",
+      "sha256": "934f02faf01481d651381894c398007ddc867bba6c9bca9ec12a894f634c74ce"
+    },
+    {
+      "path": "src/lib/miden/recovery/capture.ts",
+      "sha256": "36a86ae4b2237c684a01ba017162d2d448f262d25f3d64bfd4d5e6bf01817089"
+    },
+    {
+      "path": "src/lib/miden/recovery/sdk-snapshot.ts",
+      "sha256": "7fa8a0aa40be09a4758ca62b0a19ba1bc891b6e3dc21178343a9d78570e97741"
+    },
+    {
+      "path": "src/lib/miden/recovery/sdk-restore.ts",
+      "sha256": "1b80e9cac6fc42b0dda6691add7f7a233992bd97f1ffd62d884f77dc7bec3c80"
+    },
+    {
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "sha256": "a67779d5d952b09cc517d55ef77a2b8ce425dc33586d14bf68eeeaef8fc5a1c7"
+    },
+    {
+      "path": "src/lib/miden/recovery/sdk-snapshot.test.ts",
+      "sha256": "6163ff177a841b5044310b026751828fd9fb24f3a57acce61d1f1e967b8039eb"
+    },
+    {
+      "path": "src/lib/carried-mainnet-code.test.ts",
+      "sha256": "ce2d0b5746de3ca870b9861d17c6b714561de5a0daf489da7fad21971ec76bd1"
+    },
+    {
+      "path": "src/lib/wallet-prompts.test.ts",
+      "sha256": "527b2d394459218e909338d1b748df368ce0c57f97d1c4f6f058e5b6ee83652d"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint playwright/e2e/helpers/usdcx-l2-deposit.ts src/lib/carried-mainnet-code.test.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.test.ts src/lib/miden/back/main.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/recovery/candidate-wire.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/capture.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/note-acquisition.ts src/lib/miden/recovery/note-candidates.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/retirement.ts src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/sdk-restore.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/recovery/sdk-snapshot.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/repo.migration.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/store-clients.test.ts src/lib/wallet-prompts.test.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/candidate-wire.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/store-clients.test.ts src/lib/miden/repo.migration.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/main.test.ts playwright/e2e/helpers/usdcx-l2-deposit.test.ts playwright/e2e/harness/linked-pr-injection.test.ts src/lib/carried-mainnet-code.test.ts src/lib/wallet-prompts.test.ts --maxWorkers=2 --json --outputFile=proof/results-3.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --maxWorkers=2 --json --outputFile=proof/results-4.json --no-coverage"
+  ],
+  "purpose": "Complete17suites D primary/wire/retirement fixes plus acceptedC staging and desktop/provider compatibility; expected872cases/currenttypes/lint28paths. Nofullcoverage/native/allacquisitionclaim.",
+  "expected_cases": 872,
+  "expected_group_cases": [
+    88,
+    110,
+    327,
+    347
+  ],
+  "full_closure_hashes": {
+    "playwright/e2e/helpers/usdcx-l2-deposit.ts": "c8e21869d1de688bf851bc07cf475c1cab194e51a00fdcc7332572f302973828",
+    "src/lib/carried-mainnet-code.test.ts": "ce2d0b5746de3ca870b9861d17c6b714561de5a0daf489da7fad21971ec76bd1",
+    "src/lib/miden/back/actions.ts": "a17f31a109b2eddfb58947cf61e88a758ee9b0bf7398ca798369c4af059a8f11",
+    "src/lib/miden/back/main.test.ts": "fdc4aa0db6c700c6ae5278b3bdf737c4731a93b0141d83aba9a9150dbe9f662d",
+    "src/lib/miden/back/main.ts": "1a964af71275bbbdc1951aa8031bf09c2687de561c175dcde48fff1dc545e874",
+    "src/lib/miden/back/vault.test.ts": "e9bd2e0262db37d47664e66309899d47871e58c5c2ab381d23af5ae6ebef6c24",
+    "src/lib/miden/back/vault.ts": "2774f918db8c3397f4bd3925b526fbb7db52e6dad0e082596522b9977e27954d",
+    "src/lib/miden/recovery/candidate-wire.test.ts": "a0115b71d14d6307a6ce155af062e144a4d973472c9bf9badb2466e0fbda1aff",
+    "src/lib/miden/recovery/capture.test.ts": "34cc39c15ee0cb010576284935df0d3228d0092f757755693c11737837a5b300",
+    "src/lib/miden/recovery/capture.ts": "36a86ae4b2237c684a01ba017162d2d448f262d25f3d64bfd4d5e6bf01817089",
+    "src/lib/miden/recovery/journal.test.ts": "369ce347459bd3d67e8617deba4c0be2578fe0b935c0de56d5a370124dddbfe8",
+    "src/lib/miden/recovery/journal.ts": "5c6ad84e9961285d998a762d03965ee1e660a600ab1b2183056047a6bb4d7128",
+    "src/lib/miden/recovery/note-acquisition.ts": "577097f6830061d20351da792e9a9178084a2b445c4d0643db0450df3bfa9380",
+    "src/lib/miden/recovery/note-candidates.ts": "934f02faf01481d651381894c398007ddc867bba6c9bca9ec12a894f634c74ce",
+    "src/lib/miden/recovery/receipt-lifecycle.test.ts": "94698afda56dd80cab37920bec2a0fff0e769747bf6eee6ed25cec920791b1bb",
+    "src/lib/miden/recovery/retirement.test.ts": "1502161908bb6028a6465766f89048846fce332b4653b654b17cb93eb2f4ef15",
+    "src/lib/miden/recovery/retirement.ts": "a67779d5d952b09cc517d55ef77a2b8ce425dc33586d14bf68eeeaef8fc5a1c7",
+    "src/lib/miden/recovery/sdk-restore.test.ts": "0f076c05dcdec76ed3ae9c48630a3140b2bd54329dc6bb7747e9508d8bc52508",
+    "src/lib/miden/recovery/sdk-restore.ts": "1b80e9cac6fc42b0dda6691add7f7a233992bd97f1ffd62d884f77dc7bec3c80",
+    "src/lib/miden/recovery/sdk-snapshot.test.ts": "6163ff177a841b5044310b026751828fd9fb24f3a57acce61d1f1e967b8039eb",
+    "src/lib/miden/recovery/sdk-snapshot.ts": "7fa8a0aa40be09a4758ca62b0a19ba1bc891b6e3dc21178343a9d78570e97741",
+    "src/lib/miden/recovery/types.ts": "a893d11ee712b2b4d14f039bfcd0636759f8d80cf6491fc7e10ed659edfb8453",
+    "src/lib/miden/recovery/validation.ts": "f06fcf53e3cd7677b37b717bd2446e1c14795f6e5c1f71b340f9ecdee344f3e5",
+    "src/lib/miden/repo.migration.test.ts": "ed158abd1999d8300e5aafd80d5b8065d774a6d98d7eb5b8e19b81c10b10eea6",
+    "src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts": "0078ad78f17b786f59c58c6f13d18e538f874b1a7f4655320b4112a9fb52e5f1",
+    "src/lib/miden/sdk/miden-client-interface.ts": "ba419bf38fc6117ca1176630e416b93aadc63a10a25dc379274947fbe2b6bf5b",
+    "src/lib/miden/sdk/store-clients.test.ts": "2323f5bf2fb45ef5bdc4894e7b977aa234a40f636b6f06b9b7572b4e793f30ae",
+    "src/lib/wallet-prompts.test.ts": "527b2d394459218e909338d1b748df368ce0c57f97d1c4f6f058e5b6ee83652d"
+  },
+  "original_manifests": {
+    "docs/superpowers/task-4c3-green-4-manifest.json": "8b402303f30bb99cb0bab454a352f0e2cefb2dc3e6126de4277b6c6807a11193",
+    "docs/superpowers/task-4c2-desktop-fixtures-manifest.json": "bd208ef52d51f25eaf989ee29b5fd446b2f46d7acee7a653bac0db1f7434a969"
+  },
+  "component_patches": [
+    "7053c8e247b04f83ed2e05e5c0c02a7ced365f05cb1c9a17932b408b82b98f18",
+    "8bb7b0a619dbb0bf817388da3859f67523e9e28c49360cd98220e9c2ce82e3dd"
+  ]
+}
