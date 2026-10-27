@@ -1,0 +1,53 @@
+import { SpendingLimitAuthorizationRequiredError, SpendingLimitPriceUnavailableError } from '../../../src/lib/miden/spending-limits/types';
+export const account = { publicKey: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
+export const sale = { saleNoteId:'visual-sale',sellerAccountId:'0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',payFaucetId:'visual-usdcx',gcFaucetId:'0x34a3510213533f512ec4abe36baf84',offeredAmount:100_000_000_000n,requestedAmount:100_000_000n,fillFloor:1n };
+export const useAccount=()=>account;
+export const useAllNetworks=()=>[{id:'mainnet',name:'Mainnet'}];
+export const useTokensMetadata=()=>({allTokensBaseMetadataRef:{current:{}}});
+export const useAllBalances=()=>({isLoading:false,data:[{tokenId:sale.gcFaucetId,balance:3,balanceBaseUnits:'3000000',metadata:{decimals:6}},{tokenId:sale.payFaucetId,balance:1000,balanceBaseUnits:'1000000000',metadata:{decimals:6}}]});
+export const hasBalanceSnapshotForNetwork=()=>true;
+export const useGcPurchaseQuote=()=>({state:'ready',sale,refresh:()=>{}});
+export const subscribeBridgeConfig=()=>()=>{};
+export const getBridgeConfigSnapshot=()=>({network:'mainnet',config:null});
+export const getEffectiveNetworkName=()=>'mainnet';
+export const getEffectiveRpcUrl=()=>'';
+export const getNativeAssetIdSync=()=>sale.payFaucetId;
+export const isDelegateProofEnabled=()=>false;
+export const isExtension=()=>false;
+export const isMobile=()=>false;
+export const getPlatform=()=>'web';
+export const hapticLight=()=>{};
+export const hapticMedium=()=>{};
+export const hapticSelection=()=>{};
+export const useHideNavbarWhileOpen=()=>{};
+export const useCloseOnBack=()=>{};
+export const sameWalletAccountId=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
+export const walletAccountIdToSdk=(id:string)=>({toString:()=>id});
+export const getBech32AddressFromAccountId=(id:{toString:()=>string})=>id.toString();
+export const listCommittedNoteIdsByTag=()=>[];
+export const pswapNoteTag=()=>0;
+export const readChainTip=()=>0;
+export const readPublicPswapNote=()=>null;
+export const getCurrentLocale=()=>'en';
+export const getNumberSymbols=()=>({decimal:'.',group:','});
+export const HistoryAction={Replace:'replace'};
+export const navigate=(url:string)=>{document.body.dataset.fixtureDestination=url;};
+export const requestSWTransactionProcessing=()=>{};
+const store={readSpendingLimit:async()=>({revision:'visual-policy'}),getStrictAuthenticationProtectors:async()=>({hardware:false,password:true}),verifyStrictActionAuthentication:async()=>{}};
+export const useWalletStore=(selector:any)=>selector(store);
+export const initiateGcPurchaseTransaction=async (_account:string,quote:any,_delegate:boolean,authorization?:unknown)=>{
+ if(authorization!==undefined){document.body.dataset.fixtureAuthorized='true';return 'visual-row';}
+ if(new URLSearchParams(location.search).has('unpriced'))throw new SpendingLimitPriceUnavailableError('USDCX');
+ throw new SpendingLimitAuthorizationRequiredError({accountId:account.publicKey,usdAmount:quote.fillAmount,revision:'visual-policy',assessedAt:Math.floor(Date.now()/1000),breach:{spent:0n,proposedTotal:quote.fillAmount,limit:50_000_000n,overBy:quote.fillAmount-50_000_000n,resetAt:null}});
+};
+
+export const canonicalWalletAccountId=(id:string)=>id.toLowerCase();
+
+export const MIDEN_METADATA={symbol:'USDCX',decimals:6};
+export const USDCX_DECIMALS=6;
+export const useUserVisibleError=()=>{};
+export const walletRaised=(value:unknown)=>value;
+export const selectGcSale=()=>null;
+export const hapticError=()=>{};
+export const hapticSuccess=()=>{};
+export const hapticWarning=()=>{};
