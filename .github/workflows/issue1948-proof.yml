@@ -1,0 +1,137 @@
+name: Issue1948 frozen candidate validation
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 8b44daa52a7fc4f20eed474c9366abf9787f7a32 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 8b44daa52a7fc4f20eed474c9366abf9787f7a32
+          cp .github/ci/issue1948-candidate.json proof/candidate-manifest.json
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run complete candidate types
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn tsc --noEmit 2>&1 | tee proof/types.log
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-types
+          path: |
+            proof/types.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+      - name: Run complete candidate lint
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn eslint src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx src/app/templates/EvmConnectModal/useCctpExecute.ts src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx src/lib/epoch/bridge.ts src/lib/epoch/earn-note.ts src/lib/epoch/earn-withdraw-policy.ts src/lib/epoch/earn-withdraw-recovery.test.ts src/lib/epoch/earn-withdraw.test.ts src/lib/epoch/earn-withdraw.ts src/lib/epoch/earn.test.ts src/lib/epoch/earn.ts src/lib/epoch/epoch-send.test.ts src/lib/epoch/epoch-send.ts src/lib/epoch/miden-note.ts src/lib/epoch/receipt-execution.test.ts src/lib/epoch/receipt-execution.ts src/lib/epoch/receipt-owners.test.ts src/lib/epoch/receipt.ts src/lib/epoch/sdk.ts src/lib/epoch/store.execute.test.ts src/lib/epoch/store.ts src/lib/epoch/types.ts src/lib/intercom/in-process-request-handler.ts src/lib/miden/activity/bridge-receive.test.ts src/lib/miden/activity/bridge-receive.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/db/types.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/manual-execution.test.ts src/lib/miden/recovery/provider-boundaries.test.ts src/lib/miden/recovery/provider-enrichment.test.ts src/lib/miden/recovery/provider-record.ts src/lib/miden/recovery/provider-writers.test.ts src/lib/miden/recovery/receipt-backend.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/receipt-writer.test.ts src/lib/miden/recovery/receipt-writer.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/restore.ts src/lib/miden/recovery/retirement.ts src/lib/miden/recovery/testing/provider-receipts.ts src/lib/miden/recovery/transaction-continuity.ts src/lib/miden/recovery/transaction-record.test.ts src/lib/miden/recovery/transaction-record.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/transaction/bridged-receive-phase.test.ts src/lib/miden/transaction/complete.bridge-in.test.ts src/lib/miden/transaction/complete.ts src/lib/miden/transaction/earn-attempt-initiate.test.ts src/lib/miden/transaction/earn-attempt.test.ts src/lib/miden/transaction/earn-phase.test.ts src/lib/miden/transaction/earn-preparation.test.ts src/lib/miden/transaction/initiate.ts src/lib/miden/transaction/initiate.usdcx-source.test.ts src/lib/miden/transaction/modify-decline.test.ts src/lib/miden/transaction/outcome-telemetry.integration.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.extended.test.ts src/lib/miden/transaction/transactions.gaps.test.ts src/lib/miden/transaction/transactions.test.ts src/lib/one-click/tracking.claim.test.ts src/lib/one-click/tracking.test.ts src/lib/one-click/tracking.ts src/lib/shared/types.ts src/lib/usdcx/burn-status.test.ts src/lib/usdcx/burn-status.ts src/lib/usdcx/deposit.ts src/lib/usdcx/destination-status.test.ts src/lib/usdcx/destination-status.ts src/lib/usdcx/executor.ts --max-warnings=0 2>&1 | tee proof/lint.log
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-lint
+          path: |
+            proof/lint.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+      - name: Run complete candidate tests-1
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx src/lib/epoch/config-defines.test.ts src/lib/epoch/earn-submission-lock.test.ts src/lib/epoch/earn-withdraw-policy.test.ts src/lib/epoch/earn-withdraw-quote.test.ts src/lib/epoch/evm-account.test.ts src/lib/epoch/intent-status.sdk.test.ts src/lib/epoch/miden-note.test.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/guardian-state.test.ts src/lib/miden/recovery/manual-execution.test.ts src/lib/miden/recovery/provider-enrichment.test.ts src/lib/miden/recovery/receipt-writer.test.ts src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/transaction-record.test.ts src/lib/miden/transaction/get.rotation-funding.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts src/lib/miden/transaction/initiate.recall.test.ts src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts src/lib/miden/transaction/retry.landed.test.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/submission-feedback.test.ts src/lib/miden/transaction/switch-guardian-residual.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/unconfirmed-switch.test.ts src/lib/miden/transaction/verdict-rules.test.ts src/lib/one-click/delivery.test.ts src/lib/one-click/evm.test.ts src/lib/one-click/tracking.claim.test.ts src/lib/usdcx/burn-status.test.ts src/lib/usdcx/deposit-target.test.ts src/lib/usdcx/destination-status.test.ts src/lib/usdcx/use-burn-minimum.test.ts --maxWorkers=2 --no-coverage --json --outputFile=proof/results-1.json 2>&1 | tee proof/tests-1.log
+      - name: Verify tests-1 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-1.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-tests-1
+          path: |
+            proof/tests-1.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-1.json
+      - name: Run complete candidate tests-2
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/epoch/collateral-note.test.ts src/lib/epoch/earn.test.ts src/lib/epoch/testing/bridge-config.test.ts src/lib/epoch/withdraw-amount.test.ts src/lib/intercom/in-process-request-handler.test.ts src/lib/miden/activity/bridge-receive.test.ts src/lib/miden/back/vault.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/retry-transition.test.ts src/lib/miden/transaction/complete.swap-stamp.test.ts src/lib/miden/transaction/consume-landing-adoption.test.ts src/lib/miden/transaction/earn-phase.test.ts src/lib/miden/transaction/earn-preparation.test.ts src/lib/miden/transaction/failure-identity.integration.test.ts src/lib/miden/transaction/helper.evidence.test.ts src/lib/miden/transaction/helper.guardian-unauthorized.test.ts src/lib/miden/transaction/helper.stage-control-vs-telemetry.test.ts src/lib/miden/transaction/helper.unconfirmed.test.ts src/lib/miden/transaction/hot-key-rotation-residual.test.ts src/lib/miden/transaction/initiate.batch-isolation.test.ts src/lib/miden/transaction/initiate.custom-held-notes.test.ts src/lib/miden/transaction/initiate.rotation-funding.test.ts src/lib/miden/transaction/modify-decline.test.ts src/lib/miden/transaction/outcome-telemetry.integration.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/transaction/reconcile-judge.test.ts src/lib/miden/transaction/reconcile-reads.test.ts src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts src/lib/miden/transaction/relay-failure.test.ts src/lib/miden/transaction/rotation-funding.test.ts src/lib/miden/transaction/transactions.cooldown.test.ts src/lib/miden/transaction/transactions.gaps.test.ts src/lib/miden/transaction/transactions.test.ts src/lib/one-click/deadline.test.ts src/lib/one-click/evm-balance.test.ts src/lib/one-click/evm.identity.test.ts src/lib/one-click/tracking.test.ts src/lib/usdcx/deposit.test.ts src/lib/usdcx/destination-transaction.test.ts src/lib/usdcx/payout-proof.test.ts --maxWorkers=2 --no-coverage --json --outputFile=proof/results-2.json 2>&1 | tee proof/tests-2.log
+      - name: Verify tests-2 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-2.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-tests-2
+          path: |
+            proof/tests-2.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-2.json
+      - name: Run complete candidate tests-3
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/app/templates/EvmConnectModal/useCctpExecute.test.ts src/lib/epoch/EarnIntentWatcher.test.tsx src/lib/epoch/bridge.test.ts src/lib/epoch/epoch-send.test.ts src/lib/epoch/market-uid.test.ts src/lib/epoch/pools.test.ts src/lib/epoch/positions.test.ts src/lib/epoch/receipt-execution.test.ts src/lib/epoch/sdk-prepared-execution.test.ts src/lib/epoch/store.poll.test.ts src/lib/epoch/store.quote.test.ts src/lib/epoch/witness-typestring.test.ts src/lib/intercom/mobile-adapter.test.ts src/lib/miden/back/vault.evm.test.ts src/lib/miden/back/vault.gaps.test.ts src/lib/miden/recovery/account-restore.test.ts src/lib/miden/recovery/continuity.test.ts src/lib/miden/recovery/financial-writer.test.ts src/lib/miden/recovery/provider-writers.test.ts src/lib/miden/recovery/reconcile.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/transaction/bridged-receive-phase.test.ts src/lib/miden/transaction/cancel.test.ts src/lib/miden/transaction/cancel.unconfirmed.test.ts src/lib/miden/transaction/constants.test.ts src/lib/miden/transaction/double-send.integration.test.ts src/lib/miden/transaction/earn-attempt-initiate.test.ts src/lib/miden/transaction/get.tracking.test.ts src/lib/miden/transaction/helper.stage.test.ts src/lib/miden/transaction/initiate.custom-spending-limit.test.ts src/lib/miden/transaction/note-delivery-sweep.test.ts src/lib/miden/transaction/sign-callback.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/transactions.extended.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/lib/one-click/fake-service-helper.test.ts src/lib/usdcx/burn-fee.test.ts src/lib/usdcx/burn.test.ts src/lib/usdcx/constant.test.ts --maxWorkers=2 --no-coverage --json --outputFile=proof/results-3.json 2>&1 | tee proof/tests-3.log
+      - name: Verify tests-3 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-3.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-tests-3
+          path: |
+            proof/tests-3.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-3.json
+      - name: Run complete candidate tests-4
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx src/app/templates/EvmConnectModal/UsdcxExecuteAction.test.tsx src/lib/epoch/config.test.ts src/lib/epoch/earn-withdraw-recovery.test.ts src/lib/epoch/earn-withdraw.test.ts src/lib/epoch/epoch-send.fill.test.ts src/lib/epoch/intent-status.test.ts src/lib/epoch/poll-registry.test.ts src/lib/epoch/receipt-owners.test.ts src/lib/epoch/sdk.test.ts src/lib/epoch/store.execute.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/main.test.ts src/lib/miden/recovery/access.test.ts src/lib/miden/recovery/canonical-reads.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/provider-boundaries.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/transaction/cancel.ends.test.ts src/lib/miden/transaction/complete.bridge-in.test.ts src/lib/miden/transaction/consume-reaper-liveness.test.ts src/lib/miden/transaction/earn-attempt.test.ts src/lib/miden/transaction/get.unconfirmed.test.ts src/lib/miden/transaction/helper.stage-timestamps.test.ts src/lib/miden/transaction/initiate.dapp-origin.test.ts src/lib/miden/transaction/initiate.usdcx-source.test.ts src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts src/lib/miden/transaction/retry.earn.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/lib/miden/transaction/trim-result-bytes.db.test.ts src/lib/one-click/client.test.ts src/lib/one-click/config.test.ts src/lib/one-click/signature.test.ts src/lib/usdcx/attestation.test.ts src/lib/usdcx/cctp.test.ts src/lib/usdcx/executor.test.ts src/lib/usdcx/recipient.test.ts src/lib/usdcx/use-burn-fee-reserve.test.ts src/lib/usdcx/use-destination-transaction.test.ts src/lib/usdcx/withdrawal.test.ts --maxWorkers=2 --no-coverage --json --outputFile=proof/results-4.json 2>&1 | tee proof/tests-4.log
+      - name: Verify tests-4 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-4.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c2-coherent-v1-tests-4
+          path: |
+            proof/tests-4.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-4.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-green-task4c2-coherent-v1
+          path: proof/

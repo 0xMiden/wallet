@@ -1,0 +1,979 @@
+{
+  "scope": "Complete recovery, transaction pipeline, Epoch, USDCx and OneClick suites; all changed provider screen/hook and receipt realm integration suites. No coverage or full acceptance claim.",
+  "testFiles": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+    "src/app/templates/EvmConnectModal/UsdcxExecuteAction.test.tsx",
+    "src/app/templates/EvmConnectModal/useCctpExecute.test.ts",
+    "src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx",
+    "src/lib/epoch/EarnIntentWatcher.test.tsx",
+    "src/lib/epoch/bridge.test.ts",
+    "src/lib/epoch/collateral-note.test.ts",
+    "src/lib/epoch/config-defines.test.ts",
+    "src/lib/epoch/config.test.ts",
+    "src/lib/epoch/earn-submission-lock.test.ts",
+    "src/lib/epoch/earn-withdraw-policy.test.ts",
+    "src/lib/epoch/earn-withdraw-quote.test.ts",
+    "src/lib/epoch/earn-withdraw-recovery.test.ts",
+    "src/lib/epoch/earn-withdraw.test.ts",
+    "src/lib/epoch/earn.test.ts",
+    "src/lib/epoch/epoch-send.fill.test.ts",
+    "src/lib/epoch/epoch-send.test.ts",
+    "src/lib/epoch/evm-account.test.ts",
+    "src/lib/epoch/intent-status.sdk.test.ts",
+    "src/lib/epoch/intent-status.test.ts",
+    "src/lib/epoch/market-uid.test.ts",
+    "src/lib/epoch/miden-note.test.ts",
+    "src/lib/epoch/poll-registry.test.ts",
+    "src/lib/epoch/pools.test.ts",
+    "src/lib/epoch/positions.test.ts",
+    "src/lib/epoch/receipt-execution.test.ts",
+    "src/lib/epoch/receipt-owners.test.ts",
+    "src/lib/epoch/sdk-prepared-execution.test.ts",
+    "src/lib/epoch/sdk.test.ts",
+    "src/lib/epoch/store.execute.test.ts",
+    "src/lib/epoch/store.poll.test.ts",
+    "src/lib/epoch/store.quote.test.ts",
+    "src/lib/epoch/testing/bridge-config.test.ts",
+    "src/lib/epoch/withdraw-amount.test.ts",
+    "src/lib/epoch/witness-typestring.test.ts",
+    "src/lib/intercom/in-process-request-handler.test.ts",
+    "src/lib/intercom/mobile-adapter.test.ts",
+    "src/lib/miden/activity/bridge-receive.test.ts",
+    "src/lib/miden/back/actions.test.ts",
+    "src/lib/miden/back/main.test.ts",
+    "src/lib/miden/back/vault.evm.test.ts",
+    "src/lib/miden/back/vault.gaps.test.ts",
+    "src/lib/miden/back/vault.test.ts",
+    "src/lib/miden/recovery/access.test.ts",
+    "src/lib/miden/recovery/account-restore.test.ts",
+    "src/lib/miden/recovery/canonical-reads.test.ts",
+    "src/lib/miden/recovery/capture.test.ts",
+    "src/lib/miden/recovery/continuity.test.ts",
+    "src/lib/miden/recovery/financial-writer.test.ts",
+    "src/lib/miden/recovery/financial.test.ts",
+    "src/lib/miden/recovery/guardian-state.test.ts",
+    "src/lib/miden/recovery/journal.test.ts",
+    "src/lib/miden/recovery/manual-execution.test.ts",
+    "src/lib/miden/recovery/provider-boundaries.test.ts",
+    "src/lib/miden/recovery/provider-enrichment.test.ts",
+    "src/lib/miden/recovery/provider-writers.test.ts",
+    "src/lib/miden/recovery/receipt-lifecycle.test.ts",
+    "src/lib/miden/recovery/receipt-writer.test.ts",
+    "src/lib/miden/recovery/reconcile.test.ts",
+    "src/lib/miden/recovery/restore.test.ts",
+    "src/lib/miden/recovery/retirement.test.ts",
+    "src/lib/miden/recovery/retry-transition.test.ts",
+    "src/lib/miden/recovery/sdk-restore.test.ts",
+    "src/lib/miden/recovery/sdk-snapshot.test.ts",
+    "src/lib/miden/recovery/transaction-record.test.ts",
+    "src/lib/miden/transaction/bridged-receive-phase.test.ts",
+    "src/lib/miden/transaction/cancel.ends.test.ts",
+    "src/lib/miden/transaction/cancel.test.ts",
+    "src/lib/miden/transaction/cancel.unconfirmed.test.ts",
+    "src/lib/miden/transaction/complete.bridge-in.test.ts",
+    "src/lib/miden/transaction/complete.swap-stamp.test.ts",
+    "src/lib/miden/transaction/constants.test.ts",
+    "src/lib/miden/transaction/consume-landing-adoption.test.ts",
+    "src/lib/miden/transaction/consume-reaper-liveness.test.ts",
+    "src/lib/miden/transaction/double-send.integration.test.ts",
+    "src/lib/miden/transaction/earn-attempt-initiate.test.ts",
+    "src/lib/miden/transaction/earn-attempt.test.ts",
+    "src/lib/miden/transaction/earn-phase.test.ts",
+    "src/lib/miden/transaction/earn-preparation.test.ts",
+    "src/lib/miden/transaction/failure-identity.integration.test.ts",
+    "src/lib/miden/transaction/get.rotation-funding.test.ts",
+    "src/lib/miden/transaction/get.tracking.test.ts",
+    "src/lib/miden/transaction/get.unconfirmed.test.ts",
+    "src/lib/miden/transaction/helper.evidence.test.ts",
+    "src/lib/miden/transaction/helper.guardian-unauthorized.test.ts",
+    "src/lib/miden/transaction/helper.stage-control-vs-telemetry.test.ts",
+    "src/lib/miden/transaction/helper.stage-timestamps.test.ts",
+    "src/lib/miden/transaction/helper.stage.test.ts",
+    "src/lib/miden/transaction/helper.unconfirmed.test.ts",
+    "src/lib/miden/transaction/hot-key-rotation-residual.test.ts",
+    "src/lib/miden/transaction/initiate.batch-isolation.test.ts",
+    "src/lib/miden/transaction/initiate.custom-held-notes.test.ts",
+    "src/lib/miden/transaction/initiate.custom-spending-limit.test.ts",
+    "src/lib/miden/transaction/initiate.dapp-origin.test.ts",
+    "src/lib/miden/transaction/initiate.held-claims.test.ts",
+    "src/lib/miden/transaction/initiate.recall.test.ts",
+    "src/lib/miden/transaction/initiate.rotation-funding.test.ts",
+    "src/lib/miden/transaction/initiate.usdcx-source.test.ts",
+    "src/lib/miden/transaction/modify-decline.test.ts",
+    "src/lib/miden/transaction/note-delivery-sweep.test.ts",
+    "src/lib/miden/transaction/outcome-telemetry.integration.test.ts",
+    "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+    "src/lib/miden/transaction/reconcile-judge.test.ts",
+    "src/lib/miden/transaction/reconcile-reads.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts",
+    "src/lib/miden/transaction/relay-failure.test.ts",
+    "src/lib/miden/transaction/retry.earn.test.ts",
+    "src/lib/miden/transaction/retry.landed.test.ts",
+    "src/lib/miden/transaction/retry.recovery.test.ts",
+    "src/lib/miden/transaction/retry.test.ts",
+    "src/lib/miden/transaction/retry.unconfirmed.test.ts",
+    "src/lib/miden/transaction/rotation-funding.test.ts",
+    "src/lib/miden/transaction/sign-callback.test.ts",
+    "src/lib/miden/transaction/submission-feedback.test.ts",
+    "src/lib/miden/transaction/switch-guardian-residual.test.ts",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+    "src/lib/miden/transaction/transactions.branches.test.ts",
+    "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+    "src/lib/miden/transaction/transactions.cooldown.test.ts",
+    "src/lib/miden/transaction/transactions.extended.test.ts",
+    "src/lib/miden/transaction/transactions.gaps.test.ts",
+    "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts",
+    "src/lib/miden/transaction/transactions.guardian.test.ts",
+    "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+    "src/lib/miden/transaction/transactions.test.ts",
+    "src/lib/miden/transaction/trim-result-bytes.db.test.ts",
+    "src/lib/miden/transaction/unconfirmed-switch.test.ts",
+    "src/lib/miden/transaction/verdict-rules.test.ts",
+    "src/lib/one-click/client.test.ts",
+    "src/lib/one-click/config.test.ts",
+    "src/lib/one-click/deadline.test.ts",
+    "src/lib/one-click/delivery.test.ts",
+    "src/lib/one-click/evm-balance.test.ts",
+    "src/lib/one-click/evm.identity.test.ts",
+    "src/lib/one-click/evm.test.ts",
+    "src/lib/one-click/fake-service-helper.test.ts",
+    "src/lib/one-click/signature.test.ts",
+    "src/lib/one-click/tracking.claim.test.ts",
+    "src/lib/one-click/tracking.test.ts",
+    "src/lib/usdcx/attestation.test.ts",
+    "src/lib/usdcx/burn-fee.test.ts",
+    "src/lib/usdcx/burn-status.test.ts",
+    "src/lib/usdcx/burn.test.ts",
+    "src/lib/usdcx/cctp.test.ts",
+    "src/lib/usdcx/constant.test.ts",
+    "src/lib/usdcx/deposit-target.test.ts",
+    "src/lib/usdcx/deposit.test.ts",
+    "src/lib/usdcx/destination-status.test.ts",
+    "src/lib/usdcx/destination-transaction.test.ts",
+    "src/lib/usdcx/executor.test.ts",
+    "src/lib/usdcx/payout-proof.test.ts",
+    "src/lib/usdcx/recipient.test.ts",
+    "src/lib/usdcx/use-burn-fee-reserve.test.ts",
+    "src/lib/usdcx/use-burn-minimum.test.ts",
+    "src/lib/usdcx/use-destination-transaction.test.ts",
+    "src/lib/usdcx/withdrawal.test.ts"
+  ],
+  "shards": [
+    {
+      "id": 1,
+      "testFiles": [
+        "src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx",
+        "src/lib/epoch/config-defines.test.ts",
+        "src/lib/epoch/earn-submission-lock.test.ts",
+        "src/lib/epoch/earn-withdraw-policy.test.ts",
+        "src/lib/epoch/earn-withdraw-quote.test.ts",
+        "src/lib/epoch/evm-account.test.ts",
+        "src/lib/epoch/intent-status.sdk.test.ts",
+        "src/lib/epoch/miden-note.test.ts",
+        "src/lib/miden/recovery/financial.test.ts",
+        "src/lib/miden/recovery/guardian-state.test.ts",
+        "src/lib/miden/recovery/manual-execution.test.ts",
+        "src/lib/miden/recovery/provider-enrichment.test.ts",
+        "src/lib/miden/recovery/receipt-writer.test.ts",
+        "src/lib/miden/recovery/sdk-restore.test.ts",
+        "src/lib/miden/recovery/transaction-record.test.ts",
+        "src/lib/miden/transaction/get.rotation-funding.test.ts",
+        "src/lib/miden/transaction/initiate.held-claims.test.ts",
+        "src/lib/miden/transaction/initiate.recall.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts",
+        "src/lib/miden/transaction/retry.landed.test.ts",
+        "src/lib/miden/transaction/retry.recovery.test.ts",
+        "src/lib/miden/transaction/submission-feedback.test.ts",
+        "src/lib/miden/transaction/switch-guardian-residual.test.ts",
+        "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+        "src/lib/miden/transaction/transactions.guardian.test.ts",
+        "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+        "src/lib/miden/transaction/unconfirmed-switch.test.ts",
+        "src/lib/miden/transaction/verdict-rules.test.ts",
+        "src/lib/one-click/delivery.test.ts",
+        "src/lib/one-click/evm.test.ts",
+        "src/lib/one-click/tracking.claim.test.ts",
+        "src/lib/usdcx/burn-status.test.ts",
+        "src/lib/usdcx/deposit-target.test.ts",
+        "src/lib/usdcx/destination-status.test.ts",
+        "src/lib/usdcx/use-burn-minimum.test.ts"
+      ],
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx",
+        "src/lib/epoch/config-defines.test.ts",
+        "src/lib/epoch/earn-submission-lock.test.ts",
+        "src/lib/epoch/earn-withdraw-policy.test.ts",
+        "src/lib/epoch/earn-withdraw-quote.test.ts",
+        "src/lib/epoch/evm-account.test.ts",
+        "src/lib/epoch/intent-status.sdk.test.ts",
+        "src/lib/epoch/miden-note.test.ts",
+        "src/lib/miden/recovery/financial.test.ts",
+        "src/lib/miden/recovery/guardian-state.test.ts",
+        "src/lib/miden/recovery/manual-execution.test.ts",
+        "src/lib/miden/recovery/provider-enrichment.test.ts",
+        "src/lib/miden/recovery/receipt-writer.test.ts",
+        "src/lib/miden/recovery/sdk-restore.test.ts",
+        "src/lib/miden/recovery/transaction-record.test.ts",
+        "src/lib/miden/transaction/get.rotation-funding.test.ts",
+        "src/lib/miden/transaction/initiate.held-claims.test.ts",
+        "src/lib/miden/transaction/initiate.recall.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts",
+        "src/lib/miden/transaction/retry.landed.test.ts",
+        "src/lib/miden/transaction/retry.recovery.test.ts",
+        "src/lib/miden/transaction/submission-feedback.test.ts",
+        "src/lib/miden/transaction/switch-guardian-residual.test.ts",
+        "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+        "src/lib/miden/transaction/transactions.guardian.test.ts",
+        "src/lib/miden/transaction/transactions.send-stage-timings.test.ts",
+        "src/lib/miden/transaction/unconfirmed-switch.test.ts",
+        "src/lib/miden/transaction/verdict-rules.test.ts",
+        "src/lib/one-click/delivery.test.ts",
+        "src/lib/one-click/evm.test.ts",
+        "src/lib/one-click/tracking.claim.test.ts",
+        "src/lib/usdcx/burn-status.test.ts",
+        "src/lib/usdcx/deposit-target.test.ts",
+        "src/lib/usdcx/destination-status.test.ts",
+        "src/lib/usdcx/use-burn-minimum.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=task4c2-green-1.json"
+      ]
+    },
+    {
+      "id": 2,
+      "testFiles": [
+        "src/lib/epoch/collateral-note.test.ts",
+        "src/lib/epoch/earn.test.ts",
+        "src/lib/epoch/testing/bridge-config.test.ts",
+        "src/lib/epoch/withdraw-amount.test.ts",
+        "src/lib/intercom/in-process-request-handler.test.ts",
+        "src/lib/miden/activity/bridge-receive.test.ts",
+        "src/lib/miden/back/vault.test.ts",
+        "src/lib/miden/recovery/capture.test.ts",
+        "src/lib/miden/recovery/restore.test.ts",
+        "src/lib/miden/recovery/retry-transition.test.ts",
+        "src/lib/miden/transaction/complete.swap-stamp.test.ts",
+        "src/lib/miden/transaction/consume-landing-adoption.test.ts",
+        "src/lib/miden/transaction/earn-phase.test.ts",
+        "src/lib/miden/transaction/earn-preparation.test.ts",
+        "src/lib/miden/transaction/failure-identity.integration.test.ts",
+        "src/lib/miden/transaction/helper.evidence.test.ts",
+        "src/lib/miden/transaction/helper.guardian-unauthorized.test.ts",
+        "src/lib/miden/transaction/helper.stage-control-vs-telemetry.test.ts",
+        "src/lib/miden/transaction/helper.unconfirmed.test.ts",
+        "src/lib/miden/transaction/hot-key-rotation-residual.test.ts",
+        "src/lib/miden/transaction/initiate.batch-isolation.test.ts",
+        "src/lib/miden/transaction/initiate.custom-held-notes.test.ts",
+        "src/lib/miden/transaction/initiate.rotation-funding.test.ts",
+        "src/lib/miden/transaction/modify-decline.test.ts",
+        "src/lib/miden/transaction/outcome-telemetry.integration.test.ts",
+        "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+        "src/lib/miden/transaction/reconcile-judge.test.ts",
+        "src/lib/miden/transaction/reconcile-reads.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts",
+        "src/lib/miden/transaction/relay-failure.test.ts",
+        "src/lib/miden/transaction/rotation-funding.test.ts",
+        "src/lib/miden/transaction/transactions.cooldown.test.ts",
+        "src/lib/miden/transaction/transactions.gaps.test.ts",
+        "src/lib/miden/transaction/transactions.test.ts",
+        "src/lib/one-click/deadline.test.ts",
+        "src/lib/one-click/evm-balance.test.ts",
+        "src/lib/one-click/evm.identity.test.ts",
+        "src/lib/one-click/tracking.test.ts",
+        "src/lib/usdcx/deposit.test.ts",
+        "src/lib/usdcx/destination-transaction.test.ts",
+        "src/lib/usdcx/payout-proof.test.ts"
+      ],
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/epoch/collateral-note.test.ts",
+        "src/lib/epoch/earn.test.ts",
+        "src/lib/epoch/testing/bridge-config.test.ts",
+        "src/lib/epoch/withdraw-amount.test.ts",
+        "src/lib/intercom/in-process-request-handler.test.ts",
+        "src/lib/miden/activity/bridge-receive.test.ts",
+        "src/lib/miden/back/vault.test.ts",
+        "src/lib/miden/recovery/capture.test.ts",
+        "src/lib/miden/recovery/restore.test.ts",
+        "src/lib/miden/recovery/retry-transition.test.ts",
+        "src/lib/miden/transaction/complete.swap-stamp.test.ts",
+        "src/lib/miden/transaction/consume-landing-adoption.test.ts",
+        "src/lib/miden/transaction/earn-phase.test.ts",
+        "src/lib/miden/transaction/earn-preparation.test.ts",
+        "src/lib/miden/transaction/failure-identity.integration.test.ts",
+        "src/lib/miden/transaction/helper.evidence.test.ts",
+        "src/lib/miden/transaction/helper.guardian-unauthorized.test.ts",
+        "src/lib/miden/transaction/helper.stage-control-vs-telemetry.test.ts",
+        "src/lib/miden/transaction/helper.unconfirmed.test.ts",
+        "src/lib/miden/transaction/hot-key-rotation-residual.test.ts",
+        "src/lib/miden/transaction/initiate.batch-isolation.test.ts",
+        "src/lib/miden/transaction/initiate.custom-held-notes.test.ts",
+        "src/lib/miden/transaction/initiate.rotation-funding.test.ts",
+        "src/lib/miden/transaction/modify-decline.test.ts",
+        "src/lib/miden/transaction/outcome-telemetry.integration.test.ts",
+        "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+        "src/lib/miden/transaction/reconcile-judge.test.ts",
+        "src/lib/miden/transaction/reconcile-reads.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts",
+        "src/lib/miden/transaction/relay-failure.test.ts",
+        "src/lib/miden/transaction/rotation-funding.test.ts",
+        "src/lib/miden/transaction/transactions.cooldown.test.ts",
+        "src/lib/miden/transaction/transactions.gaps.test.ts",
+        "src/lib/miden/transaction/transactions.test.ts",
+        "src/lib/one-click/deadline.test.ts",
+        "src/lib/one-click/evm-balance.test.ts",
+        "src/lib/one-click/evm.identity.test.ts",
+        "src/lib/one-click/tracking.test.ts",
+        "src/lib/usdcx/deposit.test.ts",
+        "src/lib/usdcx/destination-transaction.test.ts",
+        "src/lib/usdcx/payout-proof.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=task4c2-green-2.json"
+      ]
+    },
+    {
+      "id": 3,
+      "testFiles": [
+        "src/app/templates/EvmConnectModal/useCctpExecute.test.ts",
+        "src/lib/epoch/EarnIntentWatcher.test.tsx",
+        "src/lib/epoch/bridge.test.ts",
+        "src/lib/epoch/epoch-send.test.ts",
+        "src/lib/epoch/market-uid.test.ts",
+        "src/lib/epoch/pools.test.ts",
+        "src/lib/epoch/positions.test.ts",
+        "src/lib/epoch/receipt-execution.test.ts",
+        "src/lib/epoch/sdk-prepared-execution.test.ts",
+        "src/lib/epoch/store.poll.test.ts",
+        "src/lib/epoch/store.quote.test.ts",
+        "src/lib/epoch/witness-typestring.test.ts",
+        "src/lib/intercom/mobile-adapter.test.ts",
+        "src/lib/miden/back/vault.evm.test.ts",
+        "src/lib/miden/back/vault.gaps.test.ts",
+        "src/lib/miden/recovery/account-restore.test.ts",
+        "src/lib/miden/recovery/continuity.test.ts",
+        "src/lib/miden/recovery/financial-writer.test.ts",
+        "src/lib/miden/recovery/provider-writers.test.ts",
+        "src/lib/miden/recovery/reconcile.test.ts",
+        "src/lib/miden/recovery/retirement.test.ts",
+        "src/lib/miden/recovery/sdk-snapshot.test.ts",
+        "src/lib/miden/transaction/bridged-receive-phase.test.ts",
+        "src/lib/miden/transaction/cancel.test.ts",
+        "src/lib/miden/transaction/cancel.unconfirmed.test.ts",
+        "src/lib/miden/transaction/constants.test.ts",
+        "src/lib/miden/transaction/double-send.integration.test.ts",
+        "src/lib/miden/transaction/earn-attempt-initiate.test.ts",
+        "src/lib/miden/transaction/get.tracking.test.ts",
+        "src/lib/miden/transaction/helper.stage.test.ts",
+        "src/lib/miden/transaction/initiate.custom-spending-limit.test.ts",
+        "src/lib/miden/transaction/note-delivery-sweep.test.ts",
+        "src/lib/miden/transaction/sign-callback.test.ts",
+        "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+        "src/lib/miden/transaction/transactions.branches.test.ts",
+        "src/lib/miden/transaction/transactions.extended.test.ts",
+        "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts",
+        "src/lib/one-click/fake-service-helper.test.ts",
+        "src/lib/usdcx/burn-fee.test.ts",
+        "src/lib/usdcx/burn.test.ts",
+        "src/lib/usdcx/constant.test.ts"
+      ],
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/app/templates/EvmConnectModal/useCctpExecute.test.ts",
+        "src/lib/epoch/EarnIntentWatcher.test.tsx",
+        "src/lib/epoch/bridge.test.ts",
+        "src/lib/epoch/epoch-send.test.ts",
+        "src/lib/epoch/market-uid.test.ts",
+        "src/lib/epoch/pools.test.ts",
+        "src/lib/epoch/positions.test.ts",
+        "src/lib/epoch/receipt-execution.test.ts",
+        "src/lib/epoch/sdk-prepared-execution.test.ts",
+        "src/lib/epoch/store.poll.test.ts",
+        "src/lib/epoch/store.quote.test.ts",
+        "src/lib/epoch/witness-typestring.test.ts",
+        "src/lib/intercom/mobile-adapter.test.ts",
+        "src/lib/miden/back/vault.evm.test.ts",
+        "src/lib/miden/back/vault.gaps.test.ts",
+        "src/lib/miden/recovery/account-restore.test.ts",
+        "src/lib/miden/recovery/continuity.test.ts",
+        "src/lib/miden/recovery/financial-writer.test.ts",
+        "src/lib/miden/recovery/provider-writers.test.ts",
+        "src/lib/miden/recovery/reconcile.test.ts",
+        "src/lib/miden/recovery/retirement.test.ts",
+        "src/lib/miden/recovery/sdk-snapshot.test.ts",
+        "src/lib/miden/transaction/bridged-receive-phase.test.ts",
+        "src/lib/miden/transaction/cancel.test.ts",
+        "src/lib/miden/transaction/cancel.unconfirmed.test.ts",
+        "src/lib/miden/transaction/constants.test.ts",
+        "src/lib/miden/transaction/double-send.integration.test.ts",
+        "src/lib/miden/transaction/earn-attempt-initiate.test.ts",
+        "src/lib/miden/transaction/get.tracking.test.ts",
+        "src/lib/miden/transaction/helper.stage.test.ts",
+        "src/lib/miden/transaction/initiate.custom-spending-limit.test.ts",
+        "src/lib/miden/transaction/note-delivery-sweep.test.ts",
+        "src/lib/miden/transaction/sign-callback.test.ts",
+        "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+        "src/lib/miden/transaction/transactions.branches.test.ts",
+        "src/lib/miden/transaction/transactions.extended.test.ts",
+        "src/lib/miden/transaction/transactions.guardian-offscreen.test.ts",
+        "src/lib/one-click/fake-service-helper.test.ts",
+        "src/lib/usdcx/burn-fee.test.ts",
+        "src/lib/usdcx/burn.test.ts",
+        "src/lib/usdcx/constant.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=task4c2-green-3.json"
+      ]
+    },
+    {
+      "id": 4,
+      "testFiles": [
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+        "src/app/templates/EvmConnectModal/UsdcxExecuteAction.test.tsx",
+        "src/lib/epoch/config.test.ts",
+        "src/lib/epoch/earn-withdraw-recovery.test.ts",
+        "src/lib/epoch/earn-withdraw.test.ts",
+        "src/lib/epoch/epoch-send.fill.test.ts",
+        "src/lib/epoch/intent-status.test.ts",
+        "src/lib/epoch/poll-registry.test.ts",
+        "src/lib/epoch/receipt-owners.test.ts",
+        "src/lib/epoch/sdk.test.ts",
+        "src/lib/epoch/store.execute.test.ts",
+        "src/lib/miden/back/actions.test.ts",
+        "src/lib/miden/back/main.test.ts",
+        "src/lib/miden/recovery/access.test.ts",
+        "src/lib/miden/recovery/canonical-reads.test.ts",
+        "src/lib/miden/recovery/journal.test.ts",
+        "src/lib/miden/recovery/provider-boundaries.test.ts",
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts",
+        "src/lib/miden/transaction/cancel.ends.test.ts",
+        "src/lib/miden/transaction/complete.bridge-in.test.ts",
+        "src/lib/miden/transaction/consume-reaper-liveness.test.ts",
+        "src/lib/miden/transaction/earn-attempt.test.ts",
+        "src/lib/miden/transaction/get.unconfirmed.test.ts",
+        "src/lib/miden/transaction/helper.stage-timestamps.test.ts",
+        "src/lib/miden/transaction/initiate.dapp-origin.test.ts",
+        "src/lib/miden/transaction/initiate.usdcx-source.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts",
+        "src/lib/miden/transaction/retry.earn.test.ts",
+        "src/lib/miden/transaction/retry.test.ts",
+        "src/lib/miden/transaction/retry.unconfirmed.test.ts",
+        "src/lib/miden/transaction/trim-result-bytes.db.test.ts",
+        "src/lib/one-click/client.test.ts",
+        "src/lib/one-click/config.test.ts",
+        "src/lib/one-click/signature.test.ts",
+        "src/lib/usdcx/attestation.test.ts",
+        "src/lib/usdcx/cctp.test.ts",
+        "src/lib/usdcx/executor.test.ts",
+        "src/lib/usdcx/recipient.test.ts",
+        "src/lib/usdcx/use-burn-fee-reserve.test.ts",
+        "src/lib/usdcx/use-destination-transaction.test.ts",
+        "src/lib/usdcx/withdrawal.test.ts"
+      ],
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+        "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+        "src/app/templates/EvmConnectModal/UsdcxExecuteAction.test.tsx",
+        "src/lib/epoch/config.test.ts",
+        "src/lib/epoch/earn-withdraw-recovery.test.ts",
+        "src/lib/epoch/earn-withdraw.test.ts",
+        "src/lib/epoch/epoch-send.fill.test.ts",
+        "src/lib/epoch/intent-status.test.ts",
+        "src/lib/epoch/poll-registry.test.ts",
+        "src/lib/epoch/receipt-owners.test.ts",
+        "src/lib/epoch/sdk.test.ts",
+        "src/lib/epoch/store.execute.test.ts",
+        "src/lib/miden/back/actions.test.ts",
+        "src/lib/miden/back/main.test.ts",
+        "src/lib/miden/recovery/access.test.ts",
+        "src/lib/miden/recovery/canonical-reads.test.ts",
+        "src/lib/miden/recovery/journal.test.ts",
+        "src/lib/miden/recovery/provider-boundaries.test.ts",
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts",
+        "src/lib/miden/transaction/cancel.ends.test.ts",
+        "src/lib/miden/transaction/complete.bridge-in.test.ts",
+        "src/lib/miden/transaction/consume-reaper-liveness.test.ts",
+        "src/lib/miden/transaction/earn-attempt.test.ts",
+        "src/lib/miden/transaction/get.unconfirmed.test.ts",
+        "src/lib/miden/transaction/helper.stage-timestamps.test.ts",
+        "src/lib/miden/transaction/initiate.dapp-origin.test.ts",
+        "src/lib/miden/transaction/initiate.usdcx-source.test.ts",
+        "src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts",
+        "src/lib/miden/transaction/retry.earn.test.ts",
+        "src/lib/miden/transaction/retry.test.ts",
+        "src/lib/miden/transaction/retry.unconfirmed.test.ts",
+        "src/lib/miden/transaction/trim-result-bytes.db.test.ts",
+        "src/lib/one-click/client.test.ts",
+        "src/lib/one-click/config.test.ts",
+        "src/lib/one-click/signature.test.ts",
+        "src/lib/usdcx/attestation.test.ts",
+        "src/lib/usdcx/cctp.test.ts",
+        "src/lib/usdcx/executor.test.ts",
+        "src/lib/usdcx/recipient.test.ts",
+        "src/lib/usdcx/use-burn-fee-reserve.test.ts",
+        "src/lib/usdcx/use-destination-transaction.test.ts",
+        "src/lib/usdcx/withdrawal.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=task4c2-green-4.json"
+      ]
+    }
+  ],
+  "expected": {
+    "suiteCount": 159,
+    "filtered": 0,
+    "skipped": 0,
+    "runtimeErrors": 0,
+    "allCasesMustPass": true,
+    "indexedRedCases": 94
+  },
+  "base": "38eeb5d274664acfc38fe5e948dab6a8bac25d5f",
+  "patch": "/tmp/task4c2-coherent-green.patch",
+  "sha256": "a2fb4fc97691db8d6b004bdc338235adde4abdd5e3d4a7cd8ed921778b5e39a5",
+  "sourceFiles": [
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+      "sha256": "750fe5587e1bf82c54bf17f6012c8403da2fe6f840496e8976101f3868e17965",
+      "untracked": false
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+      "sha256": "00ac98ccf9e23521039c5a4a20901c7c06c98069c540e7960bdb93e960a572d0",
+      "untracked": false
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+      "sha256": "7befde5b65ec150c8182842dc6f0a98d8e26344f7c832cc5fac02cf040740026",
+      "untracked": false
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/useCctpExecute.ts",
+      "sha256": "6d0d6bb46d2ae541b979072989ce465a15716b09df9eb306dba24c632af92506",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx",
+      "sha256": "30857622405101291bec84355dcfb83c10d5909dd9cc74765cffa103b628f6d1",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/bridge.ts",
+      "sha256": "f8b6d563884caa066f6f373d48b451d6e1435358a1846c27aa9d9baf077f0c44",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn-note.ts",
+      "sha256": "c056e35a8ccef8a769a9313ccd7819b43ed3dffc97b8a60e1666bf726e78e3ec",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn-withdraw-policy.ts",
+      "sha256": "a06e76b44199d55c3eae4dc74345e5bce3f866d608283c095b29915db6f49d9d",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn-withdraw-recovery.test.ts",
+      "sha256": "1807b110a9c81db1787e15ecfe8900927af04fd59bfe8cc7aad937b7b0ee4001",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn-withdraw.test.ts",
+      "sha256": "e689dee2c0e604ea9645b33ee86a7c71c6a05d9f207710791fabff629f0805b7",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn-withdraw.ts",
+      "sha256": "d717da8af8b1ee73d526d8664911deeb334a22cae4cdc56b8fad5818fa3cd1cf",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn.test.ts",
+      "sha256": "0de33828547d9374be81d466d164fe4174eb2d159da385e1f9db46c06092750d",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/earn.ts",
+      "sha256": "c0eadfffe1cac8ea2125e72bbe2caec225d77d7aa90df9f9f1d3c24de2eaef17",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/epoch-send.test.ts",
+      "sha256": "0caa5dd0df9c981b2f46914b1408db5d33a598c5f6d9570e58479d5a42e9b11c",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/epoch-send.ts",
+      "sha256": "7af5b056ffe4923bc040f140044d1cc5b8fa2417225ae8370de074de537ba9f7",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/miden-note.ts",
+      "sha256": "5a5bda048c0df3940e22060449ef1476437f447fc3240079fb1471a3acabb069",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/receipt-execution.test.ts",
+      "sha256": "acbbc008649a785c067bb2418108765ce8c8bce3366d195f44d32b7559de98e3",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/epoch/receipt-execution.ts",
+      "sha256": "43f59f21745d3c259f95f42c91b3133703f03f0d5ad61ad00d7f400efd8e9ea8",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/epoch/receipt-owners.test.ts",
+      "sha256": "cf7fb5fcd84bad341fa7e84013bb16ce47878b20264b0aa7b0c54f499bd2669c",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/epoch/receipt.ts",
+      "sha256": "550c5e298909f35ea39ade607119c90738cd1b76db1d8d7bdc64649636ffc4c1",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/epoch/sdk.ts",
+      "sha256": "4f54e52a26528f959eab7c464c77f95c5d577e23fcfd93ce35e1883ba077f3d9",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/store.execute.test.ts",
+      "sha256": "846af395a4194dff248e81a60b5c01baea7c6417246ffddb2b259785bbad4698",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/store.ts",
+      "sha256": "f0c11f79340e5b0388d55e4eacee65a98a2ec28f0bb501c0114031cab8693135",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/epoch/types.ts",
+      "sha256": "5af847b06cb39d40321fa9816d217075b57c6a56b86b6b5386a04834276269dd",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/intercom/in-process-request-handler.ts",
+      "sha256": "ef11bb47b0bacf1b2e872e6fc45f862d93b476217740c844a58a4286dd27bf99",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/activity/bridge-receive.test.ts",
+      "sha256": "581d3a190c8f5d0ee5cf682e6bc53c720af137614a96c9ee48a08867d61bce59",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/activity/bridge-receive.ts",
+      "sha256": "c7a5f55657965d9c97fba564ee0d54d65a7311ce98bf173bf0746fde91cedecb",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/back/actions.ts",
+      "sha256": "63269e793d80cb93833b15f48574c1f72ba82b696e933bb040c1fc6241f34b80",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/back/main.ts",
+      "sha256": "49b7c7736a9a95b01ded3e678a60107bcd532f4788ac5c8569570f9ae8565c31",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/back/vault.test.ts",
+      "sha256": "ef945d3f78e33a17c10aff970fa870706f7f17deed8e9f7ddf450f437f5895ad",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/back/vault.ts",
+      "sha256": "41bda6375dcdc8f83a86a06df0c0167c8f0b0094707850a9bd087a012c560f05",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/db/types.ts",
+      "sha256": "0063128a9da4e013e6246d2f407399a5029602998d4c59aca4d3b057b989c0ed",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/journal.test.ts",
+      "sha256": "369b928a76277be25db2e6844e9fa1fcfa1ddf05d6176158fd8d8c673d49e6fe",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/manual-execution.test.ts",
+      "sha256": "a68ef8a4226f5a516c9590e00d6d5c91a6bda34df8885761bfd6c2d50de45fed",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/provider-boundaries.test.ts",
+      "sha256": "03e977ca55a852727a71381057ba79746c2ee98d12d070e096d6f9bdb9971309",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/provider-enrichment.test.ts",
+      "sha256": "c7a3ed01382d82626e9f48f09729cbe9aafce139e70cc686c5321b92d84095cb",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/provider-record.ts",
+      "sha256": "76cff73a1742d4e2aa9b8d0052fce68c9210674a316e9d78dd101864886045e4",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/provider-writers.test.ts",
+      "sha256": "5c9e429d6f72b12526c4f1db4b3e5b9d8a356868f5c6816b539b98fbeabeb905",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/receipt-backend.ts",
+      "sha256": "464458c9315587646757b47a34cf36465af9884aa6392b727a0398d97d9ecd66",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/receipt-lifecycle.test.ts",
+      "sha256": "c81e3020a75de55e423ccebb84001e8c09debfedf03685c766f1f7365678cb1c",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/receipt-writer.test.ts",
+      "sha256": "e359f43c4c2154bfcff61cf8745e21e84839c454ef675d4aefb7ba61193913e8",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/receipt-writer.ts",
+      "sha256": "3cd60ad6c5e3780a9aa7b78ddcfbe1ea6a448ab75853d3544b537b02899eda63",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/restore.test.ts",
+      "sha256": "4075debd1c51b5c0c72c87ee797a2b7423943b3cd6c88b27a4fcbb0a6b1a1637",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/restore.ts",
+      "sha256": "30cab2e2789f3be849a3ff7e9bb8126c79c724d155f99ff7f2a99d26e1a9aa03",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "sha256": "87c31eb19ef5d3524c1258db063fede15a24183dd50f768316947119cf120b1d",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/testing/provider-receipts.ts",
+      "sha256": "b76b80436ccfe0ff489f5722b16a01679dbc73f678e39a9c77df51d188f6d3e9",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/transaction-continuity.ts",
+      "sha256": "9699306f2a475deae60b1a5e45d1f5e9b836dcc8f82720c0e26637ee3a4f482a",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/transaction-record.test.ts",
+      "sha256": "d2e1a7ea66dfb6946edde566352c631172f14c313d53fb4b8fada6e2c4b7f3d8",
+      "untracked": true
+    },
+    {
+      "path": "src/lib/miden/recovery/transaction-record.ts",
+      "sha256": "254dc759112e75ac20170e7a21bc1b59682c3ea787262a73e1ded8a2accecc8d",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/types.ts",
+      "sha256": "5cc19b80365541be1c3e1e1c0f07fcd5ce738cd4ff90bbdb1ff15a15fa7bde75",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/recovery/validation.ts",
+      "sha256": "e3658806afafb03a26f47efdf5073869ebfbe6615abaaa25c08b6473ae184030",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/bridged-receive-phase.test.ts",
+      "sha256": "43cd45c2ba98c5bdb8bdf5acb8d9a3c64aae1cd983ceded35e59f7943fdf0845",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/complete.bridge-in.test.ts",
+      "sha256": "f5f7b64d1e98e4895b6802cbd82f837c49e8ee0eab7fe64c3f8a16222e9c85db",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/complete.ts",
+      "sha256": "73b60cb0e533f37812eb905e7eb291edf0fcdf11579d71c938a2fc60d71ff72b",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/earn-attempt-initiate.test.ts",
+      "sha256": "50241949916817f018d43e8c71a3f3ce72ccbc37e696fffadd7492d0a299a997",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/earn-attempt.test.ts",
+      "sha256": "050d1b222a8b87c8a6ce0903d9cbbeee776b8049beda0dfe22efce3ffbce101c",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/earn-phase.test.ts",
+      "sha256": "77c0d149ccc4015220e92a33c209eddf3aca2e0daddcde68efb490edaeeaca49",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/earn-preparation.test.ts",
+      "sha256": "a8a61542774443f9b42aebe9c5d6fc4b4e35744a55d25efeb76523a603380b68",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/initiate.ts",
+      "sha256": "815cdfa0120f582cccb99c02cdc273e76787df4f815546f857ae89a47ac882a1",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/initiate.usdcx-source.test.ts",
+      "sha256": "273f09fe9d81003860e977760b77df9d29bc156a71900bb5a3448b1491bccb42",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/modify-decline.test.ts",
+      "sha256": "6eee9b4997c5f2797379611db4adb646365f6227a59645f29c62b662b0a104f7",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/outcome-telemetry.integration.test.ts",
+      "sha256": "a6f0dfb69ff81ecb29937395ba7b911910f30e61d139c4d6904d6a740d077d03",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+      "sha256": "0b8f4693b01c011c53fbc9af03497f4f12d006b91e7f6b32b858178d5ba114d9",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transactions.branches.test.ts",
+      "sha256": "76bf92ca31038574f20d56cefcbda29b41c82afe41a8e4dba21201fe46c5a1b9",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts",
+      "sha256": "63420377c5425102609fb5dcfc2943b09c9059555462a27729f7e6b076468dcc",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transactions.extended.test.ts",
+      "sha256": "c162e84270a5dc38dde132865937d0ff006ca3d03032449c66288d3ec130db28",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transactions.gaps.test.ts",
+      "sha256": "43e971b3ec2471a3ecee59809b30a83d009a198a23dc9444af096f8782a31fcf",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/miden/transaction/transactions.test.ts",
+      "sha256": "e93c0007d254b905e86077c023c542e2e165de2e6e1dca5018623a102645601d",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/one-click/tracking.claim.test.ts",
+      "sha256": "f7cbdaa5f297e47ef947200016ee09eeffd2175a3642d480dad143691368ccc9",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/one-click/tracking.test.ts",
+      "sha256": "ef14911e6dfb85bed1f883b23b7f8883c011277b28e0db0e637444b887387973",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/one-click/tracking.ts",
+      "sha256": "6f3ba00366b6d6461f74cd9e0844538dad22026f94193201cdc8ba2ab24dc37a",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/shared/types.ts",
+      "sha256": "d8c309ebc19bda7762839ac763e03202d136bc07e08c2a134ba493bee106d454",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/burn-status.test.ts",
+      "sha256": "82f9b91ff22562ac00d72c2d633ecff70a8edf8ff9bf9178dc5385827ada572e",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/burn-status.ts",
+      "sha256": "430f873978a79aa180904ffb325f36c379727c2cc48cef7e3b2b892dcbb282a8",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/deposit.ts",
+      "sha256": "801413d7ff825bd5d6ce5afef7367f3624c19c6bc98eb04694498ff8c56ffc5b",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/destination-status.test.ts",
+      "sha256": "ae47b2e0c3df9ab61f2032512cc895a40d1e9fd00e5489e425ed9b1ff2b83446",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/destination-status.ts",
+      "sha256": "15b5fb9c99fdfaea7dd03f6aa2026ff2fdd6a2daed485f4705cd09ca30ed134e",
+      "untracked": false
+    },
+    {
+      "path": "src/lib/usdcx/executor.ts",
+      "sha256": "c60d6d9bf8b3af30562c416b3a6e5f53a6c4a0b55e72b096d37629ede3c66ed7",
+      "untracked": false
+    }
+  ],
+  "commands": [
+    "yarn jest --runTestsByPath src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx src/lib/epoch/config-defines.test.ts src/lib/epoch/earn-submission-lock.test.ts src/lib/epoch/earn-withdraw-policy.test.ts src/lib/epoch/earn-withdraw-quote.test.ts src/lib/epoch/evm-account.test.ts src/lib/epoch/intent-status.sdk.test.ts src/lib/epoch/miden-note.test.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/guardian-state.test.ts src/lib/miden/recovery/manual-execution.test.ts src/lib/miden/recovery/provider-enrichment.test.ts src/lib/miden/recovery/receipt-writer.test.ts src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/transaction-record.test.ts src/lib/miden/transaction/get.rotation-funding.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts src/lib/miden/transaction/initiate.recall.test.ts src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts src/lib/miden/transaction/retry.landed.test.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/submission-feedback.test.ts src/lib/miden/transaction/switch-guardian-residual.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.send-stage-timings.test.ts src/lib/miden/transaction/unconfirmed-switch.test.ts src/lib/miden/transaction/verdict-rules.test.ts src/lib/one-click/delivery.test.ts src/lib/one-click/evm.test.ts src/lib/one-click/tracking.claim.test.ts src/lib/usdcx/burn-status.test.ts src/lib/usdcx/deposit-target.test.ts src/lib/usdcx/destination-status.test.ts src/lib/usdcx/use-burn-minimum.test.ts --maxWorkers=2 --no-coverage --json --outputFile=task4c2-green-1.json",
+    "yarn jest --runTestsByPath src/lib/epoch/collateral-note.test.ts src/lib/epoch/earn.test.ts src/lib/epoch/testing/bridge-config.test.ts src/lib/epoch/withdraw-amount.test.ts src/lib/intercom/in-process-request-handler.test.ts src/lib/miden/activity/bridge-receive.test.ts src/lib/miden/back/vault.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/retry-transition.test.ts src/lib/miden/transaction/complete.swap-stamp.test.ts src/lib/miden/transaction/consume-landing-adoption.test.ts src/lib/miden/transaction/earn-phase.test.ts src/lib/miden/transaction/earn-preparation.test.ts src/lib/miden/transaction/failure-identity.integration.test.ts src/lib/miden/transaction/helper.evidence.test.ts src/lib/miden/transaction/helper.guardian-unauthorized.test.ts src/lib/miden/transaction/helper.stage-control-vs-telemetry.test.ts src/lib/miden/transaction/helper.unconfirmed.test.ts src/lib/miden/transaction/hot-key-rotation-residual.test.ts src/lib/miden/transaction/initiate.batch-isolation.test.ts src/lib/miden/transaction/initiate.custom-held-notes.test.ts src/lib/miden/transaction/initiate.rotation-funding.test.ts src/lib/miden/transaction/modify-decline.test.ts src/lib/miden/transaction/outcome-telemetry.integration.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/transaction/reconcile-judge.test.ts src/lib/miden/transaction/reconcile-reads.test.ts src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts src/lib/miden/transaction/relay-failure.test.ts src/lib/miden/transaction/rotation-funding.test.ts src/lib/miden/transaction/transactions.cooldown.test.ts src/lib/miden/transaction/transactions.gaps.test.ts src/lib/miden/transaction/transactions.test.ts src/lib/one-click/deadline.test.ts src/lib/one-click/evm-balance.test.ts src/lib/one-click/evm.identity.test.ts src/lib/one-click/tracking.test.ts src/lib/usdcx/deposit.test.ts src/lib/usdcx/destination-transaction.test.ts src/lib/usdcx/payout-proof.test.ts --maxWorkers=2 --no-coverage --json --outputFile=task4c2-green-2.json",
+    "yarn jest --runTestsByPath src/app/templates/EvmConnectModal/useCctpExecute.test.ts src/lib/epoch/EarnIntentWatcher.test.tsx src/lib/epoch/bridge.test.ts src/lib/epoch/epoch-send.test.ts src/lib/epoch/market-uid.test.ts src/lib/epoch/pools.test.ts src/lib/epoch/positions.test.ts src/lib/epoch/receipt-execution.test.ts src/lib/epoch/sdk-prepared-execution.test.ts src/lib/epoch/store.poll.test.ts src/lib/epoch/store.quote.test.ts src/lib/epoch/witness-typestring.test.ts src/lib/intercom/mobile-adapter.test.ts src/lib/miden/back/vault.evm.test.ts src/lib/miden/back/vault.gaps.test.ts src/lib/miden/recovery/account-restore.test.ts src/lib/miden/recovery/continuity.test.ts src/lib/miden/recovery/financial-writer.test.ts src/lib/miden/recovery/provider-writers.test.ts src/lib/miden/recovery/reconcile.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/transaction/bridged-receive-phase.test.ts src/lib/miden/transaction/cancel.test.ts src/lib/miden/transaction/cancel.unconfirmed.test.ts src/lib/miden/transaction/constants.test.ts src/lib/miden/transaction/double-send.integration.test.ts src/lib/miden/transaction/earn-attempt-initiate.test.ts src/lib/miden/transaction/get.tracking.test.ts src/lib/miden/transaction/helper.stage.test.ts src/lib/miden/transaction/initiate.custom-spending-limit.test.ts src/lib/miden/transaction/note-delivery-sweep.test.ts src/lib/miden/transaction/sign-callback.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/transactions.extended.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/lib/one-click/fake-service-helper.test.ts src/lib/usdcx/burn-fee.test.ts src/lib/usdcx/burn.test.ts src/lib/usdcx/constant.test.ts --maxWorkers=2 --no-coverage --json --outputFile=task4c2-green-3.json",
+    "yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx src/app/templates/EvmConnectModal/UsdcxExecuteAction.test.tsx src/lib/epoch/config.test.ts src/lib/epoch/earn-withdraw-recovery.test.ts src/lib/epoch/earn-withdraw.test.ts src/lib/epoch/epoch-send.fill.test.ts src/lib/epoch/intent-status.test.ts src/lib/epoch/poll-registry.test.ts src/lib/epoch/receipt-owners.test.ts src/lib/epoch/sdk.test.ts src/lib/epoch/store.execute.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/main.test.ts src/lib/miden/recovery/access.test.ts src/lib/miden/recovery/canonical-reads.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/provider-boundaries.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/transaction/cancel.ends.test.ts src/lib/miden/transaction/complete.bridge-in.test.ts src/lib/miden/transaction/consume-reaper-liveness.test.ts src/lib/miden/transaction/earn-attempt.test.ts src/lib/miden/transaction/get.unconfirmed.test.ts src/lib/miden/transaction/helper.stage-timestamps.test.ts src/lib/miden/transaction/initiate.dapp-origin.test.ts src/lib/miden/transaction/initiate.usdcx-source.test.ts src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts src/lib/miden/transaction/retry.earn.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/lib/miden/transaction/trim-result-bytes.db.test.ts src/lib/one-click/client.test.ts src/lib/one-click/config.test.ts src/lib/one-click/signature.test.ts src/lib/usdcx/attestation.test.ts src/lib/usdcx/cctp.test.ts src/lib/usdcx/executor.test.ts src/lib/usdcx/recipient.test.ts src/lib/usdcx/use-burn-fee-reserve.test.ts src/lib/usdcx/use-destination-transaction.test.ts src/lib/usdcx/withdrawal.test.ts --maxWorkers=2 --no-coverage --json --outputFile=task4c2-green-4.json",
+    "yarn tsc --noEmit",
+    "yarn eslint src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx src/app/templates/EvmConnectModal/useCctpExecute.ts src/lib/epoch/EarnIntentWatcher.reconcile.test.tsx src/lib/epoch/bridge.ts src/lib/epoch/earn-note.ts src/lib/epoch/earn-withdraw-policy.ts src/lib/epoch/earn-withdraw-recovery.test.ts src/lib/epoch/earn-withdraw.test.ts src/lib/epoch/earn-withdraw.ts src/lib/epoch/earn.test.ts src/lib/epoch/earn.ts src/lib/epoch/epoch-send.test.ts src/lib/epoch/epoch-send.ts src/lib/epoch/miden-note.ts src/lib/epoch/receipt-execution.test.ts src/lib/epoch/receipt-execution.ts src/lib/epoch/receipt-owners.test.ts src/lib/epoch/receipt.ts src/lib/epoch/sdk.ts src/lib/epoch/store.execute.test.ts src/lib/epoch/store.ts src/lib/epoch/types.ts src/lib/intercom/in-process-request-handler.ts src/lib/miden/activity/bridge-receive.test.ts src/lib/miden/activity/bridge-receive.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/db/types.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/manual-execution.test.ts src/lib/miden/recovery/provider-boundaries.test.ts src/lib/miden/recovery/provider-enrichment.test.ts src/lib/miden/recovery/provider-record.ts src/lib/miden/recovery/provider-writers.test.ts src/lib/miden/recovery/receipt-backend.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/receipt-writer.test.ts src/lib/miden/recovery/receipt-writer.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/restore.ts src/lib/miden/recovery/retirement.ts src/lib/miden/recovery/testing/provider-receipts.ts src/lib/miden/recovery/transaction-continuity.ts src/lib/miden/recovery/transaction-record.test.ts src/lib/miden/recovery/transaction-record.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/transaction/bridged-receive-phase.test.ts src/lib/miden/transaction/complete.bridge-in.test.ts src/lib/miden/transaction/complete.ts src/lib/miden/transaction/earn-attempt-initiate.test.ts src/lib/miden/transaction/earn-attempt.test.ts src/lib/miden/transaction/earn-phase.test.ts src/lib/miden/transaction/earn-preparation.test.ts src/lib/miden/transaction/initiate.ts src/lib/miden/transaction/initiate.usdcx-source.test.ts src/lib/miden/transaction/modify-decline.test.ts src/lib/miden/transaction/outcome-telemetry.integration.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts src/lib/miden/transaction/transactions.extended.test.ts src/lib/miden/transaction/transactions.gaps.test.ts src/lib/miden/transaction/transactions.test.ts src/lib/one-click/tracking.claim.test.ts src/lib/one-click/tracking.test.ts src/lib/one-click/tracking.ts src/lib/shared/types.ts src/lib/usdcx/burn-status.test.ts src/lib/usdcx/burn-status.ts src/lib/usdcx/deposit.ts src/lib/usdcx/destination-status.test.ts src/lib/usdcx/destination-status.ts src/lib/usdcx/executor.ts --max-warnings=0"
+  ],
+  "local": {
+    "exactTypes": "session51121 exit0,22.28s /tmp/task4c2-exact-types.log",
+    "exactLint": "session51121 exit0,0errors/0warnings,78srcfiles /tmp/task4c2-exact-lint.log",
+    "remainingSuites": "39/39 two complete suites,0filtered/runtime session58197 /tmp/task4c2-remaining-green.json",
+    "adjustedSuites": "19/19 complete receipt-lifecycle/receipt-execution,0filtered/runtime session38066 /tmp/task4c2-last-adjustments.json",
+    "supplemental": "16/16 selected supplemental+typednegative,292filtered,0runtime session4172 /tmp/task4c2-supplemental-green.json",
+    "interruptedLegacy": "session20768 guard75,notvalidated; corrected complete suites included in CI manifest"
+  },
+  "redProofs": [
+    40421822205,
+    40422876296,
+    40424267174,
+    40425145078,
+    40426000865,
+    40427907873,
+    40429575942,
+    40430327637,
+    40431154664,
+    40433467999,
+    40433786237
+  ],
+  "omittedControllerPath": "tasks/todo.md",
+  "coverageClaim": false,
+  "purpose": "Complete recovery, transaction pipeline, Epoch, USDCx and OneClick suites; all changed provider screen/hook and receipt realm integration suites. No coverage or full acceptance claim. Complete159suites and94indexedregressions; currenttypes/lint0.",
+  "normalization": {
+    "originalInventorySHA256": "e8d36a8bb6e4b5904744f976e22f0d6fa2e0a4b58a767f2e1c9c991ad2859b75",
+    "change": "argv arrays encoded with shlex.join, identical token arrays; explicit no-coverage retained"
+  }
+}
