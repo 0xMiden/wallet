@@ -104,7 +104,7 @@ async function run(scenario) {
     await initializeStorageHealth();
     check('initiallyHealthy', getStorageHealth().status === 'healthy');
     await sdk.getWasmOrThrow();
-    const rpcUrl = `${location.origin}/factory-rpc`;
+    const rpcUrl = location.origin;
     const endpoints = feeFaucetId =>
       applyEndpointOverride({
         rpcUrl,
