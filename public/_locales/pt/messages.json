@@ -4449,6 +4449,15 @@
     "message": "note PSWAP",
     "englishSource": "PSWAP note"
   },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "otherNoteScript": {
     "message": "Outras notes de roteiro",
     "englishSource": "Other note script"

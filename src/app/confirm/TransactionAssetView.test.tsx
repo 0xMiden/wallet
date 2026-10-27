@@ -296,7 +296,7 @@ describe('confirmation metadata request sharing', () => {
   const noteFlow = (amount: bigint): NoteFlow => ({
     inputCount: 0,
     inputs: [],
-    outputs: [{ kind: 'p2id', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
+    outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
   });
   const deferred = () => {
     let resolve!: (value: AssetMetadata) => void;

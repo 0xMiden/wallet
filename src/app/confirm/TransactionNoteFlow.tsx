@@ -11,16 +11,26 @@ import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import type { AssetAmount } from './decode';
-import type { NoteDetail, NoteFlow, NoteKind } from './note-flow';
+import type { NoteDetail, NoteFlow } from './note-flow';
 
-const noteKindKeys: Record<NoteKind, string> = {
+const dedicatedNoteKindKeys: Record<string, string> = {
   fee: 'transactionFeeNote',
-  p2id: 'P2ID',
-  p2ide: 'P2IDE',
-  pswap: 'PSWAP',
+  TX_FEE: 'transactionFeeNote',
+  P2ID: 'P2ID',
+  P2IDE: 'P2IDE',
+  PSWAP: 'PSWAP',
   custom: 'otherNoteScript',
   unknown: 'unknownNoteScript'
 };
+
+/** `FEE_SPONSORSHIP` → "Fee sponsorship". A single token (`SWAP`, `MINT`) stays as the standard name. */
+function standardNotePhrase(name: string): string {
+  if (!name.includes('_')) return name;
+  const words = name.toLowerCase().split('_');
+  const first = words[0] ?? '';
+  words[0] = first.charAt(0).toUpperCase() + first.slice(1);
+  return words.join(' ');
+}
 
 const confirmationTokenMetadataRequests = new Map<string, Promise<AssetMetadata>>();
 
@@ -72,11 +82,14 @@ const NoteAsset: React.FC<{ asset: AssetAmount }> = ({ asset }) => {
 
 const NoteItem: React.FC<{ note: NoteDetail; index: number }> = ({ note, index }) => {
   const { t } = useTranslation();
+  const kindKey = dedicatedNoteKindKeys[note.kind];
   return (
     <Card asChild padding="tile" className="min-w-0">
       <li data-testid="tx-note-item">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-          <span className="font-semibold text-ink">{t(noteKindKeys[note.kind])}</span>
+          <span className="font-semibold text-ink">
+            {kindKey ? t(kindKey) : t('standardNoteLabel', { name: standardNotePhrase(note.kind) })}
+          </span>
           <span className="text-xs text-muted">{t(note.visibility)}</span>
         </div>
         <div className="mt-1 text-xs text-muted break-all" title={note.id}>
@@ -146,8 +159,12 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
       </Card>
       <div className="mx-5 h-5 border-l border-hairline" aria-hidden="true" />
       <div className="text-sm text-muted mb-2">
-        {t(flow.outputs.some(note => note.kind === 'fee') ? 'outputNotesIncludingFee' : 'transactionOutputNotes')}:{' '}
-        {flow.outputs.length}
+        {t(
+          flow.outputs.some(note => note.kind === 'fee' || note.kind === 'TX_FEE')
+            ? 'outputNotesIncludingFee'
+            : 'transactionOutputNotes'
+        )}
+        : {flow.outputs.length}
       </div>
       {flow.outputs.length ? (
         <ol className="flex flex-col gap-2" data-testid="tx-note-outputs">
