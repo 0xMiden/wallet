@@ -253,7 +253,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
 
     // Leaf routed through the proxy send with the FULL tx row + the raw signCallback.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback, expect.any(Function));
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     // The inline SW client leaf is entirely gone.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
@@ -302,7 +302,13 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     });
 
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      requestBytes,
+      false,
+      signCallback,
+      expect.any(Function)
+    );
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineNewTransaction).not.toHaveBeenCalled();
@@ -427,8 +433,18 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      requestBytes,
+      false,
+      signCallback,
+      expect.any(Function)
+    );
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

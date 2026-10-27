@@ -217,6 +217,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...base,
+    NoteFile: {
+      fromInputNote: (note: { serialize: () => Uint8Array }) => ({ serialize: () => note.serialize(), free: () => {} })
+    },
     TransactionResult: { deserialize: (...args: unknown[]) => mockTransactionResultDeserialize(...args) },
     TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) }
   };
@@ -1723,9 +1726,12 @@ describe('generateTransaction execute + consume default switch arms', () => {
     const fullResult = {
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'guardian-consume-hash' }),
+        userOutputNotes: () => [],
         inputNotes: () => ({
           notes: () => [
             {
+              id: () => ({ toString: () => 'note-g' }),
+              serialize: () => new Uint8Array([7, 4]),
               note: () => ({
                 metadata: () => ({ sender: () => 'sender-g', noteType: () => 0 }),
                 assets: () => ({
@@ -2054,4 +2060,13 @@ jest.mock('lib/miden/swap/balance', () => ({
   assertSwapVaultBalance: jest.fn(async () => {}),
   readSwapFeeContext: jest.fn(async () => ({})),
   assertSwapAccountBalance: jest.fn()
+}));
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
 }));

@@ -112,9 +112,14 @@ import { withRecoveryStorageLock } from '../recovery/lock';
 import { reconcileRecoveryTransactions } from '../recovery/reconcile';
 import { restoreWalletRecoveryGeneration, restoreWalletRecoveryRows } from '../recovery/restore';
 import { retireRecoveryNotes } from '../recovery/retirement';
-import { fromSerializable } from '../recovery/serialization';
+import { fromSerializable, toSerializable } from '../recovery/serialization';
 import { verifyRetainedTransactionRows } from '../recovery/transaction-continuity';
-import { projectRecoveryTransaction } from '../recovery/transaction-record';
+import {
+  projectRecoveryTransaction,
+  validateRecoveryReceipt,
+  sameRecoveryFields,
+  sameRecoveryProviderInputs
+} from '../recovery/transaction-record';
 import type { RecoveryCapture, RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
 import { validateJournal } from '../recovery/validation';
 import { readWalletGenerationForRecovery, validateWalletGeneration } from '../recovery/wallet-generation';
@@ -516,6 +521,55 @@ export class Vault {
         markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
       throw error;
     }
+  }
+
+  async checkpointProviderReceipt(value: unknown, expectedEpoch: number): Promise<void> {
+    if (!Number.isSafeInteger(expectedEpoch)) throw new StorageUnavailableError();
+    const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+    const check = () => {
+      assertStorageHealthy(expectedEpoch);
+      this.assertRealmSinkIsMine();
+      if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network) throw new StorageContinuityError();
+    };
+    check();
+    const requested = validateRecoveryReceipt(fromSerializable(value));
+    await navigator.locks.request('miden-provider-receipts-v1', async () => {
+      check();
+      const snapshot = await this.readRecoveryJournal();
+      check();
+      const owner = snapshot?.accounts.find(account => sameWalletAccountId(account.accountId, requested.accountId));
+      if (!snapshot || !owner || snapshot.scope.network !== network) throw new StorageContinuityError();
+      const accounts = await this.fetchAccounts();
+      check();
+      if (!accounts.some(account => sameWalletAccountId(account.publicKey, owner.accountId)))
+        throw new StorageContinuityError();
+      const marker = validateWalletGeneration(await Repo.metadata.get('generation'));
+      check();
+      if (marker.generation !== snapshot.scope.walletGeneration) throw new StorageContinuityError();
+      const live = await Repo.transactions.get(requested.id);
+      check();
+      if (!live || !sameWalletAccountId(live.accountId, owner.accountId)) throw new StorageContinuityError();
+      const row = projectRecoveryTransaction(live);
+      const fingerprint = JSON.stringify(toSerializable(row));
+      if (fingerprint !== JSON.stringify(toSerializable(requested))) throw new Error('Provider receipt changed');
+      const entry: RecoveryEntry = {
+        kind: 'receipt',
+        id: row.id,
+        accountId: owner.accountId,
+        row: { ...row, accountId: owner.accountId }
+      };
+      const previous = snapshot.entries.find(value => value.kind === 'receipt' && value.id === row.id);
+      const unchanged =
+        previous?.kind === 'receipt' &&
+        sameRecoveryProviderInputs(previous.row.extraInputs, entry.row.extraInputs) &&
+        sameRecoveryFields({ ...previous.row, extraInputs: undefined }, { ...entry.row, extraInputs: undefined });
+      if (!unchanged) await this.retainRecoveryEntries([entry]);
+      check();
+      const fresh = await Repo.transactions.get(row.id);
+      check();
+      if (!fresh || JSON.stringify(toSerializable(projectRecoveryTransaction(fresh))) !== fingerprint)
+        throw new Error('Provider receipt changed');
+    });
   }
 
   async retainTransactionRecovery(

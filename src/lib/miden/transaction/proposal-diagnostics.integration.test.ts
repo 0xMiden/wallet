@@ -75,8 +75,13 @@ const result = {
     initialAccountHeader: header,
     finalAccountHeader: header,
     inputNotes: () => {
-      if (mockState.resultRead) throw mockState.resultRead;
-      return { notes: () => (mockState.noInputNotes ? [] : [{ note: () => executedNote }]) };
+      if (mockState.resultRead && mockSubmit.mock.calls.length > 0) throw mockState.resultRead;
+      return {
+        notes: () =>
+          mockState.noInputNotes
+            ? []
+            : [{ id: () => accountRef(noteId), serialize: () => new Uint8Array([7, 3]), note: () => executedNote }]
+      };
     },
     outputNotes: () => ({ notes: () => [] }),
     userOutputNotes: () => []
@@ -120,6 +125,9 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
+  NoteFile: {
+    fromInputNote: (note: { serialize: () => Uint8Array }) => ({ serialize: () => note.serialize(), free: () => {} })
+  },
   TransactionProver: { newLocalProver: () => ({}) },
   TransactionRequest: {
     deserialize: () => {
@@ -901,3 +909,10 @@ it('post-create sign_lock reaches actual cancellation and the real sanitized wir
   await failureEventWith({ proposalStep: 'sign_lock' }, 'signing step signing_proposal');
   expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
 });
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
+}));

@@ -4,6 +4,7 @@ import {
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
+import type { IEpochExecutionReceipt } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
@@ -32,6 +33,7 @@ export interface CreateEarnP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  epochExecution?: IEpochExecutionReceipt;
   /** Protocol string a deposit hashes. Stored on the row with `chainId`. */
   protocol?: '1delta' | 'dummy-lending';
   /** Chain of the Earn market the deposit opens. */
@@ -101,7 +103,8 @@ export async function createEarnP2IDENote(
       spendingLimitAuthorization,
       args.allocatorUrl,
       args.protocol,
-      args.chainId
+      args.chainId,
+      args.epochExecution
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.

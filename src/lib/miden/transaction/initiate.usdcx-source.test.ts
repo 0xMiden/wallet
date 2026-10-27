@@ -65,3 +65,7 @@ it('stores USDCx routes IndexedDB can clone after AppKit state has proxied the s
     }
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

@@ -339,6 +339,15 @@ export async function runUsdcxExecutorDeposit(
   };
   let quote = await quoteOrFail();
   ensureBalanceCovers(quote, balance);
+  await updatePhase(
+    trackingTxId,
+    'submitting',
+    {
+      cctp: { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
+    },
+    undefined,
+    { claimSourceExecution: { provider: 'usdcx', source, recipient: remoteRecipient } }
+  );
   if (feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
@@ -350,6 +359,15 @@ export async function runUsdcxExecutorDeposit(
     }
   }
 
+  await updatePhase(
+    trackingTxId,
+    'submitting',
+    {
+      cctp: { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
+    },
+    undefined,
+    { continueSourceExecution: { provider: 'usdcx', source, recipient: remoteRecipient } }
+  );
   const burnHash = await signer.depositForBurnWithHookAndFees(
     buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
   );
