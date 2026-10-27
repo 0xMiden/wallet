@@ -138,6 +138,15 @@ export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultCon
 }
 
 /**
+ * The Arcade GC sale the accepted document names (`arcade.sale`): the account whose public PSWAP note sells Game
+ * Coins. Null while no document is accepted, or while `features.arcadeGcPurchase` is off; a document that turns the
+ * purchase off is the kill switch, and `getGcSaleConfig` (`lib/miden/arcade/gc-sale.ts`) tells the two apart.
+ */
+export function selectGcSale(s: BridgeConfigSnapshot): { seller: string } | null {
+  return s.config?.features.arcadeGcPurchase === true ? (s.config.arcade?.sale ?? null) : null;
+}
+
+/**
  * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
  * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
  * never runs.

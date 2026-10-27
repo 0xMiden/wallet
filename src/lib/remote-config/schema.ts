@@ -202,7 +202,15 @@ export interface BridgeConfig {
   version: number;
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
-  features: { earn: boolean; nearIntents: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
+  features: {
+    earn: boolean;
+    nearIntents: boolean;
+    fastBridge?: boolean;
+    bridgeIn?: boolean;
+    bridgeOut?: boolean;
+    /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
+    arcadeGcPurchase?: boolean;
+  };
   /**
    * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
    * blocks the feature. A withdrawal of an existing Earn position is not a start.
@@ -228,6 +236,11 @@ export interface BridgeConfig {
    * true.
    */
   earn?: { vaults: EarnVaultConfig[] };
+  /**
+   * The Arcade GC sale: the account whose public PSWAP note sells Game Coins, as a lower-case hex account id. Present
+   * exactly when `features.arcadeGcPurchase` is true (`lib/miden/arcade/gc-sale.ts`).
+   */
+  arcade?: { sale: { seller: string } };
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -390,6 +403,21 @@ function readLimits(value: ConfigValue): BridgeLimitsConfig | undefined {
   if (value === undefined) return undefined;
   const bridgeInMaxBalanceUsd = read(section(value), 'bridgeInMaxBalanceUsd', usdCeiling);
   return bridgeInMaxBalanceUsd === undefined ? undefined : { bridgeInMaxBalanceUsd };
+}
+
+/**
+ * The Arcade GC sale (the config repo's `readArcade`): the section exists exactly while `features.arcadeGcPurchase`
+ * is on, so a stale seller cannot linger behind a switched-off feature, and names the seller as a 15-byte hex
+ * account id. A bad section rejects the document.
+ */
+function readArcade(value: ConfigValue, enabled: boolean): { sale: { seller: string } } | undefined {
+  if (value === undefined) return enabled ? invalid() : undefined;
+  if (!enabled) return invalid();
+  const sale = section(section(value).sale);
+  const seller = read(sale, 'seller', candidate =>
+    typeof candidate === 'string' && MIDEN_ACCOUNT_ID.test(candidate) ? candidate.toLowerCase() : invalid()
+  );
+  return seller === undefined ? invalid() : { sale: { seller } };
 }
 
 function requiredBoolean(value: ConfigValue): boolean {
@@ -714,6 +742,7 @@ function readConfig(
   const features = section(body.features);
   const earnEnabled = featureSwitch(features, 'earn');
   const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
+  const arcade = readArcade(body.arcade, featureSwitch(features, 'arcadeGcPurchase'));
   return {
     network,
     version,
@@ -735,7 +764,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )
@@ -748,6 +777,7 @@ function readConfig(
     },
     ...(guardians === undefined ? {} : { guardians }),
     ...(earn === undefined ? {} : { earn }),
+    ...(arcade === undefined ? {} : { arcade }),
     ...(geo === undefined ? {} : { geo })
   };
 }

@@ -37,6 +37,7 @@ import type {
   DetailsCommitmentMatches,
   InputNoteDetails,
   PswapCancelRequestOptions,
+  PswapConsumeRequestInputs,
   RecoveryRangeResult,
   TransactionCommitState
 } from 'lib/miden/sdk/miden-client-interface';
@@ -1427,6 +1428,31 @@ export const midenClientProxy = {
     });
     if (resultB64 == null) {
       throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
+    }
+    return b64ToBytes(resultB64);
+  },
+
+  /**
+   * Build the fee-aware request that fills a public PSWAP sale note from this account's vault (an Arcade GC
+   * purchase). Like the cancel above, only the serialized request crosses the offscreen boundary; the note is read
+   * on the node inside the build, so the call takes the node-note deadline.
+   */
+  async buildPswapConsumeRequest(
+    accountId: string,
+    inputs: PswapConsumeRequestInputs,
+    assertLive?: AssertLive
+  ): Promise<Uint8Array> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).buildPswapConsumeRequest(accountId, inputs, assertLive);
+    }
+    // A bigint does not survive the message boundary: the fill crosses as a decimal string.
+    const resultB64 = await this.call(
+      'buildPswapConsumeRequest',
+      [accountId, inputs.noteId, inputs.fillAmount.toString(), inputs.creatorAccountId],
+      { deadlineMs: NODE_NOTE_CANCEL_DEADLINE_MS }
+    );
+    if (resultB64 == null) {
+      throw new Error('buildPswapConsumeRequest: offscreen document returned no request bytes');
     }
     return b64ToBytes(resultB64);
   },

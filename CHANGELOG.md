@@ -26,6 +26,7 @@
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
 - [CHANGE][all] Failed transaction reports distinguish reached Guardian signing operations and locally observed execution authentication facts without sending request data.
 - [FIX][ios] Prepare future release screenshots automatically with quota-aware, resumable draft replacement while preserving the submitted 1.17.7 listing (#1906).
+- [CHANGE][all] Arcade's Buy more GC is live on mainnet: the Coins page finds the seller's public PSWAP sale note by its tag, prices the GC amount the user enters (1 GC by default) from the note's own terms against the USDCx balance, and queues a consume row whose fee-aware fill request is built on the node's copy of the note in the Guardian proposal's hold.
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).
 
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.

@@ -2,6 +2,9 @@
 import * as Repo from 'lib/miden/repo';
 
 import { ConsumeTransaction, ISubmitEvidence, ITransactionStatus, Transaction } from '../db/types';
+import { assessOutgoingSpendingLimitDetails } from '../spending-limits/queue';
+import { SpendingLimitAuthorizationRequiredError, spendsDigest } from '../spending-limits/types';
+import { resolveSpendsUsd } from '../spending-limits/valuation';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => false }));
@@ -26,10 +29,12 @@ jest.mock('../back/miden-client-proxy', () => ({
     getAccount: async () => null
   }
 }));
+jest.mock('../spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
+  initiateGcPurchaseTransaction,
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
@@ -75,6 +80,8 @@ const existingClaim = async (
 
 beforeEach(async () => {
   await Repo.transactions.clear();
+  await Repo.spendingLimits.clear();
+  jest.mocked(resolveSpendsUsd).mockReset();
 });
 
 describe('the consume dedup and held notes (#1081)', () => {
@@ -295,5 +302,115 @@ describe('what queued a consume row', () => {
     const unnamed = await initiateConsumeTransaction(ACCOUNT, note('h'), false, true);
     expect(await Repo.transactions.get(unnamed)).toBeDefined();
     expect(await stamp(unnamed)).toBeUndefined();
+  });
+});
+
+describe('GC purchase spending-limit admission', () => {
+  const quote = {
+    saleNoteId: hex(301),
+    sellerAccountId: 'seller',
+    payFaucetId: 'native-faucet',
+    fillAmount: 60_000_000n,
+    gcFaucetId: 'gc-faucet',
+    expectedAmount: 60_000_000_000n
+  };
+  const saveLimit = () =>
+    Repo.spendingLimits.put({
+      accountId: ACCOUNT,
+      limit: '50000000',
+      revision: 'gc-policy-1',
+      createdAt: 1,
+      updatedAt: 1
+    });
+  const authorization = () => ({
+    kind: 'usd' as const,
+    id: 'gc-authorization',
+    accountId: ACCOUNT,
+    usdAmount: 60_000_000n,
+    spendsDigest: spendsDigest([{ faucetId: quote.payFaucetId, amount: quote.fillAmount }]),
+    revision: 'gc-policy-1',
+    issuedAt: Math.floor(Date.now() / 1000),
+    expiresAt: Math.floor(Date.now() / 1000) + 60
+  });
+
+  it('refuses an over-cap purchase before inserting a consume row', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);
+    await expect(initiateGcPurchaseTransaction(ACCOUNT, quote, false)).rejects.toBeInstanceOf(
+      SpendingLimitAuthorizationRequiredError
+    );
+    expect(await Repo.transactions.count()).toBe(0);
+  });
+
+  it('stamps the authorized pay leg and deduplicates a repeated tap', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);
+    const auth = authorization();
+    const id = await initiateGcPurchaseTransaction(ACCOUNT, quote, false, auth);
+    expect(await Repo.transactions.get(id)).toMatchObject({
+      spentUsd: 60_000_000n,
+      spendingLimitAuthorizationId: auth.id
+    });
+    expect(resolveSpendsUsd).toHaveBeenCalledWith(
+      [{ faucetId: 'native-faucet', amount: 60_000_000n }],
+      expect.any(Number)
+    );
+    const inserted = await Repo.transactions.get(id);
+    expect(await initiateGcPurchaseTransaction(ACCOUNT, quote, false, auth)).toBe(id);
+    expect(await Repo.transactions.count()).toBe(1);
+    expect(await Repo.transactions.get(id)).toEqual(inserted);
+    expect(resolveSpendsUsd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not redeem the same authorization for a fresh retry after failure', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);
+    const auth = authorization();
+    const id = await initiateGcPurchaseTransaction(ACCOUNT, quote, false, auth);
+    await Repo.transactions.update(id, { status: ITransactionStatus.Failed });
+    await expect(initiateGcPurchaseTransaction(ACCOUNT, quote, false, auth)).rejects.toBeInstanceOf(
+      SpendingLimitAuthorizationRequiredError
+    );
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it('includes a queued purchase when assessing the next outgoing spend', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValueOnce(40_000_000n).mockResolvedValueOnce(20_000_000n);
+    await initiateGcPurchaseTransaction(ACCOUNT, { ...quote, fillAmount: 40_000_000n }, false);
+    const details = await assessOutgoingSpendingLimitDetails({
+      accountId: ACCOUNT,
+      spends: [{ faucetId: 'native-faucet', amount: 20_000_000n }]
+    });
+    expect(details?.assessment.breach).toMatchObject({ spent: 40_000_000n, proposedTotal: 60_000_000n });
+  });
+
+  it('does not value or stamp an ordinary incoming consume', async () => {
+    await saveLimit();
+    const { committedId: id } = await queueConsumeNotes(ACCOUNT, [note('ordinary-incoming')], false, true);
+    expect(await Repo.transactions.get(id)).toMatchObject({ type: 'consume' });
+    expect((await Repo.transactions.get(id))?.spentUsd).toBeUndefined();
+    expect(resolveSpendsUsd).not.toHaveBeenCalled();
+  });
+
+  it('enforces a cap created between the price probe and the insert lock', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);
+    const read = jest.spyOn(Repo.spendingLimits, 'get').mockResolvedValueOnce(undefined);
+    try {
+      await expect(initiateGcPurchaseTransaction(ACCOUNT, quote, false)).rejects.toBeInstanceOf(
+        SpendingLimitAuthorizationRequiredError
+      );
+      expect(await Repo.transactions.count()).toBe(0);
+      expect(resolveSpendsUsd).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it('keeps the no-cap purchase path independent of pricing', async () => {
+    const id = await initiateGcPurchaseTransaction(ACCOUNT, quote, false);
+    expect(await Repo.transactions.get(id)).toMatchObject({ type: 'consume' });
+    expect(resolveSpendsUsd).not.toHaveBeenCalled();
   });
 });

@@ -5,12 +5,26 @@ import { useTranslation } from 'react-i18next';
 import { Button } from 'components/ui/Button';
 import { Card } from 'components/ui/Card';
 
-export const ArcadeCoinsCard: React.FC<{ balance: string | null; networkName: string; busy?: boolean }> = ({
-  balance,
-  networkName,
-  busy = false
-}) => {
+/** What the Buy more GC entry can do: no sale on this network or none that fits, a quote in flight, or a live one. */
+export type GcPurchaseEntryState = 'unavailable' | 'checking' | 'ready';
+
+export const ArcadeCoinsCard: React.FC<{
+  balance: string | null;
+  networkName: string;
+  busy?: boolean;
+  purchase?: { state: GcPurchaseEntryState; onBuy: () => void };
+}> = ({ balance, networkName, busy = false, purchase = { state: 'unavailable', onBuy: () => {} } }) => {
   const { t } = useTranslation();
+  const purchaseStatus = (() => {
+    switch (purchase.state) {
+      case 'ready':
+        return t('arcadeGcPurchaseReady');
+      case 'checking':
+        return t('arcadeGcPurchaseChecking');
+      case 'unavailable':
+        return t('arcadeGcPurchaseUnavailable');
+    }
+  })();
   return (
     <Card surface="outline" className="flex flex-col gap-3" aria-busy={busy} data-testid="arcade-allowance">
       <div className="flex items-start justify-between gap-4">
@@ -23,9 +37,16 @@ export const ArcadeCoinsCard: React.FC<{ balance: string | null; networkName: st
         <span className="text-caption text-muted text-right">{networkName}</span>
       </div>
       <p className="text-body-sm text-muted">{t('arcadeGcPurchasePackage')}</p>
-      <Button disabled title={t('arcadeBuyMoreGc')} aria-describedby="gc-purchase-availability" />
+      <Button
+        disabled={purchase.state !== 'ready'}
+        isLoading={purchase.state === 'checking'}
+        title={t('arcadeBuyMoreGc')}
+        aria-describedby="gc-purchase-availability"
+        onClick={purchase.onBuy}
+        data-testid="arcade-buy-gc"
+      />
       <p id="gc-purchase-availability" className="text-body-sm text-muted" role="status">
-        {t('arcadeGcPurchaseUnavailable')}
+        {purchaseStatus}
       </p>
     </Card>
   );

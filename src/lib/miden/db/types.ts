@@ -667,7 +667,30 @@ export interface IConsumeSwapSettleExtraInputs {
   swapSettlePartial?: boolean;
 }
 
-export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
+/**
+ * `extraInputs` shape for a `consume` row that fills a public GC sale note (an Arcade purchase,
+ * `initiateGcPurchaseTransaction`). The row's note is the seller's PSWAP note as the node holds it, never an input
+ * note this client tracks, so its fee-aware request is built in the proposal's hold and persisted as `requestBytes`,
+ * like a recovered order's reclaim. Amounts are decimal base-unit strings, since `extraInputs` is stored as JSON.
+ */
+export interface IConsumeGcPurchaseExtraInputs {
+  gcPurchase: {
+    /** The sale note the purchase fills, the live tip of the seller's PSWAP lineage when it was queued. */
+    saleNoteId: string;
+    /** The seller account the note's storage names as creator. */
+    sellerAccountId: string;
+    /** The pay asset's faucet (USDCx) and the fill paid into the note, in base units. */
+    payFaucetId: string;
+    fillAmount: string;
+    /** The GC faucet and the GC the fill buys by the PSWAP script's arithmetic, in base units. */
+    gcFaucetId: string;
+    expectedAmount: string;
+  };
+}
+
+export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
+  Partial<IConsumeSwapSettleExtraInputs> &
+  Partial<IConsumeGcPurchaseExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
