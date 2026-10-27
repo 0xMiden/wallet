@@ -219,3 +219,7 @@ describe('the allocator an intent was submitted to', () => {
     expect(useEpochStore.getState().allocatorUrl).toBeNull();
   });
 });
+
+jest.mock('./receipt', () => ({
+  createEpochReceiptOwner: () => ({ hooks: undefined, preparation: () => undefined, retentionFailed: () => false })
+}));

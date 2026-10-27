@@ -16,14 +16,15 @@ const mockDispatchGuardianPipeline = jest.fn();
 // The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
 // gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it.
 const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
-  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const callback = a[6];
+  const gate = typeof callback === 'function' ? callback : undefined;
   const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
   try {
     const result = await mockDispatchGuardianPipeline(...a);
-    await gate?.();
+    await gate?.(undefined, { requestBytes: new Uint8Array([1]), notes: [] });
     return result;
   } catch (error) {
-    if (!hasErrorBeforeSubmit(error)) await gate?.();
+    if (!hasErrorBeforeSubmit(error)) await gate?.(undefined, { requestBytes: new Uint8Array([1]), notes: [] });
     throw error;
   }
 };
@@ -259,3 +260,16 @@ it('a Guardian consume whose submit landed but whose local apply failed lands it
 
   expect(await outcome()).toEqual(LANDED);
 });
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
+}));
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: async () => {
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  }
+}));

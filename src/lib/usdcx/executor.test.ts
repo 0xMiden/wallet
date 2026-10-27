@@ -219,10 +219,12 @@ describe('runUsdcxExecutorDeposit', () => {
       'readAllowance',
       'readBalance',
       'quote',
+      'phase:submitting',
       'approve',
       'receipt:approve',
       'readBalance',
       'quote',
+      'phase:submitting',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
       'receipt:burn',
@@ -257,6 +259,20 @@ describe('runUsdcxExecutorDeposit', () => {
     await runUsdcxExecutorDeposit('row-1', '1.5', MIXED_CASE_RECIPIENT, deps);
 
     expect(jest.mocked(deps.updatePhase).mock.calls).toEqual([
+      [
+        'row-1',
+        'submitting',
+        { cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' } },
+        undefined,
+        { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: MIXED_CASE_RECIPIENT } }
+      ],
+      [
+        'row-1',
+        'submitting',
+        { cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' } },
+        undefined,
+        { continueSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: MIXED_CASE_RECIPIENT } }
+      ],
       [
         'row-1',
         'submitting',
@@ -302,6 +318,8 @@ describe('runUsdcxExecutorDeposit', () => {
       'isRemoteDomainRegistered',
       'readBalance',
       'quote',
+      'phase:submitting',
+      'phase:submitting',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
       'receipt:burn',
@@ -352,7 +370,14 @@ describe('runUsdcxExecutorDeposit', () => {
       [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'submitting',
+      { cctp: { sourceDomain: 6, forwarded: true, forwardFee: QUOTE.feeTotalAmount.toString() } },
+      undefined,
+      { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: RECIPIENT } }
+    );
   });
 
   // Circle's expiry is never compared with the device clock: a fast clock must not refuse every deposit.
@@ -394,7 +419,14 @@ describe('runUsdcxExecutorDeposit', () => {
       [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'submitting',
+      { cctp: { sourceDomain: 6, forwarded: true, forwardFee: QUOTE.feeTotalAmount.toString() } },
+      undefined,
+      { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: RECIPIENT } }
+    );
   });
 
   // The fee entry point's allowance is read before the quote; a failed read fails the deposit before any prompt.
@@ -435,7 +467,14 @@ describe('runUsdcxExecutorDeposit', () => {
 
     expect(deps.signer.approve).toHaveBeenCalledTimes(1);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'submitting',
+      { cctp: { sourceDomain: 6, forwarded: true, forwardFee: QUOTE.feeTotalAmount.toString() } },
+      undefined,
+      { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: RECIPIENT } }
+    );
   });
 
   it('re-reads the balance after an approval and refuses the burn when it dropped', async () => {
@@ -463,12 +502,20 @@ describe('runUsdcxExecutorDeposit', () => {
       'readAllowance',
       'readBalance',
       'quote',
+      'phase:submitting',
       'approve',
       'receipt:approve',
       'readBalance',
       'quote'
     ]);
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'submitting',
+      { cctp: { sourceDomain: 6, forwarded: true, forwardFee: QUOTE.feeTotalAmount.toString() } },
+      undefined,
+      { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: RECIPIENT } }
+    );
   });
 
   it('reads the balance once, before the quote, when the allowance already covers', async () => {
@@ -532,7 +579,14 @@ describe('runUsdcxExecutorDeposit', () => {
       [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'submitting',
+      { cctp: { sourceDomain: 6, forwarded: true, forwardFee: QUOTE.feeTotalAmount.toString() } },
+      undefined,
+      { claimSourceExecution: { provider: 'usdcx', source: SOURCE, recipient: RECIPIENT } }
+    );
   });
 
   it('approves when the allowance covers the amount but not the fee', async () => {
@@ -569,7 +623,7 @@ describe('runUsdcxExecutorDeposit', () => {
 
     await expect(runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('Transaction reverted');
 
-    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledTimes(3);
     expect(deps.updatePhase).toHaveBeenCalledWith(
       'row-1',
       'submitting',

@@ -250,3 +250,7 @@ describe('EarnIntentWatcher local reconciliation', () => {
     expect(mockRegisterBridgeIn).not.toHaveBeenCalled();
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

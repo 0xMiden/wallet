@@ -1042,3 +1042,7 @@ describe('closed queue facts without failure text', () => {
     }
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));
