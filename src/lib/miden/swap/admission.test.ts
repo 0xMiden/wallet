@@ -1,7 +1,7 @@
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import { ITransactionStatus, SendTransaction } from 'lib/miden/db/types';
 import { readRetainedFinancialEntries, verifyFinancialRecoveryEntries } from 'lib/miden/recovery/financial';
-import * as financialBackend from 'lib/miden/recovery/financial-backend';
+import { getFinancialRecoveryBackend } from 'lib/miden/recovery/financial-backend';
 import type { RecoveryPolicyEntry } from 'lib/miden/recovery/types';
 import { transactions } from 'lib/miden/repo';
 import { queueOutgoingTransaction, spendsOf } from 'lib/miden/spending-limits/queue';
@@ -16,16 +16,21 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   canonicalWalletAccountId: (a: string) => a
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({ cacheScope: () => 'testnet|rpc' }));
+jest.mock('lib/miden/recovery/financial-backend', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/recovery/financial-backend')>(
+    'lib/miden/recovery/financial-backend'
+  );
+  return { ...actual, getFinancialRecoveryBackend: jest.fn(actual.getFinancialRecoveryBackend) };
+});
 const baseline: RecoveryPolicyEntry[] = [{ kind: 'policy', id: 'account', accountId: 'account', configuration: null }];
 const acknowledgements: number[] = [];
 let previousLocks: PropertyDescriptor | undefined;
-let backendSpy: jest.SpyInstance;
 
 beforeEach(() => {
   previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
   Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
   acknowledgements.length = 0;
-  const backend: NonNullable<ReturnType<typeof financialBackend.getFinancialRecoveryBackend>> = async (
+  const backend: NonNullable<ReturnType<typeof getFinancialRecoveryBackend>> = async (
     accountId,
     entry,
     expectedEpoch
@@ -37,11 +42,17 @@ beforeEach(() => {
     assertStorageHealthy(expectedEpoch);
     acknowledgements.push(expectedEpoch);
   };
-  backendSpy = jest.spyOn(financialBackend, 'getFinancialRecoveryBackend').mockReturnValue(backend);
+  jest.mocked(getFinancialRecoveryBackend).mockReturnValue(backend);
 });
 
 afterEach(() => {
-  backendSpy.mockRestore();
+  jest
+    .mocked(getFinancialRecoveryBackend)
+    .mockReset()
+    .mockImplementation(
+      jest.requireActual<typeof import('lib/miden/recovery/financial-backend')>('lib/miden/recovery/financial-backend')
+        .getFinancialRecoveryBackend
+    );
   if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
   else Reflect.deleteProperty(navigator, 'locks');
 });
