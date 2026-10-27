@@ -24,7 +24,7 @@ export type SdkRecoveryCommand =
 
 export interface RecoverySdkWriter extends RecoverySdkReader {
   accounts: Pick<MidenClient['accounts'], 'get' | 'insert'>;
-  notes: Pick<MidenClient['notes'], 'list' | 'import'>;
+  notes: RecoverySdkReader['notes'] & Pick<MidenClient['notes'], 'import'>;
 }
 
 export async function restoreSdkRecovery(
