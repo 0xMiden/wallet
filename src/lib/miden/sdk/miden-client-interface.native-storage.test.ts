@@ -1,3 +1,5 @@
+export {};
+
 const persisted: Record<string, unknown> = {};
 const RPC_URL = 'https://native-storage.example';
 const STORE_NAME = 'MidenClientDB_native-fixture';
