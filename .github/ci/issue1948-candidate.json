@@ -1,0 +1,28 @@
+{
+  "base": "62debecaa287d679533cb336f65d26c3524c6014",
+  "patch": "docs/superpowers/task-4c3-green-6c.patch",
+  "sha256": "32d80c89ad88243ff86265c1fc9f97ff68c07d7bfe7fa0d2319fd869d6f036f7",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "sha256": "5519edb800f312d863356bf632429e759a31f41440eca62f249e7758356d49af"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/recovery/note-acquisition.ts src/lib/miden/back/main.test.ts src/offscreen/main.test.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/back/main.test.ts src/offscreen/main.test.ts --testNamePattern=Task4C3F --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage"
+  ],
+  "purpose": "F2 raw acquired-note preflight plus all18Fcontrols:22selected cases,327explicitlyfiltered,currenttypes/lint. No broadwire/G/native/fullcoverage claim.",
+  "expected_group_cases": [
+    22
+  ],
+  "expected_group_filtered": [
+    327
+  ],
+  "closureFiles": {
+    "src/lib/miden/back/main.test.ts": "31207beada602af1154193c64eaca1d8fddf7a93294570d614032434b649fcf9",
+    "src/offscreen/main.test.ts": "af51600a50e47b9c2218b274d51d45755a6423f578e9f897c4b100b5ff6e3950"
+  },
+  "original_manifest_sha256": "c7593d3583d5f046d25db38a5b0049e87c2aa180d62843b5da1b23dc7da04b5b"
+}
