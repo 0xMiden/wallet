@@ -28,6 +28,7 @@ const check = (name, value) => {
 const progress = value => {
   phase = value;
   window.__retainedPhase = value;
+  window.__retainedReportPhase?.(value).catch(() => {});
 };
 const guard = () => {
   if (location.hostname !== '127.0.0.1' || location.protocol !== 'http:' || !location.pathname.startsWith('/st/'))

@@ -85,6 +85,11 @@ for (const includePrivate of [false, true]) {
         return route.continue();
       });
       const page = await context.newPage();
+      await page.exposeBinding('__retainedReportPhase', (_source, value) => {
+        if (!phases.has(value)) throw new Error('phase-bound');
+        report.phase = value;
+        console.log('retained-proof-phase=' + value);
+      });
       await page.goto(`${service.origin}/st/`);
       await page.waitForFunction(() => typeof window.__retainedProof?.prepare === 'function');
       report.stage = 'prepare';
