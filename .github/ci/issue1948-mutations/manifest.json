@@ -1,0 +1,107 @@
+{
+  "source": "f5922855949e430e2e9a6f6e81a150f78f40f14d",
+  "source_tree": "93cd28e22abe2988a6ac3065edf61a6d624a9f22",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "preflight-capture",
+      "path": "src/lib/miden/recovery/capture.ts",
+      "before": "  assertRecoveryCaptureWire(value);\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/candidate-wire.test.ts"
+      ],
+      "pattern": "^Task4C3H\\ raw\\ preallocation\\ at\\ capture\\ refuses\\ aggregate\\ count\\ before\\ generic\\ decoding\\ and\\ stays\\ healthy$",
+      "expected_assertion": "Task4C3H raw preallocation at capture refuses aggregate count before generic decoding and stays healthy",
+      "prediction": "Removing raw preflight invokes generic decoding on over-count input before later refusal; the call-order assertion must fail.",
+      "expected_functional_assertion": "expect(fromSerializable).not.toHaveBeenCalled()",
+      "source_file_sha256": "1c54cb1860f8509a3b27ad684a27cb9cc412bf6064df635882c5c9e46d5ca4cc"
+    },
+    {
+      "id": "preflight-retained-notes",
+      "path": "src/lib/miden/recovery/sdk-snapshot.ts",
+      "before": "  assertRetainedNotesWire(value);\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/candidate-wire.test.ts"
+      ],
+      "pattern": "^Task4C3H\\ raw\\ preallocation\\ at\\ retained\\ notes\\ refuses\\ aggregate\\ count\\ before\\ generic\\ decoding\\ and\\ stays\\ healthy$",
+      "expected_assertion": "Task4C3H raw preallocation at retained notes refuses aggregate count before generic decoding and stays healthy",
+      "prediction": "Removing raw preflight invokes generic decoding on over-count input before later refusal; the call-order assertion must fail.",
+      "expected_functional_assertion": "expect(fromSerializable).not.toHaveBeenCalled()",
+      "source_file_sha256": "6ff5ba4351c80fa9ba0e07074cfda3446a5cf93c60998eef6d10e92299930c31"
+    },
+    {
+      "id": "preflight-restore-command",
+      "path": "src/lib/miden/recovery/sdk-restore.ts",
+      "before": "  assertSdkRecoveryCommandWire(value);\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/candidate-wire.test.ts"
+      ],
+      "pattern": "^Task4C3H\\ raw\\ preallocation\\ at\\ restore\\ command\\ refuses\\ aggregate\\ count\\ before\\ generic\\ decoding\\ and\\ stays\\ healthy$",
+      "expected_assertion": "Task4C3H raw preallocation at restore command refuses aggregate count before generic decoding and stays healthy",
+      "prediction": "Removing raw preflight invokes generic decoding on over-count input before later refusal; the call-order assertion must fail.",
+      "expected_functional_assertion": "expect(fromSerializable).not.toHaveBeenCalled()",
+      "source_file_sha256": "54deebdd855504f09db058da92b725a0b79b986a424631b42937db94f5154fe3"
+    },
+    {
+      "id": "preflight-snapshot-response",
+      "path": "src/lib/miden/recovery/sdk-snapshot.ts",
+      "before": "  assertSdkRecoverySnapshotWire(value);\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/candidate-wire.test.ts"
+      ],
+      "pattern": "^Task4C3H\\ raw\\ preallocation\\ at\\ snapshot\\ response\\ refuses\\ aggregate\\ count\\ before\\ generic\\ decoding\\ and\\ stays\\ healthy$",
+      "expected_assertion": "Task4C3H raw preallocation at snapshot response refuses aggregate count before generic decoding and stays healthy",
+      "prediction": "Removing raw preflight invokes generic decoding on over-count input before later refusal; the call-order assertion must fail.",
+      "expected_functional_assertion": "expect(fromSerializable).not.toHaveBeenCalled()",
+      "source_file_sha256": "6ff5ba4351c80fa9ba0e07074cfda3446a5cf93c60998eef6d10e92299930c31"
+    },
+    {
+      "id": "account-byte-roundtrip",
+      "path": "src/lib/miden/recovery/serialization.ts",
+      "before": "const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes', 'noteFile', 'accountBytes']);",
+      "after": "const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes', 'noteFile']);",
+      "suites": [
+        "src/lib/miden/recovery/candidate-wire.test.ts"
+      ],
+      "pattern": "^Task4C3H\\ account\\ command\\ wire\\ preserves\\ typed\\ account\\ bytes\\ across\\ the\\ authorized\\ restore\\ wire\\ roundtrip$",
+      "expected_assertion": "Task4C3H account command wire preserves typed account bytes across the authorized restore wire roundtrip",
+      "prediction": "Serialized valid account bytes remain a number array and the real restore decoder refuses the authorized command.",
+      "expected_functional_assertion": "expect(decode).not.toThrow()",
+      "source_file_sha256": "16e8f085de9c442743c737ae7b6132490cb4374027127cc4994901b25f3e18cf"
+    },
+    {
+      "id": "native-query-prefix",
+      "path": "src/lib/miden/recovery/canonical-note-readback.ts",
+      "before": "  const records = await client.notes.list({ detailsCommitments: detailsCommitments.map(value => `0x${value}`) });",
+      "after": "  const records = await client.notes.list({ detailsCommitments });",
+      "suites": [
+        "src/lib/miden/recovery/canonical-input-readback.test.ts"
+      ],
+      "pattern": "^Task4C3G4\\ encodes\\ the\\ exact\\ details\\ query\\ for\\ the\\ native\\ Word\\ parser$",
+      "expected_assertion": "Task4C3G4 encodes the exact details query for the native Word parser",
+      "prediction": "Source-backed native Word boundary fixture rejects normalized input lacking the wire prefix, so canonical result assertion fails.",
+      "expected_functional_assertion": "expect(outcome).toEqual(expected canonical result)",
+      "source_file_sha256": "4e92035b87d7a9158bfb6f6f545e5324793b32a3a4f0ef3a059f0b7b97ad5a69"
+    }
+  ],
+  "baseline_evidence": {
+    "run": 40460699612,
+    "passed": 58,
+    "failed": 0,
+    "pending": 0,
+    "runtime": 0,
+    "types": "pass with exact fd SDK",
+    "result_sha256": "9aa28d4ba69d142686fcd132f3ce9644d2240d01f90cb73b79a883ad50f861c5",
+    "scope": "Exact single-selector baseline will still be established before every mutation"
+  },
+  "scope_limits": [
+    "Predictions only; no local mutation execution.",
+    "Four ingress call-order guards, account byte roundtrip and source-backed query encoding only. No exhaustive malformed-shape, native parser runtime, durable promotion or native hook protection claim.",
+    "Existing unchanged CI harness must prove one passing selector, intended expect failure/runtime0 and source restoration."
+  ]
+}
