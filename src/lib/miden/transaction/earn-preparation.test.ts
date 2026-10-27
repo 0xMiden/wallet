@@ -1,3 +1,5 @@
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: jest.fn(async () => {}) }));
+
 import type { ExpectedEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import {
   preparedExecution,
@@ -27,6 +29,7 @@ let mockSkipModify = false;
 let current = true;
 jest.mock('lib/miden/repo', () => ({
   transactions: {
+    get: async (id: string) => mockRow?.id === id ? mockRow : undefined,
     where: ({ id }: { id: string }) => ({
       modify: async (mutate: (row: ITransaction) => void) => {
         mockBeforeModify?.();

@@ -55,6 +55,7 @@ import { logger } from 'shared/logger';
 import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from './offscreen-codec';
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { installFinancialRecoveryBackend } from '../recovery/financial-backend';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { NoteExportType } from '../sdk/constants';
 import {
   assertWasmHoldCurrent,
@@ -73,6 +74,7 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 let startupHydration: Promise<void> = Promise.resolve();
 
 export async function start() {
+  installProviderReceiptBackend(Actions.checkpointProviderReceipt);
   installFinancialRecoveryBackend((accountId, entry, expectedEpoch) =>
     Actions.checkpointFinancialRecovery(accountId, entry, expectedEpoch)
   );
@@ -737,6 +739,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.FinancialRecoveryRequest:
       await Actions.checkpointFinancialRecovery(req.accountId, req.entry, req.expectedEpoch);
       return { type: WalletMessageType.FinancialRecoveryResponse };
+    case WalletMessageType.ProviderReceiptRequest:
+      await Actions.checkpointProviderReceipt(req.row, req.expectedEpoch);
+      return { type: WalletMessageType.ProviderReceiptResponse };
     case WalletMessageType.StorageRecoveryRequest:
       return {
         type: WalletMessageType.StorageRecoveryResponse,

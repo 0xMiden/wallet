@@ -1,6 +1,8 @@
 import { importVaultKey } from '../passworder';
 import { RecoveryJournal, RECOVERY_JOURNAL_KEYS, JOURNAL_MAX_ENTRIES, type RecoveryStorage } from './journal';
 import type { RecoveryJournalData } from './types';
+import { receiptSnapshot } from './testing/provider-receipts';
+import { validateJournal } from './validation';
 import { getStorageHealth, withStorageRecoveryAccess } from '../storage-health';
 
 class DisposableStorage implements RecoveryStorage {
@@ -283,4 +285,42 @@ it('retires only expired debit entries while retaining future charges and privat
   }));
   const next = await journal.update(data);
   expect(next.entries.map(entry => entry.id)).toEqual(['note-1', 'future']);
+});
+
+it('Task4C2 encrypted receipt roundtrip preserves expired provider evidence without Miden request bytes', async () => {
+  await expect(journal.update(() => validateJournal(receiptSnapshot()))).resolves.toMatchObject({ sequence: 1 });
+  const retained = await new RecoveryJournal(key, storage).read();
+  expect(retained?.entries[0]).toEqual(receiptSnapshot().entries[0]);
+  expect(JSON.stringify(storage.values)).not.toContain('receipt-correlation');
+});
+
+it('Task4C2 rejected receipt readback preserves the previous verified generation', async () => {
+  const initial = receiptSnapshot();
+  const first = await journal.update(() => ({ ...initial, entries: data().entries.map(entry => ({ ...entry, accountId: initial.accounts[0]!.accountId })) }));
+  const writes = storage.writes;
+  storage.corruptReadback = true;
+  await expect(journal.update(() => validateJournal(initial))).rejects.toThrow();
+  storage.corruptReadback = false;
+  expect(await journal.read()).toEqual(first);
+  expect(storage.writes).toBe(writes + 1);
+});
+
+it('Task4C2 typed payout roundtrip preserves the original snapshot cursor and exact mint proof', async () => {
+  const base = receiptSnapshot();
+  const row = base.entries[0]!.row;
+  row.type = 'bridged-send';
+  row.extraInputs = { provider: 'usdcx', destinationAddress: '0x1111111111111111111111111111111111111111',
+    destinationNetwork: 1, sourceFaucetId: row.faucetId, claimStatus: 'not-applicable', usdcxBurn: {
+      noteId: 'burn-id', destinationDomain: 0, destinationUsdc: '0x2222222222222222222222222222222222222222',
+      payoutFeeAllowance: '100000', phase: 'confirmed', confirmedAt: 100, attemptCount: 2, lastAttemptBlockNum: 50,
+      destinationBalanceBefore: { balance: '400', blockNumber: '100' },
+      destinationBalanceConfirmed: { balance: '600', blockNumber: '200' }, payoutScannedBlock: '500',
+      payout: { transactionHash: `0x${'3'.repeat(64)}`, blockNumber: '700', value: '980000' }
+    } };
+  const first = await journal.update(() => validateJournal(base));
+  const restored = await new RecoveryJournal(key, storage).read();
+  expect(restored?.entries[0]).toEqual(first.entries[0]);
+  const entry = restored?.entries[0];
+  expect(entry?.kind === 'receipt' && entry.row.extraInputs?.usdcxBurn).toEqual(row.extraInputs.usdcxBurn);
+  expect(JSON.stringify(storage.values)).not.toContain('burn-id');
 });

@@ -1,19 +1,38 @@
 import {
   CollateralType,
   EpochIntentSDK,
+  type EpochIntentSDKConfig,
   EVM_TO_MIDEN_EXTRA_TYPESTRING,
   GetTaskDataParams,
   IntentQuoteResult,
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
+import { isUserWalletRejection } from '@epoch-protocol/epoch-intents-sdk/dist/batch';
 import { AccountId } from '@miden-sdk/miden-sdk';
 import { formatUnits, parseUnits } from 'viem';
 
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { executeRetainedEpochIntent } from './receipt-execution';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
+
+export interface EpochPreparedIntent {
+  requestJson: string;
+  claimHash: string;
+  resourceLockRequired: boolean;
+  collateralType: 'evm' | 'miden';
+}
+
+export interface EpochReceiptHooks {
+  config: EpochIntentSDKConfig;
+  beforeExecute: (prepared: EpochPreparedIntent) => Promise<void>;
+  onSubmitted: (kind: 'transaction' | 'batch', id: string) => Promise<void>;
+  beforeAllocation: (requestJson: string) => Promise<void>;
+  assertCurrent: () => void;
+  hasPrepared?: () => boolean;
+}
 
 export interface CrossChainQuote {
   taskTypeString: string;
@@ -242,7 +261,7 @@ export async function getEVMToMidenQuote(
 
 export async function buildEVMToMidenIntent(
   sdk: EpochIntentSDK,
-  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
+  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote; recovery?: EpochReceiptHooks }
 ): Promise<IntentResult> {
   let taskTypeString: string;
   let intentData: unknown;
@@ -256,14 +275,17 @@ export async function buildEVMToMidenIntent(
   }
 
   try {
-    const solveResult = await sdk.solveIntent({
+    const solveParams: SolveIntentParams = {
       isNative: false,
       sponsorAddress: params.evmSourceAddress as `0x${string}`,
       taskTypeString,
       intentData,
       quoteResult,
-      collateralType: 'evm' as CollateralType
-    });
+      collateralType: CollateralType.EVM
+    };
+    const solveResult = params.recovery
+      ? await executeRetainedEpochIntent(sdk, solveParams, params.recovery)
+      : await sdk.solveIntent(solveParams);
 
     return {
       taskTypeString,
@@ -275,7 +297,8 @@ export async function buildEVMToMidenIntent(
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent'
+      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent',
+      executionUncertain: params.recovery?.hasPrepared?.() === true && !isUserWalletRejection(err)
     };
   }
 }
@@ -312,6 +335,7 @@ export async function getCrossChainQuote(
 export async function buildCrossChainIntent(
   sdk: EpochIntentSDK,
   params: CrossChainIntentParams & {
+    recovery?: EpochReceiptHooks;
     collateralType?: CollateralType;
     midenSourceAccount?: string;
     createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
@@ -333,7 +357,7 @@ export async function buildCrossChainIntent(
   }
 
   try {
-    const solveResult = await sdk.solveIntent({
+    const solveParams: SolveIntentParams = {
       isNative: false,
       sponsorAddress: params.evmRecipient as `0x${string}`,
       taskTypeString,
@@ -343,7 +367,10 @@ export async function buildCrossChainIntent(
       midenFaucetId: midenFaucetIdHex,
       midenSourceAccount: midenSourceHex,
       createMidenP2IDENote: params.createMidenP2IDENote
-    });
+    };
+    const solveResult = params.recovery
+      ? await executeRetainedEpochIntent(sdk, solveParams, params.recovery)
+      : await sdk.solveIntent(solveParams);
 
     return {
       taskTypeString,
@@ -356,7 +383,8 @@ export async function buildCrossChainIntent(
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      error: err instanceof Error ? err.message : 'Failed to solve intent'
+      error: err instanceof Error ? err.message : 'Failed to solve intent',
+      executionUncertain: params.recovery?.hasPrepared?.() === true && !isUserWalletRejection(err)
     };
   }
 }

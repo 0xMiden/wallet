@@ -20,6 +20,7 @@ import { getEvmConnection, switchWebWalletChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { readEpochIntentStatus } from './intent-status';
 import { getEpochSdk } from './sdk';
+import { createEpochReceiptOwner } from './receipt';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
 export type EpochFlow = 'evm-to-miden' | 'miden-to-evm';
@@ -214,6 +215,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     try {
       const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+      if (inputs?.sourceSubmission === 'attempted' || inputs?.sourceSubmission === 'known' || inputs?.epochExecution) {
+        set({ status: 'failed', error: 'Epoch submission requires reconciliation' });
+        return;
+      }
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
       // namespace declares Sepolia but MetaMask's active chain can still be
@@ -242,12 +247,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,
-        preFetchedQuote: quote as EVMToMidenQuote
+        preFetchedQuote: quote as EVMToMidenQuote,
+        recovery: createEpochReceiptOwner(sdk, () => bridgeReceiveTxId).hooks
       });
       console.log('[epoch] EVM→Miden intent', intent);
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
-        if (bridgeReceiveTxId) {
+        if (bridgeReceiveTxId && !intent.executionUncertain) {
           // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,

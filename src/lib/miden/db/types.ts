@@ -1,3 +1,4 @@
+import type { EpochPreparedIntent } from 'lib/epoch/bridge';
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
@@ -238,6 +239,7 @@ export interface IConsumedNote {
  * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
  */
 export interface IUsdcxCctpLeg {
+  executeSubmission?: 'not-started' | 'attempted' | 'known';
   /** Circle's domain of the source chain, the key of its Iris messages. */
   sourceDomain: number;
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
@@ -276,7 +278,15 @@ export interface IAgglayerDelivery {
   scale?: number;
 }
 
+export interface IEpochExecutionReceipt extends EpochPreparedIntent {
+  submission: 'prepared' | 'allocation-attempted';
+  transactionHashes: string[];
+  batchIds: string[];
+}
+
 export interface IBridgedReceiveExtraInputs {
+  epochExecution?: IEpochExecutionReceipt;
+  sourceSubmission?: 'not-started' | 'attempted' | 'known';
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -430,6 +440,7 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  epochExecution?: IEpochExecutionReceipt;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
@@ -514,6 +525,7 @@ export interface IBridgedSendExtraInputs {
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
+  epochExecution?: IEpochExecutionReceipt;
   epochAllocatorUrl?: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: string;
@@ -1784,6 +1796,7 @@ export class BridgedReceiveTransaction implements ITransaction {
     this.displayMessage = 'Bridging from EVM';
     this.displayIcon = 'RECEIVE';
     this.extraInputs = {
+      sourceSubmission: 'not-started',
       provider,
       sourceAddress,
       sourceAmount,

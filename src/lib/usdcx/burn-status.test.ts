@@ -183,3 +183,6 @@ describe('confirmedAt', () => {
     expect(stored.extraInputs.usdcxBurn.confirmedAt).toBeUndefined();
   });
 });
+
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

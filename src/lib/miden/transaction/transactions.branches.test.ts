@@ -2840,3 +2840,6 @@ describe('isLockedError', () => {
     expect(isLockedError(sdkShaped(other.message))).toBe(false);
   });
 });
+
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

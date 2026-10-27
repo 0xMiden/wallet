@@ -2055,3 +2055,6 @@ jest.mock('lib/miden/swap/balance', () => ({
   readSwapFeeContext: jest.fn(async () => ({})),
   assertSwapAccountBalance: jest.fn()
 }));
+
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

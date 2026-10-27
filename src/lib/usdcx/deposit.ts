@@ -97,11 +97,18 @@ export async function runUsdcxDeposit(
   // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
   // and `approve` would replace a larger allowance with this amount.
   const { xReserve } = source;
-  if ((await readAllowance(xReserve)) < value) {
+  const allowance = await readAllowance(xReserve);
+  await updatePhase(trackingTxId, 'submitting', undefined, undefined, {
+    claimSourceExecution: { provider: 'usdcx', source, recipient: remoteRecipient }
+  });
+  if (allowance < value) {
     const approvalHash = await signer.approve(xReserve, value);
     await waitForReceipt(approvalHash);
   }
 
+  await updatePhase(trackingTxId, 'submitting', undefined, undefined, {
+    continueSourceExecution: { provider: 'usdcx', source, recipient: remoteRecipient }
+  });
   const depositHash = await signer.depositToRemote(args);
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: depositHash,

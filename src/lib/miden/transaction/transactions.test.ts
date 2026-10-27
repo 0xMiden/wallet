@@ -2571,3 +2571,6 @@ describe('completeCustomTransaction (isolated)', () => {
     expect(dbTx.completedAt).toEqual(expect.any(Number));
   });
 });
+
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));
