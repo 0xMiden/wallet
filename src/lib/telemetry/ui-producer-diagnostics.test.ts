@@ -60,3 +60,18 @@ it('keeps service and validator roots separate from causes and clears invalid re
   expect(snapshotPendingRetry(error)).toBeUndefined();
   expect(snapshotRecipientValidation(error)).toBeUndefined();
 });
+
+it.each(['declared_network', 'genesis_header'])('retains only the exact backup %s producer category', stage => {
+  const value = { kind: 'backup_network_failure', backupNetworkFailureStage: stage };
+  const root = new Error('private account 0x1234 password amount 123.45');
+  annotateCrash(root, { userErrorId: 'encryptedWalletFileWrongNetwork', userErrorSurface: 'field' });
+  annotateUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field', value);
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: 'encryptedWalletFileWrongNetwork',
+    userErrorSurface: 'field',
+    backupNetworkFailureStage: stage
+  });
+  expect(
+    snapshotUiProducer(new Error('wrapper', { cause: root }), 'encryptedWalletFileWrongNetwork', 'field')
+  ).toBeUndefined();
+});

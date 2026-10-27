@@ -1252,6 +1252,32 @@ describe('user-visible error reporting', () => {
     dwellForError();
     expectDisplayReport(id, 'field');
   });
+  it.each(['declared_network', 'genesis_header'])(
+    'reports only the closed %s rejection stage from the real password field',
+    async stage => {
+      if (stage === 'declared_network') mockEffectiveNetwork = 'mainnet';
+      else mockGenesisHeader.mockResolvedValueOnce(new Uint8Array([9, 9, 9, 9]));
+      const onSubmit = jest.fn();
+      const { container } = renderScreen({ onSubmit });
+      uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+      await submit(container);
+      expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileWrongNetwork');
+      expect(mockImportStore).not.toHaveBeenCalled();
+      expect(mockImportDb).not.toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
+      if (stage === 'declared_network') expect(mockGetMidenClient).not.toHaveBeenCalled();
+      dwellForError();
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(reportUserVisibleError).toHaveBeenCalledWith('encryptedWalletFileWrongNetwork', 'field', {
+        kind: 'backup_network_failure',
+        backupNetworkFailureStage: stage
+      });
+      const wire = JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls);
+      for (const value of [privateErrorFixture, VERSION_TWO_PAYLOAD.seedPhrase, 'mainnet', 'testnet'])
+        expect(wire).not.toContain(value);
+    }
+  );
+
   it('does not report the decryption helper or required-password sentinel', () => {
     mockFormState = {
       errors: { password: { message: 'PASSWORD_ERROR_CAPTION' } },
