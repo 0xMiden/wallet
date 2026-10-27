@@ -68,7 +68,41 @@ export function sameAcquiredNote(left: RecoveryNoteEntry, right: RecoveryNoteEnt
   );
 }
 
+function preflightAcquiredNotes(value: unknown): void {
+  if (!Array.isArray(value) || value.length > JOURNAL_MAX_ENTRIES) throw new Error('Invalid acquired notes');
+  let bytes = 0;
+  for (const note of value) {
+    if (typeof note !== 'object' || note === null || Array.isArray(note)) throw new Error('Invalid acquired note');
+    const id: unknown = Reflect.get(note, 'id');
+    const detailsId: unknown = Reflect.get(note, 'detailsId');
+    const format: unknown = Reflect.get(note, 'format');
+    const body: unknown = Reflect.get(note, 'noteFile');
+    if (
+      Object.keys(note).some(key => !['kind', 'id', 'detailsId', 'noteFile', 'provenance', 'format'].includes(key)) ||
+      Reflect.get(note, 'kind') !== 'note' ||
+      Reflect.get(note, 'provenance') !== 'input' ||
+      typeof id !== 'string' ||
+      id.length === 0 ||
+      id.length > 2048 ||
+      (detailsId !== undefined &&
+        (typeof detailsId !== 'string' || detailsId.length !== 64 || !/^[0-9a-f]{64}$/.test(detailsId))) ||
+      (format !== undefined && format !== 'full' && format !== 'details') ||
+      !Array.isArray(body) ||
+      body.length === 0 ||
+      body.length > JOURNAL_MAX_BYTES - bytes
+    )
+      throw new Error('Invalid acquired note');
+    bytes += body.length;
+    for (let index = 0; index < body.length; index++) {
+      const byte: unknown = body[index];
+      if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255)
+        throw new Error('Invalid acquired note bytes');
+    }
+  }
+}
+
 export function decodeAcquiredNotes(value: unknown): RecoveryNoteEntry[] {
+  preflightAcquiredNotes(value);
   const decoded: unknown = fromSerializable(value);
   if (
     !Array.isArray(decoded) ||
