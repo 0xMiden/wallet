@@ -348,6 +348,23 @@ async function retainedCallbackFixture() {
     });
     return operation.catch((error: unknown) => error);
   };
+  const invokeSequence = (candidates: unknown[]) => {
+    const operation = withWasmClientLock(async () => {
+      const callback = field(f.create.mock.calls[0]?.[0], 'beforeNoteAcquisition');
+      const outcomes: unknown[] = [];
+      for (const candidate of candidates) {
+        const result: unknown =
+          typeof callback === 'function'
+            ? Reflect.apply(callback, undefined, [candidate])
+            : Promise.resolve('missing callback');
+        expect(result).toBeInstanceOf(Promise);
+        const outcome: unknown = await result;
+        outcomes.push(typeof callback === 'function' ? 'acknowledged' : outcome);
+      }
+      return outcomes;
+    });
+    return operation.catch((error: unknown) => error);
+  };
   return {
     ...f,
     client,
@@ -357,6 +374,7 @@ async function retainedCallbackFixture() {
     started,
     release,
     invoke,
+    invokeSequence,
     queueAdd,
     installNoteAcquisitionSink,
     refuseWrite: (error: unknown) => {
@@ -518,6 +536,200 @@ describe('Task4C3K native acquired note callback', () => {
     expect(outcome).toBeInstanceOf(Error);
     expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
     expect(f.sink).toHaveBeenCalledTimes(1);
+    expect(await f.journal.read()).toEqual(f.initial);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    f.client.free();
+  });
+});
+
+function publicCandidate(): NoteAcquisitionCandidate {
+  return {
+    ...nativeCandidate(true),
+    metadata: {
+      sender: `0x${'78'.repeat(15)}`,
+      noteType: 1,
+      tag: 71,
+      attachmentsCommitment: `0x${'9a'.repeat(32)}`
+    },
+    tag: 71
+  };
+}
+
+describe('Task4C3L native lifecycle and batch boundaries', () => {
+  const mockMode = process.env.MIDEN_USE_MOCK_CLIENT;
+  beforeEach(() => {
+    jest.resetModules();
+    for (const key of Object.keys(persisted)) delete persisted[key];
+    delete process.env.MIDEN_USE_MOCK_CLIENT;
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(async () => {
+    const { installNoteAcquisitionSink } = await import('../recovery/note-acquisition');
+    installNoteAcquisitionSink(undefined);
+    const health = await import('../storage-health');
+    await health.flushStorageHealth();
+    if (mockMode === undefined) delete process.env.MIDEN_USE_MOCK_CLIENT;
+    else process.env.MIDEN_USE_MOCK_CLIENT = mockMode;
+    jest.restoreAllMocks();
+    jest.resetModules();
+  });
+
+  it('keeps an active holder capable of reporting a second genuine failure after bounded validation', async () => {
+    const f = await retainedCallbackFixture();
+    const options = f.create.mock.calls[0]?.[0];
+    expect(notifyFailure(options, quotaFailure())).toBe(true);
+    const first = f.health.getStorageHealth();
+    expect(first).toMatchObject({ status: 'unavailable', reason: 'quota' });
+    const recovered = await f.health.validateStorageHealth(async capability => {
+      f.health.assertStorageRecoveryAllowed(capability);
+      expect(await f.journal.read()).toEqual(f.initial);
+      f.health.assertStorageRecoveryAllowed(capability);
+    });
+    expect(recovered).toBe(true);
+    const resumed = f.health.getStorageHealth();
+    expect(resumed).toMatchObject({ status: 'healthy', epoch: first.epoch + 1 });
+    expect(
+      notifyFailure(options, {
+        ...quotaFailure(),
+        phase: 'commit',
+        operation: 'indexeddb.commit',
+        kind: 'io',
+        errorName: 'UnknownError',
+        eventId: 'native-fixture:2'
+      })
+    ).toBe(true);
+    expect(f.health.getStorageHealth()).toMatchObject({
+      status: 'unavailable',
+      epoch: resumed.epoch + 1,
+      reason: 'backing-store',
+      operation: 'transaction',
+      backend: 'sdk'
+    });
+    f.client.free();
+  });
+
+  it('ignores a retired holder while its successor still reports its own genuine failure', async () => {
+    const f = await fixture();
+    const old = await f.MidenClientInterface.create({ useWorker: false });
+    const oldOptions = f.create.mock.calls[0]?.[0];
+    old.free();
+    const current = await f.MidenClientInterface.create({ useWorker: false });
+    expect(notifyFailure(oldOptions, quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    expect(notifyFailure(f.create.mock.calls[1]?.[0], quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota' });
+    current.free();
+  });
+
+  it('retires a failed constructor subscription before a successor opens the same namespace', async () => {
+    const f = await fixture();
+    const refusal = new Error('Constructor declined');
+    f.create.mockRejectedValueOnce(refusal);
+    await expect(f.MidenClientInterface.create({ useWorker: false })).rejects.toBe(refusal);
+    const oldOptions = f.create.mock.calls[0]?.[0];
+    const current = await f.MidenClientInterface.create({ useWorker: false });
+    expect(notifyFailure(oldOptions, quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    expect(notifyFailure(f.create.mock.calls[1]?.[0], quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota' });
+    current.free();
+  });
+
+  it('maps a trusted worker commit abort before the operation result without reclassifying plain cancellation', async () => {
+    const f = await fixture();
+    let observed: unknown;
+    const failure = new Error('Worker commit declined');
+    f.create.mockImplementationOnce(async options => {
+      notifyFailure(options, {
+        ...quotaFailure(),
+        phase: 'commit',
+        operation: 'indexeddb.commit',
+        kind: 'unexpected-abort',
+        errorName: 'AbortError'
+      });
+      observed = f.health.getStorageHealth();
+      throw failure;
+    });
+    await expect(f.MidenClientInterface.create({ useWorker: true })).rejects.toBe(failure);
+    expect(f.create).toHaveBeenCalledWith(expect.objectContaining({ useWorker: true }));
+    expect(observed).toMatchObject({ status: 'unavailable', reason: 'backing-store', operation: 'transaction' });
+    expect(f.health.getStorageHealth()).toEqual(observed);
+  });
+
+  it.each(['export', 'import'])('retires the standalone %s observer when its call completes', async method => {
+    const f = await fixture();
+    const client = await f.MidenClientInterface.create({ useWorker: false });
+    if (method === 'export') await client.exportDb();
+    else await client.importDb('{}');
+    const options = method === 'export' ? f.exportStore.mock.calls[0]?.[1] : f.importStore.mock.calls[0]?.[2];
+    expect(notifyFailure({ indexedDb: options }, quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    expect(notifyFailure(f.create.mock.calls[0]?.[0], quotaFailure())).toBe(true);
+    expect(f.health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota' });
+    client.free();
+  });
+
+  it.each(['public', 'id-only'])('does not invent private recovery material for a %s candidate', async kind => {
+    const f = await retainedCallbackFixture();
+    const candidate =
+      kind === 'public'
+        ? publicCandidate()
+        : {
+            operationId: 'native-operation-1',
+            noteFileBytes: new Uint8Array([19, 48, 103]),
+            variant: 'noteId',
+            source: 'import',
+            batchIndex: 0,
+            batchCount: 1,
+            noteId: `0x${'34'.repeat(32)}`
+          };
+    f.release();
+    expect(await f.invoke(candidate)).toBe('acknowledged');
+    expect(f.sink).toHaveBeenCalledTimes(1);
+    expect(f.sink).toHaveBeenCalledWith([], 'testnet', expect.any(Function));
+    expect(await f.journal.read()).toEqual(f.initial);
+    expect(f.deserialize).not.toHaveBeenCalled();
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    f.client.free();
+  });
+
+  it('refuses an already acknowledged native operation replay before a second sink call', async () => {
+    const f = await retainedCallbackFixture();
+    const candidate = nativeCandidate();
+    f.release();
+    const outcome = await f.invokeSequence([candidate, candidate]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+    expect(f.sink).toHaveBeenCalledTimes(1);
+    expect((await f.journal.read())?.entries).toHaveLength(1);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    f.client.free();
+  });
+
+  it('refuses aggregate native batch bytes before the second public candidate reaches retention', async () => {
+    const f = await retainedCallbackFixture();
+    const first = { ...publicCandidate(), batchCount: 2, noteFileBytes: new Uint8Array(1_100_000) };
+    const second = { ...first, batchIndex: 1, noteId: `0x${'ab'.repeat(32)}` };
+    expect(first.noteFileBytes.byteLength).toBeLessThan(2 * 1024 * 1024);
+    expect(first.noteFileBytes.byteLength + second.noteFileBytes.byteLength).toBeGreaterThan(2 * 1024 * 1024);
+    f.release();
+    const outcome = await f.invokeSequence([first, second]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+    expect(f.sink).toHaveBeenCalledTimes(1);
+    expect(await f.journal.read()).toEqual(f.initial);
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    f.client.free();
+  });
+
+  it('refuses a native batch that starts after ordinal zero without mutation', async () => {
+    const f = await retainedCallbackFixture();
+    f.release();
+    const outcome = await f.invokeSequence([{ ...nativeCandidate(), batchIndex: 1, batchCount: 2 }]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+    expect(f.sink).not.toHaveBeenCalled();
     expect(await f.journal.read()).toEqual(f.initial);
     expect(f.health.getStorageHealth().status).toBe('healthy');
     f.client.free();
