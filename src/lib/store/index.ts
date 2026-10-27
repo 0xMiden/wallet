@@ -22,13 +22,13 @@ import {
   writeTokenMetadataOverride
 } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { sanitizeStorageAvailability } from 'lib/miden/storage-health';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
   parsePersistedSpendingLimit,
   parseSerializedSpendingLimitAssessment,
   toSerializedSpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
+import { sanitizeStorageAvailability } from 'lib/miden/storage-health';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';

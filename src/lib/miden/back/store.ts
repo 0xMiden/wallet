@@ -2,13 +2,13 @@ import { createStore, createEvent } from 'effector';
 
 import { PublicError } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { NETWORKS } from 'lib/miden/networks';
 import {
   getStorageAvailability,
   sanitizeStorageAvailability,
   subscribeStorageAvailability,
   type StorageAvailability
 } from 'lib/miden/storage-health';
-import { NETWORKS } from 'lib/miden/networks';
 import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
 
 export interface StoreState extends WalletState {
