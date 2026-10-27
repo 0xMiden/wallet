@@ -49,6 +49,7 @@ import {
 import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_NOTE_ACQUISITION,
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
@@ -83,9 +84,15 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { captureRecoveryNotes } from 'lib/miden/recovery/capture';
-import { decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
+import { withRemoteRetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
+import {
+  installNoteAcquisitionSink,
+  uninstallNoteAcquisitionSink,
+  type NoteAcquisitionSink
+} from 'lib/miden/recovery/note-acquisition';
+import { decodeCanonicalNoteFamilies, decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
 import { toSerializable } from 'lib/miden/recovery/serialization';
-import type { RecoveryCapture } from 'lib/miden/recovery/types';
+import type { RecoveryCapture, RecoveryNoteEntry } from 'lib/miden/recovery/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
@@ -136,7 +143,13 @@ import {
   subscribeStorageHealth
 } from 'lib/miden/storage-health';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
-import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  adoptEndpointState,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
@@ -595,6 +608,7 @@ type DispatchFn = (
  */
 type DispatchContext = {
   readonly recoveryCapability?: StorageRecoveryCapability;
+  acknowledgeRetainedNote?: (note: RecoveryNoteEntry) => Promise<void>;
   readonly op_id: string;
   /**
    * Non-nullable on purpose. `handleCall` is the only producer and builds it
@@ -665,8 +679,16 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  readStorageContinuity: async (context, client, accountIds: string[], includeNotes: boolean, retained?: unknown) => {
+  readStorageContinuity: async (
+    context,
+    client,
+    accountIds: string[],
+    includeNotes: boolean,
+    retained?: unknown,
+    canonical?: unknown
+  ) => {
     const notes = decodeRetainedRecoveryNotes(retained);
+    const families = decodeCanonicalNoteFamilies(canonical);
     const result = await client.readStorageContinuity(
       accountIds,
       includeNotes,
@@ -674,18 +696,36 @@ const DISPATCH: Record<string, DispatchFn> = {
         assertWasmHoldCurrent(context.hold, 'during storage continuity read');
         if (context.recoveryCapability) assertStorageRecoveryAllowed(context.recoveryCapability);
       },
-      notes
+      notes,
+      families
     );
     return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
   },
-  restoreStorageRecovery: async (context, client, value: unknown) => {
-    if (!context.recoveryCapability) throw new Error('Missing storage recovery capability');
+  restoreStorageRecovery: async (context, client, value: unknown, retained: unknown) => {
+    const capability = context.recoveryCapability;
+    if (!capability) throw new Error('Missing storage recovery capability');
     const { decodeSdkRecoveryCommand } = await import('lib/miden/recovery/sdk-restore');
-    assertStorageRecoveryAllowed(context.recoveryCapability);
+    assertStorageRecoveryAllowed(capability);
     assertWasmHoldCurrent(context.hold, 'before storage reconstruction');
-    await client.restoreStorageRecovery(decodeSdkRecoveryCommand(value), context.recoveryCapability, () =>
-      assertWasmHoldCurrent(context.hold, 'during storage reconstruction')
-    );
+    const command = decodeSdkRecoveryCommand(value);
+    const check = () => {
+      assertWasmHoldCurrent(context.hold, 'during storage reconstruction');
+      if (context.settled || client.isDisposed) throw new Error('Recovery operation ended');
+    };
+    if (retained !== undefined && retained !== null) {
+      if (command.kind !== 'note' || !context.acknowledgeRetainedNote)
+        throw new Error('Invalid retained recovery operation');
+      await withRemoteRetainedNoteReceipt(
+        retained,
+        command.note,
+        command.accountId,
+        capability,
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        check,
+        context.acknowledgeRetainedNote,
+        receipt => client.restoreStorageRecovery(command, capability, check, receipt)
+      );
+    } else await client.restoreStorageRecovery(command, capability, check);
     return null;
   },
   initializeStorageGeneration: async (
@@ -1669,6 +1709,64 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false, recoveryCapability: capability };
+      const acquisitionNetwork = getEffectiveNetworkName();
+      const acquisitionEndpoints = msg.endpoints;
+      const assertAcquisitionOwner = (network: string) => {
+        assertWasmHoldCurrent(hold, 'offscreen note acquisition');
+        if (
+          context.settled ||
+          client.isDisposed ||
+          network !== acquisitionNetwork ||
+          getEffectiveNetworkName() !== acquisitionNetwork ||
+          !adoptedEndpoints ||
+          !sameEndpointState(acquisitionEndpoints, adoptedEndpoints)
+        )
+          throw new Error('Acquisition operation changed');
+      };
+      const acknowledgeAcquisition = async (notes: RecoveryNoteEntry[], network: string, check: () => void) => {
+        check();
+        const response: unknown = await withRpcTimeout(
+          () =>
+            chrome.runtime.sendMessage({
+              target: SW_TARGET,
+              type: OFFSCREEN_NOTE_ACQUISITION,
+              op_id: context.op_id,
+              network,
+              epoch: healthEpoch,
+              notes: toSerializable(notes)
+            }),
+          'offscreen-note-acquisition',
+          { retries: 0 }
+        );
+        check();
+        if (
+          !response ||
+          typeof response !== 'object' ||
+          !('ok' in response) ||
+          response.ok !== true ||
+          !('op_id' in response) ||
+          response.op_id !== context.op_id
+        )
+          throw new Error('Acquisition retention was refused');
+      };
+      const acquisitionSink: NoteAcquisitionSink = async (notes, network, assertSource) => {
+        const check = () => {
+          assertSource();
+          assertAcquisitionOwner(network);
+          assertStorageHealthy(healthEpoch);
+        };
+        await acknowledgeAcquisition(notes, network, check);
+      };
+      if (capability) {
+        context.acknowledgeRetainedNote = async note => {
+          const check = () => {
+            assertStorageRecoveryAllowed(capability);
+            assertAcquisitionOwner(acquisitionNetwork);
+          };
+          await acknowledgeAcquisition([note], acquisitionNetwork, check);
+        };
+      }
+      installNoteAcquisitionSink(acquisitionSink);
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1677,6 +1775,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         // after this point, its stamps are about a step the SW has already been
         // told the outcome of (see `postStageEvent`).
         context.settled = true;
+        uninstallNoteAcquisitionSink(acquisitionSink);
         // Only if it is still OURS. An evicted dispatch keeps running and can
         // settle long after a successor installed its own id; clearing blindly
         // would leave the healthy successor with no ambient id, so its

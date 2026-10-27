@@ -57,6 +57,31 @@ it('encrypts note contents and verifies a round trip without copying signer mate
   expect(JSON.stringify(storage.values)).not.toContain('account-1');
 });
 
+it('Task4C3D a fresh journal reader restores encrypted primary and quarantined candidate bytes', async () => {
+  const candidate = {
+    id: 'retained-candidate',
+    accountId: 'account-1',
+    provenance: 'input',
+    noteFile: new Uint8Array([19, 48, 31, 247]),
+    format: 'details'
+  } satisfies import('./types').RecoveryNoteCandidate;
+  const snapshot = await journal.update(() => ({
+    ...data(),
+    entries: [
+      {
+        kind: 'note',
+        id: 'note-1',
+        provenance: 'input',
+        noteFile: new Uint8Array([1, 2, 255]),
+        candidates: [candidate]
+      }
+    ]
+  }));
+  expect(await new RecoveryJournal(key, storage).read()).toEqual(snapshot);
+  expect(snapshot.entries[0]).toMatchObject({ noteFile: new Uint8Array([1, 2, 255]), candidates: [candidate] });
+  expect(JSON.stringify(storage.values)).not.toContain('retained-candidate');
+});
+
 it('Task4C1 retirement readback failure preserves the last good private body and pending evidence', async () => {
   const first = await journal.update(data);
   storage.corruptReadback = true;

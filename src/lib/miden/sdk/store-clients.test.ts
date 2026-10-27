@@ -215,8 +215,8 @@ describe('clients on the SDK store', () => {
         // importDb replaces the store with a file's contents.
         'importStore('
       ],
-      'lib/miden/sdk/miden-client.ts': ['MidenClientInterface.create('],
-      'offscreen/main.ts': ['MidenClientInterface.create('],
+      'lib/miden/sdk/miden-client.ts': ['MidenClientInterface.create(', 'MidenClientInterface.createForRecovery('],
+      'offscreen/main.ts': ['MidenClientInterface.create(', 'MidenClientInterface.createForRecovery('],
       // The prove worker's client only proves and never opens a store, so a createClient on it fails here.
       'offscreen/prove-worker.ts': ['new WebClient('],
       // A guardian client factory, not the SDK's.

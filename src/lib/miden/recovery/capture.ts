@@ -1,9 +1,11 @@
 import { NoteFile, NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
+import { recoveryNoteUsage } from './note-candidates';
 import { fromSerializable } from './serialization';
 import type { RecoveryCapture, RecoveryNoteEntry } from './types';
 import { isRecoveryNote } from './validation';
+import { assertRecoveryCaptureWire } from './wire-preflight';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export function captureRecoveryNotes(
@@ -27,9 +29,11 @@ export function captureRecoveryNotes(
     }
   };
   for (const note of executed.inputNotes().notes()) {
+    if (note.note().metadata().noteType() === NoteType.Public) continue;
     retain(note.id().toString(), NoteFile.fromInputNote(note), 'input');
   }
   for (const note of executed.userOutputNotes()) {
+    if (note.metadata().noteType() === NoteType.Public) continue;
     if (note.metadata().noteType() === NoteType.Private) {
       const full = note.intoFull();
       if (!full) throw new Error('Private output recovery body unavailable');
@@ -41,6 +45,7 @@ export function captureRecoveryNotes(
 }
 
 export function decodeRecoveryCapture(value: unknown): RecoveryCapture {
+  assertRecoveryCaptureWire(value);
   const decoded =
     typeof value === 'object' && value !== null && Reflect.get(value, 'requestBytes') instanceof Uint8Array
       ? value
@@ -54,9 +59,11 @@ export function decodeRecoveryCapture(value: unknown): RecoveryCapture {
     requestBytes.length === 0 ||
     !Array.isArray(notes) ||
     notes.length > JOURNAL_MAX_ENTRIES ||
-    !notes.every(isRecoveryNote) ||
-    requestBytes.length + notes.reduce((total, note) => total + note.noteFile.length, 0) > JOURNAL_MAX_BYTES
+    !notes.every(isRecoveryNote)
   )
+    throw new Error('Invalid recovery capture');
+  const usage = recoveryNoteUsage(notes);
+  if (usage.count > JOURNAL_MAX_ENTRIES || requestBytes.length + usage.bytes > JOURNAL_MAX_BYTES)
     throw new Error('Invalid recovery capture');
   return { requestBytes, notes };
 }

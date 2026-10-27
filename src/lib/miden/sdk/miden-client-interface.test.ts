@@ -3,6 +3,12 @@ import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/h
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { WasmLockHold } from './miden-client';
+import {
+  nativeStorageCapability,
+  nativeStorageWasm,
+  noteAcquisitionPrimitives,
+  noteFileFixture
+} from './test-fixtures/nativeStorageCapability';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 // The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.
@@ -18,7 +24,9 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 describe('MidenClientInterface', () => {
+  const acquisitionCleanup: Array<() => void> = [];
   afterEach(() => {
+    for (const cleanup of acquisitionCleanup.splice(0)) cleanup();
     jest.resetModules();
     jest.clearAllMocks();
   });
@@ -38,6 +46,29 @@ describe('MidenClientInterface', () => {
   async function underWasmHold<T>(operation: () => Promise<T>): Promise<T> {
     const { withWasmClientLock } = await import('./miden-client');
     return withWasmClientLock(operation);
+  }
+
+  async function installFixtureNoteSink() {
+    const { installNoteAcquisitionSink, uninstallNoteAcquisitionSink } = await import('../recovery/note-acquisition');
+    const retained = new Map<string, Uint8Array>();
+    const sink: import('../recovery/note-acquisition').NoteAcquisitionSink = async (notes, network, assertCurrent) => {
+      assertCurrent();
+      expect(network).toBe('localnet');
+      for (const note of notes) retained.set(note.id, note.noteFile.slice());
+      assertCurrent();
+    };
+    installNoteAcquisitionSink(sink);
+    acquisitionCleanup.push(() => uninstallNoteAcquisitionSink(sink));
+    return retained;
+  }
+
+  async function importUnderWasmHold(client: MidenClientInterfaceType, bytes: Uint8Array) {
+    const { getCurrentWasmLockHold } = await import('./miden-client');
+    return underWasmHold(async () => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('The fixture import requires its current WASM hold');
+      return client.importNoteBytes(bytes, hold);
+    });
   }
 
   const fakeTransactionResult = {
@@ -194,8 +225,10 @@ describe('MidenClientInterface', () => {
     const createMock = jest.fn(async () => fakeMidenClient);
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...nativeStorageCapability(),
+      ...noteAcquisitionPrimitives(),
       MidenClient: { create: createMock, createMock: jest.fn() },
-      NoteFile: { deserialize: jest.fn(() => ({})) },
+      NoteFile: { deserialize: jest.fn(() => noteFileFixture()) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
       NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
       NoteType: { Private: 'Private', Public: 'Public' },
@@ -205,6 +238,7 @@ describe('MidenClientInterface', () => {
         newLocalProver: jest.fn(() => 'local')
       },
       getWasmOrThrow: jest.fn(async () => ({
+        ...nativeStorageWasm(),
         AccountId: {
           fromHex: jest.fn((id: string) => id),
           fromBech32: jest.fn((id: string) => id)
@@ -298,7 +332,9 @@ describe('MidenClientInterface', () => {
     // smoke a few methods
     await client.createMidenWallet('on-chain' as any, new Uint8Array([4]));
     await client.importPublicMidenWalletFromSeed(new Uint8Array([5]));
-    await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
+    const retainedNotes = await installFixtureNoteSink();
+    await importUnderWasmHold(client, new Uint8Array([1, 2]));
+    expect(retainedNotes.size).toBe(1);
     await client.getInputNoteDetails();
     await client.getConsumableNotes('id');
     await client.exportNote('note', {} as any);
@@ -342,8 +378,11 @@ describe('MidenClientInterface', () => {
      */
     const CREATE_OPTION_KEYS = [
       'autoSync',
+      'beforeNoteAcquisition',
       'feeFaucetId',
+      'indexedDb',
       'keystore',
+      'noteAcquisitionLimits',
       'noteTransportMaxRetries',
       'noteTransportUrl',
       'observer',
@@ -356,6 +395,7 @@ describe('MidenClientInterface', () => {
     async function createAndCaptureOptions(noteTransportUrl?: string) {
       const createMock = jest.fn(async (_options: Record<string, unknown>) => buildFakeMidenClient());
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...nativeStorageCapability(),
         MidenClient: { create: createMock, createMock: jest.fn() },
         TransactionProver: { newLocalProver: jest.fn(() => 'local') }
       }));
@@ -491,6 +531,7 @@ describe('MidenClientInterface', () => {
       recordSyncedFeeFaucetId: publication
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...nativeStorageCapability(),
       MidenClient: { create: jest.fn(async () => fakeMidenClient) }
     }));
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -2209,10 +2250,11 @@ describe('MidenClientInterface', () => {
 
   describe('miscellaneous branches', () => {
     it('create() returns a mock-network client when MIDEN_USE_MOCK_CLIENT=true', async () => {
-      const fakeMockClient = buildFakeMidenClient();
+      const fakeMockClient = buildFakeMidenClient({ storeIdentifier: jest.fn(() => 'mock_client_db') });
       const createMock = jest.fn(async () => fakeMockClient);
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...nativeStorageCapability(),
         NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: jest.fn(), createMock },
         NoteFile: { deserialize: jest.fn(() => ({})) },
@@ -2248,7 +2290,17 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = await MidenClientInterface.create({ seed: new Uint8Array([1, 2, 3]) });
         expect(client.network).toBe('mock');
-        expect(createMock).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+        expect(createMock).toHaveBeenCalledWith({
+          useWorker: false,
+          seed: expect.any(Uint8Array),
+          indexedDb: { durability: 'strict', onFailure: expect.any(Function) },
+          beforeNoteAcquisition: expect.any(Function),
+          noteAcquisitionLimits: {
+            maxNotes: 256,
+            maxNoteFileBytes: 2 * 1024 * 1024,
+            maxTotalNoteFileBytes: 2 * 1024 * 1024
+          }
+        });
         const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
         const failure = new Error('mock startup failed');
         createMock.mockRejectedValueOnce(failure);
@@ -2268,6 +2320,7 @@ describe('MidenClientInterface', () => {
       const createReal = jest.fn(async () => fakeMidenClient);
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...nativeStorageCapability(),
         NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: createReal, createMock: jest.fn() },
         NoteFile: { deserialize: jest.fn(() => ({})) },
@@ -2312,6 +2365,7 @@ describe('MidenClientInterface', () => {
       const createReal = jest.fn(async (_options: any) => fakeMidenClient);
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...nativeStorageCapability(),
         NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: createReal, createMock: jest.fn() },
         NoteFile: { deserialize: jest.fn(() => ({})) },
@@ -3881,6 +3935,8 @@ describe('MidenClientInterface', () => {
       noteDeserialize: jest.Mock;
       fromExpectedNote?: jest.Mock;
     }) {
+      jest.dontMock('./miden-client');
+      jest.dontMock('./note-details-commitment');
       const fakeMidenClient = buildFakeMidenClient();
       const importMock = fakeMidenClient.notes.import as jest.Mock;
       // Only `fromExpectedNote` is exposed: `fromNoteDetails` is the
@@ -3901,9 +3957,15 @@ describe('MidenClientInterface', () => {
       });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...nativeStorageCapability(),
+        ...noteAcquisitionPrimitives(),
         NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: jest.fn(async () => fakeMidenClient) },
-        NoteFile: { deserialize: sdk.noteFileDeserialize, fromExpectedNote },
+        NoteFile: {
+          deserialize: sdk.noteFileDeserialize,
+          fromExpectedNote: (details: unknown, tag: unknown, afterBlockNum: number) =>
+            noteFileFixture(fromExpectedNote(details, tag, afterBlockNum))
+        },
         Note: { deserialize: sdk.noteDeserialize },
         NoteDetails: NoteDetailsCtor,
         AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -3945,15 +4007,17 @@ describe('MidenClientInterface', () => {
         seed: new Uint8Array([1, 2, 3]),
         insertKeyCallback: jest.fn()
       });
-      return { client, importMock, fromExpectedNote, NoteDetailsCtor };
+      const retainedNotes = await installFixtureNoteSink();
+      return { client, importMock, fromExpectedNote, NoteDetailsCtor, retainedNotes };
     }
 
     it('imports serialized NoteFile bytes directly without touching the Note fallback', async () => {
-      const noteFileDeserialize = jest.fn(() => ({ kind: 'notefile' }));
+      const noteFileDeserialize = jest.fn(() => noteFileFixture({ kind: 'notefile' }));
       const noteDeserialize = jest.fn();
-      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+      const { client, importMock, retainedNotes } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([1, 2]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(noteFileDeserialize).toHaveBeenCalled();
       expect(noteDeserialize).not.toHaveBeenCalled();
@@ -3971,13 +4035,14 @@ describe('MidenClientInterface', () => {
       };
       const noteDeserialize = jest.fn(() => fakeNote);
       const fromExpectedNote = jest.fn((details: any, tag: any) => ({ kind: 'wrapped', details, tag }));
-      const { client, importMock, NoteDetailsCtor } = await setup({
+      const { client, importMock, NoteDetailsCtor, retainedNotes } = await setup({
         noteFileDeserialize,
         noteDeserialize,
         fromExpectedNote
       });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([9, 9, 9]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(noteDeserialize).toHaveBeenCalled();
       // NoteDetails built from the note's assets + recipient, then wrapped.
@@ -4006,9 +4071,13 @@ describe('MidenClientInterface', () => {
         recipient: jest.fn(() => 'note-recipient'),
         metadata
       }));
-      const { client, importMock, fromExpectedNote } = await setup({ noteFileDeserialize, noteDeserialize });
+      const { client, importMock, fromExpectedNote, retainedNotes } = await setup({
+        noteFileDeserialize,
+        noteDeserialize
+      });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([9, 9, 9]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(metadata).toHaveBeenCalled();
       const [, tagArg, afterBlockArg] = fromExpectedNote.mock.calls[0]!;
@@ -4089,6 +4158,7 @@ describe('MidenClientInterface', () => {
         feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
       },
       getWasmOrThrow: jest.fn(async () => ({
+        ...nativeStorageWasm(),
         AccountId: { fromBech32: accountFromBech32, fromHex: jest.fn() }
       })),
       WasmWebClient: { createClient }
@@ -4179,7 +4249,10 @@ describe('MidenClientInterface', () => {
       undefined,
       false,
       undefined,
-      '0xfee'
+      '0xfee',
+      undefined,
+      undefined,
+      { durability: 'strict', onFailure: expect.any(Function) }
     );
     expect(fromBech32).toHaveBeenCalledWith('mtst1account');
     expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
@@ -4276,7 +4349,10 @@ describe('MidenClientInterface', () => {
       undefined,
       false,
       undefined,
-      '0xfee'
+      '0xfee',
+      undefined,
+      undefined,
+      { durability: 'strict', onFailure: expect.any(Function) }
     );
     const builds = readerLines(log, 'building');
     expect(builds).toHaveLength(2);
@@ -4310,7 +4386,10 @@ describe('MidenClientInterface', () => {
       undefined,
       false,
       undefined,
-      '0xfee-b'
+      '0xfee-b',
+      undefined,
+      undefined,
+      { durability: 'strict', onFailure: expect.any(Function) }
     );
     expect(readerLines(log, 'building')[1]).toContain('(fee faucet changed)');
   });

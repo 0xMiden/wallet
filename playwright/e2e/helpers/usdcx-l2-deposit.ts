@@ -270,7 +270,7 @@ export async function submitL2Deposit(
       return quote;
     }
   });
-  const submitting = writes.find(([, phase]) => phase === 'submitting')?.[2];
+  const submitting = writes.find(([, phase, patch]) => phase === 'submitting' && patch?.evmTxHash === burnHash)?.[2];
   const burnQuote = quotes.at(-1);
   const [signedBurn] = signedBurns;
   if (!signedBurn || !submitting?.cctp || submitting.usdcxRemoteRecipient === undefined || !burnQuote) {

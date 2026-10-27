@@ -2,9 +2,11 @@ import { NoteFile, type MidenClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { restoreRetainedGuardianAccount, type RecoveryAccountMaterial } from './account-restore';
 import { StorageContinuityError } from './continuity';
-import { JOURNAL_MAX_BYTES } from './journal';
+import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
+import { recoveryNoteUsage } from './note-candidates';
 import {
   initializeSdkGeneration,
+  assertRetainedInputRecord,
   readSdkGeneration,
   readSdkRecoverySnapshot,
   type RecoverySdkReader
@@ -12,6 +14,7 @@ import {
 import { fromSerializable } from './serialization';
 import type { RecoveryNoteEntry } from './types';
 import { isRecoveryAccount, isRecoveryNote } from './validation';
+import { assertSdkRecoveryCommandWire } from './wire-preflight';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
 
 export type SdkRecoveryCommand =
@@ -21,13 +24,14 @@ export type SdkRecoveryCommand =
 
 export interface RecoverySdkWriter extends RecoverySdkReader {
   accounts: Pick<MidenClient['accounts'], 'get' | 'insert'>;
-  notes: Pick<MidenClient['notes'], 'list' | 'import'>;
+  notes: RecoverySdkReader['notes'] & Pick<MidenClient['notes'], 'import'>;
 }
 
 export async function restoreSdkRecovery(
   client: RecoverySdkWriter,
   command: SdkRecoveryCommand,
-  assertCurrent: () => void
+  assertCurrent: () => void,
+  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>
 ): Promise<void> {
   assertCurrent();
   if (command.kind === 'account') {
@@ -39,11 +43,20 @@ export async function restoreSdkRecovery(
     await initializeSdkGeneration(client, command.generation, old, assertCurrent);
   } else {
     const note = command.note;
-    if (!isRecoveryNote(note) || note.noteFile.length > JOURNAL_MAX_BYTES || note.provenance !== 'input')
+    if (
+      !isRecoveryNote(note) ||
+      recoveryNoteUsage([note]).bytes > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).count > JOURNAL_MAX_ENTRIES ||
+      note.provenance !== 'input'
+    )
       throw new StorageContinuityError();
     const file = NoteFile.deserialize(note.noteFile);
     try {
-      const details = file.noteDetails() ?? file.note();
+      const importBytes = file.serialize().slice();
+      if (importBytes.byteLength === 0 || importBytes.byteLength > JOURNAL_MAX_BYTES)
+        throw new StorageContinuityError();
+      const full = file.note();
+      const details = file.noteDetails() ?? full;
       if (!details) throw new StorageContinuityError();
       const commitment = noteDetailsCommitment(details);
       const id = file.noteId()?.toString();
@@ -52,12 +65,18 @@ export async function restoreSdkRecovery(
         assertCurrent();
         if (existing.length > 1) throw new StorageContinuityError();
         if (existing.length === 1) {
-          if (noteDetailsCommitment(existing[0]!.details()) !== commitment) throw new StorageContinuityError();
+          assertRetainedInputRecord(existing[0]!, commitment, full !== undefined);
           return;
         }
       }
       assertCurrent();
-      await client.notes.import(file);
+      const importNote = () => {
+        assertCurrent();
+        // The async SDK owns this separate handle, including native refusal.
+        return client.notes.import(NoteFile.deserialize(importBytes));
+      };
+      if (acquire) await acquire(file, importNote);
+      else await importNote();
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
     } finally {
@@ -68,6 +87,7 @@ export async function restoreSdkRecovery(
 }
 
 export function decodeSdkRecoveryCommand(value: unknown): SdkRecoveryCommand {
+  assertSdkRecoveryCommandWire(value);
   const decoded: unknown = fromSerializable(value);
   if (typeof decoded !== 'object' || decoded === null) throw new StorageContinuityError();
   const kind: unknown = Reflect.get(decoded, 'kind');
@@ -82,7 +102,8 @@ export function decodeSdkRecoveryCommand(value: unknown): SdkRecoveryCommand {
     const accountId: unknown = Reflect.get(decoded, 'accountId');
     if (
       !isRecoveryNote(note) ||
-      note.noteFile.length > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).bytes > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).count > JOURNAL_MAX_ENTRIES ||
       typeof accountId !== 'string' ||
       accountId.length > 2048
     )

@@ -1,3 +1,4 @@
+import { recoveryNoteMaterials } from './note-candidates';
 import { validateRecoveryReceipt, validateRecoveryTransaction } from './transaction-record';
 import type {
   RecoveryAccountExpectation,
@@ -98,15 +99,33 @@ function evidence(value: unknown): value is SubmitEvidenceFields {
     return nonce(item);
   });
 }
-export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
-  if (!record(value) || !text(value.id) || value.kind !== 'note') return false;
+function noteMaterial(value: Record<string, unknown>): boolean {
   return (
-    keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format', 'scan']) &&
+    text(value.id) &&
     (value.accountId === undefined || text(value.accountId)) &&
+    (value.detailsId === undefined ||
+      (typeof value.detailsId === 'string' && /^[0-9a-f]{64}$/.test(value.detailsId))) &&
     value.noteFile instanceof Uint8Array &&
     value.noteFile.length > 0 &&
     (value.provenance === 'input' || value.provenance === 'output') &&
-    (value.format === undefined || value.format === 'full' || value.format === 'details') &&
+    (value.format === undefined || value.format === 'full' || value.format === 'details')
+  );
+}
+export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
+  if (!record(value) || value.kind !== 'note') return false;
+  return (
+    keys(value, ['kind', 'id', 'accountId', 'detailsId', 'noteFile', 'provenance', 'format', 'scan', 'candidates']) &&
+    noteMaterial(value) &&
+    (value.candidates === undefined ||
+      (Array.isArray(value.candidates) &&
+        value.candidates.length > 0 &&
+        value.candidates.length < 256 &&
+        value.candidates.every(
+          candidate =>
+            record(candidate) &&
+            keys(candidate, ['id', 'accountId', 'detailsId', 'noteFile', 'provenance', 'format']) &&
+            noteMaterial(candidate)
+        ))) &&
     (value.scan === undefined ||
       (record(value.scan) &&
         keys(value.scan, ['nextBlock', 'anchorBlock', 'anchor']) &&
@@ -211,10 +230,14 @@ export function validateJournal(value: unknown): RecoveryJournalSnapshot {
   const accounts = value.accounts;
   const entries = value.entries;
   if (
+    entries.reduce((count, item) => count + (item.kind === 'note' ? recoveryNoteMaterials(item).length : 1), 0) > 256 ||
     new Set(accounts.map(account => account.accountId)).size !== accounts.length ||
     new Set(entries.map(item => `${item.kind}:${item.id}`)).size !== entries.length ||
-    entries.some(
-      item => item.accountId !== undefined && !accounts.some(account => account.accountId === item.accountId)
+    entries.some(item =>
+      (item.kind === 'note' ? recoveryNoteMaterials(item) : [item]).some(
+        material =>
+          material.accountId !== undefined && !accounts.some(account => account.accountId === material.accountId)
+      )
     )
   ) {
     throw new Error('Invalid recovery journal identity');

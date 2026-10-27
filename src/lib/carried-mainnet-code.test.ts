@@ -7,6 +7,11 @@ import {
 
 // The desktop store, over localStorage: like the mobile one, it parses what it stores as JSON.
 jest.mock('lib/platform', () => ({ isMobile: () => false, isDesktop: () => true, isExtension: () => false }));
+jest.mock('lib/platform/storage-adapter', () => {
+  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
+  const storage = new actual.DesktopStorage();
+  return { ...actual, getStorageProvider: () => storage, default: () => storage };
+});
 
 describe('the mainnet access code carried through a switch', () => {
   beforeEach(() => {

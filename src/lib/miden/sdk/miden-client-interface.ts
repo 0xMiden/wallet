@@ -38,6 +38,7 @@ import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
+import { captureAcquiredNote, retainAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import {
   assertStorageHealthy,
   assertStorageRecoveryAllowed,
@@ -102,7 +103,9 @@ import {
   yieldWasmClientLock,
   type WasmLockHold
 } from './miden-client';
+import { nativeNoteAcquisition } from './native-note-acquisition';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { nativeStorageName, nativeStoragePolicy } from './native-storage-policy';
 import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
@@ -141,6 +144,7 @@ import {
   reclaimDisabledP2ideTarget
 } from '../helpers';
 import { captureRecoveryNotes } from '../recovery/capture';
+import { withPreparedNativeNoteReceipt, type RetainedNoteReceipt } from '../recovery/native-note-receipt';
 import { initializeSdkGeneration, readSdkRecoverySnapshot } from '../recovery/sdk-snapshot';
 
 export interface GuardianAccountCreationResult {
@@ -561,6 +565,7 @@ let realmReader: RealmReader | undefined;
 export async function getRealmReaderClient(): Promise<WasmWebClient> {
   await initializeStorageHealth();
   assertStorageHealthy();
+  const storageEpoch = getStorageHealth().epoch;
   const generation = wasmClientGeneration();
   const rpcUrl = getEffectiveRpcUrl();
   const feeFaucetId = getEffectiveFeeFaucetId();
@@ -597,11 +602,18 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
           `(generation ${cached.generation} at ${hostOf(cached.rpcUrl)})`
         : '')
   );
-  const entry: RealmReader = {
-    generation,
-    rpcUrl,
-    feeFaucetId,
-    client: WasmWebClient.createClient(
+  const ownsReader = () =>
+    wasmClientGeneration() === generation &&
+    getEffectiveRpcUrl() === rpcUrl &&
+    getEffectiveFeeFaucetId() === feeFaucetId;
+  let active = true;
+  const client: Promise<WasmWebClient> = Promise.resolve().then(async () => {
+    assertStorageHealthy(storageEpoch);
+    if (!ownsReader()) throw new Error('SDK reader owner replaced');
+    const storeName = await nativeStorageName(rpcUrl);
+    assertStorageHealthy(storageEpoch);
+    if (!ownsReader()) throw new Error('SDK reader owner replaced');
+    return WasmWebClient.createClient(
       rpcUrl,
       undefined,
       undefined,
@@ -609,8 +621,17 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
       undefined,
       false,
       undefined,
-      feeFaucetId
-    ),
+      feeFaucetId,
+      undefined,
+      undefined,
+      nativeStoragePolicy(storeName, () => active && realmReader?.client === client && ownsReader())
+    );
+  });
+  const entry: RealmReader = {
+    generation,
+    rpcUrl,
+    feeFaucetId,
+    client,
     failures: cached && sameKey ? cached.failures : 0
   };
   realmReader = entry;
@@ -625,7 +646,8 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
       }
     },
     (error: unknown) => {
-      reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+      if (realmReader === entry && ownsReader()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+      active = false;
       entry.failures += 1;
       const windowMs = computeSyncBackoffMs(entry.failures);
       entry.retryAtMs = monotonicNowMs() + windowMs;
@@ -649,12 +671,13 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
+  private readonly storageGeneration = wasmClientGeneration();
 
   private constructor(
     client: MidenClient,
     network: string,
     liveness: ClientLiveness = { disposed: false },
-    scope = cacheScope()
+    private readonly scope = cacheScope()
   ) {
     this.client = client;
     this.network = network;
@@ -680,29 +703,45 @@ export class MidenClientInterface {
     const assertCreation = () =>
       recoveryCapability ? assertStorageRecoveryAllowed(recoveryCapability) : assertStorageHealthy(storageEpoch);
     assertCreation();
+    const scope = cacheScope();
+    const generation = wasmClientGeneration();
+    const liveness: ClientLiveness = { disposed: false };
+    const ownsClient = () => !liveness.disposed && wasmClientGeneration() === generation && cacheScope() === scope;
     try {
       const network = getEffectiveNetworkName();
-      const scope = cacheScope();
 
       const mock = process.env.MIDEN_USE_MOCK_CLIENT === 'true';
       const useWorker = mock ? false : (options.useWorker ?? !isMobile());
       let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
+      let created: MidenClient | undefined;
       try {
+        const storeName = await nativeStorageName(getEffectiveRpcUrl(), mock);
+        assertCreation();
+        if (!ownsClient()) throw new Error('SDK client owner replaced');
+        const indexedDb = nativeStoragePolicy(storeName, ownsClient);
         if (mock) {
           const sdk = await import('@miden-sdk/miden-sdk/lazy');
           stage = 'mock_create';
-          const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
+          const mockClient = await sdk.MidenClient.createMock({
+            seed: options.seed,
+            useWorker,
+            indexedDb,
+            ...nativeNoteAcquisition(network, ownsClient, () => created)
+          });
+          created = mockClient;
           assertCreation();
-          return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
+          if (!ownsClient() || (await mockClient.storeIdentifier()) !== storeName)
+            throw new Error('SDK client store replaced');
+          assertCreation();
+          if (!ownsClient()) throw new Error('SDK client owner replaced');
+          return new MidenClientInterface(mockClient, 'mock', liveness, scope);
         }
 
         const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
-        // Shared with the instance below so `free()` can switch the sign wrapper's
-        // watchdog pause off - see wrapSignWithWatchdogPause.
-        const liveness: ClientLiveness = { disposed: false };
-
         const midenClient = await (assertCreation(),
         MidenClient.create({
+          indexedDb,
+          ...nativeNoteAcquisition(network, ownsClient, () => created),
           autoSync: false,
           rpcUrl: getEffectiveRpcUrl(),
           noteTransportUrl: getEffectiveNoteTransportUrl(),
@@ -755,11 +794,17 @@ export class MidenClientInterface {
           // for; see the module comment on `lib/telemetry/sdk-observer`.
           observer: createWalletSdkObserver()
         }));
-
+        created = midenClient;
         assertCreation();
+        if (!ownsClient() || (await midenClient.storeIdentifier()) !== storeName)
+          throw new Error('SDK client store replaced');
+        assertCreation();
+        if (!ownsClient()) throw new Error('SDK client owner replaced');
         return new MidenClientInterface(midenClient, network, liveness, scope);
       } catch (error) {
-        reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+        if (ownsClient()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+        liveness.disposed = true;
+        created?.terminate();
         annotateCrash(error, {
           operation: 'sdk_initialize',
           stage,
@@ -769,7 +814,8 @@ export class MidenClientInterface {
         throw error;
       }
     } catch (error) {
-      reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+      if (ownsClient()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
+      liveness.disposed = true;
       throw error;
     }
   }
@@ -1234,10 +1280,7 @@ export class MidenClientInterface {
     try {
       try {
         const noteFile = deserializeNoteFileOrNote(noteBytes);
-        // String(...) tolerates both return shapes across the 0.15 alpha line:
-        // alpha.4 resolves a NoteId object, current `next` resolves the hex
-        // string directly.
-        return String(await (assertStorageHealthy(storageEpoch), this.client.notes.import(noteFile)));
+        return await this.importAcquiredNoteFile(noteFile, hold, storageEpoch);
       } catch (error) {
         // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
         // note's failure and go on, so the lock may never see it.
@@ -1247,6 +1290,21 @@ export class MidenClientInterface {
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
       throw error;
+    }
+  }
+
+  private async importAcquiredNoteFile(noteFile: NoteFile, hold: WasmLockHold, storageEpoch: number): Promise<string> {
+    const check = () => {
+      assertStorageHealthy(storageEpoch);
+      assertWasmHoldCurrent(hold, 'note acquisition', 'independent retention');
+      if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
+    };
+    check();
+    const assertRetained = await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
+    try {
+      return String(await (assertRetained(), this.client.notes.import(noteFile)));
+    } finally {
+      assertRetained();
     }
   }
 
@@ -1351,10 +1409,11 @@ export class MidenClientInterface {
           const inputNote = inclusionProof
             ? InputNote.authenticated(note, inclusionProof)
             : InputNote.unauthenticated(note);
-          await (assertStorageHealthy(storageEpoch), this.client.notes.import(NoteFile.fromInputNote(inputNote)));
+          await this.importAcquiredNoteFile(NoteFile.fromInputNote(inputNote), hold, storageEpoch);
           imported++;
         } catch (error) {
           rethrowClientFault(error, hold);
+          if (reportStorageFailure(error, { backend: 'sdk', operation: 'import' })) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
         }
@@ -1624,6 +1683,7 @@ export class MidenClientInterface {
           } catch (error) {
             // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
             if (isClientFault(error)) throw error;
+            if (reportStorageFailure(error, { backend: 'sdk', operation: 'import' })) throw error;
             failures++;
             console.warn('[GuardianRecovery] Failed to import one public note:', error);
           }
@@ -1646,27 +1706,48 @@ export class MidenClientInterface {
     accountIds: string[],
     includeNotes: boolean,
     assertLive: AssertLive = noAssertLive,
-    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = []
+    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = [],
+    canonicalNoteFamilies: import('../recovery/types').RecoveryNoteEntry[] = []
   ) {
     return readSdkStorage(() =>
-      readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive, retainedNotes)
+      readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive, retainedNotes, canonicalNoteFamilies)
     );
   }
 
   async restoreStorageRecovery(
     command: import('../recovery/sdk-restore').SdkRecoveryCommand,
     capability: StorageRecoveryCapability,
-    assertLive: AssertLive = noAssertLive
+    assertLive: AssertLive = noAssertLive,
+    receipt?: RetainedNoteReceipt
   ): Promise<void> {
     const check = () => {
       assertStorageRecoveryAllowed(capability);
       assertLive();
+      if (this.isDisposed || this.storageGeneration !== wasmClientGeneration() || this.scope !== cacheScope())
+        throw new Error('SDK recovery owner replaced');
     };
     check();
     try {
       const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
       check();
-      await restoreSdkRecovery(this.client, command, check);
+      await restoreSdkRecovery(
+        this.client,
+        command,
+        check,
+        receipt && command.kind === 'note'
+          ? (file, importNote) =>
+              withPreparedNativeNoteReceipt(
+                this.client,
+                receipt,
+                capability,
+                command.note,
+                command.accountId,
+                file,
+                check,
+                importNote
+              )
+          : undefined
+      );
       check();
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
@@ -2621,8 +2702,7 @@ export class MidenClientInterface {
   }
 
   async exportDb() {
-    const storeName = await this.client.storeIdentifier();
-    return await exportStore(storeName);
+    return this.withStandaloneStoragePolicy(async (storeName, indexedDb) => exportStore(storeName, indexedDb));
   }
 
   async importDb(dump: string) {
@@ -2630,11 +2710,39 @@ export class MidenClientInterface {
     assertStorageHealthy();
     const storageEpoch = getStorageHealth().epoch;
     try {
-      const storeName = await (assertStorageHealthy(storageEpoch), this.client.storeIdentifier());
-      await (assertStorageHealthy(storageEpoch), importStore(storeName, dump));
+      await this.withStandaloneStoragePolicy(async (storeName, indexedDb) => {
+        assertStorageHealthy(storageEpoch);
+        await importStore(storeName, dump, indexedDb);
+      });
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
       throw error;
+    }
+  }
+
+  private async withStandaloneStoragePolicy<T>(
+    operation: (storeName: string, indexedDb: ReturnType<typeof nativeStoragePolicy>) => Promise<T>
+  ): Promise<T> {
+    let active = true;
+    const ownsClient = () =>
+      active &&
+      !this.liveness.disposed &&
+      this.storageGeneration === wasmClientGeneration() &&
+      cacheScope() === this.scope;
+    const check = () => {
+      if (!ownsClient()) throw new Error('SDK client owner replaced');
+    };
+    try {
+      check();
+      await nativeStorageName(getEffectiveRpcUrl(), this.network === 'mock');
+      check();
+      const storeName = await this.client.storeIdentifier();
+      check();
+      const result = await operation(storeName, nativeStoragePolicy(storeName, ownsClient));
+      check();
+      return result;
+    } finally {
+      active = false;
     }
   }
 

@@ -32,6 +32,35 @@ it('Task4C1 retires a private body only after its exact positive canonical nulli
   expect(input.saved).toEqual([[]]);
 });
 
+it('Task4C3D primary consumption cannot discard an unresolved nested candidate', async () => {
+  const input = context();
+  const candidate = {
+    id: 'expected-details',
+    provenance: 'input',
+    noteFile: new Uint8Array([2]),
+    format: 'details'
+  } satisfies import('./types').RecoveryNoteCandidate;
+  input.snapshot.entries = [{ ...note, candidates: [candidate] }];
+  let persisted = input.snapshot.entries;
+  input.retain = async entries => {
+    persisted = entries;
+    input.saved.push(entries);
+  };
+  input.reads.identity = async material =>
+    material.noteFile[0] === 1 ? { nullifier: 'exact', fromBlock: 10 } : undefined;
+  expect(await retireRecoveryNotes(input)).toBe(0);
+  expect(persisted).toContainEqual(expect.objectContaining({ noteFile: new Uint8Array([1]), candidates: [candidate] }));
+});
+
+it('Task4C3D canonical consumption may retire a family when every material proves the same nullifier', async () => {
+  const input = context();
+  input.snapshot.entries = [
+    { ...note, candidates: [{ id: 'note', provenance: 'input', noteFile: new Uint8Array([2]) }] }
+  ];
+  expect(await retireRecoveryNotes(input)).toBe(1);
+  expect(input.saved).toEqual([[]]);
+});
+
 it('Task4C1 retains private bodies for absence local consumed state and delivery acknowledgement', async () => {
   const input = context();
   input.reads.scan = async () => [];

@@ -72,11 +72,23 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    NoteType: { Private: 0, Public: 1 },
+    NoteFile: { deserialize: (bytes: Uint8Array) => g.__off.deserializeAcquiredNoteFile(bytes) },
+    FeltArray: class {
+      constructor(readonly elements: unknown[]) {}
+    },
+    Poseidon2: {
+      hashElements: () => ({ toHex: () => 'cd'.repeat(32), toFelts: () => [1, 2, 3, 4] })
+    },
     Address: {
       fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
     },
     NetworkId: { testnet: () => 'testnet' },
-    InputNoteState: { ConsumedAuthenticatedLocal: 'local-auth', ConsumedUnauthenticatedLocal: 'local-unauth' },
+    InputNoteState: {
+      Invalid: 3,
+      ConsumedAuthenticatedLocal: 'local-auth',
+      ConsumedUnauthenticatedLocal: 'local-unauth'
+    },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -1141,6 +1153,57 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(malformed).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
     expect(restored).toEqual([command]);
     expect(health.getStorageHealth().status).toBe('unavailable');
+  });
+
+  it.each<import('lib/miden/recovery/sdk-restore').SdkRecoveryCommand>([
+    { kind: 'generation', generation: 'retained-sdk' },
+    {
+      kind: 'account',
+      material: {
+        floor: { accountId: 'retained-account', nonce: '4', commitment: 'state-4' },
+        accountBytes: new Uint8Array([1, 2, 3]),
+        guardianCommitment: 'guardian-commitment',
+        signerCommitments: ['signer-commitment'],
+        chainCommitment: 'state-4'
+      }
+    }
+  ])('Task4C3N3 restores $kind through the encoded absent receipt slot', async command => {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const { toSerializable } = await import('lib/miden/recovery/serialization');
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    const restored: unknown[] = [];
+    MidenClientInterface.createForRecovery = jest.fn(async () => ({
+      restoreStorageRecovery: async (
+        value: unknown,
+        capability: import('lib/miden/storage-health').StorageRecoveryCapability,
+        assertLive: () => void
+      ) => {
+        health.assertStorageRecoveryAllowed(capability);
+        assertLive();
+        restored.push(value);
+      }
+    }));
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const incident = health.getStorageHealth();
+    const response = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'restoreStorageRecovery',
+        argsB64: [encodeArg(toSerializable(command)), encodeArg(undefined)],
+        recoveryAccess: { epoch: incident.epoch, expiresAt: Date.now() + 1000 }
+      }),
+      { id: 'wallet-extension' },
+      response
+    );
+    await flush();
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(restored).toEqual([command]);
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'OFFSCREEN_NOTE_ACQUISITION' })
+    );
+    expect(health.getStorageHealth()).toEqual(incident);
   });
 
   it('dispatches getAccount, serializes the Account, and echoes op_id (ok:true)', async () => {
@@ -6376,4 +6439,518 @@ describe('actual execution producer through offscreen encoder, proxy, cancellati
       }
     }
   );
+});
+
+describe('Task4C3F offscreen acquired-file acknowledgement', () => {
+  async function fixture() {
+    await loadModule();
+    const { MidenClientInterface } = jest.requireActual<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const health = await import('lib/miden/storage-health');
+    const bytes = new Uint8Array([19, 48, 62]);
+    const noteId = 'ab'.repeat(32);
+    const body = {
+      metadata: () => ({ noteType: () => 0, free: () => undefined }),
+      recipient: () => ({ digest: () => ({ toFelts: () => [1, 2, 3, 4] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => undefined
+    };
+    const file = {
+      note: () => body,
+      noteDetails: () => undefined,
+      noteId: () => ({ toString: () => noteId, free: () => undefined }),
+      serialize: () => bytes.slice()
+    };
+    G.__off.deserializeAcquiredNoteFile = jest.fn(() => file);
+    const imported = jest.fn(async () => noteId);
+    const client: import('lib/miden/sdk/miden-client-interface').MidenClientInterface = Reflect.construct(
+      MidenClientInterface,
+      [{ notes: { import: imported } }, endpoints.getEffectiveNetworkName()]
+    );
+    G.__off.clientImportNoteBytes.mockImplementation(
+      (input: Uint8Array, hold: import('lib/miden/sdk/miden-client').WasmLockHold) =>
+        client.importNoteBytes(input, hold)
+    );
+    let acknowledge: (reply: unknown) => void = () => undefined;
+    const acquisitionMessages: unknown[] = [];
+    G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+      if (message.type === 'OFFSCREEN_NOTE_ACQUISITION') {
+        acquisitionMessages.push(message);
+        return new Promise(resolve => {
+          acknowledge = resolve;
+        });
+      }
+      return Promise.resolve(message.type === OFFSCREEN_STORAGE_HEALTH ? { status: 'healthy', epoch: 0 } : undefined);
+    });
+    const reply = jest.fn();
+    const request = {
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: 'acquisition-operation',
+      method: 'importNoteBytes',
+      argsB64: [encodeArg(bytes)],
+      deadline_ms: 1000,
+      storageHealth: { status: 'healthy', epoch: 0 },
+      endpoints: { override: null, feeFaucetId: undefined }
+    };
+    expect(capturedListener?.(request, {}, reply)).toBe(true);
+    await flush();
+    return {
+      bytes,
+      noteId,
+      imported,
+      health,
+      reply,
+      request,
+      acquisitionMessages,
+      acknowledge: (response: unknown) => acknowledge(response)
+    };
+  }
+
+  it('retains the exact generated file through its operation before SDK import and success reply', async () => {
+    const f = await fixture();
+    try {
+      expect(f.acquisitionMessages).toEqual([
+        expect.objectContaining({
+          target: 'sw',
+          type: 'OFFSCREEN_NOTE_ACQUISITION',
+          op_id: f.request.op_id,
+          epoch: 0,
+          notes: [
+            {
+              kind: 'note',
+              id: f.noteId,
+              detailsId: 'cd'.repeat(32),
+              noteFile: Array.from(f.bytes),
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        })
+      ]);
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.reply).not.toHaveBeenCalled();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.imported).toHaveBeenCalledTimes(1);
+      expect(G.__off.deserializeAcquiredNoteFile).toHaveBeenCalledWith(f.bytes);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true, op_id: f.request.op_id }));
+    } finally {
+      f.acknowledge({ ok: false, op_id: f.request.op_id });
+      await flush();
+    }
+  });
+
+  it.each(['refused', 'missing', 'wrong operation'])(
+    'refuses a %s retention response before SDK import',
+    async response => {
+      const f = await fixture();
+      try {
+        expect(f.acquisitionMessages).toHaveLength(1);
+        f.acknowledge(
+          response === 'missing'
+            ? undefined
+            : {
+                ok: response !== 'refused',
+                op_id: response === 'wrong operation' ? 'other-operation' : f.request.op_id
+              }
+        );
+        await flush();
+        expect(f.imported).not.toHaveBeenCalled();
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+        expect(f.health.getStorageHealth().status).toBe('healthy');
+      } finally {
+        f.acknowledge({ ok: false, op_id: f.request.op_id });
+        await flush();
+      }
+    }
+  );
+
+  it('rejects a late retention ACK after its WASM hold was evicted', async () => {
+    const f = await fixture();
+    try {
+      expect(f.acquisitionMessages).toHaveLength(1);
+      const mutex = jest.requireMock('lib/miden/sdk/miden-client');
+      mutex.__evictHolder();
+      await flush();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.reply).toHaveBeenCalledTimes(1);
+      expect(f.reply).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: false, op_id: f.request.op_id, errorName: 'WasmClientPoisonedError' })
+      );
+      expect(f.health.getStorageHealth().status).toBe('healthy');
+    } finally {
+      f.acknowledge({ ok: false, op_id: f.request.op_id });
+      await flush();
+    }
+  });
+});
+
+describe('Task4C3G5 offscreen canonical recovery option', () => {
+  async function fixture() {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const { toSerializable } = await import('lib/miden/recovery/serialization');
+    const family: import('lib/miden/recovery/types').RecoveryNoteEntry = {
+      kind: 'note',
+      id: '34'.repeat(32),
+      detailsId: '34'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 80]),
+      provenance: 'input',
+      format: 'details',
+      candidates: [{ id: '12'.repeat(32), noteFile: new Uint8Array([19, 48, 81]), provenance: 'input', format: 'full' }]
+    };
+    const snapshot = {
+      generation: 'sdk-route',
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: [],
+      canonicalNotes: [
+        {
+          familyId: family.id,
+          id: '12'.repeat(32),
+          detailsId: family.detailsId,
+          noteFile: new Uint8Array([19, 48, 81])
+        }
+      ]
+    };
+    const read = jest.fn(async (_accounts: string[], _include: boolean, assertLive: () => void) => {
+      assertLive();
+      return snapshot;
+    });
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    MidenClientInterface.createForRecovery = jest.fn(
+      async (capability: import('lib/miden/storage-health').StorageRecoveryCapability) => {
+        health.assertStorageRecoveryAllowed(capability);
+        return { readStorageContinuity: read };
+      }
+    );
+    const request = (families: unknown) => ({
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: 'canonical-route-operation',
+      deadline_ms: 1000,
+      method: 'readStorageContinuity',
+      argsB64: [encodeArg(['retained']), encodeArg(false), encodeArg([]), encodeArg(toSerializable(families))],
+      endpoints: SW_ENDPOINTS,
+      recoveryAccess: { epoch: health.getStorageHealth().epoch, expiresAt: Date.now() + 1000 }
+    });
+    return { family, snapshot, read, request, health, toSerializable };
+  }
+
+  it('forwards the bounded canonical families under the actual recovery capability and hold', async () => {
+    const { family, snapshot, read, request, toSerializable } = await fixture();
+    const reply = jest.fn();
+    capturedListener!(request([family]), { id: 'wallet-extension' }, reply);
+    await flush();
+    expect(read).toHaveBeenCalledWith(['retained'], false, expect.any(Function), [], [family]);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    const response: unknown = reply.mock.calls[0]?.[0];
+    if (typeof response !== 'object' || response === null) throw new Error('Missing canonical response');
+    const encoded: unknown = Reflect.get(response, 'resultB64');
+    if (typeof encoded !== 'string') throw new Error('Missing canonical response bytes');
+    expect(JSON.parse(Buffer.from(encoded, 'base64').toString())).toEqual(toSerializable(snapshot));
+  });
+
+  it.each(['families', 'candidate bytes'])(
+    'refuses malformed canonical %s before invoking the SDK reader',
+    async invalid => {
+      const { family, read, request, health } = await fixture();
+      const families = invalid === 'families' ? Array.from({ length: 5 }, () => family) : [family];
+      const message = request(families);
+      if (invalid === 'candidate bytes') {
+        const raw = {
+          ...family,
+          noteFile: [19, 48, 80],
+          candidates: [{ id: '12'.repeat(32), provenance: 'input', noteFile: [999] }]
+        };
+        message.argsB64[3] = encodeArg([raw]);
+      }
+      const reply = jest.fn();
+      capturedListener!(message, { id: 'wallet-extension' }, reply);
+      await flush();
+      expect(read).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+      expect(health.getStorageHealth().status).toBe('healthy');
+    }
+  );
+
+  it('keeps the existing foreign sender refusal for canonical recovery reads', async () => {
+    const { family, read, request, health } = await fixture();
+    const reply = jest.fn();
+    capturedListener!(request([family]), { id: 'foreign-extension' }, reply);
+    await flush();
+    expect(read).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'Unauthorized recovery read' }));
+    expect(health.getStorageHealth().status).toBe('healthy');
+  });
+});
+
+describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
+  async function fixture({ contextChange = '', expired = false } = {}) {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { nativeNoteAcquisition } = await import('lib/miden/sdk/native-note-acquisition');
+    const actual = jest.requireActual<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    const mocked = jest.requireMock<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const bytes = new Uint8Array([19, 48, 121]);
+    const canonicalBytes = new Uint8Array([19, 48, 122]);
+    const noteId = 'ab'.repeat(32);
+    const detailsId = 'cd'.repeat(32);
+    const sender = '0x' + '11'.repeat(15);
+    const body = {
+      metadata: () => ({
+        sender: () => ({ toString: () => sender, free: () => {} }),
+        noteType: () => 0,
+        tag: () => ({ asU32: () => 7, free: () => {} }),
+        free: () => {}
+      }),
+      recipient: () => ({ digest: () => ({ toFelts: () => [1, 2, 3, 4] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => {}
+    };
+    const file = {
+      note: () => body,
+      noteDetails: () => undefined,
+      noteId: () => ({ toString: () => '0x' + noteId, free: () => {} }),
+      nullifier: () => '0x' + 'ef'.repeat(32),
+      noteTag: () => undefined,
+      afterBlockNum: () => undefined,
+      serialize: () => canonicalBytes.slice(),
+      free: () => {}
+    };
+    G.__off.deserializeAcquiredNoteFile = jest.fn(() => file);
+    let adopted = false;
+    let generation = 'retained-sdk';
+    let gate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionOptions['beforeNoteAcquisition'];
+    const candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate = {
+      operationId: 'offscreen-native-import',
+      noteFileBytes: canonicalBytes,
+      variant: 'committed',
+      source: 'import',
+      batchIndex: 0,
+      batchCount: 1,
+      noteId: '0x' + noteId,
+      detailsCommitment: '0x' + detailsId,
+      nullifier: '0x' + 'ef'.repeat(32),
+      metadata: { sender, noteType: 0, tag: 7, attachmentsCommitment: '0x' + '77'.repeat(32) },
+      tag: 7
+    };
+    const imported = jest.fn(async () => {
+      if (!gate) throw new Error('Missing protected import callback fixture');
+      await gate(candidate);
+      adopted = true;
+      return '0x' + noteId;
+    });
+    const list = jest.fn(async () =>
+      adopted ? [{ details: () => body, state: () => 2, isAuthenticated: () => true, free: () => {} }] : []
+    );
+    const settings = {
+      get: jest.fn(async () => generation),
+      set: jest.fn(async (_key: string, value: string) => {
+        generation = value;
+      })
+    };
+    const sdkClient = {
+      notes: { import: imported, list },
+      settings,
+      accounts: {
+        get: jest.fn(async () => ({
+          nonce: () => ({ asInt: () => 4n }),
+          to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+        }))
+      },
+      terminate: jest.fn()
+    };
+    const client: import('lib/miden/sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      actual.MidenClientInterface.fromClient,
+      actual.MidenClientInterface,
+      [sdkClient, endpoints.getEffectiveNetworkName()]
+    );
+    gate = nativeNoteAcquisition(
+      endpoints.getEffectiveNetworkName(),
+      () => !client.isDisposed,
+      () => sdkClient
+    ).beforeNoteAcquisition;
+    mocked.MidenClientInterface.createForRecovery = jest.fn(async capability => {
+      health.assertStorageRecoveryAllowed(capability);
+      return client;
+    });
+    let acknowledge: (value: unknown) => void = () => {};
+    const messages: unknown[] = [];
+    G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+      if (message.type === 'OFFSCREEN_NOTE_ACQUISITION') {
+        messages.push(message);
+        return new Promise(resolve => {
+          acknowledge = resolve;
+        });
+      }
+      return Promise.resolve(message.type === OFFSCREEN_STORAGE_HEALTH ? health.getStorageHealth() : undefined);
+    });
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const incident = health.getStorageHealth();
+    const command = {
+      kind: 'note',
+      note: { kind: 'note', id: noteId, detailsId, noteFile: Array.from(bytes), provenance: 'input', format: 'full' },
+      accountId: 'retained-account'
+    };
+    const context = {
+      scope: {
+        network: `${endpoints.getEffectiveNetworkName()}:${endpoints.getEffectiveRpcUrl()}`,
+        walletGeneration: 'retained-wallet',
+        sdkGeneration: contextChange === 'wrong SDK generation' ? 'foreign-sdk' : 'retained-sdk'
+      },
+      sequence: 7,
+      accountId: 'retained-account',
+      primaryId: contextChange === 'foreign primary' ? 'aa'.repeat(32) : noteId,
+      detailsId,
+      ...(contextChange === 'untrusted permission field' ? { trusted: true } : {})
+    };
+    if (contextChange === 'wrong network') context.scope.network = 'foreign:rpc';
+    const request = {
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      deadline_ms: 1000,
+      endpoints: SW_ENDPOINTS,
+      op_id: 'retained-recovery-operation',
+      method: 'restoreStorageRecovery',
+      argsB64: [encodeArg(command), encodeArg(context)],
+      recoveryAccess: { epoch: incident.epoch, expiresAt: Date.now() + (expired ? -1 : 4000) },
+      storageHealth: incident
+    };
+    const reply = jest.fn();
+    expect(capturedListener?.(request, { id: 'wallet-extension' }, reply)).toBe(true);
+    await flush();
+    return {
+      client,
+      bytes,
+      canonicalBytes,
+      imported,
+      list,
+      settings,
+      messages,
+      request,
+      reply,
+      health,
+      incident,
+      adopted: () => adopted,
+      acknowledge: (value: unknown) => acknowledge(value),
+      restore: async () => {
+        acknowledge({ ok: false, op_id: request.op_id });
+        await flush();
+        client.free();
+      }
+    };
+  }
+
+  it('waits for the live backend receipt ACK before SDK adoption or a success reply', async () => {
+    const f = await fixture();
+    try {
+      expect(f.messages).toEqual([
+        expect.objectContaining({
+          type: 'OFFSCREEN_NOTE_ACQUISITION',
+          op_id: f.request.op_id,
+          epoch: f.incident.epoch,
+          notes: [expect.objectContaining({ noteFile: Array.from(f.canonicalBytes) })]
+        })
+      ]);
+      expect(f.canonicalBytes).not.toEqual(f.bytes);
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).not.toHaveBeenCalled();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.adopted()).toBe(true);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true, op_id: f.request.op_id }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['refused', 'missing', 'wrong operation'])(
+    'refuses a %s backend receipt response before adoption',
+    async response => {
+      const f = await fixture();
+      try {
+        expect(f.messages).toHaveLength(1);
+        f.acknowledge(
+          response === 'missing'
+            ? undefined
+            : {
+                ok: response !== 'refused',
+                op_id: response === 'wrong operation' ? 'foreign-operation' : f.request.op_id
+              }
+        );
+        await flush();
+        expect(f.adopted()).toBe(false);
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth()).toEqual(f.incident);
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses a late positive receipt ACK after the actual client retires', async () => {
+    const f = await fixture();
+    try {
+      expect(f.messages).toHaveLength(1);
+      f.client.markPoisoned();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['untrusted permission field', 'wrong SDK generation', 'wrong network', 'foreign primary'])(
+    'refuses %s before entering SDK import',
+    async contextChange => {
+      const f = await fixture({ contextChange });
+      try {
+        expect(f.imported).not.toHaveBeenCalled();
+        expect(f.messages).toHaveLength(0);
+        expect(f.adopted()).toBe(false);
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth()).toEqual(f.incident);
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses an expired recovery capability before SDK import or a receipt request', async () => {
+    const f = await fixture({ expired: true });
+    try {
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.messages).toHaveLength(0);
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
 });

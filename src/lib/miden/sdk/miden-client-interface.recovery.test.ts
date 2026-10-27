@@ -17,9 +17,6 @@ import type { WasmLockHold } from './miden-client';
 
 type RecoveryClientInterface = import('./miden-client-interface').MidenClientInterface;
 
-/** Never the mutex owner, so a catch handed it can never retire anything. */
-const NO_HOLD = {} as unknown as WasmLockHold;
-
 const NOTE_TAG = { tag: 'note-tag' };
 
 interface FakeRpc {
@@ -70,8 +67,78 @@ function noteIdHandle(id: string) {
     toString: () => {
       if (moved) throw new Error('null pointer passed to rust');
       return id;
+    },
+    free: () => {}
+  };
+}
+
+function recoveryNote(id: string, noteType = NOTE_TYPE_PRIVATE) {
+  return {
+    id: () => noteIdHandle(id),
+    recipient: () => ({ digest: () => ({ toFelts: () => [id.charCodeAt(id.length - 1)] }) }),
+    assets: () => ({ assets: () => [] }),
+    metadata: () => ({ noteType: () => noteType, tag: () => NOTE_TAG, free: () => {} }),
+    free: () => {}
+  };
+}
+
+function recoveryFile(note: ReturnType<typeof recoveryNote>, authenticated: boolean) {
+  return {
+    note: () => (authenticated ? note : undefined),
+    noteDetails: () => (authenticated ? undefined : { recipient: note.recipient, assets: note.assets, free: () => {} }),
+    noteId: () => (authenticated ? note.id() : undefined),
+    noteType: () => (authenticated ? 'NoteWithProof' : 'NoteDetails'),
+    noteTag: () => (authenticated ? undefined : { asU32: () => 71, free: () => {} }),
+    afterBlockNum: () => (authenticated ? undefined : 0),
+    serialize: () =>
+      new Uint8Array(
+        Array.from(`${authenticated ? 'committed' : 'expected'}:${note.id().toString()}`, value => value.charCodeAt(0))
+      ),
+    free: () => {}
+  };
+}
+
+async function installRecoveryFixtureSink() {
+  const { installNoteAcquisitionSink } = await import('../recovery/note-acquisition');
+  const { RecoveryJournal } = await import('../recovery/journal');
+  const { importVaultKey } = await import('../passworder');
+  const values: Record<string, unknown> = {};
+  const storage = {
+    get: async (keys: string[]) => Object.fromEntries(keys.map(key => [key, values[key]])),
+    set: async (items: Record<string, unknown>) => {
+      Object.assign(values, items);
     }
   };
+  let tail: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (_name: string, operation: () => Promise<unknown>) => {
+        const result = tail.then(operation);
+        tail = result.catch(() => {});
+        return result;
+      }
+    }
+  });
+  const journal = new RecoveryJournal(await importVaultKey(new Uint8Array(32).fill(6)), storage);
+  installNoteAcquisitionSink(async (notes, network, assertCurrent) => {
+    assertCurrent();
+    if (network !== 'testnet') throw new Error('Unexpected fixture network');
+    await journal.update(() => ({
+      scope: { network: 'testnet:https://rpc.example', walletGeneration: 'fixture', sdkGeneration: 'fixture' },
+      accounts: [{ accountId: 'acct', nonce: '0', commitment: 'fixture-state' }],
+      entries: notes
+    }));
+    assertCurrent();
+    const stored = await journal.read();
+    assertCurrent();
+    expect(stored?.entries).toEqual(expect.arrayContaining(notes));
+  });
+}
+
+async function importRecovery(client: RecoveryClientInterface, bytes: Uint8Array[]) {
+  const { withWasmClientLock } = await import('./miden-client');
+  return withWasmClientLock(hold => client.importRecoveryNoteBytes(bytes, hold));
 }
 
 function committedNote(id: string) {
@@ -103,7 +170,18 @@ async function loadClient(): Promise<RecoveryClientInterface> {
     // numeric and the accounting compares against it.
     NoteType: { Private: NOTE_TYPE_PRIVATE, Public: NOTE_TYPE_PUBLIC },
     Address: { fromAccountId: jest.fn(() => ({ toNoteTag: () => NOTE_TAG })) },
-    Note: { deserialize: jest.fn((bytes: Uint8Array) => ({ id: () => noteIdHandle(`note-${bytes[0]}`) })) },
+    Note: { deserialize: jest.fn((bytes: Uint8Array) => recoveryNote(`note-${bytes[0]}`)) },
+    Poseidon2: {
+      hashElements: (values: { elements: number[] }) => ({
+        toHex: () =>
+          values.elements
+            .reduce((sum, value) => sum + value, 0)
+            .toString(16)
+            .padStart(64, '0'),
+        toFelts: () => values.elements,
+        free: () => {}
+      })
+    },
     InputNote: {
       // Consumes the proof, as the real one does.
       authenticated: jest.fn((note, proof: { moved?: boolean }) => {
@@ -114,8 +192,13 @@ async function loadClient(): Promise<RecoveryClientInterface> {
       unauthenticated: jest.fn(note => ({ note, authenticated: false }))
     },
     NoteFile: {
-      fromInputNote: jest.fn(inputNote => ({ file: inputNote })),
-      deserialize: jest.fn(() => ({ kind: 'notefile' })),
+      fromInputNote: jest.fn((inputNote: { note: ReturnType<typeof recoveryNote> | string; authenticated?: boolean }) =>
+        recoveryFile(
+          typeof inputNote.note === 'string' ? recoveryNote(inputNote.note, NOTE_TYPE_PUBLIC) : inputNote.note,
+          inputNote.authenticated ?? true
+        )
+      ),
+      deserialize: jest.fn(() => recoveryFile(recoveryNote('note-1'), true)),
       fromExpectedNote: jest.fn()
     },
     NoteDetails: jest.fn()
@@ -137,6 +220,7 @@ async function loadClient(): Promise<RecoveryClientInterface> {
   }));
 
   const { MidenClientInterface } = await import('./miden-client-interface');
+  await installRecoveryFixtureSink();
   return Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
     { notes: { import: noteImport, fetchPrivate: jest.fn(async () => undefined) } },
     'testnet'
@@ -174,7 +258,9 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const { installNoteAcquisitionSink } = await import('../recovery/note-acquisition');
+    installNoteAcquisitionSink(undefined);
     jest.resetModules();
     jest.restoreAllMocks();
   });
@@ -279,6 +365,59 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         saturated: false
       });
     });
+
+    it('Task4C3E4 stops the public range on the first classified SDK quota failure', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('public-a'), committedNote('public-b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('public-a'), fetchedNote('public-b')]);
+      const failure = new DOMException('SDK public import quota', 'QuotaExceededError');
+      noteImport.mockRejectedValueOnce(failure);
+      const client = await loadClient();
+      const { withWasmClientLock } = await import('./miden-client');
+      const health = await import('../storage-health');
+      await health.initializeStorageHealth();
+      expect(health.getStorageHealth().status).toBe('healthy');
+
+      const outcome = await withWasmClientLock(() => client.recoverPublicNotesRange('acct', 0, 999)).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+
+      expect(outcome).toBe('refused');
+      expect(noteImport).toHaveBeenCalledTimes(1);
+      expect(requestedIdBatches).toEqual([['public-a', 'public-b']]);
+      expect(fakeRpc.syncNotes).toHaveBeenCalledTimes(1);
+      expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
+      expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota', backend: 'sdk' });
+    });
+
+    it.each(['generic refusal', 'AbortError'])(
+      'Task4C3E4 preserves healthy public recovery accounting for %s',
+      async reason => {
+        fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('public-a'), committedNote('public-b')] });
+        fakeRpc.getNotesById.mockResolvedValue([fetchedNote('public-a'), fetchedNote('public-b')]);
+        noteImport.mockRejectedValueOnce(
+          reason === 'AbortError' ? new DOMException('cancelled', 'AbortError') : new Error('ordinary import refusal')
+        );
+        const client = await loadClient();
+        const { withWasmClientLock } = await import('./miden-client');
+        const health = await import('../storage-health');
+        await health.initializeStorageHealth();
+        expect(health.getStorageHealth().status).toBe('healthy');
+
+        await expect(withWasmClientLock(() => client.recoverPublicNotesRange('acct', 0, 999))).resolves.toEqual({
+          imported: 1,
+          failures: 1,
+          saturated: false,
+          nextNoteOffset: undefined
+        });
+
+        expect(noteImport).toHaveBeenCalledTimes(2);
+        expect(requestedIdBatches).toEqual([['public-a', 'public-b']]);
+        expect(fakeRpc.syncNotes).toHaveBeenCalledTimes(1);
+        expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
+        expect(health.getStorageHealth().status).toBe('healthy');
+      }
+    );
 
     it('rethrows a trap from a note import for its lock to retire, importing nothing after it', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
@@ -417,9 +556,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-2'), fetchedNote('note-1')]);
       const client = await loadClient();
 
-      await expect(
-        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)
-      ).resolves.toEqual({
+      await expect(importRecovery(client, [new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
         imported: 2,
         failures: 0
       });
@@ -438,9 +575,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-1')]);
       const client = await loadClient();
 
-      await expect(
-        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([1])], NO_HOLD)
-      ).resolves.toEqual({
+      await expect(importRecovery(client, [new Uint8Array([1]), new Uint8Array([1])])).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -452,7 +587,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([]);
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])], NO_HOLD)).resolves.toEqual({
+      await expect(importRecovery(client, [new Uint8Array([1])])).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -464,7 +599,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockRejectedValue(new Error('node unreachable'));
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])], NO_HOLD)).resolves.toEqual({
+      await expect(importRecovery(client, [new Uint8Array([1])])).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -477,9 +612,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         throw new Error('corrupt note bytes');
       });
 
-      await expect(
-        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)
-      ).resolves.toEqual({
+      await expect(importRecovery(client, [new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
         imported: 1,
         failures: 1
       });
@@ -491,16 +624,14 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       noteImport.mockRejectedValueOnce(terminated);
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)).rejects.toBe(
-        terminated
-      );
+      await expect(importRecovery(client, [new Uint8Array([1]), new Uint8Array([2])])).rejects.toBe(terminated);
       expect(noteImport).toHaveBeenCalledTimes(1);
     });
 
     it('makes no proof call at all for an empty batch', async () => {
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([], NO_HOLD)).resolves.toEqual({ imported: 0, failures: 0 });
+      await expect(importRecovery(client, [])).resolves.toEqual({ imported: 0, failures: 0 });
       expect(fakeRpc.getNotesById).not.toHaveBeenCalled();
     });
   });

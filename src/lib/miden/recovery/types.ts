@@ -14,13 +14,18 @@ export interface RecoveryScope {
   sdkGeneration: string;
 }
 
-export interface RecoveryNoteEntry {
-  kind: 'note';
+export interface RecoveryNoteCandidate {
   id: string;
   accountId?: string;
+  detailsId?: string;
   noteFile: Uint8Array;
   provenance: 'input' | 'output';
   format?: 'full' | 'details';
+}
+
+export interface RecoveryNoteEntry extends RecoveryNoteCandidate {
+  kind: 'note';
+  candidates?: RecoveryNoteCandidate[];
   scan?: { nextBlock: number; anchorBlock: number; anchor: string };
 }
 

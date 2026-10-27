@@ -61,6 +61,20 @@ export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
  * fire-and-forget {@link OFFSCREEN_STAGE_EVENT} cannot show: its absence proves nothing. */
 export const OFFSCREEN_SUBMIT_GATE = 'OFFSCREEN_SUBMIT_GATE' as const;
 
+export const OFFSCREEN_NOTE_ACQUISITION = 'OFFSCREEN_NOTE_ACQUISITION' as const;
+
+export interface OffscreenNoteAcquisitionRequest {
+  op_id: string;
+  network: unknown;
+  epoch: unknown;
+  notes: unknown;
+}
+
+export interface OffscreenNoteAcquisitionResponse {
+  op_id: string;
+  ok: boolean;
+}
+
 /** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
  * just WON the offscreen WASM mutex and is about to execute. The SW arms that
  * write's deadline HERE — at execution start — rather than at dispatch, so the
