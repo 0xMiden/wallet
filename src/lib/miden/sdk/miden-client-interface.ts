@@ -1368,6 +1368,7 @@ export class MidenClientInterface {
           imported++;
         } catch (error) {
           rethrowClientFault(error, hold);
+          if (reportStorageFailure(error, { backend: 'sdk', operation: 'import' })) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
         }
