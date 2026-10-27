@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
+- [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
 ## 1.17.8 (2026-10-27)
 

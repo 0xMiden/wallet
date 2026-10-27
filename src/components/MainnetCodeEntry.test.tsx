@@ -10,6 +10,11 @@ import { MainnetCodeEntryFields, useMainnetCodeEntry } from './MainnetCodeEntry'
 
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+let mockMobile = true;
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockMobile
+}));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => `Visible ${key}` }) }));
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 const mockReport = jest.mocked(reportUserVisibleError);
@@ -35,10 +40,31 @@ const submit = async () => {
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockMobile = true;
   mockCheck.mockResolvedValue('granted');
 });
 afterEach(() => {
   jest.useRealTimers();
+});
+
+it('accepts ordinary code entry without offering a native clipboard read off mobile', () => {
+  mockMobile = false;
+  render(<Entry />);
+  fireEvent.change(screen.getByTestId('mainnet-code'), { target: { value: 'ABCDEF-123456' } });
+  expect(screen.getByTestId('mainnet-code')).toHaveValue('ABCDEF123456');
+  expect(screen.getByRole('button', { name: 'Check code' })).toBeEnabled();
+  expect(screen.queryByTestId('mainnet-paste')).not.toBeInTheDocument();
+  expect(Clipboard.read).not.toHaveBeenCalled();
+});
+
+it('keeps mobile native paste and normalizes the returned text', async () => {
+  jest.mocked(Clipboard.read).mockResolvedValueOnce({ type: 'text/plain', value: 'ABCDEF-123456' });
+  render(<Entry />);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('mainnet-paste'));
+  });
+  expect(screen.getByTestId('mainnet-code')).toHaveValue('ABCDEF123456');
+  expect(screen.getByRole('button', { name: 'Check code' })).toBeEnabled();
 });
 
 it.each([
