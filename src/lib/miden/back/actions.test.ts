@@ -2847,15 +2847,18 @@ describe('actions', () => {
     it.each(['password', 'hardware'])(
       'missing vault check with a retained %s protector never publishes fresh onboarding',
       async protector => {
-        const module = jest.requireMock<typeof import('./vault')>('./vault');
+        const currentActions = jest.requireActual<typeof import('./actions')>('./actions');
+        const currentHealth = jest.requireActual<typeof import('lib/miden/storage-health')>('lib/miden/storage-health');
+        await currentHealth.resetStorageHealthForLifecycle(currentHealth.getStorageHealth().epoch);
+        const module = jest.requireMock<typeof import('lib/miden/back/vault')>('lib/miden/back/vault');
         const mockedVault = jest.mocked(module.Vault);
         mockedVault.isExist.mockResolvedValueOnce(false);
         mockedVault.hasPasswordProtector.mockResolvedValueOnce(protector === 'password');
         mockedVault.hasHardwareProtector.mockResolvedValueOnce(protector === 'hardware');
-        await init();
+        await currentActions.init();
         expect(mockedVault.isExist).toHaveBeenCalledTimes(1);
         expect(mockInited).toHaveBeenCalledWith(true);
-        expect(getStorageHealth()).toMatchObject({
+        expect(currentHealth.getStorageHealth()).toMatchObject({
           status: 'unavailable',
           reason: 'continuity',
           backend: 'independent',
