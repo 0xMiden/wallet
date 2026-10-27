@@ -1,0 +1,86 @@
+name: Issue1948 immutable SDK package preparation
+on:
+  push:
+    branches:
+      - 'ci/1948-sdk-package-proof-*'
+permissions:
+  contents: read
+jobs:
+  package-preparation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 52d576ce799e40c2734fb6d918e54185637c982c
+          path: wallet
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xMiden/web-sdk
+          ref: fd52477d7c7d5d475dc14987ebbd7a36dbb703da
+          path: sdk
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.15.4
+      - name: Bind exact source and workflow parent
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py bind --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: Verify existing-token artifact access and producer receipt
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py metadata --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-metadata.log
+      - name: Verify ZIP and restore complete ST plus MT dist
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py restore --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-restore.log
+      - name: Install frozen SDK JS companion dependencies
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py install --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-install.log
+      - name: Build React and vite-plugin companions only
+        timeout-minutes: 13
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py build --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-build.log
+      - name: Pack three exact-source packages without lifecycle scripts
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py pack --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-pack.log
+      - name: Record assembly limits without protected acceptance
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-package-assembly.py receipt --config controller/.github/ci/issue1948-sdk-package-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-package-preparation-fd524-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proof/
+            packages/
+          if-no-files-found: error
