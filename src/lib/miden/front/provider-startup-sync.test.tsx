@@ -81,6 +81,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  loadEndpointOverrides: jest.fn().mockResolvedValue(undefined)
+}));
 
 jest.mock('lib/miden-chain/constants', () => ({
   ...jest.requireActual('lib/miden-chain/constants'),
@@ -91,6 +95,7 @@ import { MidenProvider } from './provider';
 
 const startupStore = jest.requireMock('lib/store').useWalletStore;
 const startupIntercom = jest.requireMock('lib/store').startupIntercom;
+const startupEndpoints = jest.requireMock('lib/miden-chain/effective-endpoints');
 const views: string[] = [];
 const readyState = {
   status: WalletStatus.Ready,
@@ -129,6 +134,7 @@ function stateResponse(state: object) {
 beforeEach(() => {
   jest.requireMock('lib/platform').isExtension.mockReturnValue(true);
   mockPreloadStorage.mockClear();
+  startupEndpoints.loadEndpointOverrides.mockReset().mockResolvedValue(undefined);
   startupStore.setState({ status: WalletStatus.Idle, isInitialized: false, currentAccount: null, networks: [] });
   startupIntercom.request.mockReset();
   startupIntercom.subscribe.mockReset().mockReturnValue(jest.fn());
@@ -238,4 +244,44 @@ it('preserves non-extension startup ordering while local SDK initialization is p
   expect(screen.queryByTestId('boot-view')).toBeNull();
   await act(async () => finish());
   await waitFor(() => expect(screen.getByTestId('boot-view')).toHaveTextContent('app:'));
+});
+
+it('waits for endpoint overrides before starting extension synchronization', async () => {
+  const finish = holdLocalStartup();
+  let overridesLoaded!: () => void;
+  const overrides = new Promise<void>(resolve => {
+    overridesLoaded = resolve;
+  });
+  startupEndpoints.loadEndpointOverrides.mockReturnValueOnce(overrides);
+  startupIntercom.request.mockResolvedValue(stateResponse(readyState));
+  render(
+    <MidenProvider>
+      <WalletView />
+    </MidenProvider>
+  );
+  await act(async () => {});
+  expect(startupIntercom.request).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('boot-view')).toBeNull();
+  await act(async () => overridesLoaded());
+  await waitFor(() => expect(startupStore.getState().isInitialized).toBe(true));
+  expect(screen.queryByTestId('boot-view')).toBeNull();
+  await act(async () => finish());
+  expect(screen.getByTestId('boot-view')).toHaveTextContent('app:');
+});
+
+it('keeps the temporary empty backend snapshot unhydrated until the vault state is known', async () => {
+  const finish = holdLocalStartup();
+  startupIntercom.request
+    .mockResolvedValueOnce(stateResponse({ ...readyState, status: WalletStatus.Idle, backendInitialized: false }))
+    .mockResolvedValue(stateResponse({ ...readyState, backendInitialized: true }));
+  render(
+    <MidenProvider>
+      <WalletView />
+    </MidenProvider>
+  );
+  await act(async () => finish());
+  expect(screen.getByTestId('boot-view')).toHaveTextContent('loading:');
+  expect(startupStore.getState().isInitialized).toBe(false);
+  await waitFor(() => expect(screen.getByTestId('boot-view')).toHaveTextContent('app:'));
+  expect(views).not.toContain('welcome');
 });

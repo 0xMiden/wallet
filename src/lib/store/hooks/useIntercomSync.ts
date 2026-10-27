@@ -218,6 +218,9 @@ async function fetchStateFromBackend(): Promise<MidenState> {
     if (res?.type !== WalletMessageType.GetStateResponse) {
       throw new Error('Invalid response type');
     }
+    if (res.state.backendInitialized === false) {
+      throw new Error('Backend initialization pending');
+    }
     return res.state;
   } finally {
     clearTimeout(timer);
