@@ -160,22 +160,36 @@ export type PublicPswapNoteRead =
   | { kind: 'spent' }
   | { kind: 'absent' };
 
+// Share the whole body-and-nullifier read; the two steps use the same guarded key for different operations.
+const publicPswapNoteReads = new Map<string, Promise<PublicPswapNoteRead>>();
+
 /**
  * What the node says about a public PSWAP note of any creator: `open`, with the full note and its decoded fields,
  * `spent`, or `absent`, which also covers a note under that id that is not a PSWAP note. A failed read rejects. Like
  * `readPswapOrderNote`, it reads on RpcClients of its own and takes no WASM client lock: the note is somebody else's
  * sale, which this client never tracked.
  */
-export async function readPublicPswapNote(noteId: string): Promise<PublicPswapNoteRead> {
-  const key = `note:${noteId}`;
-  const fetched = await read(key, 'public PSWAP note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
-  const entry = fetchedEntry(fetched, noteId);
-  const note = entry?.note;
-  const fields = entry && note ? pswapFieldsOf(note, noteId) : undefined;
-  if (!entry || !note || !fields) return { kind: 'absent' };
-  const block = entry.inclusionProof.location().blockNum();
-  const spentAt = await spendOf(key, note, block, 'public PSWAP note nullifier');
-  return spentAt === undefined ? { kind: 'open', note, fields, block } : { kind: 'spent' };
+export function readPublicPswapNote(noteId: string): Promise<PublicPswapNoteRead> {
+  const slot = `${getEffectiveRpcUrl()} ${noteId}`;
+  const existing = publicPswapNoteReads.get(slot);
+  if (existing) return existing;
+  const pending = (async (): Promise<PublicPswapNoteRead> => {
+    const key = `note:${noteId}`;
+    const fetched = await read(key, 'public PSWAP note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
+    const entry = fetchedEntry(fetched, noteId);
+    const note = entry?.note;
+    const fields = entry && note ? pswapFieldsOf(note, noteId) : undefined;
+    if (!entry || !note || !fields) return { kind: 'absent' };
+    const block = entry.inclusionProof.location().blockNum();
+    const spentAt = await spendOf(key, note, block, 'public PSWAP note nullifier');
+    return spentAt === undefined ? { kind: 'open', note, fields, block } : { kind: 'spent' };
+  })();
+  publicPswapNoteReads.set(slot, pending);
+  const settled = () => {
+    publicPswapNoteReads.delete(slot);
+  };
+  void pending.then(settled, settled);
+  return pending;
 }
 
 // `NoteType::Public as u8` in miden-protocol, the two top bits of a public note's tag.
