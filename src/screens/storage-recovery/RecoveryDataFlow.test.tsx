@@ -17,7 +17,6 @@ const mockImport = jest.fn<
 const mockCancel = jest.fn<Promise<void>, [string]>();
 const mockVerify = jest.fn<Promise<void>, [string | undefined]>();
 const mockProtectors = jest.fn();
-let mockPlatform = 'extension';
 let mockAvailability: StorageHealth;
 let mockDeliveryProps: { preparedContent?: string; fileKind?: string } | undefined;
 
