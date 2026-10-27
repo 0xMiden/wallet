@@ -1,0 +1,28 @@
+{
+  "artifact_bytes": 150226249,
+  "artifact_digest": "sha256:fcd9ae7c9a45ac4580c527648f1350f5d007042085f4c0b36d8fa0713b43deb8",
+  "artifact_id": 12709639500,
+  "consumer_scope": "package assembly only; runtime acceptance separate",
+  "dist_cache": "miss",
+  "producer_attempt": 1,
+  "producer_checkout": "8e013987fe24ea6c1e77d181a2306815865dc81b",
+  "producer_effective_lock_hash": null,
+  "producer_job_conclusion": "success",
+  "producer_job_id": 122009380141,
+  "producer_log_sha256": "8ec731732c07116bed5a55ca5a4a6fa1dbf328195712fc8dc09be10d79f37ed8",
+  "producer_parents": [
+    "d7192760ba20385f77aeb48ffdf1b7e22cec3057",
+    "fd52477d7c7d5d475dc14987ebbd7a36dbb703da"
+  ],
+  "producer_run": 40449687812,
+  "profile": "MIDEN_FAST_BUILD=true; cargo --release with fast overrides; ST and MT",
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-package-proof.yml",
+    ".github/ci/issue1948-sdk-package-assembly.py",
+    ".github/ci/issue1948-sdk-package-inputs.json"
+  ],
+  "sdk_head": "fd52477d7c7d5d475dc14987ebbd7a36dbb703da",
+  "sdk_tree": "0d4504105c5ba62f9ab439cfc19cf3ee503277a5",
+  "wallet_source": "52d576ce799e40c2734fb6d918e54185637c982c",
+  "wallet_tree": "bef16e437bdf8bad033e40fbeb64f2a505e4f532"
+}
