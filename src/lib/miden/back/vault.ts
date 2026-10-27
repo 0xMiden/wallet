@@ -475,11 +475,7 @@ export class Vault {
     check();
     const snapshot = await this.recoveryJournal(epoch, check).update(previous => {
       check();
-      if (
-        !previous ||
-        previous.scope.network !== scopeNetwork ||
-        previous.scope.walletGeneration !== marker.generation
-      )
+      if (!previous || previous.scope.network !== scopeNetwork || previous.scope.walletGeneration !== marker.generation)
         throw new StorageUnavailableError();
       // Import has not authenticated this candidate. Keep the earlier body and its proof/hints for the same identity.
       const entries = notes.filter(
@@ -715,7 +711,11 @@ export class Vault {
       });
       assertCurrent();
       assertStorageHealthy(epoch);
-      await encryptAndSaveMany([[recoveryContinuityStrgKey, { ...snapshot, entries: [] }]], this.vaultKey, assertCurrent);
+      await encryptAndSaveMany(
+        [[recoveryContinuityStrgKey, { ...snapshot, entries: [] }]],
+        this.vaultKey,
+        assertCurrent
+      );
       assertCurrent();
       assertStorageHealthy(epoch);
       const marker = validateWalletGeneration(await Repo.metadata.get('generation'));

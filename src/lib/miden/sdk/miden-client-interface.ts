@@ -35,10 +35,10 @@ import { Buffer } from 'buffer';
 import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
-import { captureAcquiredNote, retainAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
+import { captureAcquiredNote, retainAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import {
   assertStorageHealthy,
   assertStorageRecoveryAllowed,
@@ -1237,7 +1237,7 @@ export class MidenClientInterface {
         const noteFile = deserializeNoteFileOrNote(noteBytes);
         const check = () => {
           assertStorageHealthy(storageEpoch);
-          assertWasmHoldCurrent(hold);
+          assertWasmHoldCurrent(hold, 'importNoteBytes', 'independent retention');
           if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
         };
         check();

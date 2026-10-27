@@ -1419,6 +1419,41 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE' }, ownSender, jest.fn())).toBe(false);
   });
 
+  it('Task4C3C forwards private recovery bytes to the awaited offscreen submit gate', async () => {
+    const recovery = {
+      requestBytes: [19, 48],
+      notes: [{ kind: 'note', id: 'private-output', noteFile: [7, 8, 9], provenance: 'output', format: 'full' }]
+    };
+    const { decodeRecoveryCapture } = await import('../recovery/capture');
+    let retained: import('../recovery/types').RecoveryCapture | undefined;
+    proxyMock.handleOffscreenSubmitGate.mockImplementationOnce(async (request: { recovery?: unknown }) => {
+      retained = decodeRecoveryCapture(request.recovery);
+      return { ok: true };
+    });
+    const sendResponse = jest.fn();
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-private-gate', recovery },
+        ownSender,
+        sendResponse
+      )
+    ).toBe(true);
+    await flushStorage();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+    expect(retained).toEqual({
+      requestBytes: new Uint8Array([19, 48]),
+      notes: [
+        {
+          kind: 'note',
+          id: 'private-output',
+          noteFile: new Uint8Array([7, 8, 9]),
+          provenance: 'output',
+          format: 'full'
+        }
+      ]
+    });
+  });
+
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {
     expect(
       signListener()({ target: 'sw', type: 'OFFSCREEN_STAGE_EVENT', stage: 'proving' }, ownSender, jest.fn())

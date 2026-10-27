@@ -12,6 +12,7 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -5266,12 +5267,7 @@ describe('Vault storage continuity', () => {
 
   async function acquisition() {
     await encryptAndSaveMany(
-      [
-        [
-          keys.accounts,
-          [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]
-        ]
-      ],
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
       fixtureKey
     );
     expect(await vault.verifyStorageContinuity()).toBe(true);
@@ -5292,7 +5288,7 @@ describe('Vault storage continuity', () => {
       toFelts: () => [],
       free: () => {}
     });
-    const useCandidate = (
+    const setCandidate = (
       bytes: Uint8Array,
       { identity = noteId, detailsOnly = false, tag = 7, afterBlock = 10 } = {}
     ) => {
@@ -5314,7 +5310,7 @@ describe('Vault storage continuity', () => {
         free: () => {}
       });
     };
-    useCandidate(noteFile);
+    setCandidate(noteFile);
     const imported = jest.fn(async () => noteId);
     const { MidenClientInterface } = await import('../sdk/miden-client-interface');
     const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
@@ -5328,7 +5324,7 @@ describe('Vault storage continuity', () => {
       noteFile,
       noteId,
       imported,
-      useCandidate,
+      setCandidate,
       run: (bytes = noteFile) =>
         getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(bytes, hold))),
       restore: () => {
@@ -5431,7 +5427,7 @@ describe('Vault storage continuity', () => {
         await fixture.run();
         const before = await vault.readRecoveryJournal();
         const candidate = new Uint8Array([19, 48, 8, 254]);
-        fixture.useCandidate(candidate, {
+        fixture.setCandidate(candidate, {
           identity: variant === 'full spelling alias' ? fixture.noteId.slice(2).toUpperCase() : fixture.noteId,
           detailsOnly: variant === 'expected alias',
           tag: 7,
@@ -5440,7 +5436,13 @@ describe('Vault storage continuity', () => {
         fixture.imported.mockRejectedValueOnce(new Error('Note inclusion proof does not match the chain'));
         await expect(fixture.run(candidate)).rejects.toThrow('Note inclusion proof does not match the chain');
         expect(getStorageHealth().status).toBe('healthy');
-        expect(await vault.readRecoveryJournal()).toEqual(before);
+        const after = await vault.readRecoveryJournal();
+        expect(before).toBeDefined();
+        expect(after).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+        expect(after?.entries).toEqual(
+          expect.arrayContaining((before?.entries ?? []).map(entry => expect.objectContaining(entry)))
+        );
+        expect(after?.sequence).toBeGreaterThanOrEqual(before?.sequence ?? 0);
       } finally {
         fixture.restore();
       }
@@ -5516,7 +5518,7 @@ describe('Vault storage continuity', () => {
   it('Task4C3B unknown expected notes retain original bytes and details identity before SDK acceptance', async () => {
     const fixture = await acquisition();
     const expected = new Uint8Array([7, 11, 19, 48]);
-    fixture.useCandidate(expected, { detailsOnly: true, tag: 71, afterBlock: 19 });
+    fixture.setCandidate(expected, { detailsOnly: true, tag: 71, afterBlock: 19 });
     let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
     fixture.imported.mockImplementation(async () => {
       atImport = await vault.readRecoveryJournal();
@@ -5534,6 +5536,152 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  function journalNoteBodies(value: unknown): Uint8Array[] {
+    if (typeof value !== 'object' || value === null) return [];
+    const bytes: unknown = Reflect.get(value, 'noteFile');
+    const own = bytes instanceof Uint8Array ? [bytes] : [];
+    return own.concat(
+      Object.entries(value)
+        .filter(([key]) => key !== 'noteFile')
+        .flatMap(([, child]) => journalNoteBodies(child))
+    );
+  }
+
+  it.each(['Expected', 'full'])(
+    'Task4C3C a successful %s import keeps both generations recoverable without treating success as authentication',
+    async previousVariant => {
+      const fixture = await acquisition();
+      const candidate = new Uint8Array([19, 48, 21, 252]);
+      try {
+        fixture.setCandidate(fixture.noteFile, { detailsOnly: previousVariant === 'Expected', afterBlock: 0 });
+        fixture.imported.mockResolvedValueOnce(previousVariant === 'Expected' ? '34'.repeat(32) : fixture.noteId);
+        await fixture.run();
+        fixture.setCandidate(candidate, { tag: 7, afterBlock: 10 });
+        let beforeAcceptance: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+        fixture.imported.mockImplementation(async () => {
+          beforeAcceptance = await vault.readRecoveryJournal();
+          return fixture.noteId;
+        });
+        await expect(fixture.run(candidate)).resolves.toBe(fixture.noteId);
+        expect(journalNoteBodies(beforeAcceptance)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        expect(journalNoteBodies(await vault.readRecoveryJournal())).toEqual(
+          expect.arrayContaining([fixture.noteFile, candidate])
+        );
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it.each(['Note inclusion proof rejected', 'User cancelled import'])(
+    'Task4C3C generic refusal %s keeps both candidate and earlier good evidence without poisoning health',
+    async message => {
+      const fixture = await acquisition();
+      const candidate = new Uint8Array([19, 48, 22, 251]);
+      try {
+        await fixture.run();
+        const before = await vault.readRecoveryJournal();
+        fixture.setCandidate(candidate, { afterBlock: 11 });
+        let beforeValidation: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+        fixture.imported.mockImplementation(async () => {
+          beforeValidation = await vault.readRecoveryJournal();
+          throw new Error(message);
+        });
+        await expect(fixture.run(candidate)).rejects.toThrow(message);
+        expect(journalNoteBodies(beforeValidation)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        const after = await vault.readRecoveryJournal();
+        expect(before).toBeDefined();
+        expect(after).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+        expect(after?.entries).toEqual(
+          expect.arrayContaining((before?.entries ?? []).map(entry => expect.objectContaining(entry)))
+        );
+        expect(after?.sequence).toBeGreaterThanOrEqual(before?.sequence ?? 0);
+        expect(journalNoteBodies(after)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3C owner loss after SDK entry preserves staged bytes and refuses the late import acknowledgement', async () => {
+    const fixture = await acquisition();
+    const candidate = new Uint8Array([19, 48, 23, 250]);
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    await fixture.run();
+    fixture.setCandidate(candidate, { afterBlock: 12 });
+    fixture.imported.mockImplementation(async () => {
+      reached();
+      await paused;
+      return fixture.noteId;
+    });
+    const pending = fixture.run(candidate).then(
+      () => 'accepted',
+      () => 'refused'
+    );
+    let current: Vault | undefined;
+    try {
+      await Promise.race([entered, pending]);
+      vault.retire();
+      current = new Vault(fixtureKey);
+      const retained = await current.readRecoveryJournal();
+      release();
+      expect(await pending).toBe('refused');
+      expect(journalNoteBodies(retained)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+      expect(await current.readRecoveryJournal()).toEqual(retained);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await pending;
+      current?.retire();
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3C a full journal refuses another private candidate before SDK acceptance and preserves prior evidence', async () => {
+    const fixture = await acquisition();
+    try {
+      await fixture.run();
+      const initial = await vault.readRecoveryJournal();
+      expect(initial).toBeDefined();
+      const { JOURNAL_MAX_ENTRIES } = await import('../recovery/journal');
+      await vault.retainRecoveryEntries(
+        Array.from(
+          { length: JOURNAL_MAX_ENTRIES - (initial?.entries.length ?? 0) },
+          (_, index): import('../recovery/types').RecoveryEntry => ({
+            kind: 'note',
+            id: `capacity-${index}`,
+            accountId: 'retained',
+            provenance: 'input',
+            format: 'details',
+            noteFile: new Uint8Array([8, 9, 10])
+          })
+        )
+      );
+      const before = await vault.readRecoveryJournal();
+      const candidate = new Uint8Array([19, 48, 24, 249]);
+      fixture.setCandidate(candidate, { afterBlock: 13 });
+      fixture.imported.mockClear();
+      const outcome = await fixture.run(candidate).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(outcome).toBe('refused');
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+    } finally {
+      fixture.restore();
+    }
+  });
+
   it('Task4C3 public-only capture keeps unresolved prebroadcast transaction evidence', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
     const row: ITransaction = {
@@ -5543,7 +5691,7 @@ describe('Vault storage continuity', () => {
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
       displayIcon: 'SEND',
-      noteType: 'public',
+      noteType: NoteTypeEnum.Public,
       attemptId: 'attempt-public',
       mayHaveSubmitted: true
     };

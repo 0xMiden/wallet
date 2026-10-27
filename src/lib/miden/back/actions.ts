@@ -31,8 +31,8 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { installNoteAcquisitionSink } from 'lib/miden/recovery/note-acquisition';
+import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
