@@ -73,6 +73,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
+import { checkpointProviderReceipt } from '../recovery/receipt-writer';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
@@ -1387,7 +1388,7 @@ export async function prepareEarnWithdrawExecution(
   expected: ExpectedEarnWithdrawIntent,
   isCurrent: () => boolean
 ): Promise<boolean> {
-  let applied = false;
+  let retained: ITransaction | undefined;
   const count = await Repo.transactions.where({ id }).modify(tx => {
     const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
     if (!identity) return;
@@ -1403,7 +1404,7 @@ export async function prepareEarnWithdrawExecution(
         !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)
       )
         return;
-      applied = true;
+      retained = tx;
       return;
     }
     if (
@@ -1418,9 +1419,15 @@ export async function prepareEarnWithdrawExecution(
       preparedExecution: validated.preparedExecution,
       submissionState: 'prepared'
     };
-    applied = true;
+    retained = tx;
   });
-  return applied && count > 0;
+  if (!retained || count === 0) return false;
+  await checkpointProviderReceipt(retained);
+  const fresh = await Repo.transactions.get(id);
+  const identity = fresh && currentEarnWithdrawExecution(fresh, expected, isCurrent);
+  if (!fresh || !identity) return false;
+  const stored = validateEarnWithdrawPreparedExecution(fresh.extraInputs.preparedExecution, identity);
+  return Boolean(stored && sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution));
 }
 
 export async function markEarnWithdrawNotSent(
@@ -1627,6 +1634,7 @@ export const updateBridgedReceivePhase = async (
   const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
+  let retained: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
@@ -1677,7 +1685,9 @@ export const updateBridgedReceivePhase = async (
       tx.displayMessage = 'Bridged from EVM';
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    retained = tx;
   });
+  if (retained) await checkpointProviderReceipt(retained);
 
   if (failed !== undefined && !failed.restoredFromBackup) {
     const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;

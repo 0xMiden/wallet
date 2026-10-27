@@ -13,6 +13,8 @@ import { WalletType } from 'screens/onboarding/types';
 export enum WalletMessageType {
   FinancialRecoveryRequest = 'FINANCIAL_RECOVERY_REQUEST',
   FinancialRecoveryResponse = 'FINANCIAL_RECOVERY_RESPONSE',
+  ProviderReceiptRequest = 'PROVIDER_RECEIPT_REQUEST',
+  ProviderReceiptResponse = 'PROVIDER_RECEIPT_RESPONSE',
   StorageRecoveryRequest = 'STORAGE_RECOVERY_REQUEST',
   StorageRecoveryResponse = 'STORAGE_RECOVERY_RESPONSE',
   // Aknowledge
@@ -970,6 +972,15 @@ export interface FinancialRecoveryResponse extends WalletMessageBase {
   type: WalletMessageType.FinancialRecoveryResponse;
 }
 
+export interface ProviderReceiptRequest extends WalletMessageBase {
+  type: WalletMessageType.ProviderReceiptRequest;
+  expectedEpoch: number;
+  row: unknown;
+}
+export interface ProviderReceiptResponse extends WalletMessageBase {
+  type: WalletMessageType.ProviderReceiptResponse;
+}
+
 export interface StorageRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.StorageRecoveryRequest;
   expectedEpoch: number;
@@ -1392,6 +1403,7 @@ export type WalletRequest =
   | SignDataRequest
   | SignTransactionRequest
   | FinancialRecoveryRequest
+  | ProviderReceiptRequest
   | StorageRecoveryRequest
   | SignWordRequest
   | SignEvmRequest
@@ -1472,6 +1484,7 @@ export type WalletResponse =
   | SignDataResponse
   | SignTransactionResponse
   | FinancialRecoveryResponse
+  | ProviderReceiptResponse
   | StorageRecoveryResponse
   | SignWordResponse
   | SignEvmResponse
