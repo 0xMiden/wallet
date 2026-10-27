@@ -5961,6 +5961,108 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('Task4C3I checkpoints the actual Vault only after every required baseline page has arrived', async () => {
+    const { default: Dexie } = await import('dexie');
+    const database = new Dexie('task4c3-baseline-checkpoint');
+    database.version(1).stores({ inputNotes: 'detailsCommitment,stateDiscriminant' });
+    await database.open();
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
+      fixtureKey
+    );
+    const firstId = '0x' + '12'.repeat(32);
+    const secondId = '0x' + '34'.repeat(32);
+    const firstBytes = new Uint8Array([19, 48, 91]);
+    const secondBytes = new Uint8Array([19, 48, 92]);
+    const record = (id: string) => ({
+      metadata: () => ({ noteType: () => 0, free: () => {} }),
+      details: () => ({ free: () => {} }),
+      id: () => ({ toString: () => id, free: () => {} }),
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    const sdk = jest.requireMock<{ NoteFile: { fromInputNote: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+    const previousExport = sdk.NoteFile.fromInputNote.getMockImplementation();
+    sdk.NoteFile.fromInputNote
+      .mockImplementationOnce(() => ({ serialize: () => firstBytes.slice(), free: () => {} }))
+      .mockImplementationOnce(() => ({ serialize: () => secondBytes.slice(), free: () => {} }));
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atPage = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const listPage = jest
+      .fn()
+      .mockResolvedValueOnce({ notes: [record(firstId)], nextCursor: firstId, exhausted: false })
+      .mockImplementationOnce(async () => {
+        entered();
+        await pending;
+        return { notes: [record(secondId)], nextCursor: secondId, exhausted: true };
+      });
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      MidenClientInterface.fromClient,
+      MidenClientInterface,
+      [
+        {
+          settings: { get: jest.fn(async () => generation), set: jest.fn() },
+          accounts: {
+            get: jest.fn(async () => ({
+              nonce: () => ({ asInt: () => 4n }),
+              to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+            }))
+          },
+          notes: { list: jest.fn().mockResolvedValue([]), listPage },
+          storeIdentifier: jest.fn(async () => database.name)
+        },
+        'testnet'
+      ]
+    );
+    const { getCurrentWasmLockHold, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+    readSnapshot.mockImplementation(async (accountIds, includeNotes, _capability, retained = [], families = []) => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('Baseline fixture requires the actual Vault hold');
+      return client.readStorageContinuity(
+        accountIds,
+        includeNotes,
+        () => assertWasmHoldCurrent(hold, 'during paged baseline capture'),
+        retained,
+        families
+      );
+    });
+    const outcome = vault.verifyStorageContinuity().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atPage.then(() => true), outcome.then(() => false)])).toBe(true);
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      release();
+      expect(await outcome).toEqual({ value: true, error: undefined });
+      const snapshot = await vault.readRecoveryJournal();
+      expect(journalNoteBodies(snapshot)).toEqual(expect.arrayContaining([firstBytes, secondBytes]));
+      expect(snapshot?.entries.filter(entry => entry.kind === 'note')).toHaveLength(2);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toMatchObject({
+        sequence: snapshot?.sequence,
+        scope: snapshot?.scope
+      });
+      expect(initializeGeneration).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      sdk.NoteFile.fromInputNote.mockReset();
+      if (previousExport) sdk.NoteFile.fromInputNote.mockImplementation(previousExport);
+      database.close();
+      await Dexie.delete(database.name);
+    }
+  });
+
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
     const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
