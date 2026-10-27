@@ -1,0 +1,87 @@
+name: Issue1948 immutable wallet SDK injection
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  injection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a91dce9fb52439603094b2eec80fb227b1c27e16
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Lint frozen integration and retained C3 sources
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          cd wallet
+          yarn eslint src/app/App.test.tsx src/app/App.tsx src/app/PageRouter.test.tsx src/app/PageRouter.tsx src/app/StorageRecoveryPage.tsx src/lib/miden/back/actions.test.ts src/lib/miden/back/actions.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.ts src/lib/miden/back/offscreen-prover.ts src/lib/miden/back/store.test.ts src/lib/miden/back/store.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/front/client.ts src/lib/miden/metadata/storage.test.ts src/lib/miden/metadata/storage.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/native-note-receipt.ts src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/sdk-restore.ts src/lib/miden/sdk/miden-client-interface.native-storage.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/native-note-acquisition.ts src/lib/miden/storage-health.ts src/lib/prices/usd.test.ts src/lib/prices/usd.ts src/lib/shared/types.ts src/lib/store/index.ready-balance-read.test.ts src/lib/store/index.ts src/lib/store/types.ts src/offscreen/main.test.ts src/offscreen/main.ts --max-warnings=0 2>&1 | tee ../proof/integration-sources-lint.log
+      - name: checks
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py checks --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py receipt --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-injection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
