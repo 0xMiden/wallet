@@ -72,7 +72,7 @@ import { armRecoveryPhraseKeepPrompt } from './RecoveryPhraseKeepPrompt';
  * `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate paints a full-screen
  * overlay that blocks all wallet interaction. Its first screen asks the device
- * role: add this device (the other devices keep working) or make it the main
+ * role: add this device (every other signer stays) or make it the main
  * one (every other device is removed). Continue starts the rotation in that
  * mode. A rotation that already exists (a reload during a rotation) is adopted
  * on mount, and the gate does not ask again. The flag clearing (via

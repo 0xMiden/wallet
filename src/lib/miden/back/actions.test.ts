@@ -229,6 +229,7 @@ jest.mock('./store', () => ({
   accountsUpdated: jest.fn((...args: any[]) => mockAccountsUpdated(...args)),
   settingsUpdated: jest.fn((...args: any[]) => mockSettingsUpdated(...args)),
   currentAccountUpdated: jest.fn((...args: any[]) => mockCurrentAccountUpdated(...args)),
+  seedPhraseStatusUpdated: jest.fn(),
   withInited: jest.fn(async fn => fn()),
   withUnlocked: jest.fn(async fn => fn({ vault: mockVault }))
 }));
@@ -691,6 +692,23 @@ describe('actions', () => {
       Object.assign(mockStoreState, { vault: mockVault });
       await expect(removeSeedPhrase('pw')).rejects.toThrow('authentication failed');
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
+    });
+
+    // The prompt after a recovery passes no credential: the unlocked vault removes the phrase, and a passcode
+    // wallet (no hardware protector) is never asked for a credential-free unlock it cannot do.
+    it('removes the phrase with the unlocked vault when no password is given', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // `withUnlocked` is mocked to hand out `mockVault`, so the removal lands on it.
+      const removeOnUnlocked = jest.fn().mockResolvedValue(undefined);
+      Object.assign(mockVault, { removeSeedPhrase: removeOnUnlocked });
+      try {
+        await expect(removeSeedPhrase()).resolves.toBeUndefined();
+        expect(Vault.setup).not.toHaveBeenCalled();
+        expect(removeOnUnlocked).toHaveBeenCalledTimes(1);
+      } finally {
+        // The shared mock's `beforeEach` clears every value as a mock, so the property must go, not stay undefined.
+        Reflect.deleteProperty(mockVault, 'removeSeedPhrase');
+      }
     });
 
     it('installs the imported wallet callback after key import', async () => {

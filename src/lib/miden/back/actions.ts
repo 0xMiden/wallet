@@ -1172,11 +1172,17 @@ const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 //   } catch {}
 // }
 
+/**
+ * Removes the recovery phrase from this device. With a `password` the vault is unlocked again first, which is the
+ * Settings flow's re-authentication. Without one the unlocked session's vault does the removal: the prompt after
+ * a recovery runs minutes after the user typed the phrase and the passcode, so it asks for neither again, and a
+ * wallet behind a passcode (no hardware protector) has no credential-free unlock to fall back to.
+ */
 export function removeSeedPhrase(password?: string) {
-  return withUnlocked(() =>
+  return withUnlocked(({ vault: unlockedVault }) =>
     getAccountsWriteQueue().add(async () => {
       try {
-        const vault = await Vault.setup(password);
+        const vault = password ? await Vault.setup(password) : unlockedVault;
         await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
           if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
           try {

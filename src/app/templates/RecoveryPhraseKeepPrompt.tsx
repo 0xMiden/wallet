@@ -29,8 +29,8 @@ const clearRecoveryPhraseKeepPrompt = (): Promise<void> => putToStorage(RECOVERY
  * everyday key (`hotPublicKey`), no everyday key rotation is necessary, no pending-note scan runs, and the phrase
  * is stored. Daily transactions do not need the phrase, so the user can remove it. Remove removes the phrase at
  * once, with no verification step: the user typed the phrase minutes ago, so a quiz on it proves nothing. The
- * backend unlocks with the hardware protector; a failure (a password-only wallet, or transactions still running)
- * shows its message and keeps the prompt armed. Keep clears the flag. When the phrase is not stored, the prompt
+ * backend removes it with the unlocked session's vault; a failure (transactions still running) shows its message
+ * and keeps the prompt armed. Keep clears the flag. When the phrase is not stored, the prompt
  * has nothing to ask, so it clears the flag and shows nothing.
  */
 export const RecoveryPhraseKeepPrompt: FC = () => {
