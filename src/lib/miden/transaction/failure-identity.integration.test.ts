@@ -203,6 +203,42 @@ describe('the never-committed verdicts', () => {
     __resetBackgroundTimeForTest();
   });
 
+  it('keeps the origin submit context when expiry commits on the evidence write', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
+    await Repo.transactions.put(row);
+    const originalWhere = Repo.transactions.where.bind(Repo.transactions);
+    let intercept = true;
+    const where = jest.spyOn(Repo.transactions, 'where').mockImplementation(query => {
+      const collection = originalWhere(query);
+      if (intercept) {
+        const modify = collection.modify.bind(collection);
+        collection.modify = async changes => {
+          const result = await modify(changes);
+          intercept = false;
+          await judgeAndWrite('tx-1', {
+            node: reads({ blockNum: 750, commitment: INITIAL }),
+            nowSec: NOW,
+            cadenceMs: 3_000
+          });
+          return result;
+        };
+      }
+      return collection;
+    });
+    try {
+      await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+      expect(captured()[0]?.message).toContain(
+        'prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+      );
+    } finally {
+      where.mockRestore();
+      jest.mocked(isMobile).mockReturnValue(false);
+      __resetBackgroundTimeForTest();
+    }
+  });
+
   it('keeps the submit leg from the sample taken before the evidence upsert', async () => {
     jest.mocked(isMobile).mockReturnValue(true);
     initBackgroundTimeTracking();
