@@ -1,0 +1,140 @@
+name: Issue1948 frozen SDK full coverage
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=8192
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 20c24ddbcff1c32eccec17562aee149f4557a6bf
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Run complete coverage shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          cd replay
+          yarn test:coverage --shard="$SHARD/3" --maxWorkers=2 --workerIdleMemoryLimit=768MB --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json 2>&1 | tee ../proof/coverage.log
+      - name: Verify nonzero complete shard result
+        run: |
+          node -e "const x=require('./replay/coverage/jest-results.json');console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites,failedSuites:x.numFailedTestSuites}));if(x.numPassedTests<1||x.numFailedTests||x.numFailedTestSuites||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-coverage-shard-${{ matrix.shard }}
+          path: |
+            proof/
+            replay/coverage/
+          if-no-files-found: error
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require all original shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: test "$SHARDS_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          ref: 20c24ddbcff1c32eccec17562aee149f4557a6bf
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install original coverage reporters outside checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-coverage-shard-*
+          path: coverage-shards
+      - name: Bind shard source, workflow, and identical SDK injection
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipts = []
+          for shard in range(1, 4):
+              proof = Path(f'coverage-shards/sdk-coverage-shard-{shard}/proof')
+              source = json.loads((proof / 'source.json').read_text())
+              assert source['wallet_source'] == '20c24ddbcff1c32eccec17562aee149f4557a6bf' and source['wallet_tree'] == '2af05fb4a4ae0f8197e11001c9b3daff31050d41'
+              assert source['workflow'] == os.environ['GITHUB_SHA']
+              identities = json.loads((proof / 'installed-identities.json').read_text())
+              replay = json.loads((proof / 'frozen-replay.json').read_text())
+              assert replay['fresh_dependency_tree'] and replay['source'] == '20c24ddbcff1c32eccec17562aee149f4557a6bf'
+              receipts.append((identities, replay))
+          assert receipts[0] == receipts[1] == receipts[2]
+          PY
+      - name: Enforce unchanged merged 95 percent gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/sdk-coverage-shard-1/replay/coverage/coverage-final.json coverage-shards/sdk-coverage-shard-2/replay/coverage/coverage-final.json coverage-shards/sdk-coverage-shard-3/replay/coverage/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-coverage-merged
+          path: coverage/
