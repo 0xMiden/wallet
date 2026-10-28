@@ -2925,3 +2925,36 @@ it('keeps the current burn-fee reason private on the actual outgoing envelope', 
   expect(new TextEncoder().encode(burnWire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
   expect(leaksIn(wireText())).toEqual([]);
 });
+
+it.each([
+  {
+    id: 'mainnetAccessCheckFailed',
+    surface: 'inline',
+    evidence: { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'timeout' },
+    key: 'mainnetAccessCheckFailure',
+    value: 'invitation_check'
+  },
+  {
+    id: 'noteClaimFailedRetry',
+    surface: 'notice',
+    evidence: { kind: 'note_claim', noteClaimFailureOrigin: 'queue_batch', uiFailureKind: 'storage' },
+    key: 'noteClaimFailureOrigin',
+    value: 'queue_batch'
+  }
+])(
+  'retains only closed $id evidence on the actual outgoing envelope',
+  async ({ id, surface, evidence, key, value }) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const wire = captured[0]?.body ?? '';
+    const producerField = `,"${key}":"${value}"`;
+    const kindField = `,"uiFailureKind":"${evidence.uiFailureKind}"`;
+    expect(wire).toContain(producerField);
+    expect(wire).toContain(kindField);
+    const without = wire.replace(producerField, '').replace(kindField, '');
+    expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+    expect(leaksIn(wireText())).toEqual([]);
+  }
+);

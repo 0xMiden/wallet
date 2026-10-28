@@ -1773,6 +1773,40 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     ]);
   });
 
+  it('classifies an owned watched row once without borrowing its enqueue failure', async () => {
+    const rawError = 'IndexedDB failed for 0x1234567890abcdef1234567890abcdef, 1234.5678 private-canary';
+    render(React.createElement(ClaimCards));
+    open();
+    await click('activityAcceptTransfer');
+    const row = { id: 'tx-one', status: 3, held: false, error: 'Please retry', rawError };
+    settle([row]);
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        {
+          kind: 'note_claim',
+          noteClaimFailureOrigin: 'transaction_row',
+          uiFailureKind: 'storage'
+        }
+      ]
+    ]);
+    settle([{ ...row }]);
+    advance(2000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    const reported = JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls);
+    for (const value of [
+      rawError,
+      'Please retry',
+      '1234.5678',
+      'private-canary',
+      '0x1234567890abcdef1234567890abcdef'
+    ]) {
+      expect(reported).not.toContain(value);
+    }
+  });
+
   it.each(['activityAcceptTransfer', 'Accept All'])(
     'keeps the %s writer fee refusal warning silent rather than reporting every catch',
     async action => {
