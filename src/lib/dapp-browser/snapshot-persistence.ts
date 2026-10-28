@@ -37,7 +37,8 @@ async function reserveSnapshot(path: string, bytes: number): Promise<void> {
   let count = files.length;
   let total = files.reduce((sum, file) => sum + file.size, 0);
   for (const file of files) {
-    if (count < SNAPSHOT_MAX_FILES && total + bytes <= SNAPSHOTS_MAX_BYTES && file.size <= SNAPSHOT_MAX_BYTES) continue;
+    if (count <= SNAPSHOT_MAX_FILES && total + bytes <= SNAPSHOTS_MAX_BYTES && file.size <= SNAPSHOT_MAX_BYTES)
+      continue;
     await Filesystem.deleteFile({ path: file.path, directory: Directory.Cache });
     count--;
     total -= file.size;
