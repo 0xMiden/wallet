@@ -280,6 +280,9 @@ it('serializes only independent closed deadline queue and reap evidence without 
     stage: 'creating-proposal',
     reason: 'queued_expired',
     queueAdmissionObservation: 'in_progress_gate',
+    queueSighting: 'selected',
+    preflightSync: 'entered',
+    queueHidden: 'under_half',
     error: new Error(privateValue)
   });
   reportTransactionFailure({
@@ -297,6 +300,12 @@ it('serializes only independent closed deadline queue and reap evidence without 
   expect(wire).toContain('submitting');
   expect(wire).toContain('queueAdmissionObservation');
   expect(wire).toContain('in_progress_gate');
+  expect(wire).toContain('queueSighting');
+  expect(wire).toContain('queue sighting selected');
+  expect(wire).toContain('preflightSync');
+  expect(wire).toContain('sync attempt entered');
+  expect(wire).toContain('queueHidden');
+  expect(wire).toContain('queue hidden under_half');
   expect(wire).toContain('reapStartRelation');
   expect(wire).toContain('before_realm_cutoff');
   expect(wire).not.toContain(privateValue);

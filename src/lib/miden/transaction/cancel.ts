@@ -6,7 +6,7 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -15,7 +15,9 @@ import { classifyReapStartRelation } from 'lib/telemetry/reap-start-diagnostics'
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
+  type PreflightSyncReport,
   type QueueAgeBucket,
+  type QueueHiddenBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -52,7 +54,7 @@ import {
   recordOutOfBandEnd,
   updateTransactionStatus
 } from './helper';
-import { consumeQueueAdmission, type QueueAdmissionMember } from './queue-admission-diagnostics';
+import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
@@ -305,7 +307,13 @@ export const cancelTransaction = async (
       feeAdmission: committed.feeAdmission,
       reason: failureReason,
       ...(failureReason === 'queued_expired'
-        ? { queueAge: queueAgeBucket(committed, returnedAtMs), queueAdmissionObservation }
+        ? {
+            queueAge: queueAgeBucket(committed, returnedAtMs),
+            queueAdmissionObservation,
+            queueSighting: queueSightingFor(committed),
+            preflightSync: reportedPreflightSync(committed),
+            queueHidden: queueHiddenBucket(committed, returnedAtMs)
+          }
         : {}),
       submitCrossing: attemptSubmitCrossing(committed),
       reap:
@@ -420,6 +428,30 @@ const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h
   [21_600_000, '1h_to_6h'],
   [86_400_000, '6h_to_24h']
 ];
+
+const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
+  const step = row.preflightSync;
+  if (
+    row.preflightSyncAt === row.initiatedAt &&
+    row.preflightSyncSeq === (row.queuedSeq ?? null) &&
+    (step === 'entered' || step === 'returned' || step === 'threw')
+  )
+    return step;
+  return 'not_entered';
+};
+
+/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
+  if (!isMobile()) return 'not_measured';
+  if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageSec = nowMs / 1000 - row.initiatedAt;
+  if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  const hidden = hiddenSecondsSince(row.initiatedAt, nowMs);
+  if (!Number.isFinite(hidden) || hidden < 0) return 'unavailable';
+  if (hidden === 0) return 'none';
+  return hidden * 2 >= ageSec ? 'half_or_more' : 'under_half';
+};
 
 const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';

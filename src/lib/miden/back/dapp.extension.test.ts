@@ -558,7 +558,7 @@ describe('requestConfirm placement Chrome refuses', () => {
     const answer = await driveConfirmation(() => settle(start()), confirmation, decline);
     await flush();
 
-    expect(update).toHaveBeenCalledWith(4321, { left: 322, top: 46 });
+    expect(update).toHaveBeenCalledWith(4321, { left: 292, top: 20 });
     expect(answer).toBe(MidenDAppErrorType.NotGranted);
     expect(remove).toHaveBeenCalledWith(4321);
     expect(_g.__dappExtRemovedListeners).toHaveLength(0);
@@ -620,7 +620,7 @@ describe('requestConfirm placement Chrome refuses', () => {
 
     const answer = await declineSign();
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 510, top: 162 }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 480, top: 120 }));
     expect(getAll).toHaveBeenCalledWith({ windowTypes: ['normal'] });
     expect(answer).toBe(MidenDAppErrorType.NotGranted);
   });
@@ -630,7 +630,7 @@ describe('requestConfirm placement Chrome refuses', () => {
 
     const answer = await declineSign();
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 510, top: 162 }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 480, top: 120 }));
     expect(focused.mock.calls).toEqual([[]]);
     expect(getAll).not.toHaveBeenCalled();
     expect(answer).toBe(MidenDAppErrorType.NotGranted);
@@ -658,7 +658,7 @@ describe('requestConfirm placement Chrome refuses', () => {
     const answer = await withoutWindowGeometry(declineSign);
 
     const options = create.mock.calls[0]?.[0];
-    expect(options).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(options).toEqual(expect.objectContaining({ type: 'popup', width: 440, height: 760 }));
     expect(options).not.toHaveProperty('left');
     expect(options).not.toHaveProperty('top');
     expect(update).not.toHaveBeenCalled();
@@ -674,9 +674,9 @@ describe('requestConfirm placement Chrome refuses', () => {
     await flush();
 
     expect(create).toHaveBeenCalledTimes(2);
-    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ left: 322, top: 46 }));
+    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ left: 292, top: 20 }));
     const retry = create.mock.calls[1]?.[0];
-    expect(retry).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(retry).toEqual(expect.objectContaining({ type: 'popup', width: 440, height: 760 }));
     expect(retry).not.toHaveProperty('left');
     expect(retry).not.toHaveProperty('top');
     expect(update).not.toHaveBeenCalled();
