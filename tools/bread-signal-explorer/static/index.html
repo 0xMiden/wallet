@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Bread Signal Explorer</title>
+    <link rel="icon" href="logo.svg" />
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true">
+      <span class="blob blob-a"></span>
+      <span class="blob blob-b"></span>
+      <span class="blob blob-c"></span>
+      <span class="blob blob-d"></span>
+      <span class="blob blob-e"></span>
+      <span class="blob blob-f"></span>
+      <span class="grain"></span>
+    </div>
+    <div class="chrome">
+      <header class="top">
+        <div class="brand">
+          <img class="mark" src="logo.svg" alt="" width="40" height="40" />
+          <div>
+            <h1><span>Bread</span> Signal Explorer</h1>
+            <p id="scope" class="scope">Reading the queue</p>
+          </div>
+        </div>
+        <button id="refresh" class="refresh" type="button">Refresh</button>
+      </header>
+      <div id="switcher" class="switcher" aria-label="Open queue or a release"></div>
+    </div>
+    <main>
+      <div id="banner"></div>
+      <section id="map" aria-label="Cluster map"></section>
+      <section id="status" aria-label="Current status"></section>
+      <section id="hero" aria-label="Sentry breakdown"><p class="loading">Reading the queue…</p></section>
+      <section id="releases" aria-label="Events by release"></section>
+      <section id="clusters" aria-label="Clusters"></section>
+      <section id="charts" aria-label="Charts"></section>
+      <details class="how">
+        <summary>How reports are grouped</summary>
+        <ol>
+          <li>Sentry folds events that share a fingerprint into one report. That is the only automatic deduplication.</li>
+          <li>Reports stay separate until someone ties them to the same cause. Those share a work group and move together.</li>
+          <li>This map then places each group in the transaction stage, or the screen, named in the report. Whatever has neither is gathered by the shape of the message.</li>
+        </ol>
+        <p>A cluster is open while any of its reports is still waiting, missing evidence, ready, in progress, or regressed. Closed means the crash ledger finished with every report in it. Sentry can keep listing a finished report as unresolved.</p>
+      </details>
+    </main>
+    <button id="export" class="export" type="button" hidden>Export markdown</button>
+    <div id="scrim" class="scrim" hidden></div>
+    <aside id="drawer" class="drawer" aria-label="Cluster detail" hidden></aside>
+    <script src="config.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

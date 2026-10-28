@@ -1180,6 +1180,18 @@
     "message": "來源：",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "發起人",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "顯示notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "隱藏notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "網路：",
     "englishSource": "Network:"
@@ -4446,6 +4458,15 @@
   "PSWAP": {
     "message": "PSWAP note",
     "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "otherNoteScript": {
     "message": "其他note腳本",

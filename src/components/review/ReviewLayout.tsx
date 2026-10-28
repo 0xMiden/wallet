@@ -70,25 +70,27 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
       <NetworkModeBanner />
       <div className="flex flex-1 min-h-0 flex-col px-4 pt-6">
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-          {hero}
+          <div className="tx-stage-rise">{hero}</div>
 
-          <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
+          <div className={classNames('tx-stage-list', dividers && 'divide-y divide-rule-default')}>{children}</div>
         </div>
 
         <div className="shrink-0 pt-6 flex flex-col gap-y-2">
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
           {beforeActions}
-          <Button
-            type={primary.type ?? 'button'}
-            title={primary.label}
-            variant={ButtonVariant.Primary}
-            accent={accent}
-            onClick={primary.onPress}
-            isLoading={primary.loading}
-            disabled={primary.disabled || primary.loading}
-            data-testid={primary['data-testid']}
-            className="w-full max-w-none"
-          />
+          <div className="tx-stage-cta">
+            <Button
+              type={primary.type ?? 'button'}
+              title={primary.label}
+              variant={ButtonVariant.Primary}
+              accent={accent}
+              onClick={primary.onPress}
+              isLoading={primary.loading}
+              disabled={primary.disabled || primary.loading}
+              data-testid={primary['data-testid']}
+              className="w-full max-w-none"
+            />
+          </div>
           {secondary && (
             <Button
               type="button"

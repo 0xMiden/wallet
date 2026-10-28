@@ -795,7 +795,7 @@ describe('transaction payload', () => {
     // Regression guard: ConfirmPage must NOT re-scale the amount. It used to divide
     // by a hardcoded 10 ** 6 (MIDEN's decimals), which mis-rendered every faucet with
     // different decimals and lost precision above 2^53 by routing through Number().
-    expect(screen.getByText('-1.5')).toBeInTheDocument();
+    expect(screen.getAllByText('-1.5').length).toBeGreaterThan(0);
     // Plain label passes value through untouched.
     expect(screen.getByText('Fee')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
