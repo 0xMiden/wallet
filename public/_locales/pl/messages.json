@@ -1180,6 +1180,18 @@
     "message": "Źródło:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Zleceniodawca",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "Pokaż notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Ukryj notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "Sieć:",
     "englishSource": "Network:"

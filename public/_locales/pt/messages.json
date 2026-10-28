@@ -1180,6 +1180,18 @@
     "message": "Origem:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Originador",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "Mostrar notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Ocultar notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "Rede:",
     "englishSource": "Network:"

@@ -1180,6 +1180,18 @@
     "message": "Походження:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Ініціатор",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "Показати notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Приховати notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "Мережа:",
     "englishSource": "Network:"
