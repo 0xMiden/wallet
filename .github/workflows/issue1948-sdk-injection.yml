@@ -1,0 +1,91 @@
+name: Issue1948 V8 serialization diagnostic without native addon
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [proxy, offscreen]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=8192
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 20c24ddbcff1c32eccec17562aee149f4557a6bf
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Run bounded V8 coverage diagnostic
+        timeout-minutes: 12
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cd replay
+          case "$TARGET" in
+            proxy) file=src/lib/miden/back/miden-client-proxy.test.ts; pattern='the try-lock read reports busy without waiting'; pending=206 ;;
+            offscreen) file=src/offscreen/main.test.ts; pattern='boots the rayon pool and signals OFFSCREEN_READY'; pending=235 ;;
+            *) exit 1 ;;
+          esac
+          yarn jest --coverage --runTestsByPath "$file" --testNamePattern "$pattern" --maxWorkers=2 --workerIdleMemoryLimit=768MB --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json 2>&1 | tee ../proof/diagnostic.log
+          node -e 'const x=require("./coverage/jest-results.json"),n=Number(process.argv[1]);if(x.numPassedTests!==1||x.numFailedTests||x.numPendingTests!==n||x.numRuntimeErrorTestSuites)process.exit(1)' "$pending"
+          test -s coverage/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-addon-coverage-${{ matrix.target }}
+          path: |
+            proof/
+            replay/coverage/
+          if-no-files-found: error
