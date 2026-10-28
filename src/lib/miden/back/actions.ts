@@ -776,7 +776,6 @@ export async function recoverWalletStorage(
 ): Promise<import('../recovery/types').StorageRecoveryResult> {
   if (
     !Number.isSafeInteger(expectedEpoch) ||
-    getStorageHealth().epoch !== expectedEpoch ||
     (operation !== 'check' && operation !== 'rebuild' && operation !== 'reconcile')
   )
     throw new StorageUnavailableError();
