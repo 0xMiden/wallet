@@ -87,6 +87,7 @@ for (const includePrivate of [false, true]) {
       prepare: null,
       recover: null,
       outsideRequests: 0,
+      workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
       phase: 'initial',
       service: null
     };
@@ -99,6 +100,26 @@ for (const includePrivate of [false, true]) {
         return route.continue();
       });
       const page = await context.newPage();
+      page.on('worker', worker => {
+        report.workerEvents.started++;
+        worker.on('close', () => report.workerEvents.closed++);
+      });
+      const workerAsset = url => {
+        try {
+          return /worker|\.wasm$/i.test(new URL(url).pathname);
+        } catch {
+          return false;
+        }
+      };
+      context.on('request', request => {
+        if (workerAsset(request.url())) report.workerEvents.assetRequests++;
+      });
+      context.on('requestfailed', request => {
+        if (workerAsset(request.url())) report.workerEvents.assetFailures++;
+      });
+      context.on('response', response => {
+        if (workerAsset(response.url()) && response.status() === 404) report.workerEvents.assetNotFound++;
+      });
       await page.exposeBinding('__retainedReportPhase', (_source, value) => {
         if (!phases.has(value)) throw new Error('phase-bound');
         report.phase = value;
