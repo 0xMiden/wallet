@@ -35,7 +35,7 @@ export const ArcadeAllowance: React.FC = () => {
   const networkName = networks.find(network => network.id === networkId)?.name ?? networkId;
   const { allTokensBaseMetadataRef } = useTokensMetadata();
   const { data, isLoading } = useAllBalances(account.publicKey, allTokensBaseMetadataRef.current);
-  const purchase = useGcPurchaseQuote(networkId);
+  const purchase = useGcPurchaseQuote(networkId, account.publicKey);
   const [reviewing, setReviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
@@ -145,6 +145,7 @@ export const ArcadeAllowance: React.FC = () => {
           if (!open) setReviewing(false);
         }}
         sale={purchase.sale}
+        sales={purchase.sales}
         payBalance={payBalance}
         submitting={submitting}
         error={purchaseError}
