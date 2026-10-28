@@ -48,9 +48,9 @@
     "st/workers/web-client-methods-worker.module.js.map": "e9fcf0661764fd314583c886103a1fce981d427b9116b40e396b51f664481bd5"
   },
   "native_source": "9a9b58a598a71801199d69309e1fb8e4ef27293c",
-  "producer_binary_sha256": "03dc14e351974045f751c19725529fe3858b1ae65766b2135a945d6a893b1bed",
-  "producer_run": 40787834620,
-  "producer_source": "b96cde51af77e64b99139f9f7d0a4fa0197d8a49",
+  "producer_binary_sha256": "dc10ac07a54fa86ee689725ddb30ec3587e021c5a0672f91bef320493fa0e2a1",
+  "producer_run": 40789951507,
+  "producer_source": "d89fc4f441425cbcc90db49983d664c74b5bcb58",
   "rayon_workers": 2,
   "retries": 0,
   "schema": 1,

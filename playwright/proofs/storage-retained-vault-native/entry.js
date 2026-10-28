@@ -85,7 +85,8 @@ async function prepare(password, includePrivate) {
     chain: fixture.chain,
     accountId: fixture.accountId,
     accountBytes: fixture.accountBytes,
-    accountCommitment: fixture.accountCommitment
+    accountCommitment: fixture.accountCommitment,
+    earlyBlock: fixture.block - 1
   });
   fixture.chain.fill(0);
   progress('producer-response');
@@ -108,9 +109,12 @@ async function prepare(password, includePrivate) {
         response.free();
       }
     }
-    await control('learn', { kind: 'header', height: generated.headers - 1 });
+    await control('learn', { kind: 'tip' });
     const tip = await rpc.getBlockHeaderByNumber(undefined, false);
     tip.free();
+    await control('learn', { kind: 'early-notes' });
+    const earlyTag = new sdk.NoteTag(fixture.tag);
+    try { const earlyResult = await rpc.syncNotes(fixture.block - 1, fixture.block - 1, [earlyTag]); earlyResult.free(); } finally { earlyTag.free(); }
     await control('learn', { kind: 'account' });
     const proof = await rpc.getAccountProof(id);
     proof.free();
@@ -122,7 +126,7 @@ async function prepare(password, includePrivate) {
       check('learnedEmptyNullifiers', updates.length === 0);
       updates.forEach(update => update.free());
       await control('learn', { kind: 'nullifier' });
-      const normalUpdates = await rpc.syncNullifiers(new Uint16Array([prefix]), 1, generated.headers - 1);
+      const normalUpdates = await rpc.syncNullifiers(new Uint16Array([prefix]), fixture.block, generated.headers - 1);
       check('learnedNormalEmptyNullifiers', normalUpdates.length === 0);
       normalUpdates.forEach(update => update.free());
     } finally {
@@ -254,7 +258,8 @@ async function prepare(password, includePrivate) {
   await withWasmClientLock(async hold => {
     const wallet = await getMidenClient();
     const beforeHeight = await wallet.client.getSyncHeight();
-    progress(beforeHeight === 0 ? 'expected-height-zero' : beforeHeight < fixture.block - 1 ? 'expected-height-before-hint' : beforeHeight < fixture.block ? 'expected-height-at-hint' : 'expected-height-at-note');
+    progress(beforeHeight === fixture.block - 1 ? 'expected-height-at-hint' : 'expected-height-other');
+    check('earlyTipBeforeImport', beforeHeight === fixture.block - 1);
     const imported = await wallet.importNoteBytes(new Uint8Array(fixture.expectedBytes), hold);
     check('expectedImportIdentity', imported.replace(/^0x/i, '').toLowerCase() === fixture.noteDetailsId);
     const notes = await wallet.getInputNotes();
@@ -263,10 +268,11 @@ async function prepare(password, includePrivate) {
   });
   const tags = await withWasmClientLock(async () => (await getMidenClient()).client.tags.list());
   check('trackedTagPresent', tags.includes(fixture.tag));
+  await control('advance', {});
   await control('learn', { kind: 'notes' });
   const noteRpc = new sdk.RpcClient(new sdk.Endpoint(location.origin));
   const noteTags = tags.sort((a, b) => a - b).map(value => new sdk.NoteTag(value));
-  try { const result = await noteRpc.syncNotes(1, generated.headers - 1, noteTags); result.free(); } finally { noteTags.forEach(tag => tag.free()); noteRpc.free(); }
+  try { const result = await noteRpc.syncNotes(fixture.block, generated.headers - 1, noteTags); result.free(); } finally { noteTags.forEach(tag => tag.free()); noteRpc.free(); }
   const expectedJournal = await vault.readRecoveryJournal();
   const expected = expectedJournal.entries.find(entry => entry.kind === 'note' && entry.provenance === 'input');
   const same = (a, b) => a?.length === b.length && a.every((value, index) => value === b[index]);
@@ -292,7 +298,7 @@ async function prepare(password, includePrivate) {
   check('expectedCandidateRetained', primary?.candidates?.some(candidate => same(candidate.noteFile, fixture.expectedBytes)) === true);
   check('healthyAfterPromotion', getStorageHealth().status === 'healthy');
   const service = await control('summary', {});
-  check('closedDiscoveryRequests', service.notesReads >= 2 && service.transactionReads > 0 && service.refusedRequests === 0);
+  check('closedDiscoveryRequests', service.notesReads >= 3 && service.transactionReads > 0 && service.refusedRequests === 0);
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {

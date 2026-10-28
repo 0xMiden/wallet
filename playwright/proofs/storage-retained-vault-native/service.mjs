@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 
-const binaryHash = '03dc14e351974045f751c19725529fe3858b1ae65766b2135a945d6a893b1bed';
+const binaryHash = 'dc10ac07a54fa86ee689725ddb30ec3587e021c5a0672f91bef320493fa0e2a1';
 const hash = value => createHash('sha256').update(value).digest('hex');
 function frame(body, type = 0) {
   const header = Buffer.alloc(5);
@@ -53,6 +53,7 @@ export async function createRecoveryService(buildRoot, binary) {
   let state;
   let pending;
   let sealed = false;
+  let stage = 'early';
   let learnedNotes = false;
   const images = new Map();
   const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, mmrReads: 0, notesReads: 0, transactionReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
@@ -79,7 +80,8 @@ export async function createRecoveryService(buildRoot, binary) {
             !Array.isArray(data.accountBytes) ||
             data.accountBytes.length > 2 * 1024 * 1024 ||
             typeof data.accountId !== 'string' ||
-            data.accountId.length > 128
+            data.accountId.length > 128 ||
+            !Number.isInteger(data.earlyBlock) || data.earlyBlock < 1 || data.earlyBlock >= 31
           )
             throw new Error('produce-shape');
           const chainFile = join(directory, 'chain.bin'),
@@ -104,7 +106,8 @@ export async function createRecoveryService(buildRoot, binary) {
           fixture = {
             accountId: data.accountId,
             accountBytes: Buffer.from(data.accountBytes),
-            accountCommitment: data.accountCommitment
+            accountCommitment: data.accountCommitment,
+            earlyBlock: data.earlyBlock
           };
           send({ headers: receipt.header_responses, accountProof: true });
           return;
@@ -115,7 +118,7 @@ export async function createRecoveryService(buildRoot, binary) {
             (sealed && (data.kind !== 'notes' || learnedNotes)) ||
             pending ||
             images.size >= 66 ||
-            !['header', 'account', 'nullifier', 'notes'].includes(data.kind) ||
+            !['header', 'tip', 'account', 'nullifier', 'early-notes', 'notes'].includes(data.kind) ||
             (data.kind === 'header' &&
               (!Number.isInteger(data.height) || data.height < 0 || data.height >= receipt.header_responses))
           )
@@ -129,6 +132,12 @@ export async function createRecoveryService(buildRoot, binary) {
           if (sealed || pending || images.size < 3) throw new Error('seal-bound');
           sealed = true;
           send({ sealed: true });
+          return;
+        }
+        if (action === 'advance') {
+          if (!sealed || pending || stage !== 'early') throw new Error('advance-bound');
+          stage = 'final';
+          send({ advanced: true });
           return;
         }
         if (action === 'state') {
@@ -153,26 +162,27 @@ export async function createRecoveryService(buildRoot, binary) {
         const body = await readBody(request, 64 * 1024);
         const identity = hash(Buffer.concat([Buffer.from(url.pathname), Buffer.from([0]), body]));
         let image;
-        if (fixture && url.pathname.endsWith('/SyncChainMmr') && body.equals(frame(await readFile(join(output, 'mmr-request.pb'))))) {
-          image = { kind: 'mmr', bytes: await readFile(join(output, 'mmr-response.pb')) };
+        if (fixture && url.pathname.endsWith('/SyncChainMmr') && body.equals(frame(await readFile(join(output, stage === 'early' ? 'early-mmr-request.pb' : 'advance-mmr-request.pb'))))) {
+          image = { kind: 'mmr', bytes: await readFile(join(output, stage === 'early' ? 'early-mmr-response.pb' : 'advance-mmr-response.pb')) };
         } else if (fixture && url.pathname.endsWith('/SyncTransactions') && body.equals(frame(await readFile(join(output, 'sync-transactions-request.pb'))))) {
           image = { kind: 'transactions', bytes: await readFile(join(output, 'sync-transactions.pb')) };
         } else if (fixture && url.pathname.endsWith('/GetLimits')) {
           image = { kind: 'limits', bytes: await readFile(join(output, 'limits.pb')) };
         } else if (pending && (!sealed || pending.kind === 'notes')) {
-          const expectedMethod = pending.kind === 'header' ? '/GetBlockHeaderByNumber' : pending.kind === 'account' ? '/GetAccount' : pending.kind === 'notes' ? '/SyncNotes' : '/SyncNullifiers';
+          const expectedMethod = ['header', 'tip'].includes(pending.kind) ? '/GetBlockHeaderByNumber' : pending.kind === 'account' ? '/GetAccount' : ['notes', 'early-notes'].includes(pending.kind) ? '/SyncNotes' : '/SyncNullifiers';
           if (!url.pathname.endsWith(expectedMethod)) {
             image = images.get(identity);
             if (!image) throw new Error('learning-method');
           } else {
-            const file = pending.kind === 'header' ? `header-${pending.height}.pb` : pending.kind === 'account' ? 'account.pb' : pending.kind === 'notes' ? 'sync-notes.pb' : 'nullifiers.pb';
-            image = { kind: pending.kind, bytes: await readFile(join(output, file)) };
+            const file = pending.kind === 'header' ? `header-${pending.height}.pb` : pending.kind === 'tip' ? `header-${fixture.earlyBlock}.pb` : pending.kind === 'account' ? 'account.pb' : pending.kind === 'early-notes' ? 'early-notes.pb' : pending.kind === 'notes' ? 'sync-notes.pb' : 'nullifiers.pb';
+            image = { kind: pending.kind, bytes: await readFile(join(output, file)), dynamicTip: pending.kind === 'tip' };
             const previous = images.get(identity);
             if (previous && !previous.bytes.equals(image.bytes)) throw new Error('request-image-collision');
             images.set(identity, image);
             pending = undefined;
           }
         } else image = images.get(identity);
+        if (image?.dynamicTip && stage === 'final') image = { ...image, bytes: await readFile(join(output, `header-${receipt.header_responses - 1}.pb`)) };
         if (!image) {
           if (url.pathname.endsWith('/SyncNullifiers')) counts.unknownNullifiers++;
           else if (url.pathname.endsWith('/GetLimits')) counts.unknownLimits++;
@@ -184,7 +194,7 @@ export async function createRecoveryService(buildRoot, binary) {
           else counts.unknownOther++;
           throw new Error('unknown-rpc-request');
         }
-        if (sealed && image.kind !== 'limits' && image.kind !== 'mmr') counts[image.kind === 'account' ? 'accountReads' : image.kind === 'header' ? 'headerReads' : image.kind === 'notes' ? 'notesReads' : image.kind === 'transactions' ? 'transactionReads' : 'nullifierReads']++;
+        if (sealed && image.kind !== 'limits' && image.kind !== 'mmr') counts[image.kind === 'account' ? 'accountReads' : ['header', 'tip'].includes(image.kind) ? 'headerReads' : ['notes', 'early-notes'].includes(image.kind) ? 'notesReads' : image.kind === 'transactions' ? 'transactionReads' : 'nullifierReads']++;
         if (sealed && image.kind === 'mmr') counts.mmrReads++;
         if (sealed && image.kind === 'limits') counts.limitsReads++;
         response.setHeader('Content-Type', 'application/grpc-web+proto');
