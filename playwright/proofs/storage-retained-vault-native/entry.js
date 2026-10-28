@@ -157,6 +157,17 @@ async function prepare(password, includePrivate) {
   if (includePrivate) await sdk.importStore(sdkStore, fixture.database, { durability: 'strict' });
   progress('pre-loss-lock');
   await withWasmClientLock(async () => {
+    const originalCreate = sdk.MidenClient.create;
+    sdk.MidenClient.create = async function (...args) {
+      progress(args[0]?.useWorker === true ? 'sdk-create-worker' : 'sdk-create-other');
+      try {
+        const result = await Reflect.apply(originalCreate, this, args);
+        progress('sdk-create-returned');
+        return result;
+      } finally {
+        sdk.MidenClient.create = originalCreate;
+      }
+    };
     progress('pre-loss-client');
     const wallet = await getMidenClient();
     if (!includePrivate) {
