@@ -299,7 +299,7 @@ export class RecoveryJournal {
         await assertCurrent();
         const readback = await this.storage.get([key]);
         const verified = await this.decrypt(readback[key]);
-        if (serialize(verified) !== plaintext) throw integrityFailure('Recovery journal readback mismatch');
+        if (serialize(verified) !== plaintext) throw new Error('Recovery journal readback mismatch');
         await assertCurrent();
         await this.storage.set({ [POINTER_KEY]: { slot: nextSlot, sequence: next.sequence } });
         await assertCurrent();
