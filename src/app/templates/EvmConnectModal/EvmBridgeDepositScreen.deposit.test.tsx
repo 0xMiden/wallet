@@ -2979,7 +2979,7 @@ describe('user-visible bridge deposit producers', () => {
 
   const answerFastFallback = (finalResult: unknown) => {
     let reads = 0;
-    const contract = READY_SNAPSHOT.config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress;
+    const contract = TEST_EVM_USDC.address;
     global.fetch = jest.fn().mockImplementation((_url: unknown, init?: RequestInit) => {
       const payload: { method?: unknown; params?: unknown[] } = JSON.parse(String(init?.body ?? '{}'));
       const call = payload.params?.[0];
@@ -3015,6 +3015,48 @@ describe('user-visible bridge deposit producers', () => {
       bridgeBalanceBranch: 'fast_usdc',
       bridgeBalanceStage: 'value_decode'
     });
+  });
+
+  it('ignores a timed-out first attempt while the fallback request is still pending', async () => {
+    let resolveFirst!: (response: { json: () => Promise<unknown> }) => void;
+    let rejectFallback!: (error: Error) => void;
+    let reads = 0;
+    global.fetch = jest.fn().mockImplementation((_url: unknown, init?: RequestInit) => {
+      const payload: { method?: string } = JSON.parse(String(init?.body ?? '{}'));
+      if (payload.method !== 'eth_call') {
+        return Promise.resolve({ json: async () => ({ result: word(FUNDED) }) });
+      }
+      reads++;
+      return reads === 1
+        ? new Promise(resolve => {
+            resolveFirst = resolve;
+          })
+        : new Promise((_resolve, reject) => {
+            rejectFallback = reject;
+          });
+    });
+    jest.useFakeTimers();
+    renderScreen();
+    await flushBridgePromises();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
+    });
+    expect(reads).toBe(2);
+    await act(async () => {
+      resolveFirst({ json: () => new Promise(() => undefined) });
+    });
+    await flushBridgePromises();
+    await act(async () => {
+      rejectFallback(new Error('synthetic final fallback transport failure'));
+    });
+    await flushBridgePromises();
+    expect(screen.getByText('synthetic final fallback transport failure')).toBeInTheDocument();
+    await expectErrorAfterDwell('raw_bridge_balance_failed', 'field', {
+      kind: 'bridge_balance_read',
+      bridgeBalanceBranch: 'fast_usdc',
+      bridgeBalanceStage: 'request'
+    });
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
   });
 
   it('keeps a successful balanceOf fallback quiet after getBalance fails', async () => {
