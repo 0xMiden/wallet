@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render, waitFor } from '@testing-library/react';
 
+import { AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
 const mockInitiateConsume = jest.fn(
@@ -44,9 +46,13 @@ jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 
 let mockAutoConsume = true;
 let mockDelegate = true;
+let mockUseRealSettings = false;
+const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
 jest.mock('lib/settings/helpers', () => ({
-  isAutoConsumeEnabled: () => mockAutoConsume,
-  isDelegateProofEnabled: () => mockDelegate
+  isAutoConsumeEnabled: () =>
+    mockUseRealSettings ? jest.requireActual('lib/settings/helpers').isAutoConsumeEnabled() : mockAutoConsume,
+  isDelegateProofEnabled: () =>
+    mockUseRealSettings ? jest.requireActual('lib/settings/helpers').isDelegateProofEnabled() : mockDelegate
 }));
 
 let mockClaimable: unknown[] = [];
@@ -82,6 +88,9 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockExtension = false;
     mockAutoConsume = true;
     mockDelegate = true;
+    mockUseRealSettings = false;
+    if (storageDescriptor) Object.defineProperty(window, 'localStorage', storageDescriptor);
+    localStorage.clear();
     mockClaimable = [];
     mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
@@ -90,6 +99,10 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockInitiateConsume.mockImplementation(async () => 'consume-tx');
     mockOnFeeRead = () => undefined;
     mockWalletReady = true;
+  });
+
+  afterEach(() => {
+    if (storageDescriptor) Object.defineProperty(window, 'localStorage', storageDescriptor);
   });
 
   // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: a guard that answers no at
@@ -346,6 +359,27 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalled());
+    expect(mockInitiateConsumeBatch.mock.calls[0]![2]).toBe(false);
+  });
+
+  it('does not auto-consume when the preference cannot be read', async () => {
+    mockUseRealSettings = true;
+    mockClaimable = [note('n1')];
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
+    render(<NativeNoteAutoConsumeManager />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('proves locally when the delegated-proving preference cannot be read', async () => {
+    mockUseRealSettings = true;
+    mockClaimable = [note('n1')];
+    localStorage.removeItem(AUTO_CONSUME_STORAGE_KEY);
+    localStorage.setItem(DELEGATE_PROOF_STORAGE_KEY, '{broken');
+    render(<NativeNoteAutoConsumeManager />);
     await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalled());
     expect(mockInitiateConsumeBatch.mock.calls[0]![2]).toBe(false);
   });

@@ -5,7 +5,8 @@ import {
   DEFAULT_DELEGATE_PROOF,
   DEFAULT_AUTO_CONSUME,
   DEFAULT_HAPTIC_FEEDBACK,
-  TELEMETRY_STORAGE_KEY
+  TELEMETRY_STORAGE_KEY,
+  BG_SETTINGS_MIRRORED_KEY
 } from './constants';
 import {
   setDelegateProofSetting,
@@ -32,16 +33,20 @@ import {
 
 const mockKvStore: Record<string, unknown> = {};
 let mockStorageThrows = false;
+let mockGet: ((keys: string[]) => Promise<Record<string, unknown>>) | null = null;
+let mockSet: ((items: Record<string, unknown>) => Promise<void>) | null = null;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => {
     if (mockStorageThrows) throw new Error('storage provider not ready');
     return {
       get: async (keys: string[]) => {
+        if (mockGet) return mockGet(keys);
         const out: Record<string, unknown> = {};
         for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
         return out;
       },
       set: async (obj: Record<string, unknown>) => {
+        if (mockSet) return mockSet(obj);
         Object.assign(mockKvStore, obj);
       }
     };
@@ -53,14 +58,16 @@ describe('settings helpers', () => {
     localStorage.clear();
     for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
     mockStorageThrows = false;
+    mockGet = null;
+    mockSet = null;
   });
 
   describe('boolean preferences with unavailable storage', () => {
     const readers = [
-      { name: 'delegated proving', key: DELEGATE_PROOF_STORAGE_KEY, read: isDelegateProofEnabled, fallback: true },
-      { name: 'auto-consume', key: AUTO_CONSUME_STORAGE_KEY, read: isAutoConsumeEnabled, fallback: true },
-      { name: 'haptics', key: HAPTIC_FEEDBACK_STORAGE_KEY, read: isHapticFeedbackEnabled, fallback: true },
-      { name: 'telemetry', key: TELEMETRY_STORAGE_KEY, read: isTelemetryEnabled, fallback: false }
+      { name: 'delegated proving', key: DELEGATE_PROOF_STORAGE_KEY, read: isDelegateProofEnabled, closed: false },
+      { name: 'auto-consume', key: AUTO_CONSUME_STORAGE_KEY, read: isAutoConsumeEnabled, closed: false },
+      { name: 'haptics', key: HAPTIC_FEEDBACK_STORAGE_KEY, read: isHapticFeedbackEnabled, closed: true },
+      { name: 'telemetry', key: TELEMETRY_STORAGE_KEY, read: isTelemetryEnabled, closed: false }
     ];
     const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
 
@@ -69,37 +76,37 @@ describe('settings helpers', () => {
       jest.restoreAllMocks();
     });
 
-    it.each(readers)('uses the $name default when storage is null', ({ read, fallback }) => {
+    it.each(readers)('settles $name to $closed when storage is null', ({ read, closed }) => {
       Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
-      expect(read()).toBe(fallback);
+      expect(read()).toBe(closed);
     });
 
-    it.each(readers)('uses the $name default when the storage getter throws', ({ read, fallback }) => {
+    it.each(readers)('settles $name to $closed when the storage getter throws', ({ read, closed }) => {
       Object.defineProperty(window, 'localStorage', {
         configurable: true,
         get() {
           throw new DOMException('Storage unavailable', 'SecurityError');
         }
       });
-      expect(read()).toBe(fallback);
+      expect(read()).toBe(closed);
     });
 
-    it.each(readers)('uses the $name default when reading storage throws', ({ read, fallback }) => {
+    it.each(readers)('settles $name to $closed when reading storage throws', ({ read, closed }) => {
       jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
         throw new DOMException('Storage unavailable', 'SecurityError');
       });
-      expect(read()).toBe(fallback);
+      expect(read()).toBe(closed);
     });
 
-    it.each(readers)('uses the $name default for malformed JSON', ({ key, read, fallback }) => {
+    it.each(readers)('settles $name to $closed for malformed JSON', ({ key, read, closed }) => {
       localStorage.setItem(key, '{broken');
-      expect(read()).toBe(fallback);
+      expect(read()).toBe(closed);
     });
 
-    it.each(readers)('uses the $name default for nonboolean JSON', ({ key, read, fallback }) => {
+    it.each(readers)('settles $name to $closed for nonboolean JSON', ({ key, read, closed }) => {
       for (const value of ['null', '0', '1', '"false"', '[]', '{}']) {
         localStorage.setItem(key, value);
-        expect(read()).toBe(fallback);
+        expect(read()).toBe(closed);
       }
     });
 
@@ -108,6 +115,31 @@ describe('settings helpers', () => {
       expect(read()).toBe(false);
       localStorage.setItem(key, 'true');
       expect(read()).toBe(true);
+    });
+
+    it.each(['null', 'getter', 'getItem'])('reports no recorded choice when storage is %s', arm => {
+      if (arm === 'null') {
+        Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
+      } else if (arm === 'getter') {
+        Object.defineProperty(window, 'localStorage', {
+          configurable: true,
+          get() {
+            throw new DOMException('Storage unavailable', 'SecurityError');
+          }
+        });
+      } else {
+        jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+          throw new DOMException('Storage unavailable', 'SecurityError');
+        });
+      }
+      expect(hasTelemetryChoice()).toBe(false);
+    });
+
+    it('counts a stored non-boolean value as a choice', () => {
+      for (const stored of ['', '{broken']) {
+        localStorage.setItem(TELEMETRY_STORAGE_KEY, stored);
+        expect(hasTelemetryChoice()).toBe(true);
+      }
     });
 
     it.each(['null', 'getter', 'read', 'json', 'nonboolean'])(
@@ -323,11 +355,131 @@ describe('settings helpers', () => {
       expect(() => mirrorBackgroundSettings()).not.toThrow();
     });
 
-    it('async readers return defaults when getStorageProvider throws', async () => {
+    it('returns false for operational mirrors when the provider throws', async () => {
       mockStorageThrows = true;
-      expect(await isAutoConsumeEnabledAsync()).toBe(DEFAULT_AUTO_CONSUME);
-      expect(await isDelegateProofEnabledAsync()).toBe(DEFAULT_DELEGATE_PROOF);
+      expect(await isAutoConsumeEnabledAsync()).toBe(false);
+      expect(await isDelegateProofEnabledAsync()).toBe(false);
       expect(await areBackgroundSettingsMirrored()).toBe(false);
+    });
+
+    it('returns false when a mirrored operational read is rejected after the marker', async () => {
+      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+      mockGet = async keys => {
+        if (keys.includes(AUTO_CONSUME_STORAGE_KEY) || keys.includes(DELEGATE_PROOF_STORAGE_KEY)) {
+          throw new Error('Preference read unavailable');
+        }
+        return Object.fromEntries(keys.filter(key => key in mockKvStore).map(key => [key, mockKvStore[key]]));
+      };
+      expect(await areBackgroundSettingsMirrored()).toBe(true);
+      expect(await isAutoConsumeEnabledAsync()).toBe(false);
+      expect(await isDelegateProofEnabledAsync()).toBe(false);
+    });
+
+    it('returns false for a malformed mirrored operational preference', async () => {
+      mockKvStore[AUTO_CONSUME_STORAGE_KEY] = 'false';
+      mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = 0;
+      expect(await isAutoConsumeEnabledAsync()).toBe(false);
+      expect(await isDelegateProofEnabledAsync()).toBe(false);
+    });
+
+    it.each([
+      { name: 'leaves the mirror marker false when the preference batch is rejected', trusted: false },
+      { name: 'clears a trusted marker when the preference batch is rejected', trusted: true }
+    ])('$name', async ({ trusted }) => {
+      if (trusted) {
+        mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+        mockKvStore[AUTO_CONSUME_STORAGE_KEY] = true;
+      }
+      localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, 'false');
+      localStorage.setItem(DELEGATE_PROOF_STORAGE_KEY, 'true');
+      localStorage.setItem(TELEMETRY_STORAGE_KEY, 'false');
+      const payloads: Record<string, unknown>[] = [];
+      mockSet = async items => {
+        payloads.push(items);
+        if (items[AUTO_CONSUME_STORAGE_KEY] === false) throw new Error('Preference write unavailable');
+        Object.assign(mockKvStore, items);
+      };
+      mirrorBackgroundSettings();
+      await Promise.resolve();
+      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
+      expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
+      expect(payloads).toContainEqual(
+        expect.objectContaining({ [AUTO_CONSUME_STORAGE_KEY]: false, [BG_SETTINGS_MIRRORED_KEY]: true })
+      );
+      expect(await isAutoConsumeEnabledAsync()).toBe(true);
+      expect((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())).toBe(false);
+    });
+
+    it('does not copy preferences when clearing the mirror marker is rejected', async () => {
+      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+      mockKvStore[AUTO_CONSUME_STORAGE_KEY] = true;
+      localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, 'false');
+      const payloads: Record<string, unknown>[] = [];
+      mockSet = async items => {
+        payloads.push(items);
+        if (items[BG_SETTINGS_MIRRORED_KEY] === false && Object.keys(items).length === 1) {
+          throw new Error('Marker write unavailable');
+        }
+        Object.assign(mockKvStore, items);
+      };
+      mirrorBackgroundSettings();
+      await Promise.resolve();
+      expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
+      expect(payloads.some(items => AUTO_CONSUME_STORAGE_KEY in items)).toBe(false);
+      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(true);
+    });
+
+    it.each([
+      { name: 'keeps a false choice made while the mirror marker clear is pending', readFails: false },
+      { name: 'does not copy preferences when a local read fails after the marker clear', readFails: true }
+    ])('$name', async ({ readFails }) => {
+      const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
+        localStorage.setItem(key, 'true');
+      }
+      let releaseClear!: () => void;
+      const clearPending = new Promise<void>(resolve => {
+        releaseClear = resolve;
+      });
+      const payloads: Record<string, unknown>[] = [];
+      mockSet = async items => {
+        payloads.push(items);
+        Object.assign(mockKvStore, items);
+        if (items[BG_SETTINGS_MIRRORED_KEY] === false && Object.keys(items).length === 1) {
+          await clearPending;
+        }
+      };
+      try {
+        mirrorBackgroundSettings();
+        expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
+        if (readFails) {
+          Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
+        } else {
+          setAutoConsumeSetting(false);
+          await setTelemetrySetting(false);
+        }
+        releaseClear();
+        await Promise.resolve();
+        const expectedBatch = readFails
+          ? undefined
+          : {
+              [AUTO_CONSUME_STORAGE_KEY]: false,
+              [DELEGATE_PROOF_STORAGE_KEY]: true,
+              [TELEMETRY_STORAGE_KEY]: false,
+              [BG_SETTINGS_MIRRORED_KEY]: true
+            };
+        expect(payloads.find(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toEqual(expectedBatch);
+        expect(payloads.filter(items => AUTO_CONSUME_STORAGE_KEY in items)).toHaveLength(readFails ? 0 : 2);
+        expect(mockKvStore[AUTO_CONSUME_STORAGE_KEY]).toBe(readFails ? undefined : false);
+        expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(readFails ? undefined : false);
+        expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(!readFails);
+        expect(await areBackgroundSettingsMirrored()).toBe(!readFails);
+        expect((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())).toBe(false);
+        expect(await isTelemetryEnabledAsync()).toBe(false);
+      } finally {
+        releaseClear();
+        if (descriptor) Object.defineProperty(window, 'localStorage', descriptor);
+      }
     });
   });
 
