@@ -228,7 +228,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.StorageRecoveryRequest:
       return {
         type: WalletMessageType.StorageRecoveryResponse,
-        ...(await Actions.recoverWalletStorage(req.operation, req.expectedEpoch))
+        ...(await Actions.recoverWalletStorage(req.operation, 0))
       };
     case WalletMessageType.SignWordRequest: {
       const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
