@@ -1,0 +1,59 @@
+name: H8 iOS native origin regression proof
+on:
+  push:
+    branches: [ci/h8-ios-origin-red]
+permissions:
+  contents: read
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = f7e3995000bde8fb34bcbde46e0ab6ac3a4153f5
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Prove functional red
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/walletconnect/native.test.ts src/lib/telemetry/transaction-failure.test.ts --testNamePattern='iOS native per-call failures|carriesIOSPerCallBridgeDiagnosticWithoutPrivateFields' --maxWorkers=2 --json --outputFile=proof/results.json > proof/jest.log 2>&1
+          result=$?
+          set -e
+          cat proof/jest.log
+          test "$result" -ne 0
+          node -e 'const r=require("./proof/results.json"); const a=r.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status==="failed"); console.log(JSON.stringify({failed:a.length,runtime:r.numRuntimeErrorTestSuites,names:a.map(t=>t.fullName)})); if(r.numRuntimeErrorTestSuites!==0 || a.length!==6 || a.some(t=>!t.failureMessages.join(" ").includes("expect("))) process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-js-red, path: proof/ }
+  ios:
+    runs-on: macos-26-xlarge
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = f7e3995000bde8fb34bcbde46e0ab6ac3a4153f5
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - run: yarn mobile:sync
+      - name: Prove native call regression
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
+          xcrun simctl bootstatus "$UDID" -b
+          mkdir -p proof
+          set +e
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" -parallel-testing-enabled NO -only-testing:AppTests/ReownCallFailureTests/testUnconfiguredNativeRequestsPreserveMessageAndExposePerCallOrigin -resultBundlePath proof/h8-red.xcresult -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test > proof/xcode.log 2>&1
+          result=$?
+          set -e
+          cat proof/xcode.log
+          test "$result" -ne 0
+          grep -F 'testUnconfiguredNativeRequestsPreserveMessageAndExposePerCallOrigin' proof/xcode.log
+          grep -F 'XCTAssertEqual failed' proof/xcode.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-native-red, path: proof/ }
