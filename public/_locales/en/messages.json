@@ -5715,6 +5715,10 @@
     "message": "Send your address",
     "englishSource": "Send your address"
   },
+  "receiveCrossChainCaption": {
+    "message": "From another network",
+    "englishSource": "From another network"
+  },
   "copy": {
     "message": "Copy",
     "englishSource": "Copy"

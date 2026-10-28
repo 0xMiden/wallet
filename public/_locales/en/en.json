@@ -1271,6 +1271,7 @@
   "faucetRequestTitle": "Faucet Request",
   "share": "Share",
   "receiveShareCaption": "Send your address",
+  "receiveCrossChainCaption": "From another network",
   "copy": "Copy",
   "crossChain": "Cross-chain",
   "evmWalletConnected": "EVM wallet connected",
