@@ -28,9 +28,11 @@ test('synthetic recovery controls respond to native taps in both themes', async 
     await expect.poll(() => session.eval<boolean>('return window.__TEST_STORE__.getState().isInitialized === true;'), { timeout: 60_000 }).toBe(true);
     const originalHeight = await session.eval<number>('return innerHeight;');
     for (const theme of ['light', 'dark']) {
+      await exec('adb', ['-s', device, 'shell', 'cmd', 'uimode', 'night', theme === 'dark' ? 'yes' : 'no'], { timeout: 30_000 });
+      await expect.poll(() => session.eval<boolean>("return matchMedia('(prefers-color-scheme: dark)').matches;"), { timeout: 30_000 }).toBe(theme === 'dark');
+      await expect.poll(() => session.eval<boolean>("return document.documentElement.classList.contains('dark');"), { timeout: 30_000 }).toBe(theme === 'dark');
       await session.eval(`
         var s = window.__TEST_STORE__;
-        document.documentElement.classList.toggle('dark', ${theme === 'dark'});
         var account = {publicKey:'retained-account',name:'Retained account',isPublic:true,type:'guardian',hdIndex:0,authScheme:'ecdsa'};
         location.hash = '#/storage-recovery';
         s.setState({ status: 2, accounts:[account], currentAccount:account, storageAvailability: {status:'unavailable',epoch:${theme === 'dark' ? 101 : 100},reason:'continuity',backend:'wallet',operation:'validate',time:0}, recoverWalletStorage: async function() { throw new Error('synthetic failure'); } });
