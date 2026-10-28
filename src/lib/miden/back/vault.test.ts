@@ -6421,6 +6421,9 @@ describe('Vault storage continuity', () => {
   });
 
   it('Task5 retained custody excludes public configuration and standalone platform keychain leftovers', async () => {
+    const desktop = jest.mocked(jest.requireMock<typeof import('lib/platform')>('lib/platform').isDesktop);
+    const previousDesktop = desktop.getMockImplementation();
+    desktop.mockReturnValue(true);
     const previousItems = { ...memoryStore };
     jest.doMock('lib/desktop/secure-storage', () => ({
       ...jest.requireActual<typeof import('lib/desktop/secure-storage')>('lib/desktop/secure-storage'),
@@ -6440,6 +6443,8 @@ describe('Vault storage continuity', () => {
     } finally {
       for (const key of Object.keys(memoryStore)) delete memoryStore[key];
       Object.assign(memoryStore, previousItems);
+      if (previousDesktop) desktop.mockImplementation(previousDesktop);
+      else desktop.mockReset();
       if (previousImplementation) keychain.mockImplementation(previousImplementation);
       else keychain.mockReset();
       jest.dontMock('lib/desktop/secure-storage');
