@@ -530,7 +530,7 @@ const PageRouter: FC = () => {
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 
   const availability = miden.storageAvailability;
-  if (availability?.status !== 'healthy') {
+  if (availability?.status !== 'healthy' && availability?.status !== 'pending') {
     if (availability?.status !== 'unavailable') return <RootSuspenseFallback />;
     const lifecycleRoute =
       pathname === '/developer-settings' ||
