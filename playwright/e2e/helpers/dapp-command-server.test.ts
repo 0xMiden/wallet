@@ -96,12 +96,14 @@ interface FakePage {
 }
 
 describe('command server', () => {
-  it('settles a pending command as HarnessFault when the page reports its result undelivered', async () => {
+  it('settles a pending command as HarnessFault after a delayed result-undelivered event', async () => {
     const base = await start();
     const outcome = commandChannel(live(), 'A', 'one')
-      .send('session', {}, 1_000)
+      .send('session', {})
       .catch((error: unknown) => error);
     const command: unknown = await (await poll(base, 'A', 'one')).json();
+    // Coverage instrumentation can delay the event by more than a second along the HTTP path.
+    await pause(1_100);
     await fetch(`${base}/event?device=A&dapp=one`, {
       method: 'POST',
       body: JSON.stringify({ kind: 'result-undelivered', data: { id: idOf(command) } })
