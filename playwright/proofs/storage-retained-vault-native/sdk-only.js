@@ -10,10 +10,16 @@ const event = name => window.__sdkControlEvent(name).catch(() => {});
 window.__sdkGenerateFee = async () => {
   await sdk.MidenClient.ready();
   const { prepareChain } = await import('./prepare-chain');
-  const fixture = await prepareChain(sdk);
-  for (const material of fixture.custody) material.secretBytes.fill(0);
-  fixture.chain.fill(0);
-  return fixture.feeFaucetId;
+  try {
+    const fixture = await prepareChain(sdk);
+    for (const material of fixture.custody) material.secretBytes.fill(0);
+    fixture.chain.fill(0);
+    return { ok: true, fee: fixture.feeFaucetId };
+  } catch (error) {
+    const name = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : error instanceof Error ? 'Error' : 'Other';
+    const phases = ['sdk-load', 'initial-disposable-context', 'bootstrap', 'guarded-recipient-build', 'real-mockchain-mint', 'producer-authenticated-record'];
+    return { ok: false, phase: phases.includes(window.__seedPhase) ? window.__seedPhase : 'unknown', errorClass: name };
+  }
 };
 window.__sdkControl = async (variant, fee) => {
   await sdk.MidenClient.ready();

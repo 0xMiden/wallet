@@ -41,6 +41,7 @@ export async function prepareChain(sdk) {
   const useWorker = false;
   const custody = [];
   let phase = 'sdk-load';
+  window.__seedPhase = phase;
   let client;
   let bootstrap;
   const checks = {};
@@ -82,10 +83,12 @@ export async function prepareChain(sdk) {
   }
   try {
     phase = 'initial-disposable-context';
+    window.__seedPhase = phase;
     check('freshContext', (await databaseNames()).length === 0);
     check('isolation', build !== 'mt' || crossOriginIsolated);
     sdk.WasmWebClient.workerMode = 'module';
     phase = 'bootstrap';
+    window.__seedPhase = phase;
     bootstrap = await sdk.MockWebClient.createClient(
       undefined,
       undefined,
@@ -128,6 +131,7 @@ export async function prepareChain(sdk) {
     }
     await createClient();
     phase = 'guarded-recipient-build';
+    window.__seedPhase = phase;
     const keyCommitment = () => {
       const key = own(sdk.AuthSecretKey.ecdsaWithRNG(crypto.getRandomValues(new Uint8Array(32))));
       const pubkey = own(key.publicKey());
@@ -165,6 +169,7 @@ export async function prepareChain(sdk) {
     const accountCommitment = own(account.to_commitment()).toHex();
     await client.accounts.insert({ account, overwrite: false });
     phase = 'real-mockchain-mint';
+    window.__seedPhase = phase;
     const faucet = own(
       await client.accounts.create({
         type: sdk.FaucetType.FungibleFaucet,
@@ -196,6 +201,7 @@ export async function prepareChain(sdk) {
     await client.proveBlock();
     await client.syncChain();
     phase = 'producer-authenticated-record';
+    window.__seedPhase = phase;
     const records = await client.notes.list({ status: 'committed' });
     records.forEach(own);
     check('oneProducerRecord', records.length === 1);

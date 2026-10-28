@@ -33,9 +33,12 @@ for (const variant of ['fee-omitted', 'fee-present']) test(`st/static-comparison
   const seedPage = await seedContext.newPage();
   await seedPage.goto(`${origin}/st/`);
   await seedPage.waitForFunction(() => typeof window.__sdkGenerateFee === 'function');
-  const fee = await seedPage.evaluate(async () => {
-    try { return await window.__sdkGenerateFee(); } catch { return null; }
+  const seed = await seedPage.evaluate(async () => {
+    try { return await window.__sdkGenerateFee(); } catch { return { ok: false, phase: 'outer', errorClass: 'Other' }; }
   });
+  if (!seed.ok) await testInfo.attach('closed-seed-failure', { body: JSON.stringify(seed), contentType: 'application/json' });
+  expect(seed.ok).toBe(true);
+  const fee = seed.fee;
   expect(typeof fee).toBe('string');
   await seedContext.close();
   await seedBrowser.close();
