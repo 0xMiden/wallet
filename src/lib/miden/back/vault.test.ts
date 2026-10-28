@@ -6632,6 +6632,72 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('Task5 recovery Vault quarantines a delegated journal write accepted after the caller timed out', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const { getAccountsWriteQueue } = await import('lib/miden/back/accounts-write-queue');
+    let release: () => void = () => undefined;
+    let began: () => void = () => undefined;
+    let accepted: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const started = new Promise<void>(resolve => {
+      began = resolve;
+    });
+    const completedWrite = new Promise<void>(resolve => {
+      accepted = resolve;
+    });
+    let acceptedSlots = 0;
+    const slotWrite = (items: Record<string, unknown>) =>
+      Object.keys(items).some(key => key === 'miden_recovery_v1_0' || key === 'miden_recovery_v1_1');
+    mockBeforeStorageWrite = async items => {
+      if (slotWrite(items)) {
+        began();
+        await gate;
+      }
+    };
+    mockAfterStorageWrite = async items => {
+      if (slotWrite(items)) {
+        acceptedSlots++;
+        accepted();
+      }
+    };
+    try {
+      const pending = Vault.importRecoveryData(content, filePassword, health.epoch, credential);
+      const observed = pending.then(
+        () => 'resolved',
+        () => 'rejected'
+      );
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+      expect(acceptedSlots).toBe(0);
+      expect(getStorageHealth()).toEqual(health);
+      release();
+      await completedWrite;
+      await getAccountsWriteQueue().onIdle();
+      expect(acceptedSlots).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    } finally {
+      release();
+      await getAccountsWriteQueue().onIdle();
+      mockBeforeStorageWrite = undefined;
+      mockAfterStorageWrite = undefined;
+    }
+  });
+
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
     const { getStorageProvider } = await import('lib/platform/storage-adapter');
