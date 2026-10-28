@@ -1,0 +1,87 @@
+name: Issue1948 immutable wallet SDK injection
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  injection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 20c24ddbcff1c32eccec17562aee149f4557a6bf
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: backend eight named lint
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          cd wallet
+          yarn eslint CHANGELOG.md public/_locales/en/en.json src/app/App.test.tsx src/app/App.tsx src/app/PageRouter.test.tsx src/app/PageRouter.tsx src/app/StorageRecoveryPage.tsx src/app/hooks/useHiddenTokens.realms.test.ts src/app/pages/Settings.selectors.ts src/app/pages/Settings.test.tsx src/app/pages/Settings.tsx src/app/pages/Unlock.test.tsx src/app/pages/Unlock.tsx src/app/providers/DappBrowserProvider.test.tsx src/app/providers/DappBrowserProvider.tsx src/components/PasscodeScreen.tsx src/components/StrictActionAuthentication.test.tsx src/components/StrictActionAuthentication.tsx src/lib/auth/strict-action-authentication.test.ts src/lib/auth/strict-action-authentication.ts src/lib/dapp-browser/favicon-cache.test.ts src/lib/dapp-browser/favicon-cache.ts src/lib/dapp-browser/session-persistence.test.ts src/lib/dapp-browser/session-persistence.ts src/lib/dapp-browser/snapshot-persistence.test.ts src/lib/dapp-browser/snapshot-persistence.ts src/lib/dapp-browser/snapshot-store.test.ts src/lib/dapp-browser/snapshot-store.ts src/lib/intercom/in-process-request-handler.test.ts src/lib/intercom/in-process-request-handler.ts src/lib/miden/activity/bridge-in-test-hooks.test.ts src/lib/miden/activity/bridge-in.adopt.test.ts src/lib/miden/activity/bridge-in.durability.test.ts src/lib/miden/activity/bridge-receive.usdcx.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.test.ts src/lib/miden/back/main.ts src/lib/miden/back/store.test.ts src/lib/miden/back/store.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/front/client.ts src/lib/miden/front/native-pricing-reactivity.test.tsx src/lib/miden/metadata/storage.test.ts src/lib/miden/metadata/storage.ts src/lib/miden/recovery/external-file.test.ts src/lib/miden/recovery/external-file.ts src/lib/miden/recovery/external-import-lifecycle.test.ts src/lib/miden/recovery/external-import.test.ts src/lib/miden/recovery/external-import.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/storage-health.ts src/lib/miden/swap/admission.test.ts src/lib/prices/usd.test.ts src/lib/prices/usd.ts src/lib/shared/types.ts src/lib/store/index.ready-balance-read.test.ts src/lib/store/index.ts src/lib/store/types.test.ts src/lib/store/types.ts src/lib/store/utils/fetchBalances.lock-order.test.ts src/lib/telemetry/user-visible-error-contract.ts src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/useEarnPositions.test.ts src/screens/encrypted-file-flow/ExportFileComplete.test.tsx src/screens/encrypted-file-flow/ExportFileComplete.tsx src/screens/encrypted-file-flow/ExportFileSetNamePassword.tsx src/screens/storage-recovery/RecoveryDataFlow.test.tsx src/screens/storage-recovery/RecoveryDataFlow.tsx src/screens/storage-recovery/RecoveryDataSettings.tsx --max-warnings=0 2>&1 | tee ../proof/backend-eight-lint.log
+      - name: checks
+        timeout-minutes: 21
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py checks --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-checks.log
+      - name: receipt
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py receipt --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-receipt.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-injection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
