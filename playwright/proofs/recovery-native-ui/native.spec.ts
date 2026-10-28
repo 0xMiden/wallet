@@ -61,7 +61,15 @@ test('synthetic recovery controls respond to native taps in both themes', async 
       const observe = () => session.eval(`
         var s=window.__TEST_STORE__.getState(), b=Array.from(document.querySelectorAll('button')).find(x=>(x.textContent||'').trim()==='Check storage');
         var r=b && b.getBoundingClientRect(), x=r && r.left+r.width/2, y=r && r.top+r.height/2;
-        return {status:s.status,availability:s.storageAvailability.status,epoch:s.storageAvailability.epoch,accountPresent:!!s.currentAccount,recovery:!!document.querySelector('[data-testid=storage-recovery-page]'),checkHit:!!(b && b.contains(document.elementFromPoint(x,y))),checkInViewport:!!(r && x>=0 && y>=0 && x<innerWidth && y<innerHeight),calls:window.__RECOVERY_CALLS__||0,error:document.body.textContent.includes('The check could not finish. Wallet actions remain paused.')};
+        return {status:s.status,availability:s.storageAvailability.status,epoch:s.storageAvailability.epoch,accountPresent:!!s.currentAccount,recovery:!!document.querySelector('[data-testid=storage-recovery-page]'),checkHit:!!(b && b.contains(document.elementFromPoint(x,y))),checkInViewport:!!(r && x>=0 && y>=0 && x<innerWidth && y<innerHeight),calls:window.__RECOVERY_CALLS__||0,events:window.__TAP_DIAGNOSTIC__||[],center:r ? {x,y,width:innerWidth,height:innerHeight} : null,error:document.body.textContent.includes('The check could not finish. Wallet actions remain paused.')};
+      `);
+      await session.eval(`
+        window.__TAP_DIAGNOSTIC__=[];
+        for (var kind of ['touchstart','click']) document.addEventListener(kind, function(e) {
+          var b=e.target && e.target.closest && e.target.closest('button');
+          window.__TAP_DIAGNOSTIC__.push({kind:e.type,check:!!(b && (b.textContent||'').trim()==='Check storage')});
+        }, {capture:true, once:true});
+        return true;
       `);
       const beforeTap = await observe();
       await tap('Check storage');
