@@ -1,0 +1,122 @@
+name: Issue1948 actual retained Vault native loss2
+on:
+  push:
+    branches: ['ci/1948-retained-vault-native-*']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recovery2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+      WALLET_MATRIX_BUILD_ROOT: ${{ github.workspace }}/retained-builds
+      RECOVERY_PROOF_RESULTS: ${{ github.workspace }}/proof/results.json
+      RECOVERY_PROOF_BUILD_ROOT: ${{ github.workspace }}/retained-builds
+      RAYON_NUM_THREADS: 2
+      WALLET_MATRIX_OUTPUT_DIR: ${{ github.workspace }}/proof/test-results
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3de7040857362e1b5b998f2329eefa6ca50810fe
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: injection-bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py bind --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-bind.log
+      - name: factory-bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py bind 2>&1 | tee proof/stage-factory-bind.log
+      - name: injection-packages
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py packages --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-packages.log
+      - name: injection-inject
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py inject --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-inject.log
+      - name: injection-generate-lock
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py generate-lock --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-generate-lock.log
+      - name: injection-replay
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py replay --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-replay.log
+      - name: injection-identities
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/inject.py identities --config controller/.github/ci/issue1948-retained-vault-native/injection-inputs.json 2>&1 | tee proof/stage-injection-identities.log
+      - name: snapshot
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py snapshot 2>&1 | tee proof/stage-snapshot.log
+      - name: Bind compiled fixture producer
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-retained-vault-native/consume-producer.py 2>&1 | tee proof/stage-compiled-producer.log
+      - name: browser-install
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py browser-install 2>&1 | tee proof/stage-browser-install.log
+      - name: build-st
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py build-st 2>&1 | tee proof/stage-build-st.log
+      - name: run
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py run 2>&1 | tee proof/stage-run.log
+      - name: Verify exact retained Vault cases
+        if: always() && hashFiles('proof/results.json') != ''
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py verify 2>&1 | tee proof/stage-verify.log
+      - name: Preserve source payload lock and emitted assets after any failure
+        if: always() && hashFiles('proof/installed-dist-before.json') != ''
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-retained-vault-native/run.py preserve 2>&1 | tee proof/final-preservation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-retained-vault-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
