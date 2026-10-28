@@ -96,6 +96,19 @@ export async function restoreSdkRecovery(
       if (acquire) await acquire(file, importNote);
       else await importNote();
       Reflect.set(globalThis, '__noteRestoreAcquireReturned', true);
+      const heightReader: unknown = Reflect.get(client, 'getSyncHeight');
+      const proof = file.inclusionProof();
+      const location = proof?.location();
+      try {
+        if (typeof heightReader === 'function' && location) {
+          const height: unknown = await Reflect.apply(heightReader, client, []);
+          Reflect.set(globalThis, '__noteRestoreHeightObserved', typeof height === 'number');
+          Reflect.set(globalThis, '__noteRestoreBehindNote', typeof height === 'number' && height < location.blockNum());
+        }
+      } finally {
+        location?.free();
+        proof?.free();
+      }
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
       Reflect.set(globalThis, '__noteRestoreReadbackReturned', true);
