@@ -1,3 +1,5 @@
+import { BURN_FEE_FAILURES, type BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
+
 import { closedDiagnosticPair, ownDiagnosticData } from './closed-root-diagnostics';
 
 export const FEATURE_UNAVAILABLE_FEATURES = [
@@ -46,20 +48,23 @@ export type UiEvidenceInput =
     }
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
-  | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage };
+  | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
+  | { kind: 'burn_fee'; burnFeeFailure: BurnFeeFailure };
 export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   pendingRetryReason?: PendingRetryReason;
   recipientValidationStage?: RecipientValidationStage;
+  burnFeeFailure?: BurnFeeFailure;
 };
 export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
   'pendingRetryReason',
-  'recipientValidationStage'
+  'recipientValidationStage',
+  'burnFeeFailure'
 ] as const;
 const groups = {
   feature_unavailable: {
@@ -79,6 +84,11 @@ const groups = {
     id: 'raw_pending_activity_retry_failed',
     surface: 'notice',
     fields: { pendingRetryReason: PENDING_RETRY_REASONS }
+  },
+  burn_fee: {
+    id: 'usdcxBurnFeeUnavailable',
+    surface: 'field',
+    fields: { burnFeeFailure: BURN_FEE_FAILURES }
   },
   recipient_validation: {
     id: 'invalidMidenAccountId',
