@@ -1,0 +1,39 @@
+name: Restart state lint proof
+on:
+  push:
+    branches: ['ci/1961-restart-lint-*']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 9ef306081aed7769d2c6116bbf2b3e7a7ff57d21 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 9ef306081aed7769d2c6116bbf2b3e7a7ff57d21
+      - name: Install dependencies
+        id: install
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Lint and check formatting
+        if: steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn eslint src/lib/store/index.ts src/lib/store/index.test.ts 2>&1 | tee proof/lint.log
+          yarn prettier --check src/lib/store/index.ts src/lib/store/index.test.ts 2>&1 | tee proof/format.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: restart-state-lint
+          path: proof/
