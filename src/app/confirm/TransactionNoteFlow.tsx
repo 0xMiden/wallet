@@ -89,7 +89,11 @@ const NoteItem: React.FC<{ note: NoteDetail; index: number; side: 'in' | 'out' }
   const tone = note.kind === 'fee' || note.kind === 'TX_FEE' ? 'fee' : side === 'in' ? 'sent' : 'note';
   return (
     <Card asChild padding="tile" className="min-w-0">
-      <li data-testid="tx-note-item" data-tone={tone} className="tx-stage-note">
+      <li
+        data-testid="tx-note-item"
+        data-tone={tone}
+        className={classNames('tx-stage-note tx-note-slide', side === 'out' ? 'out' : 'in')}
+      >
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <span className="font-semibold text-ink">
             {kindKey ? t(kindKey) : t('standardNoteLabel', { name: standardNotePhrase(note.kind) })}
@@ -224,7 +228,11 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
         {notesOpen ? t('hideNotes', { defaultValue: 'Hide notes' }) : t('showNotes', { defaultValue: 'Show notes' })}
         <span className={classNames('tx-notes-chevron', notesOpen && 'is-open')} aria-hidden="true" />
       </button>
-      <div ref={notesPanelRef} className="tx-notes-disclosure" aria-hidden={notesOpen ? undefined : true}>
+      <div
+        ref={notesPanelRef}
+        className={classNames('tx-notes-disclosure', notesOpen && 'is-open')}
+        aria-hidden={notesOpen ? undefined : true}
+      >
         <div className="tx-notes-disclosure-inner">
           <div className="text-sm text-muted mb-2">
             {t('inputNotesConsumed')}: {flow.inputCount}
