@@ -14,7 +14,9 @@ window.__sdkGenerateFee = async () => {
     const fixture = await prepareChain(sdk);
     for (const material of fixture.custody) material.secretBytes.fill(0);
     fixture.chain.fill(0);
-    return { ok: true, fee: fixture.feeFaucetId };
+    const fee = fixture.feeFaucetId.toHex();
+    fixture.feeFaucetId.free();
+    return { ok: true, fee };
   } catch (error) {
     const name = error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : error instanceof Error ? 'Error' : 'Other';
     const phases = ['sdk-load', 'initial-disposable-context', 'bootstrap', 'guarded-recipient-build', 'real-mockchain-mint', 'producer-authenticated-record'];
