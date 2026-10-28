@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execFile } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -32,7 +32,7 @@ test('synthetic recovery controls respond to native taps in both themes', async 
         document.documentElement.classList.toggle('dark', ${theme === 'dark'});
         var account = {publicKey:'retained-account',name:'Retained account',isPublic:true,type:'guardian',hdIndex:0,authScheme:'ecdsa'};
         location.hash = '#/storage-recovery';
-        s.setState({ status: 2, accounts:[account], currentAccount:account, storageAvailability: {status:'unavailable',epoch:${theme === 'dark' ? 101 : 100},reason:'continuity',backend:'wallet',operation:'validate',time:0}, recoverWalletStorage: async function() { throw new Error('synthetic failure'); } });
+        s.setState({ status: 2, accounts:[account], currentAccount:account, storageAvailability: {status:'unavailable',epoch:${theme === 'dark' ? 101 : 100},reason:'continuity',backend:'wallet',operation:'validate',time:0}, recoverWalletStorage: async function() { window.__RECOVERY_CALLS__ = (window.__RECOVERY_CALLS__ || 0) + 1; throw new Error('synthetic failure'); } });
         return true;
       `);
       await expect.poll(() => session.eval<boolean>("return !!document.querySelector('[data-testid=storage-recovery-page]');"), { timeout: 30_000 }).toBe(true);
@@ -58,7 +58,17 @@ test('synthetic recovery controls respond to native taps in both themes', async 
         if (ios) await simulator.screenshot(device, path); else await emulator.screenshot(device, path);
       };
       await screenshot('recovery');
+      const observe = () => session.eval(`
+        var s=window.__TEST_STORE__.getState(), b=Array.from(document.querySelectorAll('button')).find(x=>(x.textContent||'').trim()==='Check storage');
+        var r=b && b.getBoundingClientRect(), x=r && r.left+r.width/2, y=r && r.top+r.height/2;
+        return {status:s.status,availability:s.storageAvailability.status,epoch:s.storageAvailability.epoch,accountPresent:!!s.currentAccount,recovery:!!document.querySelector('[data-testid=storage-recovery-page]'),checkHit:!!(b && b.contains(document.elementFromPoint(x,y))),checkInViewport:!!(r && x>=0 && y>=0 && x<innerWidth && y<innerHeight),calls:window.__RECOVERY_CALLS__||0,error:document.body.textContent.includes('The check could not finish. Wallet actions remain paused.')};
+      `);
+      const beforeTap = await observe();
       await tap('Check storage');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const afterTap = await observe();
+      await screenshot('postcheck');
+      await writeFile(join(output, `${platform}-${theme}-tap.json`), JSON.stringify({beforeTap,afterTap}, null, 2));
       await expect.poll(() => session.eval<boolean>("return document.body.textContent.includes('The check could not finish. Wallet actions remain paused.');"), { timeout: 30_000 }).toBe(true);
       await screenshot('error');
       if (!ios) {
