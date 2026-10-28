@@ -1,10 +1,15 @@
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import { isOneClickTransaction } from 'lib/one-click/tracking';
 
+import { decryptRecoveryDataFile, encryptRecoveryDataFile } from './external-file';
+import { mergeExternalRecoveryData } from './external-import';
+import { RecoveryJournal } from './journal';
 import { restoreWalletRecoveryRows, restoreWalletRecoveryGeneration } from './restore';
 import { receiptSnapshot, oneClickReceiptRow } from './testing/provider-receipts';
 import type { RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
 import { ITransactionStatus, type ITransaction } from '../db/types';
+import * as Passworder from '../passworder';
 import * as Repo from '../repo';
 import {
   getStorageHealth,
@@ -256,3 +261,61 @@ it('replays matching native debit evidence without changing its original future 
     restoredFromJournal: true
   });
 });
+
+it.each(['transaction', 'receipt'])(
+  'Task5 external %s provenance survives encryption restart and repeated row reconstruction',
+  async kind => {
+    const previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+    try {
+      const original = validateJournal(kind === 'transaction' ? source() : receiptSnapshot());
+      const filePassword = crypto.randomUUID();
+      const encrypted = await encryptRecoveryDataFile(original, filePassword);
+      const decoded = await decryptRecoveryDataFile(encrypted, filePassword);
+      const merged = mergeExternalRecoveryData(decoded, {
+        scope: original.scope,
+        accountIds: original.accounts.map(account => account.accountId)
+      });
+      const values = new Map<string, unknown>();
+      const provider = {
+        get: async (keys: string[]) =>
+          Object.fromEntries(keys.filter(key => values.has(key)).map(key => [key, values.get(key)])),
+        set: async (items: Record<string, unknown>) => {
+          for (const [key, value] of Object.entries(items)) values.set(key, value);
+        },
+        remove: async (keys: string[]) => {
+          for (const key of keys) values.delete(key);
+        }
+      };
+      const key = await Passworder.importVaultKey(crypto.getRandomValues(new Uint8Array(32)));
+      await new RecoveryJournal(key, provider).update(() => merged);
+      const restarted = await new RecoveryJournal(key, provider).read();
+      if (!restarted) throw new Error('Missing encrypted restart fixture');
+      const entry = restarted.entries.find(value => value.kind === kind);
+      if (!entry || (entry.kind !== 'transaction' && entry.kind !== 'receipt') || !entry.row)
+        throw new Error('Missing imported recovery row');
+      expect(entry.row).toMatchObject({ restoredFromBackup: true, status: ITransactionStatus.Unconfirmed });
+      expect(entry.row.restoredFromJournal).toBeUndefined();
+      expect(entry.kind === 'transaction' ? entry.mayHaveSubmitted : undefined).toBe(
+        kind === 'transaction' ? true : undefined
+      );
+      markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+      const incident = getStorageHealth();
+      await withStorageRecoveryAccess(incident.epoch, Date.now() + 5000, async capability => {
+        await restoreWalletRecoveryGeneration(restarted, capability);
+        await restoreWalletRecoveryRows(restarted, capability);
+        const first = await Repo.transactions.get(entry.id);
+        expect(first).toMatchObject({ restoredFromBackup: true, status: ITransactionStatus.Unconfirmed });
+        expect(first?.restoredFromJournal).toBeUndefined();
+        await restoreWalletRecoveryRows(restarted, capability);
+        const second = await Repo.transactions.get(entry.id);
+        expect(second).toMatchObject({ restoredFromBackup: true, status: ITransactionStatus.Unconfirmed });
+        expect(second?.restoredFromJournal).toBeUndefined();
+      });
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
+      else Reflect.deleteProperty(navigator, 'locks');
+    }
+  }
+);

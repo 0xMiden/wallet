@@ -8170,5 +8170,171 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "钱包存储不可用",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "无法验证您的钱包数据。在完成存储检查之前，余额和钱包操作将暂停。",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "已提交的交易仍可能完成。请在重试前先检查其状态。",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "检查存储",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "根据恢复数据重建",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "检查已提交的交易",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "正在检查保留的钱包数据……",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "检查无法完成。钱包操作仍处于暂停状态。",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "存储情况尚未得到验证。钱包操作仍处于暂停状态。",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "已验证账户：$verifiedAccounts$，占 $expectedAccounts$。已验证输入：$verifiedInputs$，占 $expectedInputs$。",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "保存恢复数据文件",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "正在准备您的恢复数据文件……",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "无法保存恢复数据",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "无法交付恢复数据文件。在依赖此副本之前，请重试。",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "恢复数据",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "已保存",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "请将这份经过加密的、最新验证过的恢复数据副本保存在本设备之外，并妥善保管其密码。该副本可能不包含较新的账户或交易记录。",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "本文件不包含您的签名密钥或助记词。",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "请先单独恢复签名人的访问权限，然后导入此数据并检查钱包存储情况，再重试交易。",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "恢复数据",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "导出恢复数据",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "导入恢复数据",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "将最后一次经过验证的恢复数据导出到本设备外的文件中。该文件可能不包含较新的账户或活动记录。此文件不包含签名密钥或您的恢复短语。导入前请单独恢复签名者的访问权限。",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataChooseFile": {
+    "message": "选择恢复数据文件",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "清除选定文件",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "恢复文件密码",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "请使用您的钱包保护器进行身份验证，以访问恢复数据。",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "保留的恢复数据",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "导入的证据不会恢复钱包活动。请检查并重建钱包存储，然后核对已提交的交易，再重新尝试。",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "恢复文件的密码不正确。",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "这不是一个有效的恢复数据文件。",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "此恢复文件版本不受支持。",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "恢复数据文件超过了大小限制。",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "此恢复数据属于另一个网络。",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "此恢复数据与保留的钱包账户不匹配。",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "无法提供经过验证的恢复数据。",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "恢复数据",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "无法读取所选的恢复文件。请重新选择并再次尝试。",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }
