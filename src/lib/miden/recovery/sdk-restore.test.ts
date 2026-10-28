@@ -149,7 +149,9 @@ it('advances chain state before importing a retained full-proof input', async ()
     ])
   ).resolves.toBeUndefined();
   expect(advance).toHaveBeenCalledWith(5);
-  expect(advance.mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(client.notes.import).mock.invocationCallOrder[0]!);
+  expect(advance.mock.invocationCallOrder[0]).toBeLessThan(
+    jest.mocked(client.notes.import).mock.invocationCallOrder[0]!
+  );
 });
 
 it('refuses the retained import when recovery chain advancement fails', async () => {
