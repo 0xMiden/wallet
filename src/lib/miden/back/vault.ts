@@ -1648,11 +1648,7 @@ export class Vault {
           const journal = new RecoveryJournal(key, getStorageProvider());
           const snapshot = await journal.read();
           check();
-          if (
-            !snapshot ||
-            snapshot.scope.network !== network ||
-            snapshot.accounts.some(floor => !accounts.some(account => account.publicKey === floor.accountId))
-          )
+          if (!snapshot || snapshot.scope.network !== network || snapshot.accounts.length !== accounts.length)
             throw new RecoveryDataFileError('account');
           const content = await encryptRecoveryDataFile(snapshot, filePassword, check);
           check();
