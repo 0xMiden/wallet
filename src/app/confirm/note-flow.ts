@@ -16,7 +16,34 @@ import { b64ToU8 } from 'lib/shared/helpers';
 
 import type { AssetAmount } from './decode';
 
-export type NoteKind = 'fee' | 'p2id' | 'p2ide' | 'pswap' | 'custom' | 'unknown';
+/**
+ * `StandardNote::name` in the standards library this wallet's SDK is built against.
+ * A script root that matches one of these is that note. Anything else we can read is custom.
+ */
+const STANDARD_NOTE_NAMES = [
+  'P2ID',
+  'P2IDE',
+  'SWAP',
+  'PSWAP',
+  'MINT',
+  'BURN',
+  'CONSTANT_FEE_POLICY_CONFIG',
+  'FAUCET_POLICY_CONFIG',
+  'FAUCET_METADATA_CONFIG',
+  'MIN_BURN_AMOUNT_CONFIG',
+  'ALLOWLIST_CONFIG',
+  'BLOCKLIST_CONFIG',
+  'PAUSE_CONFIG',
+  'OWNER_CONFIG',
+  'RBAC_CONFIG',
+  'NETWORK_ACCOUNT_CONFIG',
+  'UPGRADE',
+  'FEE_SPONSORSHIP',
+  'TX_FEE'
+] as const;
+
+export type StandardNoteName = (typeof STANDARD_NOTE_NAMES)[number];
+export type NoteKind = 'fee' | 'custom' | 'unknown' | StandardNoteName;
 export type NoteVisibility = 'public' | 'private' | 'unknown';
 
 export interface NoteDetail {
@@ -51,17 +78,73 @@ function attempt<T>(read: () => T): T | undefined {
   }
 }
 
+type NamedNoteScript = NoteScript & {
+  /** `StandardNote::from_script`, once the SDK exports it. Absent on older packages. */
+  standardNoteName?: () => string | undefined;
+};
+
+/** Scripts the installed SDK can construct. `standardNoteName` covers the rest of `StandardNote`. */
+const STANDARD_NOTE_CONSTRUCTORS: Array<[StandardNoteName, () => NoteScript]> = [
+  ['P2ID', () => NoteScript.p2id()],
+  ['P2IDE', () => NoteScript.p2ide()],
+  ['SWAP', () => NoteScript.swap()],
+  ['PSWAP', () => NoteScript.pswap()],
+  ['MINT', () => NoteScript.mint()],
+  ['BURN', () => NoteScript.burn()],
+  ['NETWORK_ACCOUNT_CONFIG', () => NoteScript.networkAccountConfig()],
+  ['FEE_SPONSORSHIP', () => NoteScript.feeSponsorship()]
+];
+
+const standardNoteNameSet = new Set<string>(STANDARD_NOTE_NAMES);
+/** `StandardNote::name` is a screaming-snake token. A newer SDK may add a variant this list does not know yet. */
+const STANDARD_NOTE_NAME = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
+
+function isStandardNoteName(name: string): name is StandardNoteName {
+  return standardNoteNameSet.has(name);
+}
+
+function kindFromReportedName(name: string): NoteKind {
+  if (isStandardNoteName(name)) return name;
+  if (STANDARD_NOTE_NAME.test(name)) return name as NoteKind;
+  return 'custom';
+}
+
+let standardNoteRoots: Map<string, StandardNoteName> | undefined;
+
+function rootsByStandardNote(): Map<string, StandardNoteName> | undefined {
+  if (standardNoteRoots) return standardNoteRoots;
+  const roots = new Map<string, StandardNoteName>();
+  for (const [name, create] of STANDARD_NOTE_CONSTRUCTORS) {
+    const root = attempt(() => create().root().toHex());
+    if (root) roots.set(root.toLowerCase(), name);
+  }
+  if (roots.size === 0) return undefined;
+  standardNoteRoots = roots;
+  return roots;
+}
+
+function kindFromScript(script: NamedNoteScript | undefined, scriptRoot: string): NoteKind {
+  // Prefer the standards library's own match. It names every StandardNote variant, including
+  // TX_FEE and the config notes this package cannot construct as `NoteScript` static methods.
+  if (script && typeof script.standardNoteName === 'function') {
+    try {
+      const name = script.standardNoteName();
+      if (typeof name === 'string') return kindFromReportedName(name);
+      return 'custom';
+    } catch {
+      return 'unknown';
+    }
+  }
+  const roots = rootsByStandardNote();
+  if (!roots) return 'unknown';
+  return roots.get(scriptRoot.toLowerCase()) ?? 'custom';
+}
+
 function kindOf(note: Note | undefined): { kind: NoteKind; scriptRoot?: string } {
-  const scriptRoot = attempt(() => note?.script().root().toHex());
+  const script = attempt(() => note?.script() as NamedNoteScript | undefined);
+  const scriptRoot = attempt(() => script?.root().toHex());
   if (!scriptRoot) return { kind: 'unknown' };
-  const known = attempt(() => ({
-    p2id: NoteScript.p2id().root().toHex(),
-    p2ide: NoteScript.p2ide().root().toHex(),
-    pswap: NoteScript.pswap().root().toHex()
-  }));
-  if (!known) return { kind: 'unknown', scriptRoot };
-  const kind = Object.entries(known).find(([, root]) => root === scriptRoot)?.[0] as NoteKind | undefined;
-  return { kind: kind ?? 'custom', scriptRoot };
+  return { kind: kindFromScript(script, scriptRoot), scriptRoot };
 }
 
 function describe(id: string | undefined, full: Note | undefined, content: Note | OutputNote | undefined): NoteDetail {

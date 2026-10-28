@@ -837,6 +837,24 @@ export interface ITransaction {
   consumeEntryPoint?: ConsumeEntryPoint;
   /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
   lastDeferral?: ConsumeDeferralCause;
+  /**
+   * Strongest way the processing loop has looked at this queued incarnation. Survives a restart.
+   * Bound to `queueSightingAt` / `queueSightingSeq`, which are not reported. Not indexed.
+   */
+  queueSighting?: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected';
+  /** `initiatedAt` the sighting was recorded for. Not reported. */
+  queueSightingAt?: number;
+  /** `queuedSeq` the sighting was recorded for, or null when the row had none. Not reported. */
+  queueSightingSeq?: number | null;
+  /**
+   * Latest pre-send sync step for this queued incarnation. Bound to `preflightSyncAt` / `preflightSyncSeq`,
+   * which are not reported. Not indexed.
+   */
+  preflightSync?: 'entered' | 'returned' | 'threw';
+  /** `initiatedAt` the sync step was recorded for. Not reported. */
+  preflightSyncAt?: number;
+  /** `queuedSeq` the sync step was recorded for, or null when the row had none. Not reported. */
+  preflightSyncSeq?: number | null;
   /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
   feeAdmission?: ClaimFeeAdmission;
   /**

@@ -40,7 +40,10 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  PREFLIGHT_SYNC_REPORTS,
   QUEUE_AGE_BUCKETS,
+  QUEUE_HIDDEN_BUCKETS,
+  QUEUE_SIGHTINGS,
   SUBMIT_CROSSINGS,
   OFFSCREEN_DEADLINE_KILLERS,
   OFFSCREEN_DEADLINE_OWNERS,
@@ -201,6 +204,9 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     STARTUP_SELECTIONS,
     STORED_STAGE_AGES,
     QUEUE_AGE_BUCKETS,
+    QUEUE_SIGHTINGS,
+    PREFLIGHT_SYNC_REPORTS,
+    QUEUE_HIDDEN_BUCKETS,
     SUBMIT_CROSSINGS,
     SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
@@ -431,7 +437,29 @@ it('names an unlisted non-consume deferral as other', async () => {
   const failure: TransactionFailure = { type: 'send', reason: 'queued_expired' };
   Reflect.set(failure, 'lastDeferral', 'nonsense');
   reportTransactionFailure(failure);
-  expect(await reportedMessage()).toContain('; last deferral other; point pipeline;');
+  expect(await reportedMessage()).toContain(
+    '; last deferral other; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline;'
+  );
+});
+
+it('names the queue facts of an expired row whose error carries ids, hex and amounts', async () => {
+  const accountId = '0x7bfb0f38b0fafa103f86a80559417021';
+  reportTransactionFailure({
+    type: 'consume',
+    reason: 'queued_expired',
+    queueAge: '30m_to_1h',
+    queueSighting: 'selected',
+    preflightSync: 'entered',
+    queueHidden: 'half_or_more',
+    error: new Error(
+      `claim ${AMOUNT} for ${accountId} note ${NOTE_ID} op ${OP_ID} failed: Load failed https://rpc.example/secret`
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; queue age 30m_to_1h; queue sighting selected; sync attempt entered; queue hidden half_or_more; point pipeline; queued_expired.'
+  );
+  expectNoTransactionData(message);
 });
 
 it('sends only the fixed deferral of an expired send whose error carries ids, hex and amounts', async () => {
@@ -444,7 +472,9 @@ it('sends only the fixed deferral of an expired send whose error carries ids, he
     error: new Error(`send of 1250000 to ${accountId} with note ${noteId} expired after 42 attempts`)
   });
   const message = await reportedMessage();
-  expect(message).toContain('; last deferral guardian_backpressure; point pipeline; queued_expired.');
+  expect(message).toContain(
+    '; last deferral guardian_backpressure; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline; queued_expired.'
+  );
   for (const leaked of [accountId, noteId, '1250000', '42 attempts', 'ab12']) expect(message).not.toContain(leaked);
 });
 
@@ -457,7 +487,7 @@ it('places claim segments after platform and before the failure point in the fir
     reason: 'queued_expired'
   });
   expect(await reportedMessage()).toMatch(
-    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; point pipeline; queued_expired\. authentication/
+    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline; queued_expired\. authentication/
   );
 });
 
@@ -1992,6 +2022,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
   ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
   ['queue age bucket', () => QUEUE_AGE_BUCKETS, () => policyText('The age of a queued row that expired')],
+  ['queue sighting', () => QUEUE_SIGHTINGS, () => policyText('The queue sighting')],
+  ['preflight sync', () => PREFLIGHT_SYNC_REPORTS, () => policyText('The preflight sync')],
+  ['queue hidden', () => QUEUE_HIDDEN_BUCKETS, () => policyText('Hidden time while a queued row waited')],
   ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
   ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
