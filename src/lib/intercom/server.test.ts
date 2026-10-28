@@ -158,6 +158,20 @@ describe('IntercomServer', () => {
     });
   });
 
+  it('marks the pre-handler state response as not initialized', () => {
+    connectListener(mockPort);
+    const messageHandler = mockAddListener.mock.calls[0][0];
+    messageHandler({ type: MessageType.Req, reqId: 'startup', data: { type: 'GET_STATE_REQUEST' } }, mockPort);
+    expect(mockPostMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: MessageType.Res,
+      reqId: 'startup',
+      data: expect.objectContaining({
+        type: 'GET_STATE_RESPONSE',
+        state: expect.objectContaining({ backendInitialized: false })
+      })
+    }));
+  });
+
   it('sends error when handler throws', async () => {
     const handler = jest.fn().mockRejectedValue(new Error('Handler failed'));
     server.onRequest(handler);
