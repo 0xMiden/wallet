@@ -65,6 +65,25 @@ describe('SDK generation byte contract', () => {
     expect(stored).toEqual([110, 101, 119]);
   });
 
+  it('round trips a multibyte marker', async () => {
+    const client = reader();
+    let stored: unknown = null;
+    jest.mocked(client.settings.get).mockImplementation(async () => stored);
+    jest.mocked(client.settings.set).mockImplementation(async (_key, value) => {
+      stored = value;
+    });
+    await expect(initializeSdkGeneration(client, 'é', null, () => {})).resolves.toBeUndefined();
+    expect(stored).toEqual([195, 169]);
+  });
+
+  it.each(['', 'a'.repeat(129), '\ud800'])('refuses an invalid generation before writing', async generation => {
+    const client = reader();
+    await expect(initializeSdkGeneration(client, generation, null, () => {})).rejects.toMatchObject({
+      name: 'StorageContinuityError'
+    });
+    expect(client.settings.set).not.toHaveBeenCalled();
+  });
+
   it.each([
     { bytes: [255] },
     { bytes: [192, 128] },
