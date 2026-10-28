@@ -855,7 +855,6 @@ function beginRecoveryFileOperation(expectedEpoch: number, operationId: string):
   const initial = store.getState();
   if (!initial.inited) throw new StorageUnavailableError();
   const vault = initial.vault;
-  const status = initial.status;
   const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
   const owner = () => {
     const current = store.getState();
@@ -864,7 +863,6 @@ function beginRecoveryFileOperation(expectedEpoch: number, operationId: string):
       recoveryFileOperations.get(operationId) !== operation ||
       !current.inited ||
       current.vault !== vault ||
-      current.status !== status ||
       `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network
     )
       throw new StorageUnavailableError();
