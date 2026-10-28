@@ -30,7 +30,7 @@ const encoder = new TextEncoder();
 async function reserveSnapshot(path: string, bytes: number): Promise<void> {
   const listing = await Filesystem.readdir({ path: SNAPSHOT_DIR, directory: Directory.Cache });
   const files = listing.files
-    .filter(file => file.type === 'file' && /^[a-zA-Z0-9._-]+\.txt$/.test(file.name))
+    .filter(file => file.type === 'file')
     .map(file => ({ ...file, path: `${SNAPSHOT_DIR}/${file.name}` }))
     .filter(file => file.path !== path)
     .sort((left, right) => (left.mtime || 0) - (right.mtime || 0) || left.name.localeCompare(right.name));
