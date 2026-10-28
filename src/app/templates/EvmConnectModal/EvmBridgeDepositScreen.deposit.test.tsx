@@ -3018,11 +3018,12 @@ describe('user-visible bridge deposit producers', () => {
   });
 
   it('reports the final fallback timeout at its request stage without changing the read bound', async () => {
-    global.fetch = jest.fn((_url: unknown, init?: RequestInit) =>
-      new Promise((_resolve, reject) => {
-        const signal = init?.signal;
-        signal?.addEventListener('abort', () => reject(signal.reason));
-      })
+    global.fetch = jest.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener('abort', () => reject(signal.reason));
+        })
     ) as never;
     jest.useFakeTimers();
     renderScreen();
