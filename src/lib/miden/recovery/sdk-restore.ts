@@ -27,11 +27,34 @@ export interface RecoverySdkWriter extends RecoverySdkReader {
   notes: RecoverySdkReader['notes'] & Pick<MidenClient['notes'], 'import'>;
 }
 
+export async function advanceRecoveryChain(
+  client: Pick<MidenClient, 'getSyncHeight' | 'syncChain'>,
+  target: number,
+  assertCurrent: () => void
+): Promise<void> {
+  if (!Number.isSafeInteger(target) || target < 0 || target > 0xffffffff) throw new StorageContinuityError();
+  assertCurrent();
+  const before = await client.getSyncHeight();
+  assertCurrent();
+  if (!Number.isSafeInteger(before) || before < 0 || before > 0xffffffff) throw new StorageContinuityError();
+  if (before >= target) return;
+  const result = await client.syncChain();
+  try {
+    assertCurrent();
+  } finally {
+    result.free();
+  }
+  const after = await client.getSyncHeight();
+  assertCurrent();
+  if (!Number.isSafeInteger(after) || after < target || after > 0xffffffff) throw new StorageContinuityError();
+}
+
 export async function restoreSdkRecovery(
   client: RecoverySdkWriter,
   command: SdkRecoveryCommand,
   assertCurrent: () => void,
-  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>
+  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>,
+  advance?: (target: number) => Promise<void>
 ): Promise<void> {
   assertCurrent();
   if (command.kind === 'account') {
@@ -42,7 +65,6 @@ export async function restoreSdkRecovery(
     if (old !== null && old !== command.generation) throw new StorageContinuityError();
     await initializeSdkGeneration(client, command.generation, old, assertCurrent);
   } else {
-    Reflect.set(globalThis, '__noteRestoreEntered', true);
     const note = command.note;
     if (
       !isRecoveryNote(note) ||
@@ -52,7 +74,6 @@ export async function restoreSdkRecovery(
     )
       throw new StorageContinuityError();
     const file = NoteFile.deserialize(note.noteFile);
-    Reflect.set(globalThis, '__noteRestoreDeserialized', true);
     try {
       const importBytes = file.serialize().slice();
       if (importBytes.byteLength === 0 || importBytes.byteLength > JOURNAL_MAX_BYTES)
@@ -64,7 +85,6 @@ export async function restoreSdkRecovery(
       const id = file.noteId()?.toString();
       if (id) {
         const existing = await client.notes.list({ ids: [id] });
-        Reflect.set(globalThis, '__noteRestoreExistingRead', true);
         assertCurrent();
         if (existing.length > 1) throw new StorageContinuityError();
         if (existing.length === 1) {
@@ -72,33 +92,27 @@ export async function restoreSdkRecovery(
           return;
         }
       }
+      const proof = file.inclusionProof();
+      try {
+        const location = proof?.location();
+        try {
+          if (location && advance) await advance(location.blockNum());
+        } finally {
+          location?.free();
+        }
+      } finally {
+        proof?.free();
+      }
       assertCurrent();
       const importNote = () => {
         assertCurrent();
         // The async SDK owns this separate handle, including native refusal.
-        Reflect.set(globalThis, '__noteRestoreImportEntered', true);
-        return client.notes.import(NoteFile.deserialize(importBytes)).then(
-          result => { Reflect.set(globalThis, '__noteRestoreImportResolved', true); return result; },
-          error => {
-            Reflect.set(globalThis, '__noteRestoreImportRejected', true);
-            Reflect.set(globalThis, '__noteRestoreErrorString', typeof error === 'string');
-            Reflect.set(globalThis, '__noteRestoreErrorObject', error instanceof Error);
-            const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
-            Reflect.set(globalThis, '__noteRestoreErrorAcceptHeader', message.includes('accept header validation failed'));
-            Reflect.set(globalThis, '__noteRestoreErrorRootMismatch', message.includes('Block header does not match the expected note root'));
-            for (const term of ['storage', 'network', 'note', 'database', 'transaction', 'deserialize', 'block', 'header', 'invalid', 'proof'])
-              Reflect.set(globalThis, '__noteRestoreError' + term, message.toLowerCase().includes(term));
-            throw error;
-          }
-        );
+        return client.notes.import(NoteFile.deserialize(importBytes));
       };
-      Reflect.set(globalThis, '__noteRestoreAcquireEntered', true);
       if (acquire) await acquire(file, importNote);
       else await importNote();
-      Reflect.set(globalThis, '__noteRestoreAcquireReturned', true);
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
-      Reflect.set(globalThis, '__noteRestoreReadbackReturned', true);
     } finally {
       file.free();
     }
