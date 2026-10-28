@@ -697,6 +697,7 @@ const persistQueueSighting = (
       stored.queueSighting = next;
       stored.queueSightingAt = initiatedAt;
       stored.queueSightingSeq = queuedSeq;
+      return undefined;
     })
     .catch(() => undefined);
 };
