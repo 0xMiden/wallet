@@ -531,6 +531,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       if (
         matching.length === 1 &&
         context &&
+        matching[0] !== undefined &&
         matching[0].submitContext === undefined &&
         (transactionId === undefined || matching[0].transactionId === transactionId)
       ) {
