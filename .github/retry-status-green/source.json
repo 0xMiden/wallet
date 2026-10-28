@@ -1,0 +1,14 @@
+{
+  "source": "399e9ebeae61ca1521914cf1aa8039e9faeab625",
+  "tree": "2a954a2a0371b2d33b707e15407b7b9a99eba466",
+  "sha256": {
+    "src/screens/generating-transaction/GeneratingTransaction.test.tsx": "0205ac2266ee2652453a0bd26aee7a0491ce3bdaf0bdf3b2e121ad4e94d859ce",
+    "src/screens/generating-transaction/GeneratingTransaction.tsx": "94b9198a877e93b33818cec66b507a1019ef6104a8324293d7c370f15dde57ab",
+    "src/screens/generating-transaction/types.ts": "237d0d8b75580d07e5d123fc467bee7a97959104184c726cddc9d312651ce414",
+    "src/app/templates/history/HistoryDetails.test.tsx": "616b9d0c862a3115d589b1f1e8c6c07ea087d958ceb8b95b2e3e94669f34f2bd",
+    "src/app/templates/history/SwapDetail.test.tsx": "55cc4fd994518cdd6dff577f57a5e193e2f79f821d34089a929d04bd915e5d37",
+    "src/app/templates/history/useTransactionActions.ts": "abf6cc1430bffbf5722918ce4aa1bc4186bd67b1548d4417b770a96285e1ded3",
+    "src/app/templates/history/HistoryDetails.tsx": "70a771a18dac1cf5666a33ab5fda04776ee51084946a5140eb513d0fdee5a3bb",
+    "src/app/templates/history/SwapDetail.tsx": "1583164815257570ce858e9064aa9a051e59e7be7d57899c9f1267f0a88ec6c4"
+  }
+}
