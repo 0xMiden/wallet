@@ -276,6 +276,7 @@ export async function prepareChain(sdk) {
       accountBytes: Array.from(accountBytes),
       accountCommitment,
       guardianCommitment: guardianReadback.toHex(),
+      controlFaucetId: faucetId.toString(),
       feeFaucetId,
       custody: custody.map(item => ({
         publicBytes: Array.from(item.publicBytes),

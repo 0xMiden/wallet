@@ -38,6 +38,7 @@ for (const variant of ['fee-omitted', 'fee-present']) test(`st/static-comparison
   });
   if (!seed.ok) await testInfo.attach('closed-seed-failure', { body: JSON.stringify(seed), contentType: 'application/json' });
   expect(seed.ok).toBe(true);
+  await testInfo.attach('closed-fee-shape', { body: JSON.stringify(seed.feeShape), contentType: 'application/json' });
   const fee = seed.fee;
   expect(typeof fee).toBe('string');
   await seedContext.close();
