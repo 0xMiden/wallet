@@ -543,7 +543,7 @@ const PageRouter: FC = () => {
       return <StorageRecoveryPage onBack={() => Woozie.navigate('/', Woozie.HistoryAction.Replace)} />;
     if (!lifecycleRoute && !miden.locked) return <StorageRecoveryPage />;
     if (miden.locked && !lifecycleRoute)
-      return <Unlock onStorageRecovery={() => Woozie.navigate('/storage-recovery')} />;
+      return <Unlock />;
     return <>{page}</>;
   }
 
