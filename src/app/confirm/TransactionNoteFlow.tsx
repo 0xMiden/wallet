@@ -225,7 +225,7 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
       <h3 className="tx-stage-rise mb-2 font-semibold text-ink">{t('transactionNoteFlow')}</h3>
       <TxStory hops={hops} summary={{ received: resolved?.received, sent: resolved?.sent, fee: resolved?.fee }} />
       <button type="button" className="tx-notes-toggle" aria-expanded={notesOpen} onClick={toggleNotes}>
-        {notesOpen ? t('hideNotes', { defaultValue: 'Hide notes' }) : t('showNotes', { defaultValue: 'Show notes' })}
+        {notesOpen ? t('hideNotes') : t('showNotes')}
         <span className={classNames('tx-notes-chevron', notesOpen && 'is-open')} aria-hidden="true" />
       </button>
       <div

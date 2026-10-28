@@ -340,7 +340,7 @@ describe('confirmation metadata request sharing', () => {
       first.resolve({ ...metadata, symbol: 'FIRST' });
       second.resolve({ ...metadata, symbol: 'SECOND' });
     });
-    expect(screen.getByText('10/6 FIRST')).toBeInTheDocument();
+    expect(rowAmount('10/6 FIRST')).toBeInTheDocument();
     expect(screen.getByText('2/6 SECOND')).toBeInTheDocument();
   });
 
@@ -353,7 +353,7 @@ describe('confirmation metadata request sharing', () => {
     render(<TransactionNoteFlow flow={noteFlow(3n)} />);
     expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve(metadata));
-    expect(screen.getByText('10/6 SHARED')).toBeInTheDocument();
+    expect(rowAmount('10/6 SHARED')).toBeInTheDocument();
     expect(screen.getByText('3/6 SHARED')).toBeInTheDocument();
     expect(screen.queryByText('2/6 SHARED')).not.toBeInTheDocument();
   });

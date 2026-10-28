@@ -1184,6 +1184,14 @@
     "message": "발신자",
     "englishSource": "Originator"
   },
+  "showNotes": {
+    "message": "Show notes",
+    "englishSource": "Origin:"
+  },
+  "hideNotes": {
+    "message": "Hide notes",
+    "englishSource": "Origin:"
+  },
   "networkLabel": {
     "message": "네트워크:",
     "englishSource": "Network:"

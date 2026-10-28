@@ -1184,6 +1184,14 @@
     "message": "İşlem Başlatıcı",
     "englishSource": "Originator"
   },
+  "showNotes": {
+    "message": "Show notes",
+    "englishSource": "Origin:"
+  },
+  "hideNotes": {
+    "message": "Hide notes",
+    "englishSource": "Origin:"
+  },
   "networkLabel": {
     "message": "Ağ:",
     "englishSource": "Network:"

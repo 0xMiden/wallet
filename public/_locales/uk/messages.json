@@ -1184,6 +1184,14 @@
     "message": "Ініціатор",
     "englishSource": "Originator"
   },
+  "showNotes": {
+    "message": "Show notes",
+    "englishSource": "Origin:"
+  },
+  "hideNotes": {
+    "message": "Hide notes",
+    "englishSource": "Origin:"
+  },
   "networkLabel": {
     "message": "Мережа:",
     "englishSource": "Network:"
