@@ -15,8 +15,10 @@ import { Button, ButtonVariant } from 'components/Button';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { storyFromMessages } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { CopyButton } from 'components/ui/CopyButton';
-import { DappOrigin } from 'components/ui/DappOrigin';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -39,6 +41,7 @@ import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView
 import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
+import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { Icon, IconName } from './icons/v2';
 import AccountBanner from './templates/AccountBanner';
 import ConnectBanner from './templates/ConnectBanner';
@@ -138,25 +141,17 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId
   );
 };
 
-/**
- * The "this site is asking for something" header shown above every non-connect
- * approval payload. `origin` is the requesting dApp's origin as recorded when
- * the user connected — it is the only thing on screen that tells the user WHO
- * is asking, so it carries an E2E hook.
- */
-const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
+/** The sentence under the originator chip: what this site is asking for. */
+const RequestOriginBanner: FC<{ children: React.ReactNode }> = ({ children }) => (
   <div
     className={classNames(
       'text-sm text-left text-ink',
-      'flex w-full gap-x-3 items-center p-4',
+      'tx-stage-rise flex w-full gap-x-3 items-center p-4',
       'border border-gray-100 rounded-2xl mb-4'
     )}
   >
     <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
-    <div className="flex min-w-0 flex-col">
-      <DappOrigin origin={origin} className="font-semibold" data-testid="confirm-request-origin" />
-      {children}
-    </div>
+    <div className="flex min-w-0 flex-col">{children}</div>
   </div>
 );
 
@@ -254,10 +249,11 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       }
       content = (
         <div>
-          <div className="text-sm" key={0}>
+          <div className="tx-stage-rise text-sm" key={0}>
             {payload.transactionMessages[0]} <br />
             <span data-testid="confirm-tx-faucet">{payload.transactionMessages[1]}</span>
           </div>
+          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 2 })} />
           {account && (
             <>
               <hr className="h-px bg-border-light my-4" />
@@ -271,25 +267,27 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             </>
           )}
           <hr className="h-px bg-border-light my-4" />
-          {payload.transactionMessages.slice(2).map((message, i) => {
-            const [label, rawValue] = message.split(', ');
-            // Amount arrives already formatted from the faucet's real decimals
-            // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
-            // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
-            // token and lost precision above 2^53 via `Number()`.
-            let value = rawValue ?? '';
-            if (label === 'Recipient') {
-              value = truncateAddress(value);
-            }
-            return (
-              <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-text-muted">{label}</span>
-                <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                  {value}
-                </span>
-              </div>
-            );
-          })}
+          <div className="tx-stage-list">
+            {payload.transactionMessages.slice(2).map((message, i) => {
+              const [label, rawValue] = message.split(', ');
+              // Amount arrives already formatted from the faucet's real decimals
+              // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
+              // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
+              // token and lost precision above 2^53 via `Number()`.
+              let value = rawValue ?? '';
+              if (label === 'Recipient') {
+                value = truncateAddress(value);
+              }
+              return (
+                <div className="flex justify-between my-2 text-sm" key={i + 2}>
+                  <span className="text-text-muted">{label}</span>
+                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       );
       break;
@@ -298,9 +296,10 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
     case 'consume':
       content = (
         <div>
-          <div className="text-sm" key={0}>
+          <div className="tx-stage-rise text-sm" key={0}>
             {payload.transactionMessages[0]}
           </div>
+          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 1, incoming: true })} />
           {account && (
             <>
               <hr className="h-px bg-border-light my-4" />
@@ -320,21 +319,23 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             </>
           )}
           <hr className="h-px bg-border-light my-4" />
-          {payload.transactionMessages.slice(1).map((message, i) => {
-            const [label, rawValue] = message.split(', ');
-            let value = rawValue ?? '';
-            if (label === 'Recipient') {
-              value = truncateAddress(value);
-            }
-            return (
-              <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-text-muted">{label}</span>
-                <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                  {value}
-                </span>
-              </div>
-            );
-          })}
+          <div className="tx-stage-list">
+            {payload.transactionMessages.slice(1).map((message, i) => {
+              const [label, rawValue] = message.split(', ');
+              let value = rawValue ?? '';
+              if (label === 'Recipient') {
+                value = truncateAddress(value);
+              }
+              return (
+                <div className="flex justify-between my-2 text-sm" key={i + 2}>
+                  <span className="text-text-muted">{label}</span>
+                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       );
       break;
@@ -352,7 +353,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           </span>
         </h2>
       )}
-      <span className="text-sm text-ink">{error ? error : content}</span>
+      <div className="text-sm text-ink">{error ? error : content}</div>
     </div>
   );
 };
@@ -729,7 +730,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.TransactionAction_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('requestsATransaction')}</span>
             </RequestOriginBanner>
           )
@@ -742,7 +743,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.ConsumeAction_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('requestsToConsumeNote')}</span>
             </RequestOriginBanner>
           )
@@ -755,7 +756,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestPrivateNotes_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('requestsPrivateNotes')}</span>
             </RequestOriginBanner>
           )
@@ -768,7 +769,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.SignData_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span className="text-text-muted">{t('requestsYourSignature')}</span>
             </RequestOriginBanner>
           )
@@ -781,7 +782,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span className="text-muted">{t('requestsYourSignature')}</span>
             </RequestOriginBanner>
           )
@@ -794,7 +795,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestAssets_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('requestsAssets')}</span>
             </RequestOriginBanner>
           )
@@ -807,7 +808,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('importPrivateNote')}</span>
             </RequestOriginBanner>
           )
@@ -820,7 +821,7 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestConsumableNotes_AcceptButton,
           want: (
-            <RequestOriginBanner origin={payload.origin}>
+            <RequestOriginBanner>
               <span>{t('requestsConsumableNotes')}</span>
             </RequestOriginBanner>
           )
@@ -840,14 +841,27 @@ const ConfirmDAppForm: FC = () => {
 
   return (
     <div
-      className={classNames('relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+      className={classNames(
+        'tx-stage-popup relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto',
+        'flex flex-col'
+      )}
       style={{
-        width: 380,
-        height: 610
+        width: 440,
+        minHeight: 694
       }}
     >
       <div className="flex flex-col items-left px-4">
-        <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
+        <div className="flex items-center gap-3 pt-6 pb-3">
+          <BreadLogo className="shrink-0" style={{ width: 28, height: 'auto' }} aria-label={t('appName')} />
+          <h2 className="flex min-w-0 text-ink text-lg font-semibold">{content.title}</h2>
+        </div>
+        <div className="tx-stage-rule mb-4" aria-hidden="true" />
+
+        {payload.type !== 'connect' && (
+          <div className="mb-4">
+            <OriginatorChip origin={payload.origin} testId="confirm-request-origin" />
+          </div>
+        )}
 
         {payload.type === 'connect' && (
           <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
@@ -912,7 +926,7 @@ const ConfirmDAppForm: FC = () => {
           </Button>
         </div>
 
-        <div className="w-1/2 pl-2">
+        <div className="tx-stage-cta w-1/2 pl-2">
           <Button
             type="button"
             variant={ButtonVariant.Primary}

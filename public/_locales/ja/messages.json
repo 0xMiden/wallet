@@ -1180,6 +1180,18 @@
     "message": "出典：",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "発信者",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notesを表示",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "notesを非表示にする",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "ネットワーク：",
     "englishSource": "Network:"

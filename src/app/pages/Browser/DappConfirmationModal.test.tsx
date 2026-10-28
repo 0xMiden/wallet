@@ -142,6 +142,7 @@ it('shows the verified custom transaction note flow in the mobile and desktop mo
     />
   );
   expect(screen.getByTestId('tx-note-flow')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'showNotes' }));
   expect(screen.getByText('noInputNotes')).toBeInTheDocument();
   expect(screen.getByText('P2ID')).toBeInTheDocument();
 });

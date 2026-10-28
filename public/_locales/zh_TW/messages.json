@@ -1180,6 +1180,18 @@
     "message": "來源：",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "發起人",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "顯示notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "隱藏notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "網路：",
     "englishSource": "Network:"

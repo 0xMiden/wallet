@@ -1180,6 +1180,18 @@
     "message": "来源：",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "发起人",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "显示notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "隐藏notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "网络：",
     "englishSource": "Network:"
