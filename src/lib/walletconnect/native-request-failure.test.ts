@@ -76,6 +76,8 @@ it('requires exact prefix and mandatory enums', () => {
   expect(REOWN_NATIVE_ORIGINS).toEqual([
     'argument_validation',
     'unconfigured',
+    'request_construction_error',
+    'request_call_error',
     'publish_error',
     'wallet_error',
     'request_expired',
@@ -368,3 +370,14 @@ it('reads each named field once and never reads unknown fields', () => {
     published: 'confirmed'
   });
 });
+
+
+it.each(['request_construction_error', 'request_call_error'])(
+  'accepts iOS fixed call origin %s without a wallet response',
+  origin => {
+    const { validateReownNativeFailure } = jest.requireActual<BoundaryModule>('./native-request-failure');
+    expect(validateReownNativeFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })).toEqual({
+      nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved'
+    });
+  }
+);
