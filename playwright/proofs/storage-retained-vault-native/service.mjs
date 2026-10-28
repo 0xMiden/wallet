@@ -54,7 +54,7 @@ export async function createRecoveryService(buildRoot, binary) {
   let pending;
   let sealed = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, unknownRpc: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
@@ -165,7 +165,12 @@ export async function createRecoveryService(buildRoot, binary) {
             pending = undefined;
           }
         } else image = images.get(identity);
-        if (!image) throw new Error('unknown-rpc-request');
+        if (!image) {
+          if (url.pathname.endsWith('/SyncNullifiers')) counts.unknownNullifiers++;
+          else if (url.pathname.endsWith('/GetLimits')) counts.unknownLimits++;
+          else counts.unknownOther++;
+          throw new Error('unknown-rpc-request');
+        }
         if (sealed) counts[image.kind === 'account' ? 'accountReads' : 'headerReads']++;
         response.setHeader('Content-Type', 'application/grpc-web+proto');
         response.setHeader('grpc-status', '0');
