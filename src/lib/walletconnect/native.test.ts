@@ -1424,3 +1424,37 @@ describe('buildNativeReownProvider', () => {
     expect(rawNativeSend).toHaveBeenCalledWith(expect.objectContaining({ chainId: SEPOLIA }));
   });
 });
+
+describe('iOS native per-call failures', () => {
+  it.each(['unconfigured', 'argument_validation', 'request_construction_error', 'request_call_error'])(
+    'marks the original rejection for %s with only unknown observations',
+    async nativeOrigin => {
+      const cause = new Error('private cause 0x1234567890');
+      const original = Object.assign(new Error('original display', { cause }), {
+        code: `REOWN_IOS_REQUEST_FAILURE:${nativeOrigin}`
+      });
+      rawNativeSend.mockRejectedValueOnce(original);
+      const { error } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
+      expect(error).toBe(original);
+      expect(original.message).toBe('original display');
+      expect(original.cause).toBe(cause);
+      expect(readReownNativeFailure(error)).toEqual({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' });
+    }
+  );
+
+  it('marks request and send independently and rejects untrusted response origins', async () => {
+    const first = Object.assign(new Error('first'), { code: 'REOWN_IOS_REQUEST_FAILURE:argument_validation' });
+    const second = Object.assign(new Error('second'), { code: 'REOWN_IOS_REQUEST_FAILURE:request_call_error' });
+    const forged = Object.assign(new Error('forged'), { code: 'REOWN_IOS_REQUEST_FAILURE:wallet_error' });
+    rawNativeRequest.mockRejectedValueOnce(first).mockRejectedValueOnce(forged);
+    rawNativeSend.mockRejectedValueOnce(second);
+    const [a, b, c] = await Promise.all([
+      rejectionOf(NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })),
+      rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' })),
+      rejectionOf(NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] }))
+    ]);
+    expect(readReownNativeFailure(a.error)).toEqual({ nativeOrigin: 'argument_validation', requestAge: 'unknown', published: 'unobserved' });
+    expect(readReownNativeFailure(b.error)).toEqual({ nativeOrigin: 'request_call_error', requestAge: 'unknown', published: 'unobserved' });
+    expect(readReownNativeFailure(c.error)).toBeUndefined();
+  });
+});
