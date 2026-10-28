@@ -84,6 +84,8 @@ export async function restoreSdkRecovery(
             Reflect.set(globalThis, '__noteRestoreErrorString', typeof error === 'string');
             Reflect.set(globalThis, '__noteRestoreErrorObject', error instanceof Error);
             const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+            Reflect.set(globalThis, '__noteRestoreErrorContentType', message.toLowerCase().includes('content-type'));
+            Reflect.set(globalThis, '__noteRestoreErrorLimits', message.toLowerCase().includes('limits'));
             Reflect.set(globalThis, '__noteRestoreErrorAcceptHeader', message.includes('accept header validation failed'));
             Reflect.set(globalThis, '__noteRestoreErrorRootMismatch', message.includes('Block header does not match the expected note root'));
             for (const term of ['storage', 'network', 'note', 'database', 'transaction', 'deserialize', 'block', 'header', 'invalid', 'proof'])
