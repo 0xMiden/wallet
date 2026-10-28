@@ -1,0 +1,45 @@
+name: Settings F4 sequential native mirror causality
+on:
+  push:
+    branches: [ci/q6-f4-causal-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable source and proof
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-f4-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-f4-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 746e0305b41f4e2cd0ccc2b7454a60d3245434d8
+          cp -R .github/q6-f4-proof "$RUNNER_TEMP/q6-f4-packet"
+          git checkout --detach 746e0305b41f4e2cd0ccc2b7454a60d3245434d8
+          test "$(git rev-parse HEAD^{tree})" = 57a15fd1c98c81876b37cbeb428ff47d01c7995b
+          cp "$RUNNER_TEMP/q6-f4-packet/source.json" "$RUNNER_TEMP/q6-f4-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-f4-evidence/install.log"
+      - name: Strict named lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/lib/settings/helpers.capacitor-mirror.test.ts --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-f4-evidence/lint.log"
+      - name: Identical assertion current red and old mirror green
+        run: python3 "$RUNNER_TEMP/q6-f4-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-f4-causal-proof
+          path: ${{ runner.temp }}/q6-f4-evidence
+          if-no-files-found: error

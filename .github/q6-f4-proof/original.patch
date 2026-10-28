@@ -1,0 +1,31 @@
+diff --git a/src/lib/settings/helpers.ts b/src/lib/settings/helpers.ts
+index 30fd6fc33..6117b4a33 100644
+--- a/src/lib/settings/helpers.ts
++++ b/src/lib/settings/helpers.ts
+@@ -248,7 +254,19 @@ export function mirrorBackgroundSettings(): void {
+-  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, autoConsume);
+-  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, delegateProof);
+-  mirrorSetting(TELEMETRY_STORAGE_KEY, telemetry);
+-  // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
+-  // holds off background native-consume, so it never acts on read-miss defaults for a
+-  // user who opted out of auto-consume or remote proving.
+-  mirrorSetting(BG_SETTINGS_MIRRORED_KEY, true);
++
++  // The entry reads only decide whether to start. The write uses a later read.
++  void (async () => {
++    try {
++      await getStorageProvider().set({ [BG_SETTINGS_MIRRORED_KEY]: false });
++      const autoConsumeNow = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
++      const delegateProofNow = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
++      const telemetryNow = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
++      if (autoConsumeNow === null || delegateProofNow === null || telemetryNow === null) return;
++      await getStorageProvider().set({
++        [AUTO_CONSUME_STORAGE_KEY]: autoConsumeNow,
++        [DELEGATE_PROOF_STORAGE_KEY]: delegateProofNow,
++        [TELEMETRY_STORAGE_KEY]: telemetryNow,
++        [BG_SETTINGS_MIRRORED_KEY]: true
++      });
++    } catch {
++      /* a refused clear or copy does not publish the marker */
++    }
++  })();
