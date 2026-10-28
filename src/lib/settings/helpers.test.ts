@@ -55,6 +55,62 @@ describe('settings helpers', () => {
     mockStorageThrows = false;
   });
 
+  describe('boolean preferences with unavailable storage', () => {
+    const readers = [
+      { name: 'delegated proving', key: DELEGATE_PROOF_STORAGE_KEY, read: isDelegateProofEnabled, fallback: true },
+      { name: 'auto-consume', key: AUTO_CONSUME_STORAGE_KEY, read: isAutoConsumeEnabled, fallback: true },
+      { name: 'haptics', key: HAPTIC_FEEDBACK_STORAGE_KEY, read: isHapticFeedbackEnabled, fallback: true },
+      { name: 'telemetry', key: TELEMETRY_STORAGE_KEY, read: isTelemetryEnabled, fallback: false }
+    ];
+    const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+
+    afterEach(() => {
+      if (storageDescriptor) Object.defineProperty(window, 'localStorage', storageDescriptor);
+      jest.restoreAllMocks();
+    });
+
+    it.each(readers)('uses the $name default when storage is null', ({ read, fallback }) => {
+      Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
+      expect(read()).toBe(fallback);
+    });
+
+    it.each(readers)('uses the $name default when the storage getter throws', ({ read, fallback }) => {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException('Storage unavailable', 'SecurityError');
+        }
+      });
+      expect(read()).toBe(fallback);
+    });
+
+    it.each(readers)('uses the $name default when reading storage throws', ({ read, fallback }) => {
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('Storage unavailable', 'SecurityError');
+      });
+      expect(read()).toBe(fallback);
+    });
+
+    it.each(readers)('uses the $name default for malformed JSON', ({ key, read, fallback }) => {
+      localStorage.setItem(key, '{broken');
+      expect(read()).toBe(fallback);
+    });
+
+    it.each(readers)('uses the $name default for nonboolean JSON', ({ key, read, fallback }) => {
+      for (const value of ['null', '0', '1', '"false"', '[]', '{}']) {
+        localStorage.setItem(key, value);
+        expect(read()).toBe(fallback);
+      }
+    });
+
+    it.each(readers)('preserves explicit $name choices', ({ key, read }) => {
+      localStorage.setItem(key, 'false');
+      expect(read()).toBe(false);
+      localStorage.setItem(key, 'true');
+      expect(read()).toBe(true);
+    });
+  });
+
   describe('isValidGuardianUrl', () => {
     it('accepts https URLs', () => {
       expect(isValidGuardianUrl('https://guardian.example.com')).toBe(true);
