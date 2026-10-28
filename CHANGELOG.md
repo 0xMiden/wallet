@@ -2,6 +2,7 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
 - [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.

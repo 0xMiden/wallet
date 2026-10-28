@@ -100,10 +100,10 @@ export const TxStory: React.FC<{ hops: StoryHop[]; summary?: StorySummary; class
                 <div className="tx-story-slot">{toShown && <Party party={hop.to} side="to" />}</div>
               </div>
             )}
-            <div className="tx-story-move" aria-hidden="true">
-              <span className="tx-story-line" />
+            <div className="tx-story-move">
+              <span className="tx-story-line" aria-hidden="true" />
               <span className="tx-story-amount">{detail}</span>
-              <span className="tx-story-line" />
+              <span className="tx-story-line" aria-hidden="true" />
             </div>
           </div>
         );
