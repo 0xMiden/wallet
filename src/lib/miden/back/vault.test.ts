@@ -60,11 +60,13 @@ let retainedStorageKey: string | undefined;
 let mockBeforeRecoveryWrite: (() => Promise<void>) | undefined;
 let mockBeforeStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
 let mockAfterStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
+let mockAfterStorageRead: ((keys: string[]) => void) | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
       const out: Record<string, any> = {};
       for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
+      if (mockAfterStorageRead) mockAfterStorageRead(keys);
       return out;
     },
     set: async (items: Record<string, any>) => {
@@ -6631,6 +6633,51 @@ describe('Vault storage continuity', () => {
       mockBeforeStorageWrite = undefined;
     }
   });
+
+  it.each(['check', 'accounts'])(
+    'Task5 recovery Vault reports missing retained %s as file unavailable after protector authentication',
+    async missing => {
+      const credential = await recoveryFileCustody();
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const retained = await vault.readRecoveryJournal();
+      if (!retained) throw new Error('Missing verified recovery fixture');
+      const storageKey = missing === 'check' ? keys.check : keys.accounts;
+      const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(storageKey, 'utf-8'))).toString(
+        'hex'
+      );
+      const protector = await getPlain<unknown>('vault_key_password');
+      expect(typeof protector).toBe('string');
+      await removeMany([storageKey]);
+      expect(await isStored(storageKey)).toBe(false);
+      expect((await getPlain<unknown>('vault_key_password')) === protector).toBe(true);
+      markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+      const incident = getStorageHealth();
+      let protectorReads = 0;
+      let missingRecordReads = 0;
+      mockAfterStorageRead = observedKeys => {
+        if (observedKeys.includes('vault_key_password')) protectorReads++;
+        if (observedKeys.includes(providerKey)) missingRecordReads++;
+      };
+      readSnapshot.mockClear();
+      try {
+        const pending = Vault.exportRecoveryData(crypto.randomUUID(), credential);
+        await pending.then(
+          () => undefined,
+          () => undefined
+        );
+        expect(protectorReads).toBe(1);
+        expect(missingRecordReads).toBe(1);
+        await expect(pending).rejects.toThrow('RecoveryDataFile:unavailable');
+        expect(readSnapshot).not.toHaveBeenCalled();
+        const { RecoveryJournal } = await import('../recovery/journal');
+        const { getStorageProvider } = await import('lib/platform/storage-adapter');
+        expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+        expect(getStorageHealth()).toEqual(incident);
+      } finally {
+        mockAfterStorageRead = undefined;
+      }
+    }
+  );
 
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
