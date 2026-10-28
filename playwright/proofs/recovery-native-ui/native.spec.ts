@@ -26,6 +26,7 @@ test('synthetic recovery controls respond to native taps in both themes', async 
   try {
     await expect.poll(() => session.eval<boolean>('return !!window.__TEST_STORE__;'), { timeout: 60_000 }).toBe(true);
     await expect.poll(() => session.eval<boolean>('return window.__TEST_STORE__.getState().isInitialized === true;'), { timeout: 60_000 }).toBe(true);
+    const originalHeight = await session.eval<number>('return innerHeight;');
     for (const theme of ['light', 'dark']) {
       await session.eval(`
         var s = window.__TEST_STORE__;
@@ -73,6 +74,11 @@ test('synthetic recovery controls respond to native taps in both themes', async 
       await tap('Export recovery data');
       await expect.poll(() => session.eval<boolean>("return !!document.querySelector('[data-testid=export-file-password]');"), { timeout: 30_000 }).toBe(true);
       await screenshot('export');
+      if (!ios && theme === 'light') {
+        await expect.poll(() => session.eval<number>('return innerHeight;'), { timeout: 30_000 }).toBeLessThan(originalHeight);
+        await exec('adb', ['-s', device, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], { timeout: 30_000 });
+        await expect.poll(() => session.eval<number>('return innerHeight;'), { timeout: 30_000 }).toBe(originalHeight);
+      }
     }
   } finally {
     await session.close();
