@@ -1466,3 +1466,18 @@ describe('iOS native per-call failures', () => {
     expect(readReownNativeFailure(c.error)).toBeUndefined();
   });
 });
+
+it.each(['request_construction_error', 'request_call_error'])(
+  'does not accept iOS-only origin %s in the Android wire format',
+  async nativeOrigin => {
+    jest.mocked(isAndroid).mockReturnValue(true);
+    jest.mocked(isIOS).mockReturnValue(false);
+    const original = Object.assign(new Error('wallet wording'), {
+      code: `REOWN_NATIVE_REQUEST_FAILURE:${JSON.stringify({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' })}`
+    });
+    rawNativeSend.mockRejectedValueOnce(original);
+    const { error } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
+    expect(error).toBe(original);
+    expect(readReownNativeFailure(error)).toBeUndefined();
+  }
+);
