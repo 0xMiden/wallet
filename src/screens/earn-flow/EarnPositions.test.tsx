@@ -2,9 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 
-import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
-
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -97,12 +96,26 @@ describe('EarnPositions', () => {
   it('forwards only the displayed positions load evidence through the real Notice', () => {
     jest.useFakeTimers();
     try {
-      const evidence = { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'partial_failure' };
-      mockUseEarnPositions.mockReturnValue({ summary: EARN_DATA.summary, positions: [], vaults: [], isLoading: false, error: 'private amount 1234.56', refetch: mockRefetch, errorDiagnostics: evidence });
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'request',
+        earnPositionsLoadOutcome: 'partial_failure'
+      };
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: [],
+        isLoading: false,
+        error: 'private amount 1234.56',
+        refetch: mockRefetch,
+        errorDiagnostics: evidence
+      });
       render(<EarnPositions />);
       act(() => jest.advanceTimersByTime(1000));
       expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
-    } finally { jest.useRealTimers(); }
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the page shell with the "My positions" heading', () => {

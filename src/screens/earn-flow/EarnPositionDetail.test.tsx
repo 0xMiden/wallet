@@ -2,9 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
-import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
-
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
@@ -591,12 +590,18 @@ describe('EarnPositionDetail after a failed load', () => {
     jest.useFakeTimers();
     try {
       jest.mocked(reportUserVisibleError).mockClear();
-      const evidence = { kind: 'earn_positions_load', earnPositionsLoadStage: 'position_decode', earnPositionsLoadOutcome: 'complete_failure' };
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'position_decode',
+        earnPositionsLoadOutcome: 'complete_failure'
+      };
       mockLoadState = Object.assign({ isLoading: false, error: 'private failure' }, { errorDiagnostics: evidence });
       renderDetail('no-such-position');
       act(() => jest.advanceTimersByTime(1000));
       expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
-    } finally { jest.useRealTimers(); }
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('says a per-owner positions failure too, which is not a request failure', () => {

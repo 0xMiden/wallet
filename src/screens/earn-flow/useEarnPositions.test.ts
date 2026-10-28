@@ -237,15 +237,48 @@ describe('useEarnPositions', () => {
   });
 
   it.each([
-    ['all failed with carried positions', ['owner-a'], [{ owner: 'owner-a', error: 'failed', stage: 'request' }], [position], 'complete_failure', 'request'],
-    ['one empty owner succeeded', ['owner-a', 'owner-b'], [{ owner: 'owner-a', error: 'failed', stage: 'response_decode' }], [], 'partial_failure', 'response_decode'],
-    ['legacy error has no owned stage', ['owner-a'], [{ owner: 'owner-a', error: 'failed' }], [], 'complete_failure', 'unrecorded'],
-    ['first displayed error owns its stage', ['owner-a', 'owner-b'], [{ owner: 'owner-a', error: 'first', stage: 'position_decode' }, { owner: 'owner-b', error: 'second', stage: 'request' }], [], 'complete_failure', 'position_decode']
+    [
+      'all failed with carried positions',
+      ['owner-a'],
+      [{ owner: 'owner-a', error: 'failed', stage: 'request' }],
+      [position],
+      'complete_failure',
+      'request'
+    ],
+    [
+      'one empty owner succeeded',
+      ['owner-a', 'owner-b'],
+      [{ owner: 'owner-a', error: 'failed', stage: 'response_decode' }],
+      [],
+      'partial_failure',
+      'response_decode'
+    ],
+    [
+      'legacy error has no owned stage',
+      ['owner-a'],
+      [{ owner: 'owner-a', error: 'failed' }],
+      [],
+      'complete_failure',
+      'unrecorded'
+    ],
+    [
+      'first displayed error owns its stage',
+      ['owner-a', 'owner-b'],
+      [
+        { owner: 'owner-a', error: 'first', stage: 'position_decode' },
+        { owner: 'owner-b', error: 'second', stage: 'request' }
+      ],
+      [],
+      'complete_failure',
+      'position_decode'
+    ]
   ])('reports the matching closed load evidence when %s', (_name, owners, errors, positions, outcome, stage) => {
     mockUseRetryableSWR.mockReturnValue({ data: { ...liveResult, owners, errors, positions }, isLoading: false });
     const { result } = renderHook(() => useEarnPositions());
     expect(Reflect.get(result.current, 'errorDiagnostics')).toEqual({
-      kind: 'earn_positions_load', earnPositionsLoadStage: stage, earnPositionsLoadOutcome: outcome
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: stage,
+      earnPositionsLoadOutcome: outcome
     });
   });
 
@@ -254,7 +287,9 @@ describe('useEarnPositions', () => {
     mockUseRetryableSWR.mockReturnValue({});
     const { result } = renderHook(() => useEarnPositions());
     expect(Reflect.get(result.current, 'errorDiagnostics')).toEqual({
-      kind: 'earn_positions_load', earnPositionsLoadStage: 'configuration', earnPositionsLoadOutcome: 'complete_failure'
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'configuration',
+      earnPositionsLoadOutcome: 'complete_failure'
     });
     expect(fetchEarnPositions).not.toHaveBeenCalled();
   });
@@ -262,12 +297,16 @@ describe('useEarnPositions', () => {
   it('uses only the selected rejection root and clears evidence after success', () => {
     const root = new Error('private-owner 0x1234 amount 1234.56');
     annotateUiProducer(root, 'earnPositionsLoadError', 'notice', {
-      kind: 'earn_positions_load', earnPositionsLoadStage: 'owner_lookup', earnPositionsLoadOutcome: 'complete_failure'
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
     });
     mockUseRetryableSWR.mockReturnValue({ error: root });
     const { result, rerender } = renderHook(() => useEarnPositions());
     expect(Reflect.get(result.current, 'errorDiagnostics')).toEqual({
-      kind: 'earn_positions_load', earnPositionsLoadStage: 'owner_lookup', earnPositionsLoadOutcome: 'complete_failure'
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
     });
     mockUseRetryableSWR.mockReturnValue({ data: { ...liveResult, errors: [] } });
     rerender();
@@ -275,11 +314,14 @@ describe('useEarnPositions', () => {
   });
 
   it.each(['private primitive rejection', new Error('custom unobserved rejection')])(
-    'does not invent a stage for an unobserved hook rejection', error => {
+    'does not invent a stage for an unobserved hook rejection',
+    error => {
       mockUseRetryableSWR.mockReturnValue({ error });
       const { result } = renderHook(() => useEarnPositions());
       expect(Reflect.get(result.current, 'errorDiagnostics')).toEqual({
-        kind: 'earn_positions_load', earnPositionsLoadStage: 'unrecorded', earnPositionsLoadOutcome: 'complete_failure'
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'unrecorded',
+        earnPositionsLoadOutcome: 'complete_failure'
       });
     }
   );
