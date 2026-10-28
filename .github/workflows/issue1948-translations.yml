@@ -1,0 +1,41 @@
+name: Issue1948 translation generation proof
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  translations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8ff316871e169cafc53394b0daabc44f216ad93c
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bind source
+        run: |
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          test "$(git rev-parse "$GITHUB_SHA^")" = 8ff316871e169cafc53394b0daabc44f216ad93c
+          test "$(git rev-parse HEAD^{tree})" = 69f040ef7dc077ae658fe48bb6f3fcbe223de8b4
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Generate translations using existing repository workflow
+        env:
+          DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
+        run: |
+          test -n "$DEEPL_API_KEY"
+          yarn createTranslationFile
+      - name: Verify complete locale parity
+        run: yarn jest --runTestsByPath src/lib/i18n/locale-bundle-parity.test.ts --maxWorkers=2 --no-coverage --json --outputFile=locale-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1948-translations
+          path: |
+            public/_locales/
+            locale-results.json
+          if-no-files-found: error
