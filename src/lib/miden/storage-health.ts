@@ -32,6 +32,9 @@ export type StorageHealth =
       readonly time: number;
     };
 
+export type StorageAvailability = { readonly status: 'pending' } | StorageHealth;
+
+let hydrated = false;
 let snapshot: StorageHealth = { status: 'healthy', epoch: 0 };
 export interface StorageRecoveryCapability {
   readonly epoch: number;
@@ -58,11 +61,32 @@ export function captureStorageRecoveryGuard(): () => void {
   };
 }
 
+interface ConfirmedStorageFailure {
+  readonly epoch: number;
+  readonly revision: number;
+  readonly backend: StorageBackend;
+  readonly operation: StorageHealthOperation;
+}
+const confirmedStorageFailures = new WeakMap<object, ConfirmedStorageFailure>();
+
+export function confirmStorageFailure(
+  error: unknown,
+  reason: StorageFailureReason,
+  context: StorageFailureContext,
+  expectedEpoch: number
+): void {
+  if (snapshot.status !== 'healthy' || snapshot.epoch !== expectedEpoch) return;
+  markStorageUnavailable(reason, context);
+  if (typeof error === 'object' && error !== null)
+    confirmedStorageFailures.set(error, { epoch: snapshot.epoch, revision: failureRevision, ...context });
+}
+
 let failureRevision = 0;
 let transportLoader: (() => Promise<unknown>) | undefined;
 let initialization: Promise<void> | undefined;
 let persistence = Promise.resolve();
 const listeners = new Set<(health: StorageHealth) => void>();
+const availabilityListeners = new Set<(availability: StorageAvailability) => void>();
 let channel: BroadcastChannel | undefined;
 function isReason(value: unknown): value is StorageFailureReason {
   return value === 'quota' || value === 'backing-store' || value === 'continuity' || value === 'journal';
@@ -123,7 +147,35 @@ function decode(value: unknown): StorageHealth | undefined {
   return { status, epoch, reason, backend, operation, time };
 }
 
+function publishAvailability(): void {
+  const current = getStorageAvailability();
+  for (const listener of availabilityListeners) {
+    try {
+      listener(current);
+    } catch {
+      /* Availability observers cannot defeat the gate. */
+    }
+  }
+}
+
+export function getStorageAvailability(): StorageAvailability {
+  return hydrated || snapshot.status === 'unavailable' ? snapshot : { status: 'pending' };
+}
+
+export function subscribeStorageAvailability(listener: (availability: StorageAvailability) => void): () => void {
+  availabilityListeners.add(listener);
+  return () => availabilityListeners.delete(listener);
+}
+
+export function sanitizeStorageAvailability(availability: StorageAvailability): StorageAvailability {
+  if (availability.status === 'pending') return { status: 'pending' };
+  if (availability.status === 'healthy') return { status: 'healthy', epoch: availability.epoch };
+  const { status, epoch, reason, backend, operation, time } = availability;
+  return { status, epoch, reason, backend, operation, time };
+}
+
 function publish(persist: boolean): void {
+  publishAvailability();
   const current = snapshot;
   if (persist && !isInOffscreenDocument()) {
     persistence = persistence.then(() => getStorageProvider().set({ [STORAGE_HEALTH_KEY]: current })).catch(() => {});
@@ -201,6 +253,9 @@ export function initializeStorageHealth(): Promise<void> {
       reportStorageFailure(error, { backend: 'independent', operation: 'open' });
       // An unreadable incident mirror cannot establish permission to mutate.
       markStorageUnavailable('backing-store', { backend: 'independent', operation: 'open' });
+    } finally {
+      hydrated = true;
+      publishAvailability();
     }
   })();
   return initialization;
@@ -223,6 +278,18 @@ export function markStorageUnavailable(reason: StorageFailureReason, context: St
 }
 
 export function reportStorageFailure(error: unknown, context?: StorageFailureContext): boolean {
+  if (typeof error === 'object' && error !== null && context) {
+    const confirmed = confirmedStorageFailures.get(error);
+    if (
+      confirmed &&
+      confirmed.epoch === snapshot.epoch &&
+      confirmed.revision === failureRevision &&
+      snapshot.status === 'unavailable' &&
+      confirmed.backend === context.backend &&
+      confirmed.operation === context.operation
+    )
+      return true;
+  }
   const pending: unknown[] = [error];
   const seen = new Set<object>();
   for (let inspected = 0; pending.length && inspected < 24; inspected++) {

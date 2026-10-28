@@ -131,3 +131,63 @@ describe('strict action authentication controller', () => {
     await expect(current.method).resolves.toBe('password');
   });
 });
+
+describe('Task5 recovery authenticated action', () => {
+  it.each([
+    { platform: 'mobile', hardware: true, credential: undefined },
+    { platform: 'extension', hardware: false, credential: 'disposable-credential' }
+  ])(
+    'performs one backend-authenticated operation on $platform without a separate verification',
+    async ({ platform, hardware, credential }) => {
+      const verify = jest.fn().mockResolvedValue(undefined);
+      const perform = jest.fn().mockResolvedValue(undefined);
+      const selected: StrictAuthenticationPlatform = platform === 'mobile' ? 'mobile' : 'extension';
+      const challenge = createStrictActionAuthenticationController({
+        getPlatform: () => selected,
+        loadProtectors: async () => ({ hardware, password: !hardware }),
+        verify,
+        perform
+      }).begin();
+      await expect(challenge.authenticate(credential)).resolves.toBe('authenticated');
+      expect(perform).toHaveBeenCalledTimes(1);
+      expect(perform).toHaveBeenCalledWith(credential);
+      expect(verify).not.toHaveBeenCalled();
+    }
+  );
+
+  it('coalesces repeated confirmation into the same authenticated operation', async () => {
+    const work = deferred<void>();
+    const perform = jest.fn(() => work.promise);
+    const verify = jest.fn().mockResolvedValue(undefined);
+    const challenge = createStrictActionAuthenticationController({
+      getPlatform: () => 'extension',
+      loadProtectors: async () => ({ hardware: false, password: true }),
+      verify,
+      perform
+    }).begin();
+    const first = challenge.authenticate('disposable-credential');
+    const second = challenge.authenticate('disposable-credential');
+    work.resolve();
+    await expect(first).resolves.toBe('authenticated');
+    await expect(second).resolves.toBe('authenticated');
+    expect(perform).toHaveBeenCalledTimes(1);
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('retires a late authenticated operation result when the challenge is cancelled', async () => {
+    const work = deferred<void>();
+    const perform = jest.fn(() => work.promise);
+    const challenge = createStrictActionAuthenticationController({
+      getPlatform: () => 'mobile',
+      loadProtectors: async () => ({ hardware: true, password: false }),
+      verify: jest.fn().mockResolvedValue(undefined),
+      perform
+    }).begin();
+    const result = challenge.authenticate();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(perform).toHaveBeenCalledTimes(1);
+    challenge.cancel();
+    work.resolve();
+    await expect(result).resolves.toBe('cancelled');
+  });
+});

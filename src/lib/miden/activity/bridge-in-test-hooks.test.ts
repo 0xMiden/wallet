@@ -4,8 +4,12 @@
 
 // The hooks run in the service worker, which has no document and so no bridge config scheduler; a node environment
 // keeps the real remote-config runtime on that path.
+import { getProviderReceiptBackend, installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
+import { fromSerializable } from 'lib/miden/recovery/serialization';
+import { projectRecoveryTransaction, validateRecoveryReceipt } from 'lib/miden/recovery/transaction-record';
 import * as Repo from 'lib/miden/repo';
 import { PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
+import { assertStorageHealthy } from 'lib/miden/storage-health';
 import {
   _refreshBridgeConfigForTest,
   _resetBridgeConfigRuntimeForTest,
@@ -237,4 +241,27 @@ it("reports an executor deposit's forwarded leg and the fee it paid", async () =
     cctpForwarded: true,
     cctpForwardFee: SUBMITTED.cctp.forwardFee
   });
+});
+
+let previousReceiptBackend: ReturnType<typeof getProviderReceiptBackend>;
+const retainedReceipts = new Map<string, ReturnType<typeof validateRecoveryReceipt>>();
+
+async function acknowledgeSyntheticReceipt(value: unknown, expectedEpoch: number): Promise<void> {
+  assertStorageHealthy(expectedEpoch);
+  const row = validateRecoveryReceipt(fromSerializable(value));
+  const persisted = await Repo.transactions.get(row.id);
+  if (!persisted) throw new Error('Synthetic receipt owner requires a persisted row');
+  expect(projectRecoveryTransaction(persisted)).toMatchObject(row);
+  assertStorageHealthy(expectedEpoch);
+  retainedReceipts.set(row.id, row);
+}
+
+beforeEach(() => {
+  previousReceiptBackend = getProviderReceiptBackend();
+  retainedReceipts.clear();
+  installProviderReceiptBackend(acknowledgeSyntheticReceipt);
+});
+
+afterEach(() => {
+  installProviderReceiptBackend(previousReceiptBackend);
 });

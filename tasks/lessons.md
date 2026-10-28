@@ -99,3 +99,40 @@ When a browser debugging connection is unavailable, inspect the requested browse
 ## Swap amount locators during loading
 
 Quote loading removes the derived amount input while keeping the opposite input mounted. A global first/nth locator can then edit the wrong side. Scope each amount locator to the existing pay/receive container and cover the missing-input state in its behavioral regression.
+
+## Issue1948 diagnostic output
+
+- Never print raw E2E/helper source or arbitrary failureMessages when the task prohibits key, token or access-code output. Checked-in fixtures are covered too.
+- Before showing source excerpts, redact credential-bearing lines and long hexadecimal/encoded literals. Prefer source locations, error categories, assertion names and counts. Keep complete diagnostic artifacts private to the working state.
+
+- Read the exact frozen diagnostic line before naming its failing API or proposing arguments.
+- Bind dependency facts to immutable commit content and tree hashes; a changing checkout file is not evidence for the HEAD previously observed.
+- Recheck every monitor process and freshness during each status poll. A source-change event may stop a watcher even while other CI continues.
+
+- Preserve assertions that encode default-off wire compatibility. Extra optional features should keep the old envelope when absent; do not assume the old assertion is stale.
+
+- 2026-10-27 issue1948 artifact collection: inspect artifact sizes before local downloads and upload small receipts separately from large package archives. Save terminal CI metadata before collection; a collection deadline must never revive a stale running claim or trigger a rerun of a successful gate. Keep large packages in CI and extract bounded evidence there.
+
+- 2026-10-27 issue1948 paging type closure: when extending a reader API, inspect derived exported interfaces for redeclared properties before calling an excess-property failure a fixture issue. Preserve inherited optional API members and validate against the exact SDK source in CI.
+
+- 2026-10-27 issue1948 frozen untracked test packets: generate changes against a snapshot with an isolated index seeded from that exact base. Plain git diff can describe a still-untracked working-tree file as deleted against the snapshot. Verify every resulting blob hash before commit; controller orchestration filenames use a distinct controller prefix to avoid concurrent packet-name collisions.
+
+- 2026-10-27 issue1948 diagnostic correction: a fixture key-construction expression is key output too, even without a hexadecimal key literal. Never print raw fixture bodies or patches. Produce diagnostics programmatically from named assertions, locations, statuses and hashes; inspect secret-bearing source silently and redact construction expressions before any excerpt.
+
+- 2026-10-27 issue1948 fixture-output correction: never send raw test bodies, mock headers, fixture constructors, credential literals or source patches to tool output. Before executing a read, use a bounded metadata-only extractor that emits file hashes, symbol names and line numbers. Test titles may be extracted only under an explicit known task prefix. Do not use head, cat, sed or broad content grep on test fixtures; redaction after output is too late. This includes disposable key-generation and import expressions, not only concrete values.
+
+- Storage recovery proof packets: derive complete API/type closures and case inventories from the exact frozen parent, rather than an older baseline. Namespace exports can be nonconfigurable under the test compiler; use explicit typed mock facades. Preserve a run with a wrong inventory as failed, document the source-backed correction separately, and never omit unchanged cases to fit a forecast.
+
+- Issue 1948 proof fixtures: when moving an authenticated fixture between frozen sources, preserve the complete domain projection required by the target API (Guardian type, hdIndex and authScheme), using APIs present on that source. A passing stub or an ordinary matcher failure does not prove valid custody reached the intended boundary.
+
+- Issue 1948 dispatch recovery: recheck newly learned gates before recovering a failed push. A later fixture warning also applies to derived proof sources; do not resend an identical source known to fail its lint gate. Record the rejected push and fix the derived packet before dispatch.
+
+### Recovery fixture ownership and persistence boundaries
+
+- Type a shared state fixture from the actual state projection plus explicit owner fields. Audit every initial/reset object key before freezing a type correction; a narrow inferred literal can omit unrelated fields and break a full gate.
+- Keep the no-held-vault default nullable. Add an authenticated owner only inside the test that requires it, and restore owned mock getter implementations after any shared reset.
+- Reuse the suite's established typed mock/module bindings. A dynamic import is not proof that a value is a Jest mock; establish the callable boundary before invoking mock methods.
+- A persistence fault must target the exact delegated provider key after the storage layer's key transformation. Prove nonzero fault reachability before asserting rejection identity or health outcome.
+- Real backend file fixtures must use the supported Guardian account type. Prove successful authentication and baseline export before a negative assertion whose category could match an earlier guard.
+
+- Treat a fixture value's observed type narrowly: non-string alone does not establish which object or handle it is. Bind type and presence evidence before choosing a serialization API, and retract unsupported diagnoses promptly.

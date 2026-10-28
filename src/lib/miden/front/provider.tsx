@@ -188,7 +188,8 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
  * Previously had 5 nested providers, now simplified to 2 (FiatCurrency still uses constate)
  */
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
-  const { ready } = useMidenContext();
+  const { ready, storageAvailability } = useMidenContext();
+  const canRunReadyProviders = ready && storageAvailability?.status === 'healthy';
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
   useSyncTrigger();
@@ -199,7 +200,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
 
   return useMemo(
     () =>
-      ready ? (
+      canRunReadyProviders ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
             {children}
@@ -220,6 +221,6 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
       ) : (
         <>{children}</>
       ),
-    [children, ready]
+    [children, canRunReadyProviders]
   );
 };

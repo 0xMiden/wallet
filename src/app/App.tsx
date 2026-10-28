@@ -26,7 +26,7 @@ import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
-import { MidenProvider, request } from 'lib/miden/front';
+import { MidenProvider, request, useMidenContext } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletMessageType } from 'lib/shared/types';
@@ -43,6 +43,7 @@ import '../i18n';
 
 import ConfirmPage from './ConfirmPage';
 import { RuntimeSupportGate } from './RuntimeSupportGate';
+import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { WalletAccessGate } from './WalletAccessGate';
 // Lock-up checks are extension-only (uses webextension-polyfill)
 if (isExtension()) {
@@ -101,40 +102,42 @@ const App: FC<AppProps> = ({ env }) => {
                       (transform + transient border-radius/overflow, all managed
                       by vaul). Must wrap the whole app surface. */}
                       <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                        <SeedBackupGate>
-                          <Dialogs />
-                          {isExtension() && <PinExtensionPrompt />}
-                          {checkIsDesktop() && (
-                            <Suspense fallback={null}>
-                              <DesktopDappConfirmationModal />
-                            </Suspense>
-                          )}
-                          {env.confirmWindow ? (
-                            <ConfirmPage />
-                          ) : checkIsMobile() ? (
-                            // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                            // and the bubble host. It must live ABOVE PageRouter so it survives
-                            // tab navigation - a parked dApp's bubble stays interactive even
-                            // when the user moves to a different tab.
-                            <DappBrowserProvider>
+                        <StorageAvailabilityBoundary confirmWindow={env.confirmWindow === true}>
+                          <SeedBackupGate>
+                            <Dialogs />
+                            {isExtension() && <PinExtensionPrompt />}
+                            {checkIsDesktop() && (
+                              <Suspense fallback={null}>
+                                <DesktopDappConfirmationModal />
+                              </Suspense>
+                            )}
+                            {env.confirmWindow ? (
+                              <ConfirmPage />
+                            ) : checkIsMobile() ? (
+                              // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                              // and the bubble host. It must live ABOVE PageRouter so it survives
+                              // tab navigation - a parked dApp's bubble stays interactive even
+                              // when the user moves to a different tab.
+                              <DappBrowserProvider>
+                                <UpdateNotificationProvider>
+                                  <HotKeyRotationGate />
+                                  <HotKeyRotatedOutGate />
+                                  <GuardianRecoveryProvider />
+                                  <OpenLinkPrompt />
+                                  <BreadConnectPrompt />
+                                  <PageRouter />
+                                </UpdateNotificationProvider>
+                              </DappBrowserProvider>
+                            ) : (
                               <UpdateNotificationProvider>
                                 <HotKeyRotationGate />
                                 <HotKeyRotatedOutGate />
                                 <GuardianRecoveryProvider />
-                                <OpenLinkPrompt />
-                                <BreadConnectPrompt />
                                 <PageRouter />
                               </UpdateNotificationProvider>
-                            </DappBrowserProvider>
-                          ) : (
-                            <UpdateNotificationProvider>
-                              <HotKeyRotationGate />
-                              <HotKeyRotatedOutGate />
-                              <GuardianRecoveryProvider />
-                              <PageRouter />
-                            </UpdateNotificationProvider>
-                          )}
-                        </SeedBackupGate>
+                            )}
+                          </SeedBackupGate>
+                        </StorageAvailabilityBoundary>
                       </div>
                     </BootAnimation>
                   </AwaitFonts>
@@ -176,4 +179,14 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
       </Woozie.Provider>
     </AppEnvProvider>
   );
+};
+
+const StorageAvailabilityBoundary: FC<PropsWithChildren & { confirmWindow: boolean }> = ({
+  children,
+  confirmWindow
+}) => {
+  const { storageAvailability } = useMidenContext();
+  if (storageAvailability?.status === 'healthy') return <>{children}</>;
+  if (storageAvailability?.status !== 'unavailable') return <RootSuspenseFallback />;
+  return confirmWindow ? <StorageRecoveryPage /> : <PageRouter />;
 };
