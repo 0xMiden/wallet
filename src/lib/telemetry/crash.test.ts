@@ -1327,9 +1327,7 @@ it.each(['root', 'cause', 'mismatch'])(
       const expected = scenario === 'root' ? '"burnFeeFailure":"dry_run_failed"' : null;
       expect(wire.match(/"burnFeeFailure":"[^"]*"/)?.[0] ?? null).toBe(expected);
       const without = wire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
-      expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(
-        192
-      );
+      expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
       for (const privateValue of [ADDRESS, '1234.5678', 'private-canary', 'request_failed']) {
         expect(wire).not.toContain(privateValue);
       }
