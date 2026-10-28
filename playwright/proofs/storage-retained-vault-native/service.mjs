@@ -147,7 +147,7 @@ export async function createRecoveryService(buildRoot, binary) {
         }
         throw new Error('control-route');
       }
-      if (url.pathname.startsWith('/rpc/') && request.method === 'POST') {
+      if (url.pathname.startsWith('/miden.node.v1.NodeService/') && request.method === 'POST') {
         const body = await readBody(request, 64 * 1024);
         const identity = hash(Buffer.concat([Buffer.from(url.pathname), Buffer.from([0]), body]));
         let image;

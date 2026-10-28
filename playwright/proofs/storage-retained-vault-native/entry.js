@@ -47,7 +47,7 @@ const control = async (action, body) => {
 async function endpoints(feeFaucetId) {
   progress('endpoint-override');
   applyEndpointOverride({
-    rpcUrl: `${location.origin}/rpc`,
+    rpcUrl: location.origin,
     proverUrl: `${location.origin}/prover`,
     noteTransportUrl: `${location.origin}/notes`,
     faucetUrl: `${location.origin}/faucet`,
@@ -68,7 +68,7 @@ async function endpoints(feeFaucetId) {
   progress('native-resolver');
   check('nativeResolver', typeof wasm.resolveStoreName === 'function');
   progress('native-store-name');
-  sdkStore = await nativeStorageName(`${location.origin}/rpc`);
+  sdkStore = await nativeStorageName(location.origin);
   progress('native-distinct-store');
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
@@ -90,7 +90,7 @@ async function prepare(password, includePrivate) {
   check('producerBound', generated.headers > 0 && generated.headers <= 32 && generated.accountProof === true);
   await endpoints(fixture.feeFaucetId);
   progress('sdk-generated-request-images');
-  const endpoint = new sdk.Endpoint(`${location.origin}/rpc`);
+  const endpoint = new sdk.Endpoint(location.origin);
   const rpc = new sdk.RpcClient(endpoint);
   const id = sdk.AccountId.fromHex(fixture.accountId);
   try {
@@ -198,7 +198,7 @@ async function prepare(password, includePrivate) {
   await resetMidenClient();
   vault.retire();
   vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(`${location.origin}/rpc`)) && sdkStore !== Repo.db.name);
+  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
   progress('disposable-sdk-store-loss');
   await new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(sdkStore);
