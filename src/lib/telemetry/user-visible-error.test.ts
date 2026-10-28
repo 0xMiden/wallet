@@ -206,6 +206,16 @@ const uiCases = [
     'noteClaimFailedRetry',
     'notice',
     { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' }
   ]
 ] as const;
 it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {

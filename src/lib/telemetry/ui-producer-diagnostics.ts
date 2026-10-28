@@ -86,6 +86,8 @@ export function classifyUiFailure(error: unknown): UiFailureKind {
   }
 }
 
+export const BACKUP_NETWORK_FAILURE_STAGES = ['declared_network', 'genesis_header'] as const;
+export type BackupNetworkFailureStage = (typeof BACKUP_NETWORK_FAILURE_STAGES)[number];
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
@@ -102,7 +104,8 @@ export type UiEvidenceInput =
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
   | { kind: 'burn_fee'; burnFeeFailure: BurnFeeFailure }
   | { kind: 'mainnet_access_check'; mainnetAccessCheckFailure: MainnetAccessCheckFailure; uiFailureKind: UiFailureKind }
-  | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind };
+  | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind }
+  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
 export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
@@ -113,6 +116,7 @@ export type UiProducerDiagnostics = {
   mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
   noteClaimFailureOrigin?: NoteClaimFailureOrigin;
   uiFailureKind?: UiFailureKind;
+  backupNetworkFailureStage?: BackupNetworkFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
@@ -123,7 +127,8 @@ export const UI_PRODUCER_KEYS = [
   'burnFeeFailure',
   'mainnetAccessCheckFailure',
   'noteClaimFailureOrigin',
-  'uiFailureKind'
+  'uiFailureKind',
+  'backupNetworkFailureStage'
 ] as const;
 const groups = {
   feature_unavailable: {
@@ -158,6 +163,11 @@ const groups = {
     id: 'usdcxBurnFeeUnavailable',
     surface: 'field',
     fields: { burnFeeFailure: BURN_FEE_FAILURES }
+  },
+  backup_network_failure: {
+    id: 'encryptedWalletFileWrongNetwork',
+    surface: 'field',
+    fields: { backupNetworkFailureStage: BACKUP_NETWORK_FAILURE_STAGES }
   },
   recipient_validation: {
     id: 'invalidMidenAccountId',
