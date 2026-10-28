@@ -17,17 +17,39 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 
 // Counts the live query's deliveries, so a test can wait for a read to land rather than a timer.
 const mockDeliveries = { value: 0 };
+const mockLiveQueryEvents: { event: string; at: number; detail?: string }[] = [];
+const mockRecordLiveQueryEvent = (event: string, detail?: string) => {
+  mockLiveQueryEvents.push({ event, at: performance.now(), detail });
+};
 jest.mock('lib/dexie-live-query', () => {
   const actual = jest.requireActual('lib/dexie-live-query');
   return {
     subscribeToLiveQuery: (query: () => unknown, observer: { next: (value: unknown) => void; error: () => void }) =>
-      actual.subscribeToLiveQuery(query, {
-        ...observer,
-        next: (value: unknown) => {
-          observer.next(value);
-          mockDeliveries.value += 1;
+      actual.subscribeToLiveQuery(
+        async () => {
+          mockRecordLiveQueryEvent('query-start');
+          try {
+            const value = await query();
+            mockRecordLiveQueryEvent('query-complete');
+            return value;
+          } catch (error) {
+            mockRecordLiveQueryEvent('query-error', String(error));
+            throw error;
+          }
+        },
+        {
+          ...observer,
+          next: (value: unknown) => {
+            mockRecordLiveQueryEvent('delivery');
+            observer.next(value);
+            mockDeliveries.value += 1;
+          },
+          error: (error: unknown) => {
+            mockRecordLiveQueryEvent('observer-error', String(error));
+            observer.error(error);
+          }
         }
-      })
+      )
   };
 });
 
@@ -90,11 +112,18 @@ const txKey = (id: string) => `tx:${id}`;
 async function renderUnread() {
   const delivered = mockDeliveries.value;
   const rendered = renderHook(() => useHasUnreadActivity());
-  await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered));
+  mockRecordLiveQueryEvent('render-complete');
+  try {
+    await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered));
+  } catch (error) {
+    console.error('[unread diagnostic]', JSON.stringify(mockLiveQueryEvents));
+    throw error;
+  }
   return rendered.result;
 }
 
 beforeEach(async () => {
+  mockLiveQueryEvents.length = 0;
   mockAccount.publicKey = A;
   mockNotes.value = [];
   mockInvalidNoteIds.value = [];
