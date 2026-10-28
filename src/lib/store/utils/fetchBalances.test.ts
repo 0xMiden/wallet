@@ -139,6 +139,7 @@ describe('fetchBalances', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    useWalletStore.setState({ storageAvailability: { status: 'healthy', epoch: 0 } });
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
