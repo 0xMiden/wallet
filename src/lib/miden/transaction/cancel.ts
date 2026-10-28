@@ -14,6 +14,7 @@ import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagno
 import { classifyReapStartRelation } from 'lib/telemetry/reap-start-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
+  captureSubmitContext,
   reportTransactionFailure,
   type PreflightSyncReport,
   type QueueAgeBucket,
@@ -518,6 +519,23 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     row.cancelledInFlightAt = undefined;
     if (row.status !== ITransactionStatus.GeneratingTransaction) {
       return attemptId === undefined && !windowOpen ? false : undefined;
+    }
+    if (tx.attemptId !== undefined && row.attemptId === tx.attemptId) {
+      const entries = row.submitEvidence ?? [];
+      const matching = entries.filter(entry => entry.attemptId === tx.attemptId);
+      const context = captureSubmitContext(
+        error,
+        hiddenDuringSubmit(row, returnedAtMs),
+        submitLegMs(row, returnedAtMs)
+      );
+      if (
+        matching.length === 1 &&
+        context &&
+        matching[0].submitContext === undefined &&
+        (transactionId === undefined || matching[0].transactionId === transactionId)
+      ) {
+        matching[0].submitContext = context;
+      }
     }
     row.status = ITransactionStatus.Unconfirmed;
     row.completedAt = nowSec;

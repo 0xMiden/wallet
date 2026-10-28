@@ -308,6 +308,12 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       ...(judgement.neverCommittedBy !== 'expired' || failed.rawError === undefined
         ? {}
         : { priorError: failed.rawError }),
+      ...(failed.attemptId !== undefined &&
+      failed.submitEvidence?.length === 1 &&
+      failed.submitEvidence[0].attemptId === failed.attemptId &&
+      failed.submitEvidence[0].submitContext !== undefined
+        ? { priorSubmitContext: failed.submitEvidence[0].submitContext }
+        : {}),
       ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
       ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
       error: TRANSACTION_NEVER_COMMITTED_ERROR

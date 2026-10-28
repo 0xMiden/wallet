@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
+
 - [CHANGE][all] An expired queued transaction reports the strongest way the processing loop looked at that wait, whether its pre-send network update started, finished or failed, and, on mobile, whether this run recorded the wait as mostly backgrounded. A wait the loop never saw says never.
 - [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.

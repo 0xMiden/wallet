@@ -163,6 +163,56 @@ describe('the never-committed verdicts', () => {
     __resetBackgroundTimeForTest();
   });
 
+  it('does not attach submit context to a different current attempt', async () => {
+    const row: ITransaction = {
+      ...claim(evidence({ attemptId: 'a2', expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a2',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      { ...row, attemptId: 'a1' },
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0].submitContext).toBeUndefined();
+  });
+
+  it('does not attribute one attempt context to a multi-attempt expiry verdict', async () => {
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      row,
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    await Repo.transactions.where({ id: 'tx-1' }).modify(fresh => {
+      fresh.submitEvidence = [...(fresh.submitEvidence ?? []), evidence({ attemptId: 'a2', expirationBlock: 700 })];
+    });
+    await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 750, commitment: INITIAL }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(captured()[1]?.message).toContain(
+      '; app hidden during submit unavailable; submit leg unavailable; proof wait'
+    );
+  });
+
   it('reports the verdict on a claim the pipeline already failed and reported at warning, so it is one error', async () => {
     const submitted: ITransaction = { ...claim(evidence()), status: ITransactionStatus.GeneratingTransaction };
     await Repo.transactions.put(submitted);

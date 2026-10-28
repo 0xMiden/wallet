@@ -1858,6 +1858,31 @@ describe('the never-committed verdict', () => {
     expectNoTransactionData(message);
   });
 
+  it('rejects unlisted prior submit context without leaking private values', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'consume',
+      stage: 'submitting',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      priorError: new Error(
+        `failed to submit proven transaction: submission of transaction ${ACCOUNT_HEX} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      ),
+      priorSubmitContext: {
+        endpoint: 'submit_proven_transaction',
+        status: 'unavailable',
+        hidden: ACCOUNT_HEX,
+        leg: 'under_9s'
+      }
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('app hidden during submit unavailable; submit leg unavailable');
+    expectNoTransactionData(message);
+  });
+
   it('omits prior failure identity for non-expired never-committed verdicts', async () => {
     reportTransactionFailure({
       point: 'node_verdict',
