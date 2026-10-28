@@ -32,7 +32,7 @@ try:
         if 8 <= width <= 24 and 8 <= height <= 24:
             matches.append([(group[0] + group[-1]) // 2, (min(ys) + max(ys)) // 2])
     if len(matches) != 1:
-        raise RuntimeError('Rendered Bread toolbar glyph is not unique')
+        raise RuntimeError(f'Rendered Bread toolbar glyph is not unique: windows={windows}, geometry={box}, matches={matches}, groups={[(g[0], g[-1]) for g in groups]}')
     print(json.dumps(matches[0]))
 finally:
     os.unlink(path)
