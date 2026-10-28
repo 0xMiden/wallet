@@ -153,10 +153,14 @@ async function prepare(password, includePrivate) {
   vault = await Vault.setup(password);
   await Repo.db.open();
   progress('pre-loss-native-fixture');
+  progress('pre-loss-import');
   if (includePrivate) await sdk.importStore(sdkStore, fixture.database, { durability: 'strict' });
+  progress('pre-loss-lock');
   await withWasmClientLock(async () => {
+    progress('pre-loss-client');
     const wallet = await getMidenClient();
     if (!includePrivate) {
+      progress('pre-loss-account-insert');
       const parsed = sdk.Account.deserialize(new Uint8Array(fixture.accountBytes));
       try {
         await wallet.client.accounts.insert({ account: parsed, overwrite: false });
@@ -164,10 +168,12 @@ async function prepare(password, includePrivate) {
         parsed.free();
       }
     }
+    progress('pre-loss-account-read');
     const accountReadback = await wallet.getAccount(fixture.accountId);
     check('preLossRealAccount', accountReadback !== null && accountReadback !== undefined);
     accountReadback?.free();
     if (includePrivate) {
+      progress('pre-loss-note-read');
       const note = await wallet.getInputNote('0x' + fixture.noteId);
       check('preLossAuthenticatedPrivate', note?.isAuthenticated() === true);
       note?.free();
