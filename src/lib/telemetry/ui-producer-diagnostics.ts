@@ -32,6 +32,17 @@ export const PENDING_RETRY_REASONS = [
   'unsafe_retry',
   'unexpected'
 ] as const;
+export const EARN_POSITIONS_LOAD_STAGES = [
+  'configuration',
+  'owner_lookup',
+  'request',
+  'response_decode',
+  'position_decode',
+  'unrecorded'
+] as const;
+export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
+export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
+export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
@@ -46,8 +57,15 @@ export type UiEvidenceInput =
     }
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
-  | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage };
+  | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
+  | {
+      kind: 'earn_positions_load';
+      earnPositionsLoadStage: EarnPositionsLoadStage;
+      earnPositionsLoadOutcome: EarnPositionsLoadOutcome;
+    };
 export type UiProducerDiagnostics = {
+  earnPositionsLoadStage?: EarnPositionsLoadStage;
+  earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
@@ -55,6 +73,8 @@ export type UiProducerDiagnostics = {
   recipientValidationStage?: RecipientValidationStage;
 };
 export const UI_PRODUCER_KEYS = [
+  'earnPositionsLoadStage',
+  'earnPositionsLoadOutcome',
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
@@ -62,6 +82,14 @@ export const UI_PRODUCER_KEYS = [
   'recipientValidationStage'
 ] as const;
 const groups = {
+  earn_positions_load: {
+    id: 'earnPositionsLoadError',
+    surface: 'notice',
+    fields: {
+      earnPositionsLoadStage: EARN_POSITIONS_LOAD_STAGES,
+      earnPositionsLoadOutcome: EARN_POSITIONS_LOAD_OUTCOMES
+    }
+  },
   feature_unavailable: {
     id: 'bridgeFeatureUnavailableBody',
     surface: 'notice',

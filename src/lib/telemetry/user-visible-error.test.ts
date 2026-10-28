@@ -188,7 +188,11 @@ test('startup warning retains closed attempt diagnostics without attaching them 
 });
 
 const uiCases = [
-  ['earnPositionsLoadError', 'notice', { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'partial_failure' }],
+  [
+    'earnPositionsLoadError',
+    'notice',
+    { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'partial_failure' }
+  ],
   [
     'bridgeFeatureUnavailableBody',
     'notice',
@@ -240,14 +244,22 @@ it('rejects partial or unknown feature evidence and never reads getters', () => 
 
 it('rejects incomplete arbitrary inherited and accessor Earn observations without reading them', () => {
   const getter = jest.fn(() => 'request');
-  const base = { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'complete_failure' };
+  const base = {
+    kind: 'earn_positions_load',
+    earnPositionsLoadStage: 'request',
+    earnPositionsLoadOutcome: 'complete_failure'
+  };
   for (const value of [
     { kind: 'earn_positions_load', earnPositionsLoadStage: 'request' },
     { ...base, earnPositionsLoadStage: 'private amount 1234.56' },
     { ...base, earnPositionsLoadOutcome: 'private-owner' },
     { ...base, raw: 'private 0x1234' },
     Object.create(base),
-    Object.defineProperty({ kind: 'earn_positions_load', earnPositionsLoadOutcome: 'complete_failure' }, 'earnPositionsLoadStage', { get: getter })
+    Object.defineProperty(
+      { kind: 'earn_positions_load', earnPositionsLoadOutcome: 'complete_failure' },
+      'earnPositionsLoadStage',
+      { get: getter }
+    )
   ]) {
     _resetUserVisibleErrorLimitsForTest();
     Reflect.apply(reportUserVisibleError, undefined, ['earnPositionsLoadError', 'notice', value]);
@@ -258,13 +270,20 @@ it('rejects incomplete arbitrary inherited and accessor Earn observations withou
   expect(getter).not.toHaveBeenCalled();
 });
 
-it.each([['earnPositionsLoadError', 'inline'], ['earnVaultLoadError', 'notice']])(
-  'rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {
-    Reflect.apply(reportUserVisibleError, undefined, [id, surface, {
-      kind: 'earn_positions_load', earnPositionsLoadStage: 'configuration', earnPositionsLoadOutcome: 'complete_failure'
-    }]);
-    const fields = snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0]);
-    expect(fields).not.toHaveProperty('earnPositionsLoadStage');
-    expect(fields).not.toHaveProperty('earnPositionsLoadOutcome');
-  }
-);
+it.each([
+  ['earnPositionsLoadError', 'inline'],
+  ['earnVaultLoadError', 'notice']
+])('rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {
+  Reflect.apply(reportUserVisibleError, undefined, [
+    id,
+    surface,
+    {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'configuration',
+      earnPositionsLoadOutcome: 'complete_failure'
+    }
+  ]);
+  const fields = snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0]);
+  expect(fields).not.toHaveProperty('earnPositionsLoadStage');
+  expect(fields).not.toHaveProperty('earnPositionsLoadOutcome');
+});

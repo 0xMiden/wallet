@@ -143,10 +143,16 @@ it('forwards the selected failure evidence from withdrawal amount to the real No
   jest.useFakeTimers();
   try {
     jest.mocked(reportUserVisibleError).mockClear();
-    const evidence = { kind: 'earn_positions_load', earnPositionsLoadStage: 'response_decode', earnPositionsLoadOutcome: 'partial_failure' };
+    const evidence = {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'response_decode',
+      earnPositionsLoadOutcome: 'partial_failure'
+    };
     mockPositionFailure = { error: 'private failure', errorDiagnostics: evidence };
     render(<EarnWithdrawAmount positionId="p" />);
     act(() => jest.advanceTimersByTime(1000));
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
-  } finally { jest.useRealTimers(); }
+  } finally {
+    jest.useRealTimers();
+  }
 });

@@ -2339,29 +2339,51 @@ describe('user-visible error reports', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
-  it.each(['complete_failure', 'partial_failure'])('retains only the closed Earn load %s evidence on actual outgoing envelopes', async outcome => {
-    consentOn();
-    Reflect.apply(reportUserVisibleError, undefined, ['earnPositionsLoadError', 'notice', {
-      kind: 'earn_positions_load', earnPositionsLoadStage: 'response_decode', earnPositionsLoadOutcome: outcome
-    }]);
-    await flushEgress();
-    expect(captured).toHaveLength(1);
-    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
-    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
-    expect(diagnostics).toMatchObject({ earnPositionsLoadStage: 'response_decode', earnPositionsLoadOutcome: outcome });
-    const baseline = { ...diagnostics };
-    delete baseline.earnPositionsLoadStage;
-    delete baseline.earnPositionsLoadOutcome;
-    expect(new TextEncoder().encode(JSON.stringify(diagnostics)).length - new TextEncoder().encode(JSON.stringify(baseline)).length).toBeLessThanOrEqual(192);
-    expect(leaksIn(wireText())).toEqual([]);
-  });
+  it.each(['complete_failure', 'partial_failure'])(
+    'retains only the closed Earn load %s evidence on actual outgoing envelopes',
+    async outcome => {
+      consentOn();
+      Reflect.apply(reportUserVisibleError, undefined, [
+        'earnPositionsLoadError',
+        'notice',
+        {
+          kind: 'earn_positions_load',
+          earnPositionsLoadStage: 'response_decode',
+          earnPositionsLoadOutcome: outcome
+        }
+      ]);
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).toMatchObject({
+        earnPositionsLoadStage: 'response_decode',
+        earnPositionsLoadOutcome: outcome
+      });
+      const baseline = { ...diagnostics };
+      delete baseline.earnPositionsLoadStage;
+      delete baseline.earnPositionsLoadOutcome;
+      expect(
+        new TextEncoder().encode(JSON.stringify(diagnostics)).length -
+          new TextEncoder().encode(JSON.stringify(baseline)).length
+      ).toBeLessThanOrEqual(192);
+      expect(leaksIn(wireText())).toEqual([]);
+    }
+  );
 
   it('drops arbitrary Earn load values and private fields at the actual SDK boundary', async () => {
     consentOn();
-    Reflect.apply(reportUserVisibleError, undefined, ['earnPositionsLoadError', 'notice', {
-      kind: 'earn_positions_load', earnPositionsLoadStage: POISON.addressTestnet,
-      earnPositionsLoadOutcome: 'complete_failure', raw: POISON.amount, password: PHRASE_12
-    }]);
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'earnPositionsLoadError',
+      'notice',
+      {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: POISON.addressTestnet,
+        earnPositionsLoadOutcome: 'complete_failure',
+        raw: POISON.amount,
+        password: PHRASE_12
+      }
+    ]);
     await flushEgress();
     expect(captured).toHaveLength(1);
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');

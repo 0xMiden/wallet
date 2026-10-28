@@ -312,8 +312,8 @@ describe('fetchEarnPositions', () => {
 
     expect(result.positions).toEqual([]);
     expect(result.errors).toEqual([
-      { owner: OWNER, error: 'positions request unsuccessful' },
-      { owner: OTHER_OWNER, error: 'positions request failed (429)' }
+      { owner: OWNER, error: 'positions request unsuccessful', stage: 'response_decode' },
+      { owner: OTHER_OWNER, error: 'positions request failed (429)', stage: 'request' }
     ]);
   });
 
@@ -326,7 +326,9 @@ describe('fetchEarnPositions', () => {
 
     const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
-    expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'positions response unreadable' }]);
+    expect(result.errors).toEqual([
+      { owner: OTHER_OWNER, error: 'positions response unreadable', stage: 'position_decode' }
+    ]);
     expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining(`positions response unreadable for ${OTHER_OWNER}`),
@@ -344,7 +346,9 @@ describe('fetchEarnPositions', () => {
 
     const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
-    expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'positions response unreadable' }]);
+    expect(result.errors).toEqual([
+      { owner: OTHER_OWNER, error: 'positions response unreadable', stage: 'position_decode' }
+    ]);
     expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
     expect(result.totalDepositsUSD).toBe(12.5);
     expect(console.warn).toHaveBeenCalledWith(
@@ -374,7 +378,9 @@ describe('fetchEarnPositions', () => {
 
       const result = await read;
       expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
-      expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'Request timed out after 15000 ms' }]);
+      expect(result.errors).toEqual([
+        { owner: OTHER_OWNER, error: 'Request timed out after 15000 ms', stage: 'request' }
+      ]);
     } finally {
       jest.useRealTimers();
     }
@@ -464,13 +470,22 @@ describe('getEarnDepositEvmAddresses', () => {
   });
 });
 
-
 describe('source-owned Earn load diagnostics', () => {
   const canary = 'private-owner 0xabcdef1234567890 amount 1234.56';
   it.each([
     ['request rejection', 'request', () => Promise.reject(new Error(canary))],
     ['HTTP refusal', 'request', () => answer({ message: canary }, 503)],
-    ['JSON rejection', 'response_decode', () => ({ ok: true, status: 200, json: async () => { throw new Error(canary); } })],
+    [
+      'JSON rejection',
+      'response_decode',
+      () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error(canary);
+        }
+      })
+    ],
     ['unsuccessful envelope', 'response_decode', () => answer({ success: false, error: canary })],
     ['malformed funded position', 'position_decode', () => positionsAnswer([{ ...apiItem('1', 1), data: null }])]
   ] as const)('retains the owned stage for %s without copying its private cause', async (_name, stage, response) => {
@@ -479,39 +494,57 @@ describe('source-owned Earn load diagnostics', () => {
     expect(result.positions).toEqual([]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ owner: OWNER, stage });
-    expect(JSON.stringify({ stage: Reflect.get(result.errors[0], 'stage') })).not.toContain(canary);
+    expect(JSON.stringify({ stage: Reflect.get(result.errors[0] ?? {}, 'stage') })).not.toContain(canary);
   });
 
-  it.each(['request', 'response_decode'])('keeps the timed-out %s boundary without changing the deadline', async stage => {
-    jest.useFakeTimers();
-    try {
-      serve((_owner, init) => {
-        const stalled = () => new Promise<never>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
-        return stage === 'request' ? stalled() : { ok: true, status: 200, json: stalled };
-      });
-      const reading = fetchEarnPositions({ owners: [OWNER] });
-      await jest.advanceTimersByTimeAsync(15_000);
-      expect((await reading).errors).toEqual([{ owner: OWNER, error: 'Request timed out after 15000 ms', stage }]);
-    } finally { jest.useRealTimers(); }
-  });
+  it.each(['request', 'response_decode'])(
+    'keeps the timed-out %s boundary without changing the deadline',
+    async stage => {
+      jest.useFakeTimers();
+      try {
+        serve((_owner, init) => {
+          const stalled = () =>
+            new Promise<never>((_resolve, reject) =>
+              init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+            );
+          return stage === 'request' ? stalled() : { ok: true, status: 200, json: stalled };
+        });
+        const reading = fetchEarnPositions({ owners: [OWNER] });
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect((await reading).errors).toEqual([{ owner: OWNER, error: 'Request timed out after 15000 ms', stage }]);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
 
   it('keeps a configuration failure on its exact root and preserves its rejection', async () => {
     const failure = new Error(canary);
-    jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => { throw failure; });
+    jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => {
+      throw failure;
+    });
     await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toBe(failure);
     expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
-      earnPositionsLoadStage: 'configuration', earnPositionsLoadOutcome: 'complete_failure'
+      earnPositionsLoadStage: 'configuration',
+      earnPositionsLoadOutcome: 'complete_failure'
     });
-    expect(readLoadEvidence(new Error('wrapper', { cause: failure }), 'earnPositionsLoadError', 'notice')).toBeUndefined();
+    expect(
+      readLoadEvidence(new Error('wrapper', { cause: failure }), 'earnPositionsLoadError', 'notice')
+    ).toBeUndefined();
   });
 
   it('keeps an activity owner lookup failure on its exact root', async () => {
     const failure = new Error(canary);
     const Repo = jest.requireMock('lib/miden/repo');
-    Repo.transactions.filter.mockReturnValueOnce({ toArray: async () => { throw failure; } });
+    Repo.transactions.filter.mockReturnValueOnce({
+      toArray: async () => {
+        throw failure;
+      }
+    });
     await expect(fetchEarnPositions()).rejects.toBe(failure);
     expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
-      earnPositionsLoadStage: 'owner_lookup', earnPositionsLoadOutcome: 'complete_failure'
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
     });
   });
 });

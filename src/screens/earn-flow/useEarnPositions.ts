@@ -27,6 +27,13 @@ import {
 } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
+import {
+  EARN_POSITIONS_LOAD_STAGES,
+  snapshotUiProducer,
+  type UiEvidenceInput,
+  validateUiEvidence
+} from 'lib/telemetry/ui-producer-diagnostics';
 
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
@@ -165,6 +172,7 @@ export function useEarnPositions(): {
   isLoading: boolean;
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /**
    * The failure of the request itself (the owner lookup, or a document that names no Earn). What the vault surfaces
    * report. A failed owner does not set it, and neither does the vault catalogue, which the config derivation reads.
@@ -324,6 +332,7 @@ export function useEarnPositions(): {
       : undefined;
   const data = shown?.data ?? fromStore;
   const readError = shown?.error ?? unconfigured;
+  const configurationFailed = shown?.error === undefined && unconfigured !== undefined;
   // No data and no error (live, kept or stored): a page mounted covered reads as loading, not empty.
   const isLoading = data === undefined && !readError;
   const fundingAsset = config.network === 'testnet' ? 'USDCx' : undefined;
@@ -389,6 +398,26 @@ export function useEarnPositions(): {
     const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
     const loadError = readError ? errorText(readError) : undefined;
     const stale = Boolean(readError) || fromStore !== undefined;
+    const firstError = data?.errors[0];
+    const error = firstError?.error ?? loadError;
+    const observed = snapshotUiProducer(readError, 'earnPositionsLoadError', 'notice');
+    const suppliedStage =
+      firstError?.error !== undefined ? safeOwnDiagnosticData(firstError, 'stage') : observed?.earnPositionsLoadStage;
+    const stage =
+      firstError?.error === undefined && configurationFailed
+        ? 'configuration'
+        : (EARN_POSITIONS_LOAD_STAGES.find(value => value === suppliedStage) ?? 'unrecorded');
+    const outcome =
+      firstError?.error !== undefined && data !== undefined && data.errors.length < data.owners.length
+        ? 'partial_failure'
+        : 'complete_failure';
+    const errorDiagnostics = error
+      ? validateUiEvidence('earnPositionsLoadError', 'notice', {
+          kind: 'earn_positions_load',
+          earnPositionsLoadStage: stage,
+          earnPositionsLoadOutcome: outcome
+        })
+      : undefined;
     return {
       positions: (data?.positions ?? []).map(position => {
         const mapped = mapEarnPosition(position, listed, logoUrlOf);
@@ -409,7 +438,8 @@ export function useEarnPositions(): {
       // of a misleading empty "$0 / no positions". Prefer the positions service's
       // own per-owner error; fall back to an SWR-level throw (e.g. the owner
       // lookup failed) so no failure mode reads as "you have nothing".
-      error: data?.errors[0]?.error ?? loadError,
+      error,
+      errorDiagnostics,
       loadError,
       notOnNetwork,
       refetch: () => {
@@ -426,6 +456,7 @@ export function useEarnPositions(): {
     vaultsPending,
     isLoading,
     readError,
+    configurationFailed,
     notOnNetwork,
     isValidating,
     mutate,
