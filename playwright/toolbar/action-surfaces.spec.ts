@@ -330,8 +330,24 @@ for (const theme of ['light', 'dark'] as const) {
           )
         )
         .toBe(0);
+      const legacyBeforeClick = await worker.evaluate(async () => ({
+        behavior: await chrome.sidePanel.getPanelBehavior(),
+        popup: await chrome.action.getPopup({}),
+        observation: Reflect.get(globalThis, '__toolbarPanelObservation')
+      }));
       activate();
-      await expect.poll(panelCount).toBe(1);
+      try {
+        await expect.poll(panelCount).toBe(1);
+      } finally {
+        await persistDiagnostic('legacy-popup-click-diagnostic', {
+          before: legacyBeforeClick,
+          after: await worker.evaluate(async () => ({
+            behavior: await chrome.sidePanel.getPanelBehavior(),
+            popup: await chrome.action.getPopup({}),
+            observation: Reflect.get(globalThis, '__toolbarPanelObservation')
+          }))
+        });
+      }
       await capture('legacy-popup-recovered-on-later-action');
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });
