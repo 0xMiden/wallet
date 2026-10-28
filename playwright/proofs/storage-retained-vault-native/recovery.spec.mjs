@@ -80,7 +80,14 @@ function safeReport(value) {
     Object.entries(value.checks).some(([name, state]) => !checkNames.has(name) || typeof state !== 'boolean')
   )
     throw new Error('closed-report');
-  return { phase: value.phase, checks: value.checks };
+  const checks = { ...value.checks };
+  if (Array.isArray(value.progress)) {
+    checks.notesPhaseObserved = value.progress.some(item => item.phase === 'notes');
+    checks.privateInputVerified = value.progress.some(item => item.verifiedInputs > 0);
+    checks.validationPhaseObserved = value.progress.some(item => item.phase === 'validation');
+    checks.completePhaseObserved = value.progress.some(item => item.phase === 'complete');
+  }
+  return { phase: value.phase, checks };
 }
 for (const includePrivate of [false, true]) {
   test(`st/main/retained-vault/${includePrivate ? 'private-primary' : 'account-only'}`, async ({
