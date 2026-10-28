@@ -214,16 +214,18 @@ describe('the never-committed verdicts', () => {
       const collection = originalWhere(query);
       if (intercept && typeof collection.modify === 'function') {
         const modify = collection.modify.bind(collection);
-        collection.modify = async changes => {
-          const result = await modify(changes);
-          intercept = false;
-          await judgeAndWrite('tx-1', {
-            node: reads({ blockNum: 750, commitment: INITIAL }),
-            nowSec: NOW,
-            cadenceMs: 3_000
-          });
-          return result;
-        };
+        Object.defineProperty(collection, 'modify', {
+          value: async (changes: Parameters<typeof collection.modify>[0]) => {
+            const result = await Reflect.apply(modify, collection, [changes]);
+            intercept = false;
+            await judgeAndWrite('tx-1', {
+              node: reads({ blockNum: 750, commitment: INITIAL }),
+              nowSec: NOW,
+              cadenceMs: 3_000
+            });
+            return result;
+          }
+        });
       }
       return collection;
     });
