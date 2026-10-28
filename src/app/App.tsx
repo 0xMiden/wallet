@@ -186,7 +186,7 @@ const StorageAvailabilityBoundary: FC<PropsWithChildren & { confirmWindow: boole
   confirmWindow
 }) => {
   const { storageAvailability } = useMidenContext();
-  if (storageAvailability?.status === 'healthy') return <>{children}</>;
+  if (storageAvailability?.status !== 'pending') return <>{children}</>;
   if (storageAvailability?.status !== 'unavailable') return <RootSuspenseFallback />;
   return confirmWindow ? <StorageRecoveryPage /> : <PageRouter />;
 };
