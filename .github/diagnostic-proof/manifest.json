@@ -1,0 +1,155 @@
+{
+  "source_sha": "55ac18df73f20292202feb8156b479a45c8d8da5",
+  "test_files": [
+    "src/app/hooks/useActivityClaims.test.ts",
+    "src/app/templates/history/PendingActivityCard.test.tsx",
+    "src/components/AmountInput.test.tsx",
+    "src/components/MainnetCodeEntry.test.tsx",
+    "src/lib/mainnet-access.test.ts",
+    "src/lib/miden/back/actions.test.ts",
+    "src/lib/store/index.test.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/crash.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/usdcx/burn-fee.test.ts",
+    "src/lib/usdcx/use-burn-fee-reserve.test.ts",
+    "src/screens/send-flow/SendAmount.test.tsx",
+    "src/screens/send-flow/SendManager.test.tsx"
+  ],
+  "lint_files": [
+    "src/app/hooks/useActivityClaims.test.ts",
+    "src/app/hooks/useActivityClaims.ts",
+    "src/app/templates/history/PendingActivityCard.test.tsx",
+    "src/app/templates/history/PendingActivityCard.tsx",
+    "src/components/AmountInput.test.tsx",
+    "src/components/AmountInput.tsx",
+    "src/components/MainnetCodeEntry.test.tsx",
+    "src/components/MainnetCodeEntry.tsx",
+    "src/components/ui/ErrorLine.tsx",
+    "src/lib/mainnet-access.ts",
+    "src/lib/miden/back/actions.test.ts",
+    "src/lib/miden/back/actions.ts",
+    "src/lib/shared/types.ts",
+    "src/lib/store/index.test.ts",
+    "src/lib/store/index.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/crash.test.ts",
+    "src/lib/telemetry/crash.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/usdcx/burn-fee-failure.ts",
+    "src/lib/usdcx/burn-fee.test.ts",
+    "src/lib/usdcx/burn-fee.ts",
+    "src/lib/usdcx/use-burn-fee-reserve.test.ts",
+    "src/lib/usdcx/use-burn-fee-reserve.ts",
+    "src/screens/send-flow/SendAmount.test.tsx",
+    "src/screens/send-flow/SendAmount.tsx",
+    "src/screens/send-flow/SendManager.test.tsx",
+    "src/screens/send-flow/SendManager.tsx"
+  ],
+  "schema_case_source_sha256": "b6f787b69d8d12a6db314d84f02f30af9aa7e9eb165874e6cb8a024e3466f7f7",
+  "cases": [
+    [
+      "caller-pair-binding",
+      "src/lib/telemetry/ui-producer-diagnostics.ts",
+      "if (id !== group.id || surface !== group.surface) return undefined;",
+      "if (kind !== 'mainnet_access_check' && kind !== 'note_claim' && (id !== group.id || surface !== group.surface)) return undefined;",
+      "src/lib/telemetry/user-visible-error.test.ts",
+      "rejects UI evidence on another pair",
+      1
+    ],
+    [
+      "caller-closed-fields",
+      "src/lib/telemetry/ui-producer-diagnostics.ts",
+      "const group = groups[kind as keyof typeof groups];",
+      "if (kind === 'mainnet_access_check') return { kind, mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' };\n    if (kind === 'note_claim') return { kind, noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' };\n    const group = groups[kind as keyof typeof groups];",
+      "src/lib/telemetry/user-visible-error.test.ts",
+      "rejects incomplete or arbitrary caller facts",
+      1
+    ],
+    [
+      "caller-policy-declaration",
+      "docs/privacy/index.md",
+      "`endpoint_resolve`, `sdk_ready`, `rpc_client`, `invitation_check`, `unrecorded`",
+      "`endpoint_resolve`, `sdk_ready`, `rpc_client`, `invitation_check`",
+      "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+      "mainnetAccessCheckFailure",
+      1
+    ],
+    [
+      "mainnet-stage",
+      "src/lib/mainnet-access.ts",
+      "annotateMainnetAccessCheckFailure(error, stage);",
+      "void error;",
+      "src/components/MainnetCodeEntry.test.tsx",
+      "actual access-check failure",
+      1
+    ],
+    [
+      "mainnet-unrecorded",
+      "src/components/MainnetCodeEntry.tsx",
+      "snapshotMainnetAccessCheckFailure(error) ?? 'unrecorded'",
+      "'sdk_ready'",
+      "src/components/MainnetCodeEntry.test.tsx",
+      "primitive rejection|real unchecked producer",
+      1
+    ],
+    [
+      "inline-forwarding",
+      "src/components/ui/ErrorLine.tsx",
+      "useUserVisibleError(children ? errorId : null, 'inline', undefined, errorDiagnostics);",
+      "useUserVisibleError(children ? errorId : null, 'inline');",
+      "src/components/MainnetCodeEntry.test.tsx",
+      "actual access-check failure|primitive rejection|real unchecked producer",
+      1
+    ],
+    [
+      "queue-origin",
+      "src/app/hooks/useActivityClaims.ts",
+      "noteClaimFailureOrigin: origin",
+      "noteClaimFailureOrigin: 'transaction_row'",
+      "src/app/hooks/useActivityClaims.test.ts",
+      "queue catch by its displayed fixed key",
+      1
+    ],
+    [
+      "claim-classification",
+      "src/app/hooks/useActivityClaims.ts",
+      "classifyUiFailure(error)",
+      "'unknown'",
+      "src/app/hooks/useActivityClaims.test.ts",
+      "queue catch by its displayed fixed key|own raw failure",
+      3
+    ],
+    [
+      "owned-transition",
+      "src/app/hooks/useActivityClaims.ts",
+      "const outcome = item.status === 'claiming' && item.txId ? settled.get(item.txId) : undefined;",
+      "const outcome = item.txId ? settled.get(item.txId) : undefined;",
+      "src/app/hooks/useActivityClaims.test.ts",
+      "owned watched row",
+      1
+    ],
+    [
+      "wire-family",
+      "src/lib/telemetry/crash.ts",
+      "accountAuthCode, ...other",
+      "accountAuthCode, uiFailureKind: ignoredUiFailureKind, ...other",
+      "src/lib/telemetry/egress-boundary.test.ts",
+      "retains only closed .* evidence on the actual outgoing envelope",
+      1
+    ],
+    [
+      "notice-forwarding",
+      "src/app/templates/history/PendingActivityCard.tsx",
+      "  const failureDiagnostics =\n    observedFailure.failure?.diagnostics ??\n    (observedFailure.errorId === 'noteClaimFailedRetry'\n      ? ({\n          kind: 'note_claim',\n          noteClaimFailureOrigin: 'transaction_row',\n          uiFailureKind: 'unavailable'\n        } satisfies UiEvidenceInput)\n      : undefined);",
+      "  const failureDiagnostics = observedFailure.failure?.diagnostics;",
+      "src/app/templates/history/PendingActivityCard.test.tsx",
+      "live failure reporting",
+      1
+    ]
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  ".github/workflows/diagnostic-callers-verification.yml": "f66e5668b4ef8ba19190ff2e63323cf6e792c3e68492263a177e5ed297ef7b52",
+  ".github/diagnostic-proof/manifest.json": "2ca503b06d01e5a425e919821f27e7f96bd3202bbfd62ff66f343c6f21afc000",
+  ".github/diagnostic-proof/verify.py": "adc83d47a700aa1c14294d7b31246c657aef8e21f6015b3d2f6849f5b524a72c"
+}
