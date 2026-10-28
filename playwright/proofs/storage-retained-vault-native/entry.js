@@ -231,10 +231,36 @@ async function prepare(password, includePrivate) {
   progress('retained-vault-baseline');
   progress('baseline-continuity');
   const originalRead = midenClientProxy.readStorageContinuity;
+  const originalGeneration = midenClientProxy.initializeStorageGeneration;
+  const originalJournal = vault.recoveryJournal;
+  const originalSave = vault.saveRecoveryContinuity;
   midenClientProxy.readStorageContinuity = async function (...args) {
     progress('baseline-sdk-read');
     const result = await Reflect.apply(originalRead, this, args);
     progress('baseline-sdk-read-done');
+    return result;
+  };
+  midenClientProxy.initializeStorageGeneration = async function (...args) {
+    progress('baseline-sdk-generation');
+    const result = await Reflect.apply(originalGeneration, this, args);
+    progress('baseline-sdk-generation-done');
+    return result;
+  };
+  vault.recoveryJournal = function (...args) {
+    const journal = Reflect.apply(originalJournal, this, args);
+    const update = journal.update;
+    journal.update = async function (...values) {
+      progress('baseline-journal-update');
+      const result = await Reflect.apply(update, this, values);
+      progress('baseline-journal-update-done');
+      return result;
+    };
+    return journal;
+  };
+  vault.saveRecoveryContinuity = async function (...args) {
+    progress('baseline-save');
+    const result = await Reflect.apply(originalSave, this, args);
+    progress('baseline-save-done');
     return result;
   };
   try {
@@ -243,10 +269,15 @@ async function prepare(password, includePrivate) {
     checks.baselineContinuityError = error instanceof StorageContinuityError;
     checks.baselineUnavailableError = error instanceof StorageUnavailableError;
     checks.baselineOtherError = !checks.baselineContinuityError && !checks.baselineUnavailableError;
+    checks.baselineTypeError = error instanceof TypeError;
+    checks.baselineRangeError = error instanceof RangeError;
     window.__retainedChecks = { ...checks };
     throw error;
   } finally {
     midenClientProxy.readStorageContinuity = originalRead;
+    midenClientProxy.initializeStorageGeneration = originalGeneration;
+    vault.recoveryJournal = originalJournal;
+    vault.saveRecoveryContinuity = originalSave;
   }
   progress('baseline-journal');
   const journal = await vault.readRecoveryJournal();
