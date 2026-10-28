@@ -1,0 +1,51 @@
+name: Retry notice exact contract red proof
+on:
+  push:
+    branches: [ci/retry-notice-contract-red-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/retry-notice-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/retry-notice-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = e28c2cb2c5bbcd2b7be1f645a50c5817c348ef82
+          cp -R .github/retry-notice-proof "$RUNNER_TEMP/retry-notice-packet"
+          git checkout --detach e28c2cb2c5bbcd2b7be1f645a50c5817c348ef82
+          test "$(git rev-parse HEAD^{tree})" = 22e9792e3e7618ae59d6d71895b4a4bf5ee151b0
+          cp "$RUNNER_TEMP/retry-notice-packet/source.json" "$RUNNER_TEMP/retry-notice-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/retry-notice-evidence/install.log"
+      - name: Full TypeScript check
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/retry-notice-evidence/types.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/lib/telemetry/retry-notice-diagnostics.test.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/egress-boundary.test.ts --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/retry-notice-evidence/lint.log"
+      - name: Verify thirty-eight intended functional failures
+        run: python3 "$RUNNER_TEMP/retry-notice-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-notice-red-proof
+          path: ${{ runner.temp }}/retry-notice-evidence
+          if-no-files-found: error

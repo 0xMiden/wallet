@@ -1,0 +1,22 @@
+{
+  "source": "e28c2cb2c5bbcd2b7be1f645a50c5817c348ef82",
+  "tree": "22e9792e3e7618ae59d6d71895b4a4bf5ee151b0",
+  "base": "3278f2f22033bb798ffa74d0008ae81aa81debf7",
+  "suites": [
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts"
+  ],
+  "expected_failures": 38,
+  "purpose": "Expected functional red for exact retry notice groups before production contract implementation",
+  "file_sha256": {
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts": "45e9cd0cc9e9f9e5845a8620a70e786f0dcbb23495e8bbd4daf397499b8187b6",
+    "src/lib/telemetry/user-visible-error.test.ts": "4d464dd627c0e9dc226c404a559026bca0b7172e9fa61740d4bb1221798af01d",
+    "src/lib/telemetry/egress-boundary.test.ts": "42633910d1005d94691ad6d14146114932e510a00650a8bfbec2a66656ff8757"
+  },
+  "production_sha256": {
+    "src/lib/telemetry/ui-producer-diagnostics.ts": "0d3cc7300bb4ece1547e72f558cb4816b33f62ba38f1a766faefb8990da59be8",
+    "src/lib/telemetry/user-visible-error.ts": "69c76e132f2cfdc2fad21b479d035c4639db4b0aa7edcbe96a0d0a9069fdb52a",
+    "src/lib/telemetry/crash-diagnostics.ts": "1cdfbf750cc2874e214e40306554152deb881a5051071ccb188f9bc0f03a08f2"
+  }
+}
