@@ -198,3 +198,9 @@ it.each([
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
 });
+
+it('documents the exact retry notice origins', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'retryNoticeOrigin'))).toEqual(
+    new Set(['history_primary', 'history_earn_receive', 'history_payback', 'status_screen'])
+  );
+});
