@@ -1,4 +1,12 @@
-import { consumeQueueAdmission, pruneQueueAdmission, recordQueueAdmission } from './queue-admission-diagnostics';
+import {
+  consumeQueueAdmission,
+  noteQueueSighting,
+  peekQueueSighting,
+  pruneQueueAdmission,
+  queueSightingFor,
+  recordQueueAdmission,
+  retainQueueSightings
+} from './queue-admission-diagnostics';
 const row = (id = 'private-row', initiatedAt = 1, queuedSeq: number | undefined = undefined) => ({
   id,
   initiatedAt,
@@ -37,6 +45,42 @@ it('binds exact identity, prunes absent/mismatched members and never invokes row
   recordQueueAdmission(hostile, 'selected');
   expect(consumeQueueAdmission(hostile)).toBe('unavailable');
   expect(getter).not.toHaveBeenCalled();
+});
+it('keeps the strongest look after the 60-second observation is consumed', () => {
+  const member = row();
+  recordQueueAdmission(member, 'selected');
+  noteQueueSighting(member, 'not_reached');
+  recordQueueAdmission(member, 'in_progress_gate');
+  clock.mockReturnValue(100000 + 60001);
+  expect(consumeQueueAdmission(member)).toBe('unavailable');
+  expect(peekQueueSighting(member)).toBe('selected');
+  expect(
+    queueSightingFor({ ...member, queueSighting: 'not_reached', queueSightingAt: 1, queueSightingSeq: null })
+  ).toBe('selected');
+  expect(
+    queueSightingFor({
+      ...member,
+      initiatedAt: 2,
+      queueSighting: 'selected',
+      queueSightingAt: 1,
+      queueSightingSeq: null
+    })
+  ).toBe('never');
+});
+it('does not let a partial lap forget a later row, and drops a look whose incarnation changed', () => {
+  const later = row('later', 1, 4);
+  recordQueueAdmission(later, 'row_ineligible');
+  pruneQueueAdmission([row('earlier', 1, 3)]);
+  expect(peekQueueSighting(later)).toBe('row_ineligible');
+  retainQueueSightings([row('later', 1, 9)]);
+  expect(peekQueueSighting(later)).toBe('never');
+  noteQueueSighting(later, 'not_reached');
+  retainQueueSightings([later]);
+  expect(peekQueueSighting(later)).toBe('not_reached');
+  expect(queueSightingFor({ ...later, queueSighting: 'selected', queueSightingAt: 1, queueSightingSeq: 4 })).toBe(
+    'selected'
+  );
+  expect(consumeQueueAdmission(later)).toBe('unavailable');
 });
 it('evicts the least recently recorded entry at257 and retains only literals', () => {
   for (let i = 0; i < 256; i++) recordQueueAdmission(row(String(i)), 'selected');

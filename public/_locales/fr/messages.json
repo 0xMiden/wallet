@@ -1180,6 +1180,18 @@
     "message": "Origine :",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Initiateur",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notes de l'émission",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Masquer les notes",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "Réseau :",
     "englishSource": "Network:"
@@ -4448,6 +4460,15 @@
   "PSWAP": {
     "message": "note PSWAP",
     "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "otherNoteScript": {
     "message": "Autres notes de script",

@@ -263,14 +263,14 @@ describe('requestConfirm popup size', () => {
     return options;
   };
 
-  it('opens the popup 380 x 676 (the height carries the network banner)', async () => {
-    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+  it('opens the popup 440 x 760 (the height carries the network banner)', async () => {
+    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 440, height: 760 }));
   });
 
-  it('adds the Windows frame allowance (396 x 693)', async () => {
+  it('adds the Windows frame allowance (456 x 777)', async () => {
     _g.__dappConfInternals.os = 'win';
 
-    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 396, height: 693 }));
+    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 456, height: 777 }));
   });
 });
 

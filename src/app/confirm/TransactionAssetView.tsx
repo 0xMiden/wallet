@@ -4,6 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import type { StoryHop } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
@@ -215,7 +217,37 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         )}
       </Card>
 
-      <div className="flex flex-col w-full border-b border-gray-100 pb-4">
+      {!(mode === 'verified' && noteFlow) && (
+        <TxStory
+          hops={[
+            ...outgoing.map(
+              (asset): StoryHop => ({
+                from: { role: 'you', name: '' },
+                to: { role: 'recipient', name: '' },
+                amount: `${quantityOf(asset)} ${asset.symbol ?? ''}`.trim()
+              })
+            ),
+            ...incoming.map(
+              (asset): StoryHop => ({
+                from: { role: 'sender', name: '' },
+                to: { role: 'you', name: '' },
+                amount: `${quantityOf(asset)} ${asset.symbol ?? ''}`.trim()
+              })
+            ),
+            ...(feeAsset
+              ? [
+                  {
+                    from: { role: 'you' as const, name: '' },
+                    to: { role: 'network' as const, name: '' },
+                    amount: `${quantityOf(feeAsset)} ${feeAsset.symbol ?? ''}`.trim()
+                  }
+                ]
+              : [])
+          ]}
+        />
+      )}
+
+      <div className="tx-stage-list flex flex-col w-full border-b border-gray-100 pb-4">
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('inputNotesConsumed')}</span>
           <span>{view.inputNotesConsumed}</span>

@@ -3,6 +3,12 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
+- [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.
+- [CHANGE][all] An expired queued transaction reports the strongest way the processing loop looked at that wait, whether its pre-send network update started, finished or failed, and, on mobile, whether this run recorded the wait as mostly backgrounded. A wait the loop never saw says never.
+- [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
+- [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
+- [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
+- [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
 ## 1.17.8 (2026-10-27)

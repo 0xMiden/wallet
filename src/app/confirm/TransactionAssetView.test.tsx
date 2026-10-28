@@ -49,22 +49,25 @@ beforeEach(() => {
   }));
 });
 
+// The story chip repeats an amount. The asset row is the one that carries the verified marker.
+const rowAmount = (text: string | RegExp) => screen.getByText(text, { selector: '[data-verified]' });
+
 it('renders outgoing and incoming asset rows with symbol + amount (verified)', async () => {
   render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
-  expect(screen.getByText('3/6 rETH')).toBeInTheDocument();
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
+  expect(rowAmount('3/6 rETH')).toBeInTheDocument();
   expect(screen.getByText('trunc(mtst1acct)')).toBeInTheDocument();
   expect(screen.getByText('outputNotesCreated')).toBeInTheDocument();
 
   // Outgoing row shows a leading minus, incoming row shows a leading plus.
-  const outgoingRow = screen.getByText('10/6 miZK').closest('div');
+  const outgoingRow = rowAmount('10/6 miZK').closest('div');
   expect(outgoingRow).toHaveTextContent('-10/6 miZK');
-  const incomingRow = screen.getByText('3/6 rETH').closest('div');
+  const incomingRow = rowAmount('3/6 rETH').closest('div');
   expect(incomingRow).toHaveTextContent('+3/6 rETH');
 
   // Verified amounts carry the confident, verified styling marker.
-  expect(screen.getByText('10/6 miZK')).toHaveAttribute('data-verified', 'true');
-  expect(screen.getByText('3/6 rETH')).toHaveAttribute('data-verified', 'true');
+  expect(rowAmount('10/6 miZK')).toHaveAttribute('data-verified', 'true');
+  expect(rowAmount('3/6 rETH')).toHaveAttribute('data-verified', 'true');
   expect(screen.queryByText('unverified')).not.toBeInTheDocument();
 });
 
@@ -77,12 +80,12 @@ it('renders the network fee as its own row, outside the asset totals', async () 
   await waitFor(() => expect(screen.getByTestId('tx-network-fee')).toHaveTextContent('2/6 rETH'));
   expect(screen.getByText('networkFee')).toBeInTheDocument();
   // Not folded into the transfer: the outgoing row is still exactly what the user is sending.
-  expect(screen.getByText('10/6 miZK')).toBeInTheDocument();
+  expect(rowAmount('10/6 miZK')).toBeInTheDocument();
 });
 
 it('renders no fee row when the transaction pays none', async () => {
   render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
   // An empty pill on a zero-fee chain is worse than no pill.
   expect(screen.queryByTestId('tx-network-fee')).not.toBeInTheDocument();
   expect(screen.queryByText('networkFee')).not.toBeInTheDocument();
@@ -90,10 +93,10 @@ it('renders no fee row when the transaction pays none', async () => {
 
 it('renders declared (unverified) amounts with muted styling, not the confident verified styling', async () => {
   render(<TransactionAssetView view={{ ...view, account: undefined } as any} mode="declared" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
 
-  const outgoingAmount = screen.getByText('10/6 miZK');
-  const incomingAmount = screen.getByText('3/6 rETH');
+  const outgoingAmount = rowAmount('10/6 miZK');
+  const incomingAmount = rowAmount('3/6 rETH');
 
   expect(outgoingAmount).toHaveAttribute('data-verified', 'false');
   expect(incomingAmount).toHaveAttribute('data-verified', 'false');
@@ -148,7 +151,7 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('10/6 unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('10/6 unknown')).toBeInTheDocument());
 });
 
 it('falls back to the unknown label for an incoming asset with no symbol', async () => {
@@ -159,7 +162,7 @@ it('falls back to the unknown label for an incoming asset with no symbol', async
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('5/6 unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('5/6 unknown')).toBeInTheDocument());
 });
 
 it('still renders (with the unknown fallback) when fetchTokenMetadata rejects for one asset', async () => {
@@ -173,8 +176,8 @@ it('still renders (with the unknown fallback) when fetchTokenMetadata rejects fo
   // The failed lookup falls back to the unknown symbol; the sibling asset
   // (whose lookup succeeded) still renders correctly — the rejection is
   // isolated, not fatal to the whole row set.
-  await waitFor(() => expect(screen.getByText('3/6 rETH')).toBeInTheDocument());
-  expect(screen.getByText(/unknown/)).toBeInTheDocument();
+  await waitFor(() => expect(rowAmount('3/6 rETH')).toBeInTheDocument());
+  expect(rowAmount(/unknown/)).toBeInTheDocument();
 });
 
 it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknown token', async () => {
@@ -198,7 +201,7 @@ it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknow
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('? Unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('? Unknown')).toBeInTheDocument());
   expect(screen.queryByText(/7/)).not.toBeInTheDocument();
   expect(screen.queryByText(/MIDEN/)).not.toBeInTheDocument();
 });
@@ -213,12 +216,12 @@ it('withholds the quantity when the metadata lookup fails outright', async () =>
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('? unknown')).toBeInTheDocument());
 });
 
 it('exposes its mode and the output-note count to E2E', async () => {
   const { rerender } = render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
   expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
   expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('2');
   rerender(<TransactionAssetView view={view as any} mode="declared" />);
@@ -228,7 +231,7 @@ it('exposes its mode and the output-note count to E2E', async () => {
 it('exposes the storage-changed value to E2E, in verified mode only', async () => {
   const verifiedView: TxAssetView = view;
   const { rerender } = render(<TransactionAssetView view={verifiedView} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('10/6 miZK')).toBeInTheDocument());
   expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
   expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^no$/);
   rerender(<TransactionAssetView view={{ ...verifiedView, storageChanged: true }} mode="verified" />);
@@ -296,7 +299,7 @@ describe('confirmation metadata request sharing', () => {
   const noteFlow = (amount: bigint): NoteFlow => ({
     inputCount: 0,
     inputs: [],
-    outputs: [{ kind: 'p2id', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
+    outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
   });
   const deferred = () => {
     let resolve!: (value: AssetMetadata) => void;
@@ -337,7 +340,7 @@ describe('confirmation metadata request sharing', () => {
       first.resolve({ ...metadata, symbol: 'FIRST' });
       second.resolve({ ...metadata, symbol: 'SECOND' });
     });
-    expect(screen.getByText('10/6 FIRST')).toBeInTheDocument();
+    expect(rowAmount('10/6 FIRST')).toBeInTheDocument();
     expect(screen.getByText('2/6 SECOND')).toBeInTheDocument();
   });
 
@@ -350,7 +353,7 @@ describe('confirmation metadata request sharing', () => {
     render(<TransactionNoteFlow flow={noteFlow(3n)} />);
     expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve(metadata));
-    expect(screen.getByText('10/6 SHARED')).toBeInTheDocument();
+    expect(rowAmount('10/6 SHARED')).toBeInTheDocument();
     expect(screen.getByText('3/6 SHARED')).toBeInTheDocument();
     expect(screen.queryByText('2/6 SHARED')).not.toBeInTheDocument();
   });
