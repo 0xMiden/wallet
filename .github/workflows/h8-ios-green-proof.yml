@@ -1,0 +1,53 @@
+name: H8 iOS diagnostic focused verification
+on:
+  push:
+    branches: [ci/h8-ios-green-proof]
+permissions:
+  contents: read
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = c06f2c077b1261c468f45993261ac66ea812d294
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Focused full suites
+        run: |
+          mkdir -p proof
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/bridge-receive-failure.test.ts src/lib/telemetry/crash-diagnostics.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/jest.log
+          node -e 'const r=require("./proof/results.json"); console.log(JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,suites:r.numPassedTestSuites,runtime:r.numRuntimeErrorTestSuites}));if(r.numPassedTests===0||r.numFailedTests||r.numRuntimeErrorTestSuites||r.numPassedTestSuites!==6)process.exit(1)'
+      - name: Full TypeScript
+        run: yarn ts
+      - name: Strict scoped lint
+        run: yarn eslint --max-warnings=0 src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native.ts src/lib/telemetry/transaction-failure.ts src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-js-green, path: proof/ }
+  ios:
+    runs-on: macos-26-xlarge
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = c06f2c077b1261c468f45993261ac66ea812d294
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - run: yarn mobile:sync
+      - name: Verify native call regression
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
+          xcrun simctl bootstatus "$UDID" -b
+          mkdir -p proof
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" -parallel-testing-enabled NO -only-testing:AppTests/ReownCallFailureTests/testUnconfiguredNativeRequestsPreserveMessageAndExposePerCallOrigin -resultBundlePath proof/h8-green.xcresult -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test 2>&1 | tee proof/xcode.log
+          grep -F 'Test Case ' proof/xcode.log | grep -F 'testUnconfiguredNativeRequestsPreserveMessageAndExposePerCallOrigin' | grep -F passed
+          grep -F '** TEST SUCCEEDED **' proof/xcode.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-native-green, path: proof/ }
