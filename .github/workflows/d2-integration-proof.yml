@@ -1,0 +1,55 @@
+name: Bridge balance current-main integration proof
+on:
+  push:
+    branches: [ci/d2-main-integration-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d2-integration-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/d2-integration-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = d74881b5c239e2ba7335ef3e3fd82646cee2d2d9
+          cp -R .github/d2-integration-proof "$RUNNER_TEMP/d2-integration-packet"
+          git checkout --detach d74881b5c239e2ba7335ef3e3fd82646cee2d2d9
+          test "$(git rev-parse HEAD^{tree})" = 0346b7bd350ad67d81d6af9ad712c8e378905c06
+          cp "$RUNNER_TEMP/d2-integration-packet/source.json" "$RUNNER_TEMP/d2-integration-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/d2-integration-evidence/install.log"
+      - name: Full TypeScript check
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/d2-integration-evidence/types.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/components/ui/TextField.test.tsx src/components/ui/TextField.tsx src/screens/onboarding/import-wallet-flow/ImportWalletFile.test.tsx src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx src/lib/telemetry/bridge-balance-diagnostics.test.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/egress-boundary.test.ts src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx src/lib/telemetry/ui-producer-diagnostics.ts src/components/AmountInput.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/d2-integration-evidence/lint.log"
+      - name: Verify green baseline and independent functional mutations
+        run: python3 "$RUNNER_TEMP/d2-integration-packet/proof.py"
+      - name: Incoming staging probe script tests
+        run: |
+          set -euo pipefail
+          node --test scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-staging-probe.test.mjs 2>&1 | tee "$RUNNER_TEMP/d2-integration-evidence/script-tests.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d2-integration-proof
+          path: ${{ runner.temp }}/d2-integration-evidence
+          if-no-files-found: error

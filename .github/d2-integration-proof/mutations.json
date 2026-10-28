@@ -1,0 +1,16 @@
+[
+  {
+    "id": "exact_pair",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "id: 'raw_bridge_balance_failed',",
+    "new": "id: 'invalidAmount',",
+    "prediction": "Owned bridge evidence no longer reaches any positive schema, reporting root or real wire assertion."
+  },
+  {
+    "id": "finite_stage",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "  'value_decode',\n",
+    "new": "",
+    "prediction": "The value_decode schema case and real bridge crash envelope reject an allowed producer stage."
+  }
+]
