@@ -6,7 +6,9 @@ use std::process::ExitCode;
 
 use miden_client::account::AccountId;
 use miden_client::rpc::domain::account::AccountProof;
-use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse};
+use miden_client::rpc::domain::sync::{ChainMmrInfo, SyncTarget};
+use miden_client::crypto::{Forest, PartialMmr};
+use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse, SyncChainMmrRequest, SyncChainMmrResponse, BlockRange, FinalityLevel};
 use miden_client::rpc::{RpcEndpoint, RpcLimits};
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
@@ -122,7 +124,41 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     if page.chain_tip != tip_number || page.block_num != tip_number || !decoded.nullifiers.is_empty() {
         return Err("nullifier_wire_binding");
     }
+    let start = Forest::new(1).map_err(|_| "mmr_start")?;
+    let end = Forest::new(tip.block_num().as_usize()).map_err(|_| "mmr_end")?;
+    let delta = mmr.get_delta(start, end).map_err(|_| "mmr_delta")?;
+    let mut partial = PartialMmr::from_peaks(mmr.peaks_at(start).map_err(|_| "mmr_start_peaks")?);
+    partial.apply(delta.clone()).map_err(|_| "mmr_apply")?;
+    if partial.peaks().hash_peaks() != tip.chain_commitment() {
+        return Err("mmr_tip_binding");
+    }
+    let signed_tip = chain.proven_blocks().last().ok_or("signed_tip_missing")?;
+    if signed_tip.header().commitment() != tip.commitment() {
+        return Err("signed_tip_binding");
+    }
+    signed_tip.signatures().verify_against(tip.commitment(), chain.block_header(0).validator_config())
+        .map_err(|_| "signed_tip_invalid")?;
+    let request = SyncChainMmrRequest {
+        current_client_block_height: 0,
+        finality_level: i32::from(FinalityLevel::from(SyncTarget::CommittedChainTip)),
+    }.encode_to_vec();
+    let response = SyncChainMmrResponse {
+        block_range: Some(BlockRange { block_from: 0, block_to: tip_number }),
+        mmr_delta: Some(delta.into()),
+        block_header: Some(tip.clone().into()),
+        block_signatures: signed_tip.signatures().as_signatures().iter().map(Into::into).collect(),
+        protocol_config: Some(protocol.into()),
+    }.encode_to_vec();
+    let decoded = SyncChainMmrResponse::decode(response.as_slice()).map_err(|_| "mmr_wire")?;
+    let decoded = ChainMmrInfo::try_from(decoded).map_err(|_| "mmr_domain")?;
+    if decoded.block_from.as_u32() != 0 || decoded.block_to.as_u32() != tip_number
+        || decoded.block_header.commitment() != tip.commitment()
+    {
+        return Err("mmr_wire_binding");
+    }
     let mut outputs = vec![
+        ("mmr-request.pb".to_owned(), request),
+        ("mmr-response.pb".to_owned(), response),
         ("nullifiers.pb".to_owned(), nullifier_bytes),
         ("account.pb".to_owned(), account_bytes),
         ("limits.pb".to_owned(), limits_bytes),
