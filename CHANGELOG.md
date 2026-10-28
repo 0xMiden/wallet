@@ -2,7 +2,7 @@
 
 ## 1.17.9 (TBD)
 
-- [FIX][all] Settings recovery honors opt-outs when a stored choice cannot be read or copied, and unavailable storage preserves consent routing.
+- [FIX][all] Settings recovery honors opt-outs when a stored choice cannot be read or copied, an in-flight copy cannot turn those choices back on, and unavailable storage preserves consent routing.
 
 - [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.
 - [CHANGE][all] An expired queued transaction reports the strongest way the processing loop looked at that wait, whether its pre-send network update started, finished or failed, and, on mobile, whether this run recorded the wait as mostly backgrounded. A wait the loop never saw says never.
