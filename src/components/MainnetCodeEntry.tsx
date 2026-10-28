@@ -7,12 +7,12 @@ import { CodeInput } from 'components/ui/CodeInput';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { TextAction } from 'components/ui/TextAction';
 import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH, type MainnetAccessOutcome } from 'lib/mainnet-access';
+import { isMobile } from 'lib/platform';
 import {
   classifyUiFailure,
   snapshotMainnetAccessCheckFailure,
   type UiEvidenceInput
 } from 'lib/telemetry/ui-producer-diagnostics';
-import { isMobile } from 'lib/platform';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 

@@ -1321,17 +1321,15 @@ it.each(['root', 'cause', 'mismatch'])(
       event.extra = { walletDiagnostics: { burnFeeFailure, raw: ADDRESS } };
       scrubEvent(event, { originalException: captured[0] });
       const wire = JSON.stringify(event);
-      if (scenario === 'root') {
-        expect(event.extra).toEqual({
-          walletDiagnostics: expect.objectContaining({ burnFeeFailure: 'dry_run_failed' })
-        });
-        const without = wire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
-        expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(
-          192
-        );
-      } else {
-        expect(wire).not.toContain('burnFeeFailure');
-      }
+      const expectedFields = scenario === 'root' ? { burnFeeFailure: 'dry_run_failed' } : {};
+      expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining(expectedFields) });
+      expect(wire.includes('burnFeeFailure')).toBe(scenario === 'root');
+      const expected = scenario === 'root' ? '"burnFeeFailure":"dry_run_failed"' : null;
+      expect(wire.match(/"burnFeeFailure":"[^"]*"/)?.[0] ?? null).toBe(expected);
+      const without = wire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
+      expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(
+        192
+      );
       for (const privateValue of [ADDRESS, '1234.5678', 'private-canary', 'request_failed']) {
         expect(wire).not.toContain(privateValue);
       }
