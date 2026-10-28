@@ -1578,7 +1578,7 @@ export class Vault {
       accounts = await fetchAndDecryptOne(accountsStrgKey, key);
     } catch (error) {
       check();
-      if (error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND)
+      if (error instanceof Error)
         throw new RecoveryDataFileError('unavailable');
       throw error;
     }
