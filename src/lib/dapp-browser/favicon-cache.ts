@@ -46,7 +46,7 @@ export function getFaviconUrl(origin: string): string {
   const url = buildFaviconUrl(origin);
   if (encoder.encode(JSON.stringify({ [origin]: url })).byteLength > MAX_FAVICON_CACHE_BYTES) return url;
   cache.set(origin, url);
-  while (cache.size > MAX_FAVICON_ENTRIES || cacheBytes() > MAX_FAVICON_CACHE_BYTES) {
+  while (cache.size > MAX_FAVICON_ENTRIES) {
     const oldest = cache.keys().next().value;
     if (oldest === undefined) break;
     cache.delete(oldest);
