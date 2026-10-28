@@ -222,6 +222,8 @@
   "update": "Aktualisierung",
   "originLabel": "Herkunft:",
   "originator": "Auftraggeber",
+  "showNotes": "notes anzeigen",
+  "hideNotes": "notes ausblenden",
   "networkLabel": "Netzwerk:",
   "pkhLabel": "Konto:",
   "analytics": "Analytik",

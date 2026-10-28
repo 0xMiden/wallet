@@ -222,6 +222,8 @@
   "update": "Оновлення",
   "originLabel": "Походження:",
   "originator": "Ініціатор",
+  "showNotes": "Показати notes",
+  "hideNotes": "Приховати notes",
   "networkLabel": "Мережа:",
   "pkhLabel": "Обліковий запис:",
   "analytics": "Аналітика",

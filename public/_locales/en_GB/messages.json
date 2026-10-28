@@ -1186,11 +1186,11 @@
   },
   "showNotes": {
     "message": "Show notes",
-    "englishSource": "Origin:"
+    "englishSource": "Show notes"
   },
   "hideNotes": {
     "message": "Hide notes",
-    "englishSource": "Origin:"
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "Network:",

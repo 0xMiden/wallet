@@ -222,6 +222,8 @@
   "update": "Update",
   "originLabel": "Origin:",
   "originator": "Originator",
+  "showNotes": "Show notes",
+  "hideNotes": "Hide notes",
   "networkLabel": "Network:",
   "pkhLabel": "Account:",
   "analytics": "Analytics",

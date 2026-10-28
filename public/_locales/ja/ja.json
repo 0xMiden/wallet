@@ -222,6 +222,8 @@
   "update": "更新",
   "originLabel": "出典：",
   "originator": "発信者",
+  "showNotes": "notesを表示",
+  "hideNotes": "notesを非表示にする",
   "networkLabel": "ネットワーク：",
   "pkhLabel": "アカウント：",
   "analytics": "アナリティクス",

@@ -222,6 +222,8 @@
   "update": "Aktualizacja",
   "originLabel": "Źródło:",
   "originator": "Zleceniodawca",
+  "showNotes": "Pokaż notes",
+  "hideNotes": "Ukryj notes",
   "networkLabel": "Sieć:",
   "pkhLabel": "Konto:",
   "analytics": "Analizy",

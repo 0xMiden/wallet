@@ -222,6 +222,8 @@
   "update": "Güncelleme",
   "originLabel": "Kaynak:",
   "originator": "İşlem Başlatıcı",
+  "showNotes": "notes'u göster",
+  "hideNotes": "notes'u gizle",
   "networkLabel": "Ağ:",
   "pkhLabel": "Hesap:",
   "analytics": "Analitik",

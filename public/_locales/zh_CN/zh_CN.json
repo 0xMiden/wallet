@@ -222,6 +222,8 @@
   "update": "更新",
   "originLabel": "来源：",
   "originator": "发起人",
+  "showNotes": "显示notes",
+  "hideNotes": "隐藏notes",
   "networkLabel": "网络：",
   "pkhLabel": "账户：",
   "analytics": "分析",

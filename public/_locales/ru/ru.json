@@ -222,6 +222,8 @@
   "update": "Обновление",
   "originLabel": "Источник:",
   "originator": "Инициатор",
+  "showNotes": "Показать notes",
+  "hideNotes": "Скрыть notes",
   "networkLabel": "Сеть:",
   "pkhLabel": "Учетная запись:",
   "analytics": "Аналитика",

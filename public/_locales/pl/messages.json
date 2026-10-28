@@ -1185,12 +1185,12 @@
     "englishSource": "Originator"
   },
   "showNotes": {
-    "message": "Show notes",
-    "englishSource": "Origin:"
+    "message": "Pokaż notes",
+    "englishSource": "Show notes"
   },
   "hideNotes": {
-    "message": "Hide notes",
-    "englishSource": "Origin:"
+    "message": "Ukryj notes",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "Sieć:",
