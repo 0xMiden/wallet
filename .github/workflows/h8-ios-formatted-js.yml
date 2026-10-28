@@ -1,0 +1,30 @@
+name: H8 iOS diagnostic focused verification
+on:
+  push:
+    branches: [ci/h8-ios-formatted-js]
+permissions:
+  contents: read
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 5426e5ec703b546e3c3131a1ce8b9a41796bef29
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Focused full suites
+        run: |
+          mkdir -p proof
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/bridge-receive-failure.test.ts src/lib/telemetry/crash-diagnostics.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/jest.log
+          node -e 'const r=require("./proof/results.json"); console.log(JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,suites:r.numPassedTestSuites,runtime:r.numRuntimeErrorTestSuites}));if(r.numPassedTests===0||r.numFailedTests||r.numRuntimeErrorTestSuites||r.numPassedTestSuites!==6)process.exit(1)'
+      - name: Full TypeScript
+        run: yarn ts
+      - name: Strict scoped lint
+        run: yarn eslint --max-warnings=0 src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native.ts src/lib/telemetry/transaction-failure.ts src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-final-js, path: proof/ }
