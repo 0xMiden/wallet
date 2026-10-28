@@ -1,0 +1,45 @@
+name: Bridge balance diagnostic contract red proof
+on:
+  push:
+    branches: [ci/d2-contract-red-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d2-contract-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/d2-contract-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 0aa78be7ce89c12082a7588bcd132e2dbbd3831b
+          cp -R .github/d2-contract-proof "$RUNNER_TEMP/d2-contract-packet"
+          git checkout --detach 0aa78be7ce89c12082a7588bcd132e2dbbd3831b
+          test "$(git rev-parse HEAD^{tree})" = 74e5e2de8474f996a34f4e6686f0b18f23606b59
+          cp "$RUNNER_TEMP/d2-contract-packet/source.json" "$RUNNER_TEMP/d2-contract-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/d2-contract-evidence/install.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/lib/telemetry/bridge-balance-diagnostics.test.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/egress-boundary.test.ts src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/d2-contract-evidence/lint.log"
+      - name: Verify seventeen intended functional failures
+        run: python3 "$RUNNER_TEMP/d2-contract-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d2-contract-red-proof
+          path: ${{ runner.temp }}/d2-contract-evidence
+          if-no-files-found: error

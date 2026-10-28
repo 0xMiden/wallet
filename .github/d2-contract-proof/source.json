@@ -1,0 +1,18 @@
+{
+  "source": "0aa78be7ce89c12082a7588bcd132e2dbbd3831b",
+  "tree": "74e5e2de8474f996a34f4e6686f0b18f23606b59",
+  "suites": [
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx"
+  ],
+  "file_sha256": {
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts": "a6268c2559df0076ecb29ef77133d4bf84d4ad09bdfd82dc422378e25a2d6866",
+    "src/lib/telemetry/user-visible-error.test.ts": "b0b8d390bd40ae266f8ab41a818c61df7079b3e7bedb101ed927791601bd2198",
+    "src/lib/telemetry/egress-boundary.test.ts": "3ee49a05e57efd982b4224630c629bb871b3d1cbea417921e6b1276c4cbb3875",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx": "5bcff7b4be878acf807ebcc4f9a80e526f1839c24ea0c56f7960ed95302d9d82"
+  },
+  "expected_failures": 17,
+  "purpose": "Functional contract and actual consumer red before production implementation"
+}
