@@ -74,6 +74,18 @@ export const StorageRecoveryPage: React.FC<{ onBack?: () => void }> = ({ onBack 
       <SubPageSection description={t('storageRecoveryDescription')}>
         <p className="text-body-sm text-muted">{t('storageRecoverySubmissionWarning')}</p>
       </SubPageSection>
+      <div role="status" aria-live="polite" className="text-body-sm text-muted">
+        {busy && t('storageRecoveryWorking')}
+        {failed && t('storageRecoveryFailed')}
+        {result && !result.recovered && t('storageRecoveryIncomplete')}
+        {result?.progress &&
+          t('storageRecoveryProgress', {
+            verifiedAccounts: result.progress.verifiedAccounts,
+            expectedAccounts: result.progress.expectedAccounts,
+            verifiedInputs: result.progress.verifiedInputs,
+            expectedInputs: result.progress.expectedInputs
+          })}
+      </div>
       {ready && (
         <SubPageSection>
           <Button disabled={busy} isLoading={busy} onClick={() => recover('check')}>
@@ -96,18 +108,6 @@ export const StorageRecoveryPage: React.FC<{ onBack?: () => void }> = ({ onBack 
           onClick={() => setFileMode('import')}
         />
       </SubPageSection>
-      <div role="status" aria-live="polite" className="text-body-sm text-muted">
-        {busy && t('storageRecoveryWorking')}
-        {failed && t('storageRecoveryFailed')}
-        {result && !result.recovered && t('storageRecoveryIncomplete')}
-        {result?.progress &&
-          t('storageRecoveryProgress', {
-            verifiedAccounts: result.progress.verifiedAccounts,
-            expectedAccounts: result.progress.expectedAccounts,
-            verifiedInputs: result.progress.verifiedInputs,
-            expectedInputs: result.progress.expectedInputs
-          })}
-      </div>
     </SubPageLayout>
   );
 };
