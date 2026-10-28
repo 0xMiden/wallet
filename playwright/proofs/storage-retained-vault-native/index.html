@@ -1,21 +1,3 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Actual wallet factory proof</title>
-  </head>
-  <body>
-    <script>
-      globalThis.walletFactoryProof = { ready: false, failed: false, phase: 'entry-load' };
-      addEventListener('error', () => {
-        globalThis.walletFactoryProof.failed = true;
-        globalThis.walletFactoryProof.phase = 'entry-error';
-      });
-      addEventListener('unhandledrejection', () => {
-        globalThis.walletFactoryProof.failed = true;
-        globalThis.walletFactoryProof.phase = 'entry-rejection';
-      });
-    </script>
-    <script type="module" src="./entry.js"></script>
-  </body>
-</html>
+<html><head><meta charset="utf-8"/><title>SDK factory control</title></head>
+<body><script type="module" src="./sdk-only.js"></script></body></html>

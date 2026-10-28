@@ -1,8 +1,7 @@
 {
   "auth_fixture_sha256": "638549f227ff68606b1de6d837d9e406e5504a7898c2af9b1716fc7e7623b8e5",
   "case_ids": [
-    "st/main/profiler/fresh-sdk",
-    "st/main/profiler/isolated-callbacks"
+    "st/sdk-only/pre-open-control"
   ],
   "dist_sha256": {
     "mt/Cargo-Bu4PegyW.js": "fbb452f548950e0f6f9932e1d68aef7ea0dad29f3021db14e598359697b488df",
