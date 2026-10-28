@@ -253,6 +253,8 @@ async function prepare(password, includePrivate) {
   progress('expected-import');
   await withWasmClientLock(async hold => {
     const wallet = await getMidenClient();
+    const beforeHeight = await wallet.client.getSyncHeight();
+    progress(beforeHeight === 0 ? 'expected-height-zero' : beforeHeight < fixture.block - 1 ? 'expected-height-before-hint' : beforeHeight < fixture.block ? 'expected-height-at-hint' : 'expected-height-at-note');
     const imported = await wallet.importNoteBytes(new Uint8Array(fixture.expectedBytes), hold);
     check('expectedImportIdentity', imported.replace(/^0x/i, '').toLowerCase() === fixture.noteDetailsId);
     const notes = await wallet.getInputNotes();
