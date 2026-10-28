@@ -1,0 +1,31 @@
+name: H8 iOS diagnostic egress regression proof
+on:
+  push:
+    branches: [ci/h8-ios-egress-red]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = c8b2962ccfcfb3408bc008c56d438d5b935e8bb3
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Prove egress functional red
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/telemetry/egress-boundary.test.ts --testNamePattern='reports only the closed iOS per-call diagnostic on the real Sentry wire' --maxWorkers=2 --json --outputFile=proof/results.json > proof/jest.log 2>&1
+          result=$?
+          set -e
+          cat proof/jest.log
+          test "$result" -ne 0
+          node -e 'const r=require("./proof/results.json");const a=r.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status==="failed");console.log(JSON.stringify({failed:a.length,runtime:r.numRuntimeErrorTestSuites,names:a.map(t=>t.fullName)}));if(r.numRuntimeErrorTestSuites!==0||a.length!==1||!a[0].failureMessages.join(" ").includes("reownNativeOrigin"))process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-ios-egress-red, path: proof/ }
