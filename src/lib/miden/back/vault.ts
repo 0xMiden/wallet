@@ -1714,7 +1714,7 @@ export class Vault {
                 await provider.set(items);
                 journalMutationAccepted = true;
                 // A timed-out provider write can still settle after the caller has returned.
-                if (failed) quarantineAcceptedEvidence();
+                if (failed) return;
               }
             },
             assertBinding
