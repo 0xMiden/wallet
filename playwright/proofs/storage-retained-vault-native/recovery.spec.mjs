@@ -40,6 +40,8 @@ const phases = new Set([
   'baseline-continuity',
   'baseline-journal',
   'baseline-floor',
+  'baseline-sdk-read',
+  'baseline-sdk-read-done',
   'orderly-sdk-disposal',
   'disposable-sdk-store-loss',
   'restart-real-vault',
@@ -48,6 +50,9 @@ const phases = new Set([
 ]);
 const checkNames = new Set([
   'endpointBound',
+  'baselineContinuityError',
+  'baselineUnavailableError',
+  'baselineOtherError',
   'nativeErrorClass',
   'nativeAcquisitionGate',
   'nativeResolver',

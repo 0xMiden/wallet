@@ -2,13 +2,15 @@ import * as sdk from '@miden-sdk/miden-sdk/lazy';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { Vault } from 'lib/miden/back/vault';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { StorageContinuityError } from 'lib/miden/recovery/continuity';
 import { encryptAndSaveMany, savePlain } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
-import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
+import { initializeStorageHealth, getStorageHealth, StorageUnavailableError } from 'lib/miden/storage-health';
 import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -228,7 +230,24 @@ async function prepare(password, includePrivate) {
   fixture.database = '';
   progress('retained-vault-baseline');
   progress('baseline-continuity');
-  check('baselineEstablished', await vault.verifyStorageContinuity(true));
+  const originalRead = midenClientProxy.readStorageContinuity;
+  midenClientProxy.readStorageContinuity = async function (...args) {
+    progress('baseline-sdk-read');
+    const result = await Reflect.apply(originalRead, this, args);
+    progress('baseline-sdk-read-done');
+    return result;
+  };
+  try {
+    check('baselineEstablished', await vault.verifyStorageContinuity(true));
+  } catch (error) {
+    checks.baselineContinuityError = error instanceof StorageContinuityError;
+    checks.baselineUnavailableError = error instanceof StorageUnavailableError;
+    checks.baselineOtherError = !checks.baselineContinuityError && !checks.baselineUnavailableError;
+    window.__retainedChecks = { ...checks };
+    throw error;
+  } finally {
+    midenClientProxy.readStorageContinuity = originalRead;
+  }
   progress('baseline-journal');
   const journal = await vault.readRecoveryJournal();
   progress('baseline-floor');
