@@ -345,7 +345,7 @@ describe('settings helpers', () => {
 
     it('mirrorBackgroundSettings sets the marker so the SW may act', async () => {
       mirrorBackgroundSettings();
-      await Promise.resolve();
+      await nextTask();
       expect(await areBackgroundSettingsMirrored()).toBe(true);
     });
   });
@@ -406,9 +406,8 @@ describe('settings helpers', () => {
       await nextTask();
       expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
       expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
-      expect(payloads).toContainEqual(
-        expect.objectContaining({ [AUTO_CONSUME_STORAGE_KEY]: false, [BG_SETTINGS_MIRRORED_KEY]: true })
-      );
+      expect(payloads).toContainEqual({ [AUTO_CONSUME_STORAGE_KEY]: false });
+      expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
       expect(await isAutoConsumeEnabledAsync()).toBe(true);
       expect((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())).toBe(false);
     });
@@ -466,12 +465,22 @@ describe('settings helpers', () => {
         const expectedBatch = readFails
           ? undefined
           : {
-              [AUTO_CONSUME_STORAGE_KEY]: false,
-              [DELEGATE_PROOF_STORAGE_KEY]: true,
-              [TELEMETRY_STORAGE_KEY]: false,
               [BG_SETTINGS_MIRRORED_KEY]: true
             };
         expect(payloads.find(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toEqual(expectedBatch);
+        const preferencePayloads = payloads.filter(
+          items =>
+            AUTO_CONSUME_STORAGE_KEY in items || DELEGATE_PROOF_STORAGE_KEY in items || TELEMETRY_STORAGE_KEY in items
+        );
+        const expectedPreferencePayloads = readFails
+          ? []
+          : [
+              { [AUTO_CONSUME_STORAGE_KEY]: false },
+              { [DELEGATE_PROOF_STORAGE_KEY]: true },
+              { [TELEMETRY_STORAGE_KEY]: false }
+            ];
+        expect(preferencePayloads).toEqual(expect.arrayContaining(expectedPreferencePayloads));
+        expect(preferencePayloads).toHaveLength(readFails ? 0 : 5);
         expect(payloads.filter(items => AUTO_CONSUME_STORAGE_KEY in items)).toHaveLength(readFails ? 0 : 2);
         expect(mockKvStore[AUTO_CONSUME_STORAGE_KEY]).toBe(readFails ? undefined : false);
         expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(readFails ? undefined : false);
