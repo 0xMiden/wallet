@@ -6679,6 +6679,58 @@ describe('Vault storage continuity', () => {
     }
   );
 
+  it('Task5 recovery Vault preserves a provider read error after authentication', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
+      'hex'
+    );
+    const failure = new Error('disposable provider read failure');
+    let attempted = 0;
+    markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+    const incident = getStorageHealth();
+    mockAfterStorageRead = observedKeys => {
+      if (observedKeys.includes(providerKey)) {
+        attempted++;
+        throw failure;
+      }
+    };
+    try {
+      await expect(Vault.exportRecoveryData(crypto.randomUUID(), credential)).rejects.toBe(failure);
+      expect(attempted).toBe(1);
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      mockAfterStorageRead = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault preserves lifecycle cancellation when a retained record is missing', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
+      'hex'
+    );
+    await removeMany([keys.check]);
+    let missingRead = false;
+    const cancelled = new DOMException('cancelled', 'AbortError');
+    markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+    const incident = getStorageHealth();
+    mockAfterStorageRead = observedKeys => {
+      if (observedKeys.includes(providerKey)) missingRead = true;
+    };
+    try {
+      await expect(
+        Vault.exportRecoveryData(crypto.randomUUID(), credential, () => {
+          if (missingRead) throw cancelled;
+        })
+      ).rejects.toBe(cancelled);
+      expect(missingRead).toBe(true);
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      mockAfterStorageRead = undefined;
+    }
+  });
+
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
     const { getStorageProvider } = await import('lib/platform/storage-adapter');
