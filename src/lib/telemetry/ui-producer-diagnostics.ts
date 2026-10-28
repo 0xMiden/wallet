@@ -32,6 +32,33 @@ export const PENDING_RETRY_REASONS = [
   'unsafe_retry',
   'unexpected'
 ] as const;
+export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
+export type BridgeBalanceStage =
+  | 'configuration'
+  | 'input_validation'
+  | 'request_build'
+  | 'request'
+  | 'response_decode'
+  | 'rpc_rejected'
+  | 'value_decode'
+  | 'unrecorded';
+export const BRIDGE_BALANCE_BRANCHES: readonly BridgeBalanceBranch[] = [
+  'fast_usdc',
+  'circle_usdc',
+  'native',
+  'registered_erc20',
+  'unrecorded'
+];
+export const BRIDGE_BALANCE_STAGES: readonly BridgeBalanceStage[] = [
+  'configuration',
+  'input_validation',
+  'request_build',
+  'request',
+  'response_decode',
+  'rpc_rejected',
+  'value_decode',
+  'unrecorded'
+];
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
@@ -39,6 +66,11 @@ export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[num
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
 export type UiEvidenceInput =
+  | {
+      kind: 'bridge_balance_read';
+      bridgeBalanceBranch: BridgeBalanceBranch;
+      bridgeBalanceStage: BridgeBalanceStage;
+    }
   | {
       kind: 'feature_unavailable';
       featureUnavailableFeature: FeatureUnavailableFeature;
@@ -48,6 +80,8 @@ export type UiEvidenceInput =
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage };
 export type UiProducerDiagnostics = {
+  bridgeBalanceBranch?: BridgeBalanceBranch;
+  bridgeBalanceStage?: BridgeBalanceStage;
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
@@ -55,6 +89,8 @@ export type UiProducerDiagnostics = {
   recipientValidationStage?: RecipientValidationStage;
 };
 export const UI_PRODUCER_KEYS = [
+  'bridgeBalanceBranch',
+  'bridgeBalanceStage',
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
@@ -62,6 +98,11 @@ export const UI_PRODUCER_KEYS = [
   'recipientValidationStage'
 ] as const;
 const groups = {
+  bridge_balance_read: {
+    id: 'raw_bridge_balance_failed',
+    surface: 'field',
+    fields: { bridgeBalanceBranch: BRIDGE_BALANCE_BRANCHES, bridgeBalanceStage: BRIDGE_BALANCE_STAGES }
+  },
   feature_unavailable: {
     id: 'bridgeFeatureUnavailableBody',
     surface: 'notice',
