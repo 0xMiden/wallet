@@ -200,6 +200,16 @@ const uiCases = [
     'raw_bridge_balance_failed',
     'field',
     { kind: 'bridge_balance_read', bridgeBalanceBranch: 'circle_usdc', bridgeBalanceStage: 'request' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' }
   ]
 ] as const;
 it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {
