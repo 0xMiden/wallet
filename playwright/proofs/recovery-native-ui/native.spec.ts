@@ -29,8 +29,9 @@ test('synthetic recovery controls respond to native taps in both themes', async 
       await session.eval(`
         var s = window.__TEST_STORE__;
         document.documentElement.classList.toggle('dark', ${theme === 'dark'});
-        s.setState({ status: 2, storageAvailability: {status:'unavailable',epoch:${theme === 'dark' ? 101 : 100},reason:'continuity',backend:'wallet',operation:'validate',time:0}, recoverWalletStorage: async function() { throw new Error('synthetic failure'); } });
+        var account = {publicKey:'retained-account',name:'Retained account',isPublic:true,type:'guardian',hdIndex:0,authScheme:'ecdsa'};
         location.hash = '#/storage-recovery';
+        s.setState({ status: 2, accounts:[account], currentAccount:account, storageAvailability: {status:'unavailable',epoch:${theme === 'dark' ? 101 : 100},reason:'continuity',backend:'wallet',operation:'validate',time:0}, recoverWalletStorage: async function() { throw new Error('synthetic failure'); } });
         return true;
       `);
       await expect.poll(() => session.eval<boolean>("return !!document.querySelector('[data-testid=storage-recovery-page]');"), { timeout: 30_000 }).toBe(true);
