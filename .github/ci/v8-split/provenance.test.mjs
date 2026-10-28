@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const script = fileURLToPath(new URL('./source-bound.mjs', import.meta.url));
+const h40 = n => String(n).repeat(40);
+const h64 = n => String(n).repeat(64);
+function setup() {
+  const dir = mkdtempSync(join(tmpdir(), 'v8-provenance-test-'));
+  const git = join(dir, 'git'); const gh = join(dir, 'gh');
+  writeFileSync(git, `#!/bin/sh\ncase "$1" in show) echo G;; rev-parse) echo ${h40(2)};; *) exit 1;; esac\n`);
+  writeFileSync(gh, `#!/bin/sh\nprintf called > "${dir}/called"\nprintf '%s\\n' '{"status":"completed","conclusion":"failure","head_sha":"${h40(5)}"}'\n`);
+  chmodSync(git, 0o755); chmodSync(gh, 0o755);
+  return { dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, approval: { source: h40(1), sdk: h40(3), rustSdk: h40(4), cargoLockSha256: h64(1), packageSetSha256: h64(2), mode: 'addon-only' } };
+}
+test('no exact addon producer refuses before any API call or output', () => {
+  const f = setup(); try {
+    const input = join(f.dir, 'approval.json'); const output = join(f.dir, 'plan.json'); writeFileSync(input, JSON.stringify(f.approval));
+    const result = spawnSync(process.execPath, [script, input, output], { env: f.env, encoding: 'utf8' });
+    assert.notEqual(result.status, 0); assert.match(result.stderr, /missing approved producer identity/); assert(!existsSync(output)); assert(!existsSync(join(f.dir, 'called')));
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+test('failed producer cannot authorize bundle generation', () => {
+  const f = setup(); try {
+    f.approval.addon = { runId: 1, artifactId: 2, workflowSha: h40(5), proofBlobs: { '.github/workflows/proof.yml': h40(6) } };
+    const input = join(f.dir, 'approval.json'); const output = join(f.dir, 'plan.json'); writeFileSync(input, JSON.stringify(f.approval));
+    const result = spawnSync(process.execPath, [script, input, output], { env: f.env, encoding: 'utf8' });
+    assert.notEqual(result.status, 0); assert.match(result.stderr, /producer is not exact successful workflow/); assert(!existsSync(output)); assert.equal(readFileSync(join(f.dir, 'called'), 'utf8'), 'called');
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
