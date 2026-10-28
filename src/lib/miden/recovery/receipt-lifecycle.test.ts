@@ -4,6 +4,7 @@ import * as Repo from '../repo';
 import { getStorageHealth, markStorageUnavailable, withStorageRecoveryAccess } from '../storage-health';
 import { captureRecoveryNotes } from './capture';
 import { RecoveryJournal, JOURNAL_MAX_ENTRIES, type RecoveryStorage } from './journal';
+import { reconcileRecoveryTransactions } from './reconcile';
 import { restoreWalletRecoveryRows } from './restore';
 import { retireRecoveryNotes, type RecoveryRetirementContext } from './retirement';
 import { receiptSnapshot, oneClickReceiptRow } from './testing/provider-receipts';
@@ -11,6 +12,7 @@ import { verifyRetainedTransactionRows } from './transaction-continuity';
 import { projectRecoveryTransaction } from './transaction-record';
 import type { RecoveryEntry, RecoveryJournalSnapshot, RecoveryTransactionEntry } from './types';
 import { validateJournal } from './validation';
+import { canAwaitVerdict } from '../transaction/verdict-rules';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
@@ -339,3 +341,118 @@ it('Task4C2 expiry retains current charged history when its independent debit is
   expect(await retireRecoveryNotes(retirement(snapshot([entry]), retain))).toBe(0);
   expect(retain).not.toHaveBeenCalled();
 });
+
+it.each(['landed', 'indeterminate', 'retention failure'])(
+  'Task4C2 cold loss restores encrypted submission and provider receipt before %s reconciliation',
+  async outcome => {
+    const id = `cold-${outcome}`;
+    const row: ITransaction = {
+      id,
+      accountId: 'account-a',
+      type: 'bridged-send',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      mayHaveSubmitted: true,
+      extraInputs: { provider: 'agglayer', intentNonce: '22', evmTxHash: 'old-hash' },
+      submitEvidence: [
+        {
+          attemptId: id,
+          capturedAt: 1,
+          source: 'stage',
+          transactionId: 'tx-hex',
+          refBlock: 10,
+          refBlockCommitment: 'header',
+          initialCommitment: 'old',
+          finalCommitment: 'new',
+          initialNonce: '1',
+          outputNoteIds: [],
+          nullifiers: [],
+          expirationBlock: 30
+        }
+      ]
+    };
+    const transaction: RecoveryTransactionEntry = {
+      kind: 'transaction',
+      id,
+      accountId: row.accountId,
+      requestBytes: row.requestBytes!,
+      mayHaveSubmitted: true,
+      evidence: {},
+      row: projectRecoveryTransaction(row)
+    };
+    const receipt: RecoveryEntry = {
+      kind: 'receipt',
+      id,
+      accountId: row.accountId,
+      row: { ...transaction.row!, extraInputs: { ...row.extraInputs, evmTxHash: 'new-hash' } }
+    };
+    const storage = new MemoryStorage();
+    const key = await importVaultKey(new Uint8Array(32).fill(5));
+    const writer = new RecoveryJournal(key, storage);
+    await writer.update(() => snapshot([transaction, receipt]));
+    expect(JSON.stringify(storage.values)).not.toContain('new-hash');
+    await Repo.transactions.put(row);
+    await Repo.transactions.delete(id);
+    expect(await Repo.transactions.get(id)).toBeUndefined();
+
+    const cold = new RecoveryJournal(key, storage);
+    let retained = await cold.read();
+    if (!retained) throw new Error('Missing cold journal');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    await withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, async capability => {
+      await restoreWalletRecoveryRows(retained!, capability);
+      const restored = await Repo.transactions.get(id);
+      expect(restored).toMatchObject({
+        status: ITransactionStatus.Unconfirmed,
+        mayHaveSubmitted: true,
+        restoredFromJournal: true,
+        extraInputs: { provider: 'agglayer', intentNonce: '22', evmTxHash: 'new-hash' },
+        submitEvidence: row.submitEvidence
+      });
+      expect(Array.from(restored!.requestBytes!)).toEqual([1, 2, 3]);
+      expect(canAwaitVerdict({ ...restored!, restoredFromBackup: false })).toBe(true);
+      let retainCalls = 0;
+      const reconcile = reconcileRecoveryTransactions({
+        snapshot: retained!,
+        database: Repo.db,
+        deadline: Date.now() + 5000,
+        assertCurrent: () => {},
+        node: {
+          blockCommitment: async () => 'header',
+          account: async () =>
+            outcome === 'indeterminate'
+              ? { ok: false, pruned: false, timedOut: false }
+              : { ok: true, state: { blockNum: 20, commitment: 'new', nonce: '2' } },
+          noteInclusions: async () => new Map(),
+          nullifierHeight: async () => undefined
+        },
+        retain: async entries => {
+          retainCalls++;
+          expect((await Repo.transactions.get(id))?.status).toBe(ITransactionStatus.Unconfirmed);
+          if (outcome === 'retention failure') throw new Error('retention refused');
+          retained = await cold.replaceEntries(retained!, entries, () => {});
+        }
+      });
+      const result = await reconcile.then(
+        value => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error: error instanceof Error ? error.message : 'unknown' })
+      );
+      expect(result).toEqual(
+        outcome === 'retention failure'
+          ? { value: undefined, error: 'retention refused' }
+          : { value: outcome === 'landed' ? 1 : 0, error: undefined }
+      );
+      expect(retainCalls).toBe(outcome === 'indeterminate' ? 0 : 1);
+      expect((await Repo.transactions.get(id))?.status).toBe(
+        outcome === 'landed' ? ITransactionStatus.Completed : ITransactionStatus.Unconfirmed
+      );
+      const readback = await cold.read();
+      const saved = readback?.entries.find(entry => entry.kind === 'transaction');
+      expect(saved?.kind === 'transaction' && saved.resolved?.outcome).toBe(
+        outcome === 'landed' ? 'landed' : undefined
+      );
+    });
+  }
+);
