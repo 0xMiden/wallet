@@ -6016,7 +6016,7 @@ describe('Vault storage continuity', () => {
       MidenClientInterface,
       [
         {
-          settings: { get: jest.fn(async () => generation), set: jest.fn() },
+          settings: { get: jest.fn(async () => Array.from(new TextEncoder().encode(generation))), set: jest.fn() },
           accounts: {
             get: jest.fn(async () => ({
               nonce: () => ({ asInt: () => 4n }),
