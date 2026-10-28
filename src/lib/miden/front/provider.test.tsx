@@ -15,6 +15,7 @@ _g.__providerTest = {
 // Read while the provider's imports load, which runs before the state above is assigned.
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__providerTest?.isExtension ?? false,
+  isDesktop: () => false,
   isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false
 }));
 
