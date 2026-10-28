@@ -4,8 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { TxStory } from 'components/tx-stage/TxStory';
 import type { StoryHop } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';

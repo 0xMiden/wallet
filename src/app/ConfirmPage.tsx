@@ -12,12 +12,12 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
-import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
-import { TxStory } from 'components/tx-stage/TxStory';
-import { storyFromMessages } from 'components/tx-stage/tx-story';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { storyFromMessages } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
@@ -36,12 +36,12 @@ import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
+import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { Icon, IconName } from './icons/v2';
 import AccountBanner from './templates/AccountBanner';
 import ConnectBanner from './templates/ConnectBanner';
@@ -268,25 +268,25 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           )}
           <hr className="h-px bg-border-light my-4" />
           <div className="tx-stage-list">
-          {payload.transactionMessages.slice(2).map((message, i) => {
-            const [label, rawValue] = message.split(', ');
-            // Amount arrives already formatted from the faucet's real decimals
-            // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
-            // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
-            // token and lost precision above 2^53 via `Number()`.
-            let value = rawValue ?? '';
-            if (label === 'Recipient') {
-              value = truncateAddress(value);
-            }
-            return (
-              <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-text-muted">{label}</span>
-                <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                  {value}
-                </span>
-              </div>
-            );
-          })}
+            {payload.transactionMessages.slice(2).map((message, i) => {
+              const [label, rawValue] = message.split(', ');
+              // Amount arrives already formatted from the faucet's real decimals
+              // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
+              // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
+              // token and lost precision above 2^53 via `Number()`.
+              let value = rawValue ?? '';
+              if (label === 'Recipient') {
+                value = truncateAddress(value);
+              }
+              return (
+                <div className="flex justify-between my-2 text-sm" key={i + 2}>
+                  <span className="text-text-muted">{label}</span>
+                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       );
@@ -320,21 +320,21 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           )}
           <hr className="h-px bg-border-light my-4" />
           <div className="tx-stage-list">
-          {payload.transactionMessages.slice(1).map((message, i) => {
-            const [label, rawValue] = message.split(', ');
-            let value = rawValue ?? '';
-            if (label === 'Recipient') {
-              value = truncateAddress(value);
-            }
-            return (
-              <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-text-muted">{label}</span>
-                <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                  {value}
-                </span>
-              </div>
-            );
-          })}
+            {payload.transactionMessages.slice(1).map((message, i) => {
+              const [label, rawValue] = message.split(', ');
+              let value = rawValue ?? '';
+              if (label === 'Recipient') {
+                value = truncateAddress(value);
+              }
+              return (
+                <div className="flex justify-between my-2 text-sm" key={i + 2}>
+                  <span className="text-text-muted">{label}</span>
+                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       );

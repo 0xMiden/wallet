@@ -3,8 +3,8 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { TxStory } from 'components/tx-stage/TxStory';
 import { storyFromNoteFlow, sumAssets, type StoryAsset, type StoryHop } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -224,90 +224,86 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
         {notesOpen ? t('hideNotes', { defaultValue: 'Hide notes' }) : t('showNotes', { defaultValue: 'Show notes' })}
         <span className={classNames('tx-notes-chevron', notesOpen && 'is-open')} aria-hidden="true" />
       </button>
-      <div
-        ref={notesPanelRef}
-        className="tx-notes-disclosure"
-        aria-hidden={notesOpen ? undefined : true}
-      >
+      <div ref={notesPanelRef} className="tx-notes-disclosure" aria-hidden={notesOpen ? undefined : true}>
         <div className="tx-notes-disclosure-inner">
-      <div className="text-sm text-muted mb-2">
-        {t('inputNotesConsumed')}: {flow.inputCount}
-      </div>
-      {flow.inputs.length ? (
-        <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-inputs">
-          {flow.inputs.map((note, index) => (
-            <NoteItem key={`${note.id ?? 'input'}-${index}`} note={note} index={index} side="in" />
-          ))}
-        </ol>
-      ) : (
-        <Card padding="tile" data-testid="tx-note-inputs">
-          <span className="text-sm text-muted">
-            {flow.inputCount === 0 ? t('noInputNotes') : t('inputDetailsUnavailable')}
-          </span>
-        </Card>
-      )}
-      {flow.inputCount > flow.inputs.length && flow.inputs.length > 0 && (
-        <p className="mt-2 text-xs text-muted">{t('additionalInputDetailsUnavailable')}</p>
-      )}
-      <div className="tx-stage-link" aria-hidden="true" />
-      <Card
-        padding="tile"
-        className="tx-stage-account font-semibold text-ink"
-        data-testid="tx-note-account"
-        aria-label={t('account')}
-      >
-        <span title={account}>
-          {t('account')}: {account ? truncateAddress(account) : t('unknown')}
-        </span>
-      </Card>
-      <div className="tx-stage-link" aria-hidden="true" />
-      <div className="text-sm text-muted mb-2">
-        {t(
-          flow.outputs.some(note => note.kind === 'fee' || note.kind === 'TX_FEE')
-            ? 'outputNotesIncludingFee'
-            : 'transactionOutputNotes'
-        )}
-        : {flow.outputs.length}
-      </div>
-      {flow.outputs.length ? (
-        <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-outputs">
-          {flow.outputs.map((note, index) => (
-            <NoteItem key={`${note.id ?? 'output'}-${index}`} note={note} index={index} side="out" />
-          ))}
-        </ol>
-      ) : (
-        <Card padding="tile" data-testid="tx-note-outputs">
-          <span className="text-sm text-muted">{t('noOutputNotes')}</span>
-        </Card>
-      )}
-      <section className="mt-4" aria-label={t('storageChanged')} data-testid="tx-storage-details">
-        <h4 className="mb-2 font-semibold text-ink">{t('storageChanged')}</h4>
-        {flow.storageChanges === undefined ? (
-          <p className="text-sm text-muted">{t('storageDetailsUnavailable')}</p>
-        ) : flow.storageChanges.length === 0 ? (
-          <p className="text-sm text-muted">{t('noStorageChanges')}</p>
-        ) : (
-          <ol className="flex flex-col gap-2">
-            {flow.storageChanges.map((slot, index) => (
-              <Card asChild padding="tile" key={`${slot.kind}-${slot.slotName}-${index}`}>
-                <li className="min-w-0">
-                  <div className="font-semibold text-ink break-all">{slot.slotName}</div>
-                  <div className="text-xs text-muted">
-                    {t(slot.kind === 'map' ? 'storageMapSlot' : 'storageValueSlot')} ·{' '}
-                    {t(`storageOperation${slot.operation}`)}
-                    {slot.entryCount !== undefined && slot.operation !== 'remove' && (
-                      <>
-                        {' '}
-                        · {t('storageEntriesChanged')}: {slot.entryCount}
-                      </>
-                    )}
-                  </div>
-                </li>
-              </Card>
-            ))}
-          </ol>
-        )}
-      </section>
+          <div className="text-sm text-muted mb-2">
+            {t('inputNotesConsumed')}: {flow.inputCount}
+          </div>
+          {flow.inputs.length ? (
+            <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-inputs">
+              {flow.inputs.map((note, index) => (
+                <NoteItem key={`${note.id ?? 'input'}-${index}`} note={note} index={index} side="in" />
+              ))}
+            </ol>
+          ) : (
+            <Card padding="tile" data-testid="tx-note-inputs">
+              <span className="text-sm text-muted">
+                {flow.inputCount === 0 ? t('noInputNotes') : t('inputDetailsUnavailable')}
+              </span>
+            </Card>
+          )}
+          {flow.inputCount > flow.inputs.length && flow.inputs.length > 0 && (
+            <p className="mt-2 text-xs text-muted">{t('additionalInputDetailsUnavailable')}</p>
+          )}
+          <div className="tx-stage-link" aria-hidden="true" />
+          <Card
+            padding="tile"
+            className="tx-stage-account font-semibold text-ink"
+            data-testid="tx-note-account"
+            aria-label={t('account')}
+          >
+            <span title={account}>
+              {t('account')}: {account ? truncateAddress(account) : t('unknown')}
+            </span>
+          </Card>
+          <div className="tx-stage-link" aria-hidden="true" />
+          <div className="text-sm text-muted mb-2">
+            {t(
+              flow.outputs.some(note => note.kind === 'fee' || note.kind === 'TX_FEE')
+                ? 'outputNotesIncludingFee'
+                : 'transactionOutputNotes'
+            )}
+            : {flow.outputs.length}
+          </div>
+          {flow.outputs.length ? (
+            <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-outputs">
+              {flow.outputs.map((note, index) => (
+                <NoteItem key={`${note.id ?? 'output'}-${index}`} note={note} index={index} side="out" />
+              ))}
+            </ol>
+          ) : (
+            <Card padding="tile" data-testid="tx-note-outputs">
+              <span className="text-sm text-muted">{t('noOutputNotes')}</span>
+            </Card>
+          )}
+          <section className="mt-4" aria-label={t('storageChanged')} data-testid="tx-storage-details">
+            <h4 className="mb-2 font-semibold text-ink">{t('storageChanged')}</h4>
+            {flow.storageChanges === undefined ? (
+              <p className="text-sm text-muted">{t('storageDetailsUnavailable')}</p>
+            ) : flow.storageChanges.length === 0 ? (
+              <p className="text-sm text-muted">{t('noStorageChanges')}</p>
+            ) : (
+              <ol className="flex flex-col gap-2">
+                {flow.storageChanges.map((slot, index) => (
+                  <Card asChild padding="tile" key={`${slot.kind}-${slot.slotName}-${index}`}>
+                    <li className="min-w-0">
+                      <div className="font-semibold text-ink break-all">{slot.slotName}</div>
+                      <div className="text-xs text-muted">
+                        {t(slot.kind === 'map' ? 'storageMapSlot' : 'storageValueSlot')} ·{' '}
+                        {t(`storageOperation${slot.operation}`)}
+                        {slot.entryCount !== undefined && slot.operation !== 'remove' && (
+                          <>
+                            {' '}
+                            · {t('storageEntriesChanged')}: {slot.entryCount}
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  </Card>
+                ))}
+              </ol>
+            )}
+          </section>
         </div>
       </div>
     </section>

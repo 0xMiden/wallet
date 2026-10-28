@@ -6,12 +6,12 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { TransactionNoteFlow } from 'app/confirm/TransactionNoteFlow';
-import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
-import { TxStory } from 'components/tx-stage/TxStory';
-import { storyFromMessages } from 'components/tx-stage/tx-story';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { storyFromMessages } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -298,9 +298,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {isTransaction && transactionMessages.length > 0 && !request.noteFlow && (
-                  <TxStory
-                    hops={storyFromMessages(transactionMessages, { incoming: request.type === 'consume' })}
-                  />
+                  <TxStory hops={storyFromMessages(transactionMessages, { incoming: request.type === 'consume' })} />
                 )}
 
                 {isTransaction && transactionMessages.length > 0 && (

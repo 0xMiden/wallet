@@ -93,7 +93,10 @@ export const TxStory: React.FC<{ hops: StoryHop[]; summary?: StorySummary; class
         const fromShown = !feeHop && showsParty(hop.from);
         const toShown = showsParty(hop.to);
         return (
-          <div className={classNames('tx-story-hop', !fromShown && !toShown && 'tx-story-hop-line')} key={`${hop.amount}-${index}`}>
+          <div
+            className={classNames('tx-story-hop', !fromShown && !toShown && 'tx-story-hop-line')}
+            key={`${hop.amount}-${index}`}
+          >
             {(fromShown || toShown) && (
               <div className="tx-story-parties">
                 <div className="tx-story-slot">{fromShown && <Party party={hop.from} side="from" />}</div>

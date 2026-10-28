@@ -43,7 +43,9 @@ describe('transaction story', () => {
   it('turns decoded notes into consumed hops and created hops', () => {
     const hops = storyFromNoteFlow(
       {
-        inputs: [{ sender: 'mtst1alice', visibility: 'private', kind: 'P2ID', assets: [{ faucetId: 'fA', amount: 10n }] }],
+        inputs: [
+          { sender: 'mtst1alice', visibility: 'private', kind: 'P2ID', assets: [{ faucetId: 'fA', amount: 10n }] }
+        ],
         outputs: [
           { visibility: 'public', kind: 'P2ID' },
           { visibility: 'public', kind: 'fee' }
@@ -57,8 +59,11 @@ describe('transaction story', () => {
       ['you', 'network', 'public']
     ]);
     expect(hops[0]?.assets).toEqual([{ faucetId: 'fA', amount: 10n }]);
-    expect(sumAssets([{ faucetId: 'fA', amount: 10n }, { faucetId: 'fA', amount: 4n }])).toEqual([
-      { faucetId: 'fA', amount: 14n }
-    ]);
+    expect(
+      sumAssets([
+        { faucetId: 'fA', amount: 10n },
+        { faucetId: 'fA', amount: 4n }
+      ])
+    ).toEqual([{ faucetId: 'fA', amount: 14n }]);
   });
 });

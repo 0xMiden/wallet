@@ -17,8 +17,8 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
-import { TxStory } from 'components/tx-stage/TxStory';
 import type { StoryHop } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -792,32 +792,34 @@ export const ReviewTransaction: React.FC = () => {
 
         <TxStory
           className="mt-6"
-          hops={[
-            {
-              from: { role: 'you', name: '' },
-              to: { role: 'recipient', name: to },
-              amount: `${amount} ${tokenLabel}`.trim(),
-              via: isBridge ? undefined : sharePrivately ? t('private') : t('public')
-            },
-            ...(isBridge && youReceiveAmount != null
-              ? [
-                  {
-                    from: { role: 'you' as const, name: '' },
-                    to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
-                    amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
-                  }
-                ]
-              : []),
-            ...(networkFee && !isUsdcxBurn
-              ? [
-                  {
-                    from: { role: 'you' as const, name: '' },
-                    to: { role: 'network' as const, name: '' },
-                    amount: networkFee
-                  }
-                ]
-              : [])
-          ] satisfies StoryHop[]}
+          hops={
+            [
+              {
+                from: { role: 'you', name: '' },
+                to: { role: 'recipient', name: to },
+                amount: `${amount} ${tokenLabel}`.trim(),
+                via: isBridge ? undefined : sharePrivately ? t('private') : t('public')
+              },
+              ...(isBridge && youReceiveAmount != null
+                ? [
+                    {
+                      from: { role: 'you' as const, name: '' },
+                      to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
+                      amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
+                    }
+                  ]
+                : []),
+              ...(networkFee && !isUsdcxBurn
+                ? [
+                    {
+                      from: { role: 'you' as const, name: '' },
+                      to: { role: 'network' as const, name: '' },
+                      amount: networkFee
+                    }
+                  ]
+                : [])
+            ] satisfies StoryHop[]
+          }
         />
 
         <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
