@@ -1,0 +1,32 @@
+name: Issue1948 addon generator integrity
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check addon generator refusal and preparation
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          for script in .github/ci/v8-split/*.mjs .github/ci/v8-split/*.cjs; do node --check "$script"; done
+          node --test .github/ci/v8-split/addon-generator.test.mjs 2>&1 | tee proof/test.log
+          grep -Eq '^# tests 2$' proof/test.log
+          grep -Eq '^# fail 0$' proof/test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v8-addon-generator-integrity
+          path: proof/
+          if-no-files-found: error
