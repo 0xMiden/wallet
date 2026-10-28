@@ -10,7 +10,7 @@ use miden_client::rpc::domain::sync::{ChainMmrInfo, SyncTarget};
 use miden_client::rpc::domain::note::SyncNotesBlock;
 use miden_client::note::NoteType;
 use miden_client::crypto::{Forest, PartialMmr};
-use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse, SyncChainMmrRequest, SyncChainMmrResponse, BlockRange, FinalityLevel, SyncNotesResponse, NoteSyncMetadata, NoteSyncRecord, SyncTransactionsResponse};
+use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse, SyncChainMmrRequest, SyncChainMmrResponse, BlockRange, FinalityLevel, SyncNotesResponse, NoteSyncMetadata, NoteSyncRecord, SyncTransactionsResponse, SyncTransactionsRequest};
 use miden_client::rpc::{RpcEndpoint, RpcLimits};
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
@@ -202,6 +202,14 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     if chain.proven_blocks().iter().any(|block| block.body().transactions().as_slice().iter().any(|tx| tx.account_id() == account_id)) {
         return Err("account_transactions_not_empty");
     }
+    let transaction_request = SyncTransactionsRequest {
+        block_range: Some(BlockRange { block_from: 1, block_to: tip_number }),
+        account_ids: vec![account_id.into()],
+    }.encode_to_vec();
+    let decoded_request = SyncTransactionsRequest::decode(transaction_request.as_slice()).map_err(|_| "sync_transactions_request_wire")?;
+    if decoded_request.account_ids.len() != 1 || decoded_request.block_range.as_ref().map(|range| (range.block_from, range.block_to)) != Some((1, tip_number)) {
+        return Err("sync_transactions_request_binding");
+    }
     let transactions = SyncTransactionsResponse {
         pagination_info: Some(PaginationInfo { chain_tip: tip_number, block_num: tip_number }),
         transactions: vec![],
@@ -209,6 +217,7 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     let decoded = SyncTransactionsResponse::decode(transactions.as_slice()).map_err(|_| "sync_transactions_wire")?;
     if !decoded.transactions.is_empty() || decoded.pagination_info.is_none() { return Err("sync_transactions_binding"); }
     let mut outputs = vec![
+        ("sync-transactions-request.pb".to_owned(), transaction_request),
         ("sync-notes.pb".to_owned(), sync_notes),
         ("sync-transactions.pb".to_owned(), transactions),
         ("mmr-request.pb".to_owned(), request),
