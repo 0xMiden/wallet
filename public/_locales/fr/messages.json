@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Ajoutez des fonds et attendez de pouvoir les dépenser.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Première réception",

@@ -256,8 +256,8 @@ describe('DappLauncher', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]!.parentElement).toBe(cards[1]!.parentElement);
     expect(cards[0]!.parentElement).toHaveClass('overflow-x-auto');
-    expect(within(cards[0]!).getByText('categoryFinance')).toBeInTheDocument();
-    expect(within(cards[1]!).getByText('categoryArcade')).toBeInTheDocument();
+    expect(within(cards[0]!).getByText('Get testnet MIDEN tokens')).toBeInTheDocument();
+    expect(within(cards[1]!).getByText('Play')).toBeInTheDocument();
     fireEvent.click(cards[0]!);
     fireEvent.click(cards[1]!);
     expect(onOpen.mock.calls.map(call => call[0])).toEqual(['https://faucet.example/', 'https://quest.example/']);
@@ -269,16 +269,48 @@ describe('DappLauncher', () => {
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games']);
   });
 
-  it('shows the featured app on its brand color with its category, name, tagline and Open', async () => {
+  it('shows the featured app on its brand color with its name, its tagline as the headline, and Open', async () => {
     await renderLauncher();
 
     const card = screen.getByTestId('explore-featured-card');
     expect(card.tagName).toBe('BUTTON');
     expect(card).toHaveAccessibleName('Faucet');
     expect(card.querySelector('[data-slot="featured-art"]')).toHaveStyle({ backgroundColor: '#0EA5E9' });
-    expect(within(card).getByText('categoryFinance')).toBeInTheDocument();
+    expect(within(card).getByText('Faucet')).toBeInTheDocument();
     expect(within(card).getByText('Get testnet MIDEN tokens')).toBeInTheDocument();
     expect(within(card).getByText('exploreOpen')).toBeInTheDocument();
+  });
+
+  it('opens All on its own Featured row, with each headline, when the catalog publishes none', async () => {
+    mockCatalog = {
+      ...catalog,
+      items: [
+        ...catalog.items,
+        {
+          id: 'geoquizz',
+          category: 'games',
+          name: { en: 'GeoQuizz' },
+          tagline: { en: 'Find ten cities on the map' },
+          url: 'https://geoquizz.example/',
+          isExchange: false
+        }
+      ],
+      sections: catalog.sections.filter(section => section.kind !== 'featured')
+    };
+    await renderLauncher();
+
+    expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
+    expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toBeInTheDocument();
+    const card = screen.getByTestId('explore-featured-card');
+    expect(card).toHaveAttribute('data-dapp-url', 'https://geoquizz.example/');
+    expect(within(card).getByText('exploreFeaturedGeoquizzHeadline')).toBeInTheDocument();
+  });
+
+  it('adds no Featured row when the catalog has none of the featured apps', async () => {
+    mockCatalog = { ...catalog, sections: catalog.sections.filter(section => section.kind !== 'featured') };
+    await renderLauncher();
+
+    expect(sectionIds()).toEqual(['helper-tools', 'games', 'recents']);
   });
 
   it('opens an app from the featured card, a catalog row and a Recents row, with one tap haptic each', async () => {

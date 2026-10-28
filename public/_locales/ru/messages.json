@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Добавьте средства и дождитесь, когда их можно будет потратить.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Первое получение",

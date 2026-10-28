@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Füge Guthaben hinzu und warte, bis es verfügbar ist.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Erster Empfang",

@@ -55,6 +55,8 @@ export function TabRootHeader<T extends string = string>({ title, actions, searc
           items={filter.items}
           value={filter.value}
           onChange={filter.onChange}
+          // The tab roots' filters carry the brand orange; every other control keeps the tint.
+          bubble="solid"
           aria-label={filter['aria-label']}
           data-testid={filter['data-testid']}
           // 4px above and below the 40px items — room for the raised bubble's shadow and the

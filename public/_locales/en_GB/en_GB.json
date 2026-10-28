@@ -194,7 +194,7 @@
   "badgeEarned": "Earned",
   "badgeVerificationPending": "Not available yet",
   "badgeFirstDeposit": "First Deposit",
-  "badgeFirstDepositDescription": "Add funds and wait for them to become spendable.",
+  "badgeFirstDepositDescription": "Add funds and wait until spendable.",
   "badgeFirstReceive": "First Receive",
   "badgeFirstReceiveDescription": "Accept and claim a transfer to this account.",
   "badgeFirstSend": "First Send",

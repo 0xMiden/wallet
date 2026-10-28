@@ -2,6 +2,7 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, fills the selected filter chip with the brand orange, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
 ## 1.17.8 (2026-10-27)
