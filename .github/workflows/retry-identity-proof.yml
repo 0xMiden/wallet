@@ -1,0 +1,40 @@
+name: Retry history identity proof
+on:
+  push:
+    branches: [ci/retry-history-identity-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/retry-identity-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/retry-identity-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = b3b6c1b5f165a41b8fa344d639df28b09f1f1160
+          cp -R .github/retry-identity-proof "$RUNNER_TEMP/retry-identity-packet"
+          git checkout --detach b3b6c1b5f165a41b8fa344d639df28b09f1f1160
+          cp "$RUNNER_TEMP/retry-identity-packet/source.json" "$RUNNER_TEMP/retry-identity-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/retry-identity-evidence/install.log"
+      - name: Check formatting
+        run: yarn prettier --check src/app/templates/history/HistoryDetails.test.tsx src/app/templates/history/SwapDetail.test.tsx src/app/templates/history/useTransactionActions.ts src/app/templates/history/HistoryDetails.tsx src/app/templates/history/SwapDetail.tsx src/screens/generating-transaction/GeneratingTransaction.test.tsx 2>&1 | tee "$RUNNER_TEMP/retry-identity-evidence/format.log"
+      - name: Verify row identity mutation
+        run: python3 "$RUNNER_TEMP/retry-identity-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-identity-proof
+          path: ${{ runner.temp }}/retry-identity-evidence
+          if-no-files-found: error

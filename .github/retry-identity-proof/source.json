@@ -1,0 +1,8 @@
+{
+  "source": "b3b6c1b5f165a41b8fa344d639df28b09f1f1160",
+  "tree": "3bf00462455454ca4aa8bf331dad4c4be64b7c2c",
+  "sha256": {
+    "src/app/templates/history/HistoryDetails.test.tsx": "616b9d0c862a3115d589b1f1e8c6c07ea087d958ceb8b95b2e3e94669f34f2bd",
+    "src/app/templates/history/useTransactionActions.ts": "abf6cc1430bffbf5722918ce4aa1bc4186bd67b1548d4417b770a96285e1ded3"
+  }
+}
