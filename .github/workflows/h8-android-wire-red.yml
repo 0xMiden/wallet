@@ -1,0 +1,31 @@
+name: H8 iOS diagnostic egress regression proof
+on:
+  push:
+    branches: [ci/h8-android-wire-red]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = cb0cde7d6e818cee236c1d916ab96042f51f29f0
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Prove egress functional red
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/walletconnect/native.test.ts --testNamePattern='does not accept iOS-only origin' --maxWorkers=2 --json --outputFile=proof/results.json > proof/jest.log 2>&1
+          result=$?
+          set -e
+          cat proof/jest.log
+          test "$result" -ne 0
+          node -e 'const r=require("./proof/results.json");const a=r.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status==="failed");console.log(JSON.stringify({failed:a.length,runtime:r.numRuntimeErrorTestSuites,names:a.map(t=>t.fullName)}));if(r.numRuntimeErrorTestSuites!==0||a.length!==2||a.some(t=>!t.failureMessages.join(" ").includes("toBeUndefined")))process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: h8-android-wire-red, path: proof/ }
