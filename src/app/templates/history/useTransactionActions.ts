@@ -17,6 +17,7 @@ import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
 import { getPaybackClaimState } from 'lib/miden/swap/payback-claim';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
@@ -47,6 +48,7 @@ export interface TransactionActions {
   isRetrying: boolean;
   retryError: string | null;
   retryErrorId: UserErrorId | null;
+  retryErrorDiagnostics: Extract<UiEvidenceInput, { kind: 'history_retry' }> | undefined;
   /**
    * The acknowledgement the last refusal offered, exactly as rendered: it answers the attempt the user was shown
    * (#1081). Null when the refusal offers none, as the liveness refusal never does.
@@ -64,6 +66,7 @@ export interface TransactionActions {
   isRetryingPayback: boolean;
   paybackRetryError: string | null;
   paybackRetryErrorId: UserErrorId | null;
+  paybackRetryErrorDiagnostics: Extract<UiEvidenceInput, { kind: 'history_payback_retry' }> | undefined;
   onRetryPayback: () => void;
 }
 
@@ -79,16 +82,22 @@ export const useTransactionActions = (
   const [cancelErrorId, setCancelErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  const [retryErrorId, setRetryErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
+  const [retryErrorId, setRetryErrorId] = useState<{
+    id: UserErrorId;
+    transactionId: string;
+    diagnostics?: Extract<UiEvidenceInput, { kind: 'history_retry' }>;
+  } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [cancelOrderError, setCancelOrderError] = useState<string | null>(null);
   const [cancelOrderErrorId, setCancelOrderErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   const [isRetryingPayback, setIsRetryingPayback] = useState(false);
   const [paybackRetryError, setPaybackRetryError] = useState<string | null>(null);
-  const [paybackRetryErrorId, setPaybackRetryErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(
-    null
-  );
+  const [paybackRetryErrorId, setPaybackRetryErrorId] = useState<{
+    id: UserErrorId;
+    transactionId: string;
+    diagnostics?: Extract<UiEvidenceInput, { kind: 'history_payback_retry' }>;
+  } | null>(null);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -129,7 +138,18 @@ export const useTransactionActions = (
         } else {
           console.error('[HistoryDetails] Failed to retry transaction:', error);
           setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-          setRetryErrorId({ id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong', transactionId });
+          setRetryErrorId({
+            id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
+            transactionId,
+            diagnostics:
+              error instanceof Error
+                ? {
+                    kind: 'history_retry',
+                    retryNoticeOrigin: entry.txType === 'earn-withdraw' ? 'history_earn_receive' : 'history_primary',
+                    pendingRetryReason: snapshotPendingRetry(error) ?? 'unexpected'
+                  }
+                : undefined
+          });
         }
         setAcknowledgement(acknowledgementOf(error));
       } finally {
@@ -168,7 +188,15 @@ export const useTransactionActions = (
         setPaybackRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
         setPaybackRetryErrorId({
           id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
-          transactionId
+          transactionId,
+          diagnostics:
+            error instanceof Error
+              ? {
+                  kind: 'history_payback_retry',
+                  retryNoticeOrigin: 'history_payback',
+                  pendingRetryReason: snapshotPendingRetry(error) ?? 'unexpected'
+                }
+              : undefined
         });
       }
     } finally {
@@ -240,6 +268,7 @@ export const useTransactionActions = (
     isRetrying,
     retryError,
     retryErrorId: retryErrorId?.transactionId === transactionId ? retryErrorId.id : null,
+    retryErrorDiagnostics: retryErrorId?.transactionId === transactionId ? retryErrorId.diagnostics : undefined,
     acknowledgement,
     onRetry: acknowledged => void handleRetry(acknowledged),
     isCancellingOrder,
@@ -249,6 +278,8 @@ export const useTransactionActions = (
     isRetryingPayback,
     paybackRetryError,
     paybackRetryErrorId: paybackRetryErrorId?.transactionId === transactionId ? paybackRetryErrorId.id : null,
+    paybackRetryErrorDiagnostics:
+      paybackRetryErrorId?.transactionId === transactionId ? paybackRetryErrorId.diagnostics : undefined,
     onRetryPayback: () => void handleRetryPayback()
   };
 };

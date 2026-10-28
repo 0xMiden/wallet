@@ -818,10 +818,7 @@ const LiveStuckPayback = ({
       isRetryingPayback={actions.isRetryingPayback}
       paybackRetryError={actions.paybackRetryError}
       paybackRetryErrorId={actions.paybackRetryErrorId}
-      {...{
-        paybackRetryErrorDiagnostics: (actions as typeof actions & { paybackRetryErrorDiagnostics?: unknown })
-          .paybackRetryErrorDiagnostics
-      }}
+      paybackRetryErrorDiagnostics={actions.paybackRetryErrorDiagnostics}
       onRetryPayback={actions.onRetryPayback}
     />
   );
