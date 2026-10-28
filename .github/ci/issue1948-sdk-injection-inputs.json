@@ -1,0 +1,90 @@
+{
+  "wallet_source": "d3ad46a92fccda0ad31960b79d2c7d42416fb141",
+  "wallet_tree": "e9d8d07e1c608f4d2a411bd6b66f18b0a853c2f9",
+  "phase": "recovery-native-ui-proof1",
+  "package_sha256": {
+    "@miden-sdk/miden-sdk": "90ab279019f48ff41beefae89f48cbf903600b5bcb1a362f944094e709c7f8fb",
+    "@miden-sdk/react": "dae046f97d54bafa0d298982b94e4dd642fbfe121769ecb21a04280ae89bb8e2",
+    "@miden-sdk/vite-plugin": "ab0de5991cda8e80ed6c0fb3e6177a54a813709ec9d68620b791f1d989a0f3b6"
+  },
+  "approved_target_lock_changes": {
+    "\"@miden-sdk/node-darwin-arm64@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-arm64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "f3eac40494062158c97221dafd7dda7d899752671d1f701afb63f6f16bc979bc",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-darwin-x64@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-x64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "7965585a0d0f361e40f7af828cfb59ace2afd7ced6725dbdc3b6748eb78a8424",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-linux-x64-gnu@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-gnu@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "671434909252186506721776c82a7f1345e89b4b7d406fdc94320187a41d467c",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-linux-x64-musl@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-musl@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "26f0e430bac8c13d2c00e5a0d6216de37b4115b07f3db271f22e93e63baa3cb6",
+      "after_sha256": null
+    }
+  },
+  "checks": [
+    {
+      "name": "types",
+      "kind": "type",
+      "argv": [
+        "yarn",
+        "tsc",
+        "--noEmit"
+      ],
+      "timeout_seconds": 600
+    },
+    {
+      "name": "combined-actions",
+      "kind": "test",
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/back/actions.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=combined-actions-results.json"
+      ],
+      "timeout_seconds": 600,
+      "results_json": "combined-actions-results.json",
+      "expected_count": 188,
+      "expected_filtered": 0
+    },
+    {
+      "name": "combined-restore",
+      "kind": "test",
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/recovery/restore.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=combined-restore-results.json"
+      ],
+      "timeout_seconds": 600,
+      "results_json": "combined-restore-results.json",
+      "expected_count": 15,
+      "expected_filtered": 0
+    }
+  ],
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-injection.yml",
+    ".github/ci/issue1948-sdk-injection.py",
+    ".github/ci/issue1948-sdk-injection-inputs.json",
+    ".github/ci/issue1948-native-ui-verify.py"
+  ]
+}
