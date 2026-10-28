@@ -226,7 +226,6 @@ export async function reconcileRecoveryTransactions(context: RecoveryReconcileCo
           check();
           if (JSON.stringify(toSerializable(beforeWrite)) !== baseline) continue;
           entries[entries.indexOf(entry)] = next;
-          await context.retain(entries);
           check();
           const written = await context.database.transaction('rw', table, async () => {
             const fresh = await table.where('accountId').anyOf(aliases).limit(257).toArray();
@@ -253,6 +252,7 @@ export async function reconcileRecoveryTransactions(context: RecoveryReconcileCo
               throw new Error('Recovery verdict readback mismatch');
             return true;
           });
+          await context.retain(entries);
           if (written) completed++;
         }
         return completed;
