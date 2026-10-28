@@ -1,0 +1,25 @@
+{
+  "parent": "fe7d7d1ce789d21026e8132b04f463a58b83874d",
+  "tree": "bd275b063a1d43ee143685dcc9e7a3c238d393e5",
+  "full_patch_sha256": "be2437beb5119522f1689c86ae99c115f3ff93295a6fbe30f72d77c4bf702d63",
+  "functional_patch_sha256": "0124ff0e4a6dad28f42e4ec4897e0c3bee413f1d1d2e957abb97593f1c325ea7",
+  "functional_hunks": [
+    2,
+    4
+  ],
+  "excluded_documentation_hunks": 1,
+  "helper_blob": "f90800dc24150ca5361afcf1c364aefecbfb0962",
+  "helper_tests_blob": "9187bf3dcda7b82a12dfd9168efa8971673cfea9",
+  "native_tests_blob": "280a161c981d976102d6d26fee675804d93c558f",
+  "old_assertion_patch_sha256": "b0359838b9cd10f0fa98fb341adc12e73123b8d1cc968e3e01bc6c0a034215bb",
+  "source_sha": "34ebf5cfb432e08ff127613ee0271bb04a02c608",
+  "helper_sha256": "32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc",
+  "reverse_sha256": "7dc938911a29b4cd574320634ae73beea51a1b6d5d7c568428c76b05b0ff494d",
+  "canonical_functional_sha256": "25ab11138f9824563a3be79bba19027831195ee66e0cc93de5f937ca7f673a51",
+  "structural_hunks": [
+    1,
+    3
+  ],
+  "previous_ci": 40751360350,
+  "previous_result": "fulltsc and strictlint pass; index patch direction error before any tests or mutations"
+}
