@@ -846,7 +846,6 @@ function beginRecoveryFileOperation(expectedEpoch: number, operationId: string):
   if (
     !Number.isSafeInteger(expectedEpoch) ||
     expectedEpoch < 0 ||
-    expectedEpoch !== getStorageHealth().epoch ||
     !validRecoveryFileOperation(operationId) ||
     recoveryFileOperations.has(operationId) ||
     recoveryFileOperations.size >= 2
