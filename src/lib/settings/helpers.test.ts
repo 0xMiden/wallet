@@ -35,6 +35,8 @@ const mockKvStore: Record<string, unknown> = {};
 let mockStorageThrows = false;
 let mockGet: ((keys: string[]) => Promise<Record<string, unknown>>) | null = null;
 let mockSet: ((items: Record<string, unknown>) => Promise<void>) | null = null;
+// The async storage mock adopts nested promises before its writes settle.
+const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => {
     if (mockStorageThrows) throw new Error('storage provider not ready');
@@ -401,7 +403,7 @@ describe('settings helpers', () => {
         Object.assign(mockKvStore, items);
       };
       mirrorBackgroundSettings();
-      await Promise.resolve();
+      await nextTask();
       expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
       expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
       expect(payloads).toContainEqual(
@@ -424,7 +426,7 @@ describe('settings helpers', () => {
         Object.assign(mockKvStore, items);
       };
       mirrorBackgroundSettings();
-      await Promise.resolve();
+      await nextTask();
       expect(payloads[0]).toEqual({ [BG_SETTINGS_MIRRORED_KEY]: false });
       expect(payloads.some(items => AUTO_CONSUME_STORAGE_KEY in items)).toBe(false);
       expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(true);
@@ -460,7 +462,7 @@ describe('settings helpers', () => {
           await setTelemetrySetting(false);
         }
         releaseClear();
-        await Promise.resolve();
+        await nextTask();
         const expectedBatch = readFails
           ? undefined
           : {

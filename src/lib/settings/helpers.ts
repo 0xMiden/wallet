@@ -58,14 +58,20 @@ function mirrorSetting(key: string, value: boolean): Promise<void> {
   }
 }
 
-/** Service-worker-safe read of a mirrored boolean setting (default on read-miss). */
-async function readMirroredSetting(key: string, defaultValue: boolean): Promise<boolean> {
+/** Service-worker-safe read of a mirrored boolean. A missing key returns `defaultValue`. */
+async function readMirroredSetting(
+  key: string,
+  defaultValue: boolean,
+  invalidValue: boolean = defaultValue
+): Promise<boolean> {
   try {
     const items = await getStorageProvider().get([key]);
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (!Object.prototype.hasOwnProperty.call(items, key)) return defaultValue;
     const value = items[key];
-    return typeof value === 'boolean' ? value : defaultValue;
+    return typeof value === 'boolean' ? value : invalidValue;
   } catch {
-    return defaultValue;
+    return invalidValue;
   }
 }
 
@@ -84,7 +90,7 @@ export function isDelegateProofEnabled() {
  * the user's delegated/local choice, exactly like every in-page proving path.
  */
 export function isDelegateProofEnabledAsync(): Promise<boolean> {
-  return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF, false);
 }
 
 export function setAutoConsumeSetting(enabled: boolean) {
@@ -103,7 +109,7 @@ export function isAutoConsumeEnabled() {
  * opted out of background auto-consume.
  */
 export function isAutoConsumeEnabledAsync(): Promise<boolean> {
-  return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME, false);
 }
 
 /**
@@ -234,25 +240,36 @@ export function hasTelemetryChoice(): boolean {
 }
 
 /**
- * One-shot migration: copy the current `localStorage` values of the settings the
- * extension service worker needs — auto-consume (whether to run) and delegated-proving
- * (how to prove) — into the platform KV mirror, so the SW honors a user's choices it
- * otherwise can't read. Setting changes also write-through via their setters; this
- * covers existing users who never re-toggle. Call from a frontend context (the popup)
- * where `localStorage` is available.
+ * Copy auto-consume, delegated proving, and telemetry from `localStorage` into the
+ * platform KV mirror the service worker reads. An unreadable local store leaves an
+ * established mirror unchanged. Otherwise the copy clears the marker, reads the
+ * choices still stored after that clear, and writes them with the marker last.
+ * Call from a frontend context (the popup) where `localStorage` is available.
  */
 export function mirrorBackgroundSettings(): void {
   const autoConsume = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
   const delegateProof = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
   const telemetry = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
   if (autoConsume === null || delegateProof === null || telemetry === null) return;
-  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, autoConsume);
-  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, delegateProof);
-  mirrorSetting(TELEMETRY_STORAGE_KEY, telemetry);
-  // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
-  // holds off background native-consume, so it never acts on read-miss defaults for a
-  // user who opted out of auto-consume or remote proving.
-  mirrorSetting(BG_SETTINGS_MIRRORED_KEY, true);
+
+  // The entry reads only decide whether to start. The write uses a later read.
+  void (async () => {
+    try {
+      await getStorageProvider().set({ [BG_SETTINGS_MIRRORED_KEY]: false });
+      const autoConsumeNow = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+      const delegateProofNow = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+      const telemetryNow = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+      if (autoConsumeNow === null || delegateProofNow === null || telemetryNow === null) return;
+      await getStorageProvider().set({
+        [AUTO_CONSUME_STORAGE_KEY]: autoConsumeNow,
+        [DELEGATE_PROOF_STORAGE_KEY]: delegateProofNow,
+        [TELEMETRY_STORAGE_KEY]: telemetryNow,
+        [BG_SETTINGS_MIRRORED_KEY]: true
+      });
+    } catch {
+      /* a refused clear or copy does not publish the marker */
+    }
+  })();
 }
 
 /**
