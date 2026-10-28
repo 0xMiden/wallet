@@ -23,8 +23,8 @@ function externalEntry(entry: RecoveryEntry): RecoveryEntry {
         ...validateRecoveryTransaction(entry.row),
         status: ITransactionStatus.Unconfirmed,
         mayHaveSubmitted: true,
-        restoredFromBackup: true,
-        restoredFromJournal: undefined
+        restoredFromBackup: false,
+        restoredFromJournal: true
       }
     };
   }
@@ -35,8 +35,8 @@ function externalEntry(entry: RecoveryEntry): RecoveryEntry {
         ...validateRecoveryReceipt(entry.row),
         status: ITransactionStatus.Unconfirmed,
         mayHaveSubmitted: true,
-        restoredFromBackup: true,
-        restoredFromJournal: undefined
+        restoredFromBackup: false,
+        restoredFromJournal: true
       }
     };
   return entry;
