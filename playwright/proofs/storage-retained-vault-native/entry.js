@@ -69,6 +69,7 @@ async function endpoints(feeFaucetId) {
   check('nativeResolver', typeof wasm.resolveStoreName === 'function');
   progress('native-store-name');
   sdkStore = await nativeStorageName(location.origin);
+  window.__retainedSdkStore = sdkStore;
   progress('native-distinct-store');
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
@@ -175,6 +176,7 @@ async function prepare(password, includePrivate) {
         progress('sdk-wasm-client-returned');
         const originalNativeCreate = result.createClientWithExternalKeystore;
         result.createClientWithExternalKeystore = async function (...nativeArgs) {
+          window.__retainedNativeCreating = true;
           progress('sdk-native-create-enter');
           try {
             const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);
