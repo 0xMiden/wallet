@@ -129,8 +129,8 @@ export async function decryptRecoveryDataFile(
 ): Promise<RecoveryJournalSnapshot> {
   assertCurrent();
   if (
-    content.length > RECOVERY_DATA_FILE_MAX_BYTES ||
-    encoder.encode(content).byteLength > RECOVERY_DATA_FILE_MAX_BYTES
+    content.length > RECOVERY_DATA_FILE_MAX_BYTES * 2 ||
+    encoder.encode(content).byteLength > RECOVERY_DATA_FILE_MAX_BYTES * 2
   )
     throw new RecoveryDataFileError('size');
   let parsed: unknown;
