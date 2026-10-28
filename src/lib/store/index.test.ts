@@ -1882,6 +1882,59 @@ describe('useWalletStore', () => {
 
   describe('post-action state refresh during backend startup', () => {
     it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse, WalletMessageType.CreateAccountRequest],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, WalletMessageType.RemoveSeedPhraseRequest]
+    ] as const)('%s settles when a refresh request never responds without repeating the action', async (action, responseType, requestType) => {
+      jest.useFakeTimers();
+      try {
+        let refreshSignal: AbortSignal | undefined;
+        mockRequest.mockResolvedValueOnce({ type: responseType }).mockImplementationOnce((_request, options) => {
+          refreshSignal = options?.signal;
+          return new Promise((_resolve, reject) => {
+            refreshSignal?.addEventListener('abort', () => reject(new Error('refresh aborted')));
+          });
+        });
+        let settled = false;
+        const operation = action === 'createAccount'
+          ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
+          : useWalletStore.getState().removeSeedPhrase('password');
+        void operation.then(() => { settled = true; }, () => { settled = true; });
+        await jest.advanceTimersByTimeAsync(60_000);
+        expect(settled).toBe(true);
+        expect(refreshSignal?.aborted).toBe(true);
+        expect(mockRequest.mock.calls.filter(([request]) => request.type === requestType)).toHaveLength(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse, WalletMessageType.CreateAccountRequest],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, WalletMessageType.RemoveSeedPhraseRequest]
+    ] as const)('%s stops waiting when the backend never initializes', async (action, responseType, requestType) => {
+      jest.useFakeTimers();
+      try {
+        mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValue({
+          type: WalletMessageType.GetStateResponse,
+          state: { backendInitialized: false }
+        });
+        let settled = false;
+        const operation = action === 'createAccount'
+          ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
+          : useWalletStore.getState().removeSeedPhrase('password');
+        void operation.then(() => { settled = true; }, () => { settled = true; });
+        await jest.advanceTimersByTimeAsync(60_000);
+        expect(settled).toBe(true);
+        expect(mockRequest.mock.calls.filter(([request]) => request.type === requestType)).toHaveLength(1);
+        const callsAtSettlement = mockRequest.mock.calls.length;
+        await jest.advanceTimersByTimeAsync(10_000);
+        expect(mockRequest).toHaveBeenCalledTimes(callsAtSettlement);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each([
       ['createAccount', WalletMessageType.CreateAccountResponse],
       ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse]
     ] as const)('%s waits for initialized state without repeating the mutation', async (action, responseType) => {
