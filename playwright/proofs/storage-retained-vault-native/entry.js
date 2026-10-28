@@ -177,6 +177,7 @@ async function prepare(password, includePrivate) {
         const originalNativeCreate = result.createClientWithExternalKeystore;
         result.createClientWithExternalKeystore = async function (...nativeArgs) {
           window.__retainedNativeCreating = true;
+          window.__retainedStorageEvent('nativeMarker').catch(() => {});
           progress('sdk-native-create-enter');
           try {
             const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);

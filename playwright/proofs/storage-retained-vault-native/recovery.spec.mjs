@@ -98,7 +98,7 @@ for (const includePrivate of [false, true]) {
       recover: null,
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
-      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0 },
+      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0 },
       phase: 'initial',
       service: null
     };
@@ -119,6 +119,7 @@ for (const includePrivate of [false, true]) {
         const original = IDBFactory.prototype.open;
         IDBFactory.prototype.open = function (...args) {
           window.__retainedStorageEvent('open').catch(() => {});
+          if (window.__retainedNativeCreating) window.__retainedStorageEvent('nativeOpen').catch(() => {});
           const request = Reflect.apply(original, this, args);
           for (const [event, name] of [
             ['upgradeneeded', 'upgrade'],
@@ -127,6 +128,14 @@ for (const includePrivate of [false, true]) {
             ['error', 'error']
           ]) request.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
           return request;
+        };
+        const originalDatabases = IDBFactory.prototype.databases;
+        if (originalDatabases) IDBFactory.prototype.databases = function (...args) {
+          const native = window.__retainedNativeCreating;
+          if (native) window.__retainedStorageEvent('nativeDatabasesStart').catch(() => {});
+          return Reflect.apply(originalDatabases, this, args).finally(() => {
+            if (native) window.__retainedStorageEvent('nativeDatabasesEnd').catch(() => {});
+          });
         };
         const originalTransaction = IDBDatabase.prototype.transaction;
         IDBDatabase.prototype.transaction = function (...args) {
