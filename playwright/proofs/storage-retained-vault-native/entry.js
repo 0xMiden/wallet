@@ -242,9 +242,30 @@ async function prepare(password, includePrivate) {
   };
   midenClientProxy.initializeStorageGeneration = async function (...args) {
     progress('baseline-sdk-generation');
-    const result = await Reflect.apply(originalGeneration, this, args);
-    progress('baseline-sdk-generation-done');
-    return result;
+    const client = await getMidenClient();
+    const settings = client.client.settings;
+    const originalGet = settings.get;
+    const originalSet = settings.set;
+    settings.get = async function (...values) {
+      progress('generation-settings-get');
+      const result = await Reflect.apply(originalGet, this, values);
+      progress('generation-settings-get-done');
+      return result;
+    };
+    settings.set = async function (...values) {
+      progress('generation-settings-set');
+      const result = await Reflect.apply(originalSet, this, values);
+      progress('generation-settings-set-done');
+      return result;
+    };
+    try {
+      const result = await Reflect.apply(originalGeneration, this, args);
+      progress('baseline-sdk-generation-done');
+      return result;
+    } finally {
+      settings.get = originalGet;
+      settings.set = originalSet;
+    }
   };
   vault.recoveryJournal = function (...args) {
     const journal = Reflect.apply(originalJournal, this, args);
