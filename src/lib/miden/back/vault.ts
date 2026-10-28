@@ -1700,7 +1700,7 @@ export class Vault {
     const quarantineAcceptedEvidence = () => {
       const health = getStorageHealth();
       if (
-        journalMutationAccepted &&
+        (journalMutationAccepted || health.epoch === expectedEpoch) &&
         health.status === 'healthy' &&
         health.epoch === expectedEpoch &&
         `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` === network
