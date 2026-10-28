@@ -6,7 +6,8 @@ use std::process::ExitCode;
 
 use miden_client::account::AccountId;
 use miden_client::rpc::domain::account::AccountProof;
-use miden_client::rpc::generated::rpc::{GetAccountResponse, GetBlockHeaderByNumberResponse};
+use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse};
+use miden_client::rpc::{RpcEndpoint, RpcLimits};
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
 use miden_client::Word;
@@ -84,7 +85,33 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     }
     let mmr = chain.blockchain().as_mmr();
     let protocol = chain.protocol_config();
-    let mut outputs = vec![("account.pb".to_owned(), account_bytes)];
+    let defaults = RpcLimits::default();
+    let mut limits = GetLimitsResponse::default();
+    for (endpoint, parameter, value) in [
+        (RpcEndpoint::GetNotesById, "note_id", defaults.note_ids_limit),
+        (RpcEndpoint::SyncNullifiers, "nullifier_prefix", defaults.nullifiers_limit),
+        (RpcEndpoint::SyncTransactions, "account_id", defaults.account_ids_limit),
+        (RpcEndpoint::SyncNotes, "note_tag", defaults.note_tags_limit),
+    ] {
+        limits.endpoints.insert(
+            endpoint.proto_name().into(),
+            EndpointLimits { parameters: [(parameter.into(), value)].into() },
+        );
+    }
+    let limits_bytes = limits.encode_to_vec();
+    let decoded = GetLimitsResponse::decode(limits_bytes.as_slice()).map_err(|_| "limits_wire")?;
+    let readback = RpcLimits::try_from(decoded).map_err(|_| "limits_domain")?;
+    if readback.note_ids_limit != defaults.note_ids_limit
+        || readback.nullifiers_limit != defaults.nullifiers_limit
+        || readback.account_ids_limit != defaults.account_ids_limit
+        || readback.note_tags_limit != defaults.note_tags_limit
+    {
+        return Err("limits_wire_binding");
+    }
+    let mut outputs = vec![
+        ("account.pb".to_owned(), account_bytes),
+        ("limits.pb".to_owned(), limits_bytes),
+    ];
     for height in 0..block_count {
         let header = chain.block_header(height);
         if header.protocol_config_commitment() != protocol.to_commitment() {
