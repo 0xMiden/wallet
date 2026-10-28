@@ -128,6 +128,41 @@ describe('the never-committed verdicts', () => {
     }
   );
 
+  it('retains the matching submit context when the node later proves expiry', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const now = Date.now();
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: now - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      row,
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 750, commitment: INITIAL }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    const reports = captured();
+    expect(reports).toHaveLength(2);
+    expect(reports[1]?.message).toContain(
+      '; prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
+    expectNoTransactionData(reports[1]?.message ?? '');
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
   it('reports the verdict on a claim the pipeline already failed and reported at warning, so it is one error', async () => {
     const submitted: ITransaction = { ...claim(evidence()), status: ITransactionStatus.GeneratingTransaction };
     await Repo.transactions.put(submitted);
