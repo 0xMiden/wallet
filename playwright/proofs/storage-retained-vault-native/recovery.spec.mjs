@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 
-const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned', 'feeOmitted', 'feePresent'];
+const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned', 'feeOmitted', 'feePresent', 'endpointBound'];
 for (const variant of ['fee-omitted', 'fee-present']) test(`st/static-comparison/${variant}`, async ({}, testInfo) => {
   const counts = Object.fromEntries(eventNames.map(name => [name, 0]));
   const report = { counts, outsideRequests: 0, rejectedRequests: 0, settled: false, succeeded: false };
@@ -88,6 +88,7 @@ for (const variant of ['fee-omitted', 'fee-present']) test(`st/static-comparison
       await new Promise(resolve => setTimeout(resolve, 50));
     if (counts.nativeEntry) await new Promise(resolve => setTimeout(resolve, 10_000));
     expect(variant === 'fee-present' ? counts.feePresent : counts.feeOmitted).toBe(1);
+    expect(counts.endpointBound).toBe(1);
     expect(counts.nativeEntry).toBe(1);
     expect(report.outsideRequests).toBe(0);
   } finally {

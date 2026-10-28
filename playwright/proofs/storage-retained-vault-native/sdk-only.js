@@ -3,7 +3,7 @@ import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName, nativeStoragePolicy } from 'lib/miden/sdk/native-storage-policy';
 import { nativeNoteAcquisition } from 'lib/miden/sdk/native-note-acquisition';
 import { initializeStorageHealth } from 'lib/miden/storage-health';
-import { applyEndpointOverride, getEffectiveFeeFaucetId } from 'lib/miden-chain/effective-endpoints';
+import { applyEndpointOverride, getEffectiveFeeFaucetId, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 const event = name => window.__sdkControlEvent(name).catch(() => {});
@@ -26,7 +26,7 @@ window.__sdkGenerateFee = async () => {
 };
 window.__sdkControl = async (variant, fee) => {
   await sdk.MidenClient.ready();
-  applyEndpointOverride({
+  await applyEndpointOverride({
     rpcUrl: location.origin,
     noteTransportUrl: `${location.origin}/notes`,
     proverUrl: `${location.origin}/prover`,
@@ -39,6 +39,8 @@ window.__sdkControl = async (variant, fee) => {
     presetName: 'localnet',
     feeFaucetId: variant === 'fee-present' ? fee : undefined
   });
+  if (getEffectiveRpcUrl() === location.origin) event('endpointBound');
+  else throw new Error('unexpected-rpc-endpoint');
   if (variant === 'fee-present' && getEffectiveFeeFaucetId() === fee) event('feePresent');
   else if (variant === 'fee-omitted' && getEffectiveFeeFaucetId() === undefined) event('feeOmitted');
   else throw new Error('unexpected-fee-faucet');
