@@ -95,7 +95,6 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
 const measured = (reserve: bigint) => ({ outcome: 'measured', reserve });
 const BUSY = { outcome: 'busy' };
-const FAILED = { outcome: 'failed' };
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('estimateUsdcxBurnFeeReserve', () => {
@@ -263,13 +262,19 @@ describe('estimateUsdcxBurnFeeReserve', () => {
   ])('answers failed, not a measured cost, when %s', async (_case, dryRunView) => {
     mockView.mockReturnValue(dryRunView);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'probe_mismatch'
+    });
   });
 
   it('answers failed when the dry run fails', async () => {
     mockDryRun.mockRejectedValue(new Error('the execution failed'));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'dry_run_failed'
+    });
     expect(mockView).not.toHaveBeenCalled();
   });
 
@@ -283,7 +288,10 @@ describe('estimateUsdcxBurnFeeReserve', () => {
   it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {
     mockView.mockReturnValue(undefined);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'result_decode_failed'
+    });
     // Without the guard the read of the missing view throws and the catch-all answers failed with a warning.
     expect(warnSpy).not.toHaveBeenCalled();
   });
@@ -306,7 +314,10 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       throw new Error('USDCx withdrawal is not configured for chain 5');
     });
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'configuration_failed'
+    });
     expect(mockDryRun).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
   });

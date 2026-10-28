@@ -73,7 +73,7 @@ it('reports failed once the retry fails too, and stops asking', async () => {
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
-  await waitFor(() => expect(result.current).toEqual({ status: 'failed', reserve: undefined }));
+  await waitFor(() => expect(result.current).toEqual({ status: 'failed', failure: 'request_failed' }));
   await act(async () => {});
   expect(mockEstimate).toHaveBeenCalledTimes(2);
 });
@@ -101,7 +101,7 @@ it('reports failed after three busy answers and stops asking', async () => {
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
   await elapse(PAST_EVERY_BACKOFF_MS);
 
-  expect(result.current).toEqual({ status: 'failed', reserve: undefined });
+  expect(result.current).toEqual({ status: 'failed', failure: 'busy_exhausted' });
   expect(mockEstimate).toHaveBeenCalledTimes(3);
   await elapse(PAST_EVERY_BACKOFF_MS);
   expect(mockEstimate).toHaveBeenCalledTimes(3);
@@ -216,5 +216,7 @@ it('does not retain a failure reason after a successful retry', async () => {
     .mockResolvedValueOnce(Object.assign({}, FAILED, { failure: 'dry_run_failed' }))
     .mockResolvedValueOnce(measured(315n));
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
-  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n }));
+  await waitFor(() => expect(result.current.status).toBe('measured'));
+  expect(result.current.reserve).toBe(315n);
+  expect(Reflect.get(result.current, 'failure')).toBeUndefined();
 });
