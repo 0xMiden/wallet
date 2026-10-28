@@ -5412,9 +5412,11 @@ describe('Vault storage continuity', () => {
     });
     const list = jest.fn().mockImplementation(async () => [record()]);
     const settings = {
-      get: jest.fn().mockImplementation(async () =>
-        generation === null ? null : Array.from(new TextEncoder().encode(generation))
-      ),
+      get: jest
+        .fn()
+        .mockImplementation(async () =>
+          generation === null ? null : Array.from(new TextEncoder().encode(generation))
+        ),
       set: jest.fn()
     };
     const accounts = {
