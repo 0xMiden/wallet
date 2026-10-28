@@ -54,7 +54,7 @@ export async function createRecoveryService(buildRoot, binary) {
   let pending;
   let sealed = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, unknownRpc: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
@@ -206,8 +206,12 @@ export async function createRecoveryService(buildRoot, binary) {
       };
       response.setHeader('Content-Type', types[extname(target)] || 'application/octet-stream');
       response.end(await readFile(target));
-    } catch {
+    } catch (error) {
       counts.refusedRequests++;
+      if (error instanceof Error && error.message === 'unknown-rpc-request') counts.unknownRpc++;
+      else if (error instanceof Error && error.message === 'learning-method') counts.learningMethod++;
+      else if (error instanceof Error && error.message === 'closed-route') counts.closedRoute++;
+      else counts.otherRefusal++;
       response.statusCode = 409;
       response.end('fixture-refused');
     }

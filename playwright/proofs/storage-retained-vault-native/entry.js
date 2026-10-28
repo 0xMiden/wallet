@@ -319,7 +319,7 @@ async function recover(password) {
       }
     });
   }
-  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched', 'ReceiptReturned', 'CallbackReturned', 'ImportResolved', 'ImportRejected', 'ErrorString', 'ErrorObject', 'Errorstorage', 'Errornetwork', 'Errornote', 'Errordatabase', 'Errortransaction', 'Errordeserialize', 'Errorblock', 'Errorheader', 'Errorinvalid', 'Errorproof', 'ErrorRootMismatch']
+  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched', 'ReceiptReturned', 'CallbackReturned', 'ImportResolved', 'ImportRejected', 'ErrorString', 'ErrorObject', 'Errorstorage', 'Errornetwork', 'Errornote', 'Errordatabase', 'Errortransaction', 'Errordeserialize', 'Errorblock', 'Errorheader', 'Errorinvalid', 'Errorproof', 'ErrorRootMismatch', 'ErrorAcceptHeader']
     .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
   return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }

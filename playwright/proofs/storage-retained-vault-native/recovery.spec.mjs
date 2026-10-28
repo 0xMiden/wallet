@@ -88,8 +88,8 @@ function safeReport(value) {
     checks.validationPhaseObserved = value.progress.some(item => item.phase === 'validation');
     checks.completePhaseObserved = value.progress.some(item => item.phase === 'complete');
   }
-  if (Array.isArray(value.noteStages) && value.noteStages.length === 31 && value.noteStages.every(x => typeof x === 'boolean')) {
-    ['noteRestoreEntered', 'noteDeserialized', 'noteExistingRead', 'noteAcquireEntered', 'noteAcquireReturned', 'noteReadbackReturned', 'notePreparedEntered', 'noteGenerationRead', 'notePreparedReady', 'noteImportEntered', 'noteNativeCallback', 'noteCandidateCopied', 'noteReceiptCallback', 'noteReceiptMatched', 'noteReceiptReturned', 'noteCallbackReturned', 'noteImportResolved', 'noteImportRejected', 'noteErrorString', 'noteErrorObject', 'noteErrorStorage', 'noteErrorNetwork', 'noteErrorNote', 'noteErrorDatabase', 'noteErrorTransaction', 'noteErrorDeserialize', 'noteErrorBlock', 'noteErrorHeader', 'noteErrorInvalid', 'noteErrorProof', 'noteErrorRootMismatch']
+  if (Array.isArray(value.noteStages) && value.noteStages.length === 32 && value.noteStages.every(x => typeof x === 'boolean')) {
+    ['noteRestoreEntered', 'noteDeserialized', 'noteExistingRead', 'noteAcquireEntered', 'noteAcquireReturned', 'noteReadbackReturned', 'notePreparedEntered', 'noteGenerationRead', 'notePreparedReady', 'noteImportEntered', 'noteNativeCallback', 'noteCandidateCopied', 'noteReceiptCallback', 'noteReceiptMatched', 'noteReceiptReturned', 'noteCallbackReturned', 'noteImportResolved', 'noteImportRejected', 'noteErrorString', 'noteErrorObject', 'noteErrorStorage', 'noteErrorNetwork', 'noteErrorNote', 'noteErrorDatabase', 'noteErrorTransaction', 'noteErrorDeserialize', 'noteErrorBlock', 'noteErrorHeader', 'noteErrorInvalid', 'noteErrorProof', 'noteErrorRootMismatch', 'noteErrorAcceptHeader']
       .forEach((name, index) => { checks[name] = value.noteStages[index]; });
   }
   return { phase: value.phase, checks };
