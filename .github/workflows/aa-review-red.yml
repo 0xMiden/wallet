@@ -1,0 +1,74 @@
+name: AA review frozen regression proof
+on:
+  push:
+    branches: [ci/aa-council-red-e384918e]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact test-only source
+        run: |
+          mkdir -p proof
+          python3 - <<'PYCODE'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path.cwd();source='e384918e8fc11297ba4ba65554d04a581b78c293';tree='f1c97bdafffe130b2b48c1108f5020745736dc6c'
+          git=lambda *a:subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')==source
+          assert git('rev-parse','HEAD^:')==tree
+          assert git('diff','--name-only','HEAD^','HEAD')=='.github/workflows/aa-review-red.yml'
+          hashes=json.loads('{"src/app/pages/Earn.tsx":"b812b9ef61f602d0eb84c54bba2ad84da430694fb3ec72ccc22fb296cd61f7b2","src/app/pages/Earn.test.tsx":"fae63de86536a3fc740b21a934b48a8bcb037037ff1ec6d8463f364c4cf0eaa9","src/screens/earn-flow/useEarnPositions.ts":"cd462b8b4758cf06b437848caff9188d73e76d03cb2183583d393314ac685ad1","src/screens/earn-flow/useEarnPositions.test.ts":"6ae42e1196534412d697aeffa571bb6a5504cbca932a956de67c4e1816dc037e"}')
+          for path,expected in hashes.items():assert hashlib.sha256((root/path).read_bytes()).hexdigest()==expected,path
+          (root/'proof'/'binding.json').write_text(json.dumps({'workflow_sha':git('rev-parse','HEAD'),'source_sha':source,'source_tree':tree,'source_hashes':hashes},indent=2))
+          PYCODE
+          git checkout --detach e384918e8fc11297ba4ba65554d04a581b78c293
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000 > proof/install.log 2>&1
+      - name: Check regression formatting
+        run: yarn prettier --check src/app/pages/Earn.test.tsx src/screens/earn-flow/useEarnPositions.test.ts > proof/format.log 2>&1
+      - name: Full types and strict affected lint
+        run: |
+          yarn tsc --noEmit > proof/types.log 2>&1
+          yarn eslint --max-warnings=0 src/app/pages/Earn.tsx src/app/pages/Earn.test.tsx src/screens/earn-flow/useEarnPositions.ts src/screens/earn-flow/useEarnPositions.test.ts > proof/lint.log 2>&1
+      - name: Expected failing review regressions
+        id: tests
+        run: yarn jest --runTestsByPath src/app/pages/Earn.test.tsx src/screens/earn-flow/useEarnPositions.test.ts --maxWorkers=2 --json --outputFile=proof/results.json > proof/tests.log 2>&1
+      - name: Verify the three intended assertion failures
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          python3 - <<'PYCODE'
+          import json,pathlib,re
+          p=pathlib.Path('proof');d=json.loads((p/'results.json').read_text());failed=[a for s in d['testResults'] for a in s['assertionResults'] if a['status']=='failed']
+          expected={
+            'Earn page forwards load evidence when the failed Earn tab has no positions',
+            'Earn page forwards load evidence when the failed Earn tab retains positions',
+            'useEarnPositions reports complete failure for a rejected refresh with retained partial data'
+          }
+          report={'executed':d['numPassedTests']+d['numFailedTests'],'passed':d['numPassedTests'],'failed':d['numFailedTests'],'runtime':d['numRuntimeErrorTestSuites'],'failed_names':[a['fullName'] for a in failed]}
+          print(json.dumps(report,indent=2));(p/'functional-proof.json').write_text(json.dumps(report,indent=2))
+          assert report['executed']>0 and report['failed']==3 and report['runtime']==0
+          assert {a['fullName'] for a in failed}==expected
+          for a in failed:
+            message=re.sub(r'\x1b\[[0-9;]*m','', '\n'.join(a['failureMessages']))
+            assert 'toEqual' in message,(a['fullName'],message)
+            if a['fullName'].startswith('Earn page'):
+              assert 'earnPositionsLoadStage' in message and 'earnPositionsLoadOutcome' in message
+            else:
+              assert 'complete_failure' in message and 'partial_failure' in message
+          PYCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aa-review-red-e384918e
+          path: proof/
