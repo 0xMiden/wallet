@@ -313,6 +313,36 @@ describe('useEarnPositions', () => {
     expect(Reflect.get(result.current, 'errorDiagnostics')).toBeUndefined();
   });
 
+  it('reports complete failure for a rejected refresh with retained partial data', () => {
+    const partial = {
+      ...liveResult,
+      owners: ['owner-a', 'owner-b'],
+      errors: [{ owner: 'owner-a', error: 'first owner failed', stage: 'request' }]
+    };
+    mockUseRetryableSWR.mockReturnValue({ data: partial });
+    const { result, rerender } = renderHook(() => useEarnPositions());
+    expect(result.current.errorDiagnostics).toEqual({
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'request',
+      earnPositionsLoadOutcome: 'partial_failure'
+    });
+
+    const root = new Error('private-owner 0x1234 amount 1234.56');
+    annotateUiProducer(root, 'earnPositionsLoadError', 'notice', {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
+    });
+    mockUseRetryableSWR.mockReturnValue({ data: partial, error: root });
+    rerender();
+    expect(result.current.error).toBe('first owner failed');
+    expect(result.current.errorDiagnostics).toEqual({
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'request',
+      earnPositionsLoadOutcome: 'complete_failure'
+    });
+  });
+
   it.each(['private primitive rejection', new Error('custom unobserved rejection')])(
     'does not invent a stage for an unobserved hook rejection',
     error => {
