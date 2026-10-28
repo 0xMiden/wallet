@@ -1813,3 +1813,29 @@ it('a wrong password reports incorrectPassword on passcode once per attempt', as
     await advance(700);
   }
 });
+
+describe('Task5 locked recovery entry', () => {
+  it.each(['extension', 'mobile', 'desktop', 'desktop-hardware'])(
+    'offers explicit recovery on the %s unlock surface without starting another unlock',
+    async surface => {
+      mockIsExtension = surface === 'extension';
+      mockIsMobile = surface === 'mobile';
+      mockIsDesktop = surface.startsWith('desktop');
+      mockBioHasKey.mockResolvedValue(false);
+      mockDesktopHasKey.mockResolvedValue(surface === 'desktop-hardware');
+      mockHasPasswordProtector.mockResolvedValue(surface !== 'desktop-hardware');
+      if (surface === 'desktop-hardware') mockUnlock.mockRejectedValue(new Error('Authentication cancelled'));
+      const onStorageRecovery = jest.fn();
+      await act(async () => {
+        render(<Unlock onStorageRecovery={onStorageRecovery} />);
+      });
+      const attempts = mockUnlock.mock.calls.length;
+      const entry = screen.queryByRole('button', { name: 'storageRecoveryTitle' });
+      expect(entry).toBeInTheDocument();
+      if (!entry) throw new Error('Missing asserted recovery entry');
+      fireEvent.click(entry);
+      expect(onStorageRecovery).toHaveBeenCalledTimes(1);
+      expect(mockUnlock).toHaveBeenCalledTimes(attempts);
+    }
+  );
+});
