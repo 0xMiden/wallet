@@ -1,0 +1,48 @@
+name: Unread activity delivery diagnostic
+on:
+  push:
+    branches:
+      - 'ci/1962-unread-proof-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 0ead6e57df5c693b0f96b2b5f731d75d1eec13d9 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 0ead6e57df5c693b0f96b2b5f731d75d1eec13d9
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run named coverage diagnostic
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn test:coverage --runTestsByPath src/app/hooks/useHasUnreadActivity.test.ts --maxWorkers=2 --coverageReporters=text-summary --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Report executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n!==14)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unread-delivery-diagnostic
+          path: proof/
