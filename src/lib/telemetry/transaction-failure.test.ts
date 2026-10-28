@@ -1167,6 +1167,22 @@ describe('an unknown submit outcome', () => {
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
   });
+
+  it('reports a bare indefinite submit as unavailable and keeps its measured visibility', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      submitLegMs: 5000,
+      error: new Error(`submission of transaction ${TX_ID} came back without a definite outcome`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; submit_outcome_unknown; endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s. '
+    );
+    expectNoTransactionData(message);
+  });
 });
 
 describe('a submit the node refused', () => {

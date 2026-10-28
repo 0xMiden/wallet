@@ -757,10 +757,30 @@ export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[
   return submitGrpcFailure(error)?.status;
 }
 
+/**
+ * Endpoint and gRPC status of an indefinite submit, or undefined when the error is not that outcome. No parsed
+ * gRPC request leaves both `unavailable`, so a measured hidden answer and submit leg still attach. A parsed request
+ * keeps its endpoint and its status, with `other` when that status is outside the unknown-outcome list.
+ */
+function indefiniteSubmitOutcome(error: unknown):
+  | {
+      endpoint: (typeof SUBMIT_ENDPOINTS)[number] | 'unavailable';
+      status: (typeof SUBMIT_UNKNOWN_OUTCOME_STATUSES)[number];
+    }
+  | undefined {
+  if (!isIndefiniteSubmitOutcomeError(error)) return undefined;
+  const parsed = submitGrpcFailure(error);
+  if (parsed === undefined) return { endpoint: 'unavailable', status: 'unavailable' };
+  return {
+    endpoint: parsed.endpoint,
+    status: SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(value => value === parsed.status) ?? 'other'
+  };
+}
+
 export function captureSubmitContext(error: unknown, hidden: boolean | undefined, legMs: number | undefined) {
-  const grpc = submitGrpcFailure(error);
-  if (!grpc || !isIndefiniteSubmitOutcomeError(error)) return undefined;
-  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(value => value === grpc.status) ?? 'other';
+  const outcome = indefiniteSubmitOutcome(error);
+  if (outcome === undefined) return undefined;
+  const { endpoint, status } = outcome;
   const leg =
     legMs === undefined || !Number.isFinite(legMs) || legMs < 0
       ? 'unavailable'
@@ -769,7 +789,7 @@ export function captureSubmitContext(error: unknown, hidden: boolean | undefined
         : legMs <= 11000
           ? '9_to_11s'
           : 'over_11s';
-  return { endpoint: grpc.endpoint, status, hidden: hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no', leg };
+  return { endpoint, status, hidden: hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no', leg };
 }
 
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
@@ -787,10 +807,9 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const refusal = submitRequestFailure(error);
-  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
-  const matched = grpcStatusOf(refusal?.kind)?.[0];
-  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
+  const outcome = indefiniteSubmitOutcome(error) ?? { endpoint: 'unavailable', status: 'unavailable' };
+  const endpoint = outcome.endpoint;
+  const status = outcome.status;
   return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
     hiddenDuringSubmit,
     submitLegMs
@@ -827,17 +846,24 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }, fail
 
 function priorIdentity(failure: TransactionFailure): string {
   const context = failure.priorSubmitContext;
-  const parsed = submitGrpcFailure(failure.priorError);
   if (
     context &&
-    parsed &&
-    isIndefiniteSubmitOutcomeError(failure.priorError) &&
-    SUBMIT_ENDPOINTS.some(value => value === context.endpoint) &&
+    !isIndefiniteSubmitOutcomeError(failure.priorError) &&
+    (SUBMIT_ENDPOINTS.some(value => value === context.endpoint) || context.endpoint === 'unavailable') &&
     SUBMIT_UNKNOWN_OUTCOME_STATUSES.some(value => value === context.status) &&
     SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
+    SUBMIT_LEG_BUCKETS.some(value => value === context.leg)
+  ) {
+    return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
+  }
+  const outcome = indefiniteSubmitOutcome(failure.priorError);
+  if (
+    context &&
+    outcome &&
+    SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
     SUBMIT_LEG_BUCKETS.some(value => value === context.leg) &&
-    parsed.endpoint === context.endpoint &&
-    parsed.status === context.status
+    outcome.endpoint === context.endpoint &&
+    outcome.status === context.status
   ) {
     return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
   }

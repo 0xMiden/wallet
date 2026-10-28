@@ -490,7 +490,7 @@ const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | '
  * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
  * write does for an unconfirmed row today.
  */
-export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<number> => {
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
@@ -547,7 +547,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     committed = { ...row };
     return undefined;
   });
-  if (!entered) return;
+  if (!entered) return returnedAtMs;
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
@@ -574,6 +574,38 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     durationMs: elapsedMsSince(existing?.initiatedAt ?? tx.initiatedAt),
     errorKind: classifyError(rawError),
     step: stepOfStage(existing?.stage)
+  });
+  return returnedAtMs;
+};
+
+/**
+ * A cancel already failed the row, so the unconfirmed write kept that failure and returned before its snapshot.
+ * Record the originating attempt's submit context from that same return sample, and no other field: the later
+ * indefinite outcome must not become the row's error, and this write sends no pipeline report.
+ */
+const recordFailedSubmitContext = async (
+  rowId: string,
+  originAttemptId: string | undefined,
+  error: unknown,
+  returnedAtMs: number
+): Promise<void> => {
+  const transactionId = indefiniteSubmitTransactionId(error);
+  await Repo.transactions.where({ id: rowId }).modify(row => {
+    if (
+      originAttemptId === undefined ||
+      row.status !== ITransactionStatus.Failed ||
+      row.attemptId !== originAttemptId
+    ) {
+      return false;
+    }
+    const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
+    const entry = matching.length === 1 ? matching[0] : undefined;
+    if (entry === undefined || entry.submitContext !== undefined) return false;
+    if (transactionId !== undefined && entry.transactionId !== transactionId) return false;
+    const context = captureSubmitContext(error, hiddenDuringSubmit(row, returnedAtMs), submitLegMs(row, returnedAtMs));
+    if (!context) return false;
+    entry.submitContext = context;
+    return undefined;
   });
 };
 
@@ -678,11 +710,16 @@ const cancelWhilePipelineMayStillRun = async (
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
-export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+export const cancelTransactionAfterPipelineStopped = async (
+  tx: Transaction,
+  error: any,
+  originAttemptId?: string
+) => {
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
-    await markTransactionUnconfirmed(tx, error);
+    const returnedAtMs = await markTransactionUnconfirmed(tx, error);
+    await recordFailedSubmitContext(tx.id, originAttemptId, error, returnedAtMs);
     return;
   }
   // A lock-recovery eviction (issue #775) is treated like an offscreen

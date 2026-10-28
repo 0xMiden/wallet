@@ -14,6 +14,7 @@ import {
   MAX_QUEUED_AGE
 } from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
+import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
 import { updateTransactionStatus } from './helper';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
@@ -163,26 +164,81 @@ describe('the never-committed verdicts', () => {
     __resetBackgroundTimeForTest();
   });
 
+  const indefiniteGrpc = (transactionId: string) =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${transactionId} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+        'TypeError: Load failed'
+    );
+
+  const cancelledDuringSubmit = (submittingAtMs: number): ITransaction => ({
+    ...claim(evidence({ expirationBlock: 700 })),
+    status: ITransactionStatus.Failed,
+    error: USER_CANCELLED_TRANSACTION_REASON,
+    attemptId: 'a1',
+    cancelledInFlightAt: NOW - 5,
+    stageTimestamps: { submitting: submittingAtMs }
+  });
+
   it('retains submit context after a user cancellation', async () => {
     jest.mocked(isMobile).mockReturnValue(true);
     initBackgroundTimeTracking();
-    const row: ITransaction = {
-      ...claim(evidence({ expirationBlock: 700 })),
-      status: ITransactionStatus.Failed,
-      error: 'User cancelled',
-      attemptId: 'a1',
-      stageTimestamps: { submitting: Date.now() - 5_000 }
-    };
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
     await Repo.transactions.put(row);
-    await cancelTransactionAfterPipelineStopped(row, new Error(
-      `submission of transaction ${TRANSACTION} came back without a definite outcome: ` +
-        'grpc request failed for submit_proven_transaction: Miden node is unavailable'
-    ));
+    await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+    const stored = await Repo.transactions.get('tx-1');
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(stored?.rawError).toBeUndefined();
+    expect(stored?.cancelledInFlightAt).toBeUndefined();
     await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
-    expect(captured()[0]?.message).toContain('app hidden during submit no; submit leg under_9s');
-    expect((await Repo.transactions.get('tx-1'))?.rawError).toBe('User cancelled');
+    const reports = captured();
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.message).toContain(
+      'prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
+    expectNoTransactionData(reports[0]?.message ?? '');
     jest.mocked(isMobile).mockReturnValue(false);
     __resetBackgroundTimeForTest();
+  });
+
+  it('keeps the submit leg from the sample taken before the evidence upsert', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row = cancelledDuringSubmit(1_000_000);
+    await Repo.transactions.put(row);
+    let sampledNow = 0;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => {
+      sampledNow += 1;
+      return sampledNow === 1 ? 1_008_999 : 1_009_000;
+    });
+    try {
+      await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+      expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0]?.submitContext?.leg).toBe('under_9s');
+      await judgeAndWrite('tx-1', {
+        node: reads({ blockNum: 750, commitment: INITIAL }),
+        nowSec: NOW,
+        cadenceMs: 3_000
+      });
+      expect(captured()[0]?.message).toContain('submit leg under_9s');
+    } finally {
+      clock.mockRestore();
+      jest.mocked(isMobile).mockReturnValue(false);
+      __resetBackgroundTimeForTest();
+    }
+  });
+
+  it('leaves submit context unset when the indefinite error names another transaction', async () => {
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
+    await Repo.transactions.put(row);
+    await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(OTHER), row.attemptId);
+    const stored = await Repo.transactions.get('tx-1');
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(stored?.rawError).toBeUndefined();
+    expect(stored?.submitEvidence?.[0]?.transactionId).toBe(TRANSACTION);
+    expect(stored?.submitEvidence?.[0]?.submitContext).toBeUndefined();
   });
 
   it('retains measured context for an indefinite outcome without gRPC details', async () => {
