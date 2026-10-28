@@ -3,6 +3,7 @@ import Dexie from 'dexie';
 import {
   countRetainedInputNotes,
   readSdkRecoverySnapshot,
+  readSdkGeneration,
   initializeSdkGeneration,
   type RecoverySdkReader
 } from './sdk-snapshot';
@@ -24,6 +25,46 @@ jest.mock('../sdk/note-details-commitment', () => ({ noteDetailsCommitment: () =
 Object.defineProperty(navigator, 'locks', {
   configurable: true,
   value: { request: (_name: string, operation: () => Promise<unknown>) => operation() }
+});
+
+describe('SDK generation byte contract', () => {
+  it('reads an SDK byte-array marker', async () => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce([115, 100, 107]);
+    await expect(readSdkGeneration(client)).resolves.toBe('sdk');
+  });
+
+  it('writes and reads back a marker using SDK byte values', async () => {
+    const client = reader();
+    let stored: number[] | null = null;
+    jest.mocked(client.settings.get).mockImplementation(async () => stored);
+    jest.mocked(client.settings.set).mockImplementation(async (_key, value) => {
+      if (!Array.isArray(value) || !value.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255))
+        throw new Error('SDK setting requires bytes');
+      stored = value;
+    });
+    await expect(initializeSdkGeneration(client, 'new', null, () => {})).resolves.toBeUndefined();
+    expect(stored).toEqual([110, 101, 119]);
+  });
+
+  it.each([
+    { bytes: [255] },
+    { bytes: [192, 128] },
+    { bytes: [256] },
+    { bytes: [-1] },
+    { bytes: [1.5] },
+    { bytes: [] }
+  ])('refuses malformed marker bytes', async ({ bytes }) => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce(bytes);
+    await expect(readSdkGeneration(client)).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  });
+
+  it('refuses a plain string from the SDK byte setting', async () => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce('sdk');
+    await expect(readSdkGeneration(client)).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  });
 });
 
 let db: Dexie;
