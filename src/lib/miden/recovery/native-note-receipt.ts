@@ -299,6 +299,7 @@ export async function withPreparedNativeNoteReceipt<T>(
   assertCurrent: () => void,
   operation: () => Promise<T>
 ): Promise<T> {
+  Reflect.set(globalThis, '__noteRestorePreparedEntered', true);
   const authority = authorityFor(receipt);
   assertReceiptNote(authority, capability, note, accountId);
   if (preparedByClient.has(client)) throw new StorageContinuityError();
@@ -308,6 +309,7 @@ export async function withPreparedNativeNoteReceipt<T>(
   };
   check();
   const generation = await readSdkGeneration(client);
+  Reflect.set(globalThis, '__noteRestoreGenerationRead', true);
   check();
   if (generation !== null && generation !== authority.scope.sdkGeneration) throw new StorageContinuityError();
   const prepared: PreparedReceipt = {
@@ -319,6 +321,7 @@ export async function withPreparedNativeNoteReceipt<T>(
   };
   check();
   preparedByClient.set(client, prepared);
+  Reflect.set(globalThis, '__noteRestorePreparedReady', true);
   try {
     const result = await operation();
     check();
@@ -339,6 +342,7 @@ export async function acknowledgeRetainedNativeNote(
   hold: WasmLockHold,
   candidate: NoteAcquisitionCandidate
 ): Promise<boolean> {
+  Reflect.set(globalThis, '__noteRestoreReceiptCallback', true);
   const prepared = client ? preparedByClient.get(client) : undefined;
   if (!prepared) return false;
   prepared.assertCurrent();
@@ -361,6 +365,7 @@ export async function acknowledgeRetainedNativeNote(
     !candidate.noteFileBytes.every((byte, index) => byte === prepared.bytes[index])
   )
     throw new StorageContinuityError();
+  Reflect.set(globalThis, '__noteRestoreReceiptMatched', true);
   prepared.used = true;
   await prepared.acknowledge?.(preparedEntry(prepared));
   prepared.assertCurrent();

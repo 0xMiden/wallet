@@ -76,6 +76,7 @@ export async function restoreSdkRecovery(
       const importNote = () => {
         assertCurrent();
         // The async SDK owns this separate handle, including native refusal.
+        Reflect.set(globalThis, '__noteRestoreImportEntered', true);
         return client.notes.import(NoteFile.deserialize(importBytes));
       };
       Reflect.set(globalThis, '__noteRestoreAcquireEntered', true);

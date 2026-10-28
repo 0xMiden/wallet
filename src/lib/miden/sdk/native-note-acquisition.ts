@@ -125,6 +125,7 @@ export function nativeNoteAcquisition(
       maxTotalNoteFileBytes: JOURNAL_MAX_BYTES
     },
     beforeNoteAcquisition: async candidate => {
+      Reflect.set(globalThis, '__noteRestoreNativeCallback', true);
       const hold = getCurrentWasmLockHold();
       if (!hold) throw new Error('Native note acquisition has no current operation');
       const epoch = getStorageHealth().epoch;
@@ -163,6 +164,7 @@ export function nativeNoteAcquisition(
         batch.pending = true;
         claimedBatch = batch;
       });
+      Reflect.set(globalThis, '__noteRestoreCandidateCopied', true);
       const acknowledgeBatch = () => {
         if (claimedBatch) {
           claimedBatch.nextIndex += 1;

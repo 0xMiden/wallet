@@ -314,7 +314,7 @@ async function recover(password) {
       }
     });
   }
-  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned']
+  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched']
     .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
   return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }
