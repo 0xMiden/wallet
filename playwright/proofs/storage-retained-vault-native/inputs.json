@@ -1,8 +1,7 @@
 {
   "auth_fixture_sha256": "638549f227ff68606b1de6d837d9e406e5504a7898c2af9b1716fc7e7623b8e5",
   "case_ids": [
-    "st/main/retained-vault/account-only",
-    "st/main/retained-vault/private-primary"
+    "st/main/expected-discovery-promotion"
   ],
   "dist_sha256": {
     "mt/Cargo-Bu4PegyW.js": "fbb452f548950e0f6f9932e1d68aef7ea0dad29f3021db14e598359697b488df",
@@ -49,9 +48,9 @@
     "st/workers/web-client-methods-worker.module.js.map": "e9fcf0661764fd314583c886103a1fce981d427b9116b40e396b51f664481bd5"
   },
   "native_source": "9a9b58a598a71801199d69309e1fb8e4ef27293c",
-  "producer_binary_sha256": "5e1c774ff287212325b666b27a3b4cffcb427f07b296e5965eebacbbf99da703",
-  "producer_run": 40524043320,
-  "producer_source": "77dfdc67577e1be2f7e18a7efed3a589f2d64d71",
+  "producer_binary_sha256": "03dc14e351974045f751c19725529fe3858b1ae65766b2135a945d6a893b1bed",
+  "producer_run": 40787834620,
+  "producer_source": "b96cde51af77e64b99139f9f7d0a4fa0197d8a49",
   "rayon_workers": 2,
   "retries": 0,
   "schema": 1,

@@ -278,6 +278,7 @@ export async function prepareChain(sdk) {
         secretBytes: Array.from(item.secretBytes)
       })),
       noteId,
+      tag,
       noteDetailsId: commitment,
       nullifier,
       trustedNoteRoot: trustedRoot,

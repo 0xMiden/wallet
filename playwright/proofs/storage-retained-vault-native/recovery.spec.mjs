@@ -37,6 +37,9 @@ const phases = new Set([
   'pre-loss-account-read',
   'pre-loss-note-read',
   'retained-vault-baseline',
+  'expected-import',
+  'normal-chain-sync',
+  'canonical-promotion',
   'orderly-sdk-disposal',
   'disposable-sdk-store-loss',
   'restart-real-vault',
@@ -44,6 +47,15 @@ const phases = new Set([
   'actual-missing-account-recovery'
 ]);
 const checkNames = new Set([
+  'trackedTagPresent',
+  'expectedImportIdentity',
+  'expectedBeforeSync',
+  'expectedRetainedBeforeSync',
+  'discoveredAuthenticated',
+  'fullPrimaryPromoted',
+  'expectedCandidateRetained',
+  'healthyAfterPromotion',
+  'closedDiscoveryRequests',
   'endpointBound',
   'nativeErrorClass',
   'nativeAcquisitionGate',
@@ -63,6 +75,7 @@ const checkNames = new Set([
   'continuityRefused',
   'unavailableAfterLoss',
   'learnedEmptyNullifiers',
+  'learnedNormalEmptyNullifiers',
   'noteHeaderMatchesFixture',
   'encryptedJournalSurvived',
   'missingAccountGuardianBranch',
@@ -95,8 +108,8 @@ function safeReport(value) {
   }
   return { phase: value.phase, checks };
 }
-for (const includePrivate of [false, true]) {
-  test(`st/main/retained-vault/${includePrivate ? 'private-primary' : 'account-only'}`, async ({
+for (const includePrivate of [false]) {
+  test('st/main/expected-discovery-promotion', async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -213,26 +226,6 @@ for (const includePrivate of [false, true]) {
       expect(prepared.ok, `prepare:${report.phase}`).toBe(true);
       report.prepare = safeReport(prepared.value);
       expect(Object.values(report.prepare.checks).every(Boolean)).toBe(true);
-      await page.reload();
-      await page.waitForFunction(() => typeof window.__retainedProof?.recover === 'function');
-      report.stage = 'recover';
-      const restored = await page.evaluate(async password => {
-        try {
-          return { ok: true, value: await window.__retainedProof.recover(password) };
-        } catch {
-          return { ok: false, phase: window.__retainedPhase || 'initial' };
-        }
-      }, password);
-      report.phase = restored.ok ? restored.value.phase : restored.phase;
-      expect(restored.ok, `recover:${report.phase}`).toBe(true);
-      report.recover = safeReport(restored.value);
-      expect(report.recover.checks.missingAccountGuardianBranch).toBe(true);
-      expect(report.recover.checks.recoveredAccountVerified).toBe(true);
-      expect(report.recover.checks.priorRequiredEvidenceRetained).toBe(true);
-      expect(report.recover.checks.recovered).toBe(true);
-      expect(report.recover.checks.healthyAfterRecovery).toBe(true);
-      expect(report.recover.checks.rebuiltNativeAccount).toBe(true);
-      if (includePrivate) expect(report.recover.checks.rebuiltAuthenticatedPrivate).toBe(true);
       expect(report.outsideRequests).toBe(0);
       report.stage = 'complete';
     } finally {

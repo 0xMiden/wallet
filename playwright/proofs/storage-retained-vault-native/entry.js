@@ -121,6 +121,10 @@ async function prepare(password, includePrivate) {
       const updates = await rpc.syncNullifiers(new Uint16Array([prefix]), fixture.block, generated.headers - 1);
       check('learnedEmptyNullifiers', updates.length === 0);
       updates.forEach(update => update.free());
+      await control('learn', { kind: 'nullifier' });
+      const normalUpdates = await rpc.syncNullifiers(new Uint16Array([prefix]), 1, generated.headers - 1);
+      check('learnedNormalEmptyNullifiers', normalUpdates.length === 0);
+      normalUpdates.forEach(update => update.free());
     } finally {
       nullifier.free();
     }
@@ -246,33 +250,47 @@ async function prepare(password, includePrivate) {
   check('retainedAccountFloor', journal?.accounts.length === 1);
   const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
   check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
-  const journalDigest = await digest(new TextEncoder().encode(JSON.stringify(journal)));
-  await control('state', {
-    accountId: fixture.accountId,
-    noteId: fixture.noteId,
-    includePrivate,
-    sdkStore,
-    feeFaucetId: fixture.feeFaucetId,
-    journalDigest,
-    baselineSequence: journal.sequence
+  progress('expected-import');
+  await withWasmClientLock(async hold => {
+    const wallet = await getMidenClient();
+    const imported = await wallet.importNoteBytes(new Uint8Array(fixture.expectedBytes), hold);
+    check('expectedImportIdentity', imported.replace(/^0x/i, '').toLowerCase() === fixture.noteDetailsId);
+    const notes = await wallet.getInputNotes();
+    check('expectedBeforeSync', notes.length === 1 && !notes[0].isAuthenticated() && notes[0].state() === sdk.InputNoteState.Expected);
+    notes.forEach(note => note.free());
   });
-  progress('orderly-sdk-disposal');
+  const tags = await withWasmClientLock(async () => (await getMidenClient()).client.tags.list());
+  check('trackedTagPresent', tags.includes(fixture.tag));
+  await control('learn', { kind: 'notes' });
+  const noteRpc = new sdk.RpcClient(new sdk.Endpoint(location.origin));
+  const noteTags = tags.sort((a, b) => a - b).map(value => new sdk.NoteTag(value));
+  try { const result = await noteRpc.syncNotes(1, generated.headers - 1, noteTags); result.free(); } finally { noteTags.forEach(tag => tag.free()); noteRpc.free(); }
+  const expectedJournal = await vault.readRecoveryJournal();
+  const expected = expectedJournal.entries.find(entry => entry.kind === 'note' && entry.provenance === 'input');
+  const same = (a, b) => a?.length === b.length && a.every((value, index) => value === b[index]);
+  check('expectedRetainedBeforeSync', expected?.format === 'details' && same(expected.noteFile, fixture.expectedBytes));
+  progress('normal-chain-sync');
+  let canonicalBytes;
   await withWasmClientLock(async () => {
     const wallet = await getMidenClient();
-    await wallet.client.waitForIdle();
+    const result = await wallet.client.syncChain();
+    result.free();
+    const note = await wallet.getInputNote('0x' + fixture.noteId);
+    check('discoveredAuthenticated', note?.isAuthenticated() === true && note.state() === sdk.InputNoteState.Committed);
+    const input = note.toInputNote();
+    const file = sdk.NoteFile.fromInputNote(input);
+    canonicalBytes = file.serialize().slice();
+    file.free(); input.free(); note.free();
   });
-  await resetMidenClient();
-  vault.retire();
-  vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
-  progress('disposable-sdk-store-loss');
-  await new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(sdkStore);
-    request.onsuccess = resolve;
-    request.onerror = () => reject(new Error('sdk-delete'));
-    request.onblocked = () => reject(new Error('sdk-delete-blocked'));
-  });
-  check('physicalSdkMissing', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  progress('canonical-promotion');
+  await vault.reconcileStorageRecovery();
+  const promoted = await vault.readRecoveryJournal();
+  const primary = promoted.entries.find(entry => entry.kind === 'note' && entry.provenance === 'input');
+  check('fullPrimaryPromoted', primary?.format === 'full' && same(primary.noteFile, canonicalBytes));
+  check('expectedCandidateRetained', primary?.candidates?.some(candidate => same(candidate.noteFile, fixture.expectedBytes)) === true);
+  check('healthyAfterPromotion', getStorageHealth().status === 'healthy');
+  const service = await control('summary', {});
+  check('closedDiscoveryRequests', service.notesReads >= 2 && service.transactionReads > 0 && service.refusedRequests === 0);
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {

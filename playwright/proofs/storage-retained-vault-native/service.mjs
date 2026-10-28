@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 
-const binaryHash = 'b86128e63f0e8bbdeb6a3a29c443a48c79a94ed173d59264179c1dde62476f50';
+const binaryHash = '03dc14e351974045f751c19725529fe3858b1ae65766b2135a945d6a893b1bed';
 const hash = value => createHash('sha256').update(value).digest('hex');
 function frame(body, type = 0) {
   const header = Buffer.alloc(5);
@@ -53,8 +53,9 @@ export async function createRecoveryService(buildRoot, binary) {
   let state;
   let pending;
   let sealed = false;
+  let learnedNotes = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, mmrReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, mmrReads: 0, notesReads: 0, transactionReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
@@ -111,14 +112,15 @@ export async function createRecoveryService(buildRoot, binary) {
         if (action === 'learn') {
           if (
             !fixture ||
-            sealed ||
+            (sealed && (data.kind !== 'notes' || learnedNotes)) ||
             pending ||
             images.size >= 66 ||
-            !['header', 'account', 'nullifier'].includes(data.kind) ||
+            !['header', 'account', 'nullifier', 'notes'].includes(data.kind) ||
             (data.kind === 'header' &&
               (!Number.isInteger(data.height) || data.height < 0 || data.height >= receipt.header_responses))
           )
             throw new Error('learning-bound');
+          if (data.kind === 'notes') learnedNotes = true;
           pending = data;
           send({ accepted: true });
           return;
@@ -153,15 +155,17 @@ export async function createRecoveryService(buildRoot, binary) {
         let image;
         if (fixture && url.pathname.endsWith('/SyncChainMmr') && body.equals(frame(await readFile(join(output, 'mmr-request.pb'))))) {
           image = { kind: 'mmr', bytes: await readFile(join(output, 'mmr-response.pb')) };
+        } else if (fixture && url.pathname.endsWith('/SyncTransactions') && body.equals(frame(await readFile(join(output, 'sync-transactions-request.pb'))))) {
+          image = { kind: 'transactions', bytes: await readFile(join(output, 'sync-transactions.pb')) };
         } else if (fixture && url.pathname.endsWith('/GetLimits')) {
           image = { kind: 'limits', bytes: await readFile(join(output, 'limits.pb')) };
-        } else if (!sealed && pending) {
-          const expectedMethod = pending.kind === 'header' ? '/GetBlockHeaderByNumber' : pending.kind === 'account' ? '/GetAccount' : '/SyncNullifiers';
+        } else if (pending && (!sealed || pending.kind === 'notes')) {
+          const expectedMethod = pending.kind === 'header' ? '/GetBlockHeaderByNumber' : pending.kind === 'account' ? '/GetAccount' : pending.kind === 'notes' ? '/SyncNotes' : '/SyncNullifiers';
           if (!url.pathname.endsWith(expectedMethod)) {
             image = images.get(identity);
             if (!image) throw new Error('learning-method');
           } else {
-            const file = pending.kind === 'header' ? `header-${pending.height}.pb` : pending.kind === 'account' ? 'account.pb' : 'nullifiers.pb';
+            const file = pending.kind === 'header' ? `header-${pending.height}.pb` : pending.kind === 'account' ? 'account.pb' : pending.kind === 'notes' ? 'sync-notes.pb' : 'nullifiers.pb';
             image = { kind: pending.kind, bytes: await readFile(join(output, file)) };
             const previous = images.get(identity);
             if (previous && !previous.bytes.equals(image.bytes)) throw new Error('request-image-collision');
@@ -180,7 +184,7 @@ export async function createRecoveryService(buildRoot, binary) {
           else counts.unknownOther++;
           throw new Error('unknown-rpc-request');
         }
-        if (sealed && image.kind !== 'limits' && image.kind !== 'mmr') counts[image.kind === 'account' ? 'accountReads' : image.kind === 'header' ? 'headerReads' : 'nullifierReads']++;
+        if (sealed && image.kind !== 'limits' && image.kind !== 'mmr') counts[image.kind === 'account' ? 'accountReads' : image.kind === 'header' ? 'headerReads' : image.kind === 'notes' ? 'notesReads' : image.kind === 'transactions' ? 'transactionReads' : 'nullifierReads']++;
         if (sealed && image.kind === 'mmr') counts.mmrReads++;
         if (sealed && image.kind === 'limits') counts.limitsReads++;
         response.setHeader('Content-Type', 'application/grpc-web+proto');
