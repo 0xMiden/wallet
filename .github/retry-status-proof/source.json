@@ -1,0 +1,9 @@
+{
+  "source": "3f62912f20295c3a0afded5b3a77905fda15a138",
+  "tree": "855f80d7fdc56097d8da57cc8e4dcf1ac1c5e11a",
+  "sha256": {
+    "src/screens/generating-transaction/GeneratingTransaction.test.tsx": "0205ac2266ee2652453a0bd26aee7a0491ce3bdaf0bdf3b2e121ad4e94d859ce",
+    "src/screens/generating-transaction/GeneratingTransaction.tsx": "32c88d6d0f4f1863e4290a69cf49bc45de4e42101b687f1c7eb036576ba3e3ba",
+    "src/screens/generating-transaction/types.ts": "a53517896b463f5adc2d3c2d1b3e629617d4806ce73a79dd118d0c9c2c938ecf"
+  }
+}
