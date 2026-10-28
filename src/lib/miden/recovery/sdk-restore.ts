@@ -79,7 +79,15 @@ export async function restoreSdkRecovery(
         Reflect.set(globalThis, '__noteRestoreImportEntered', true);
         return client.notes.import(NoteFile.deserialize(importBytes)).then(
           result => { Reflect.set(globalThis, '__noteRestoreImportResolved', true); return result; },
-          error => { Reflect.set(globalThis, '__noteRestoreImportRejected', true); throw error; }
+          error => {
+            Reflect.set(globalThis, '__noteRestoreImportRejected', true);
+            Reflect.set(globalThis, '__noteRestoreErrorString', typeof error === 'string');
+            Reflect.set(globalThis, '__noteRestoreErrorObject', error instanceof Error);
+            const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+            for (const term of ['storage', 'network', 'note', 'database', 'transaction', 'deserialize', 'block', 'header', 'invalid', 'proof'])
+              Reflect.set(globalThis, '__noteRestoreError' + term, message.toLowerCase().includes(term));
+            throw error;
+          }
         );
       };
       Reflect.set(globalThis, '__noteRestoreAcquireEntered', true);
