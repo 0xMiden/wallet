@@ -44,6 +44,7 @@ const control = async (action, body) => {
   return response.json();
 };
 async function endpoints(feeFaucetId) {
+  progress('endpoint-override');
   applyEndpointOverride({
     rpcUrl: `${location.origin}/rpc`,
     proverUrl: `${location.origin}/prover`,
@@ -57,6 +58,7 @@ async function endpoints(feeFaucetId) {
     presetName: 'localnet',
     feeFaucetId
   });
+  progress('native-store-name');
   sdkStore = await nativeStorageName(`${location.origin}/rpc`);
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
@@ -74,6 +76,7 @@ async function prepare(password, includePrivate) {
     accountCommitment: fixture.accountCommitment
   });
   fixture.chain.fill(0);
+  progress('producer-response');
   check('producerBound', generated.headers > 0 && generated.headers <= 32 && generated.accountProof === true);
   await endpoints(fixture.feeFaucetId);
   progress('sdk-generated-request-images');
