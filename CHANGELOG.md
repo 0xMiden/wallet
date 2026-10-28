@@ -2,7 +2,7 @@
 
 ## 1.17.9 (TBD)
 
-- [FIX][all] Unreadable operational preferences fail closed, and unavailable telemetry storage no longer interrupts consent routing.
+- [FIX][all] Settings recovery honors opt-outs when a stored choice cannot be read or copied, and unavailable storage preserves consent routing.
 
 - [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
