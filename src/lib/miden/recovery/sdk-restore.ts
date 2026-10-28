@@ -42,6 +42,7 @@ export async function restoreSdkRecovery(
     if (old !== null && old !== command.generation) throw new StorageContinuityError();
     await initializeSdkGeneration(client, command.generation, old, assertCurrent);
   } else {
+    Reflect.set(globalThis, '__noteRestoreEntered', true);
     const note = command.note;
     if (
       !isRecoveryNote(note) ||
@@ -51,6 +52,7 @@ export async function restoreSdkRecovery(
     )
       throw new StorageContinuityError();
     const file = NoteFile.deserialize(note.noteFile);
+    Reflect.set(globalThis, '__noteRestoreDeserialized', true);
     try {
       const importBytes = file.serialize().slice();
       if (importBytes.byteLength === 0 || importBytes.byteLength > JOURNAL_MAX_BYTES)
@@ -62,6 +64,7 @@ export async function restoreSdkRecovery(
       const id = file.noteId()?.toString();
       if (id) {
         const existing = await client.notes.list({ ids: [id] });
+        Reflect.set(globalThis, '__noteRestoreExistingRead', true);
         assertCurrent();
         if (existing.length > 1) throw new StorageContinuityError();
         if (existing.length === 1) {
@@ -75,10 +78,13 @@ export async function restoreSdkRecovery(
         // The async SDK owns this separate handle, including native refusal.
         return client.notes.import(NoteFile.deserialize(importBytes));
       };
+      Reflect.set(globalThis, '__noteRestoreAcquireEntered', true);
       if (acquire) await acquire(file, importNote);
       else await importNote();
+      Reflect.set(globalThis, '__noteRestoreAcquireReturned', true);
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
+      Reflect.set(globalThis, '__noteRestoreReadbackReturned', true);
     } finally {
       file.free();
     }

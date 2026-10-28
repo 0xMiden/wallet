@@ -314,6 +314,8 @@ async function recover(password) {
       }
     });
   }
-  return { phase, checks: { ...checks }, progress: observed, service };
+  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned']
+    .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
+  return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }
 window.__retainedProof = { prepare, recover };

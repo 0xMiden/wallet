@@ -87,6 +87,10 @@ function safeReport(value) {
     checks.validationPhaseObserved = value.progress.some(item => item.phase === 'validation');
     checks.completePhaseObserved = value.progress.some(item => item.phase === 'complete');
   }
+  if (Array.isArray(value.noteStages) && value.noteStages.length === 6 && value.noteStages.every(x => typeof x === 'boolean')) {
+    ['noteRestoreEntered', 'noteDeserialized', 'noteExistingRead', 'noteAcquireEntered', 'noteAcquireReturned', 'noteReadbackReturned']
+      .forEach((name, index) => { checks[name] = value.noteStages[index]; });
+  }
   return { phase: value.phase, checks };
 }
 for (const includePrivate of [false, true]) {
