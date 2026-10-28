@@ -78,7 +78,7 @@ export async function initializeSdkGeneration(
     const old = await readSdkGeneration(client);
     assertCurrent();
     if (old !== previousGeneration) throw new StorageContinuityError();
-    if (old !== generation) await client.settings.set(SDK_GENERATION_KEY, Array.from(encoded));
+    if (old !== generation) await client.settings.set(SDK_GENERATION_KEY, generation);
     assertCurrent();
     if ((await readSdkGeneration(client)) !== generation) throw new StorageContinuityError();
     assertCurrent();
