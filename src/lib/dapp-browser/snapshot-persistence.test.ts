@@ -270,7 +270,7 @@ describe('Task5 cache mobile previews', () => {
 
   it('bounds orphan preview count and bytes while preserving unrelated files and the new preview', async () => {
     for (let index = 0; index < 8; index++) fsStore[`${DIR}/dapp-${index}.txt`] = { data: DATA_URL };
-    fsStore[`${DIR}/unrelated.bin`] = { data: 'unrelated' };
+    fsStore[`${DIR}/0-unrelated.bin`] = { data: 'unrelated' };
     await writeSnapshotToDisk('dapp-new', DATA_URL);
     const owned = Object.entries(fsStore).filter(([name]) => name.startsWith(`${DIR}/`) && name.endsWith('.txt'));
     expect(owned.length).toBeLessThanOrEqual(8);
@@ -278,7 +278,7 @@ describe('Task5 cache mobile previews', () => {
       owned.reduce((total, [, entry]) => total + new TextEncoder().encode(entry.data).byteLength, 0)
     ).toBeLessThanOrEqual(4_194_304);
     expect(fsStore[`${DIR}/dapp-new.txt`]?.data).toBe(DATA_URL);
-    expect(fsStore[`${DIR}/unrelated.bin`]?.data).toBe('unrelated');
+    expect(fsStore[`${DIR}/0-unrelated.bin`]?.data).toBe('unrelated');
   });
 
   it('a removal queued during an accepted delayed write leaves no orphan afterward', async () => {
