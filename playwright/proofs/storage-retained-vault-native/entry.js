@@ -160,11 +160,28 @@ async function prepare(password, includePrivate) {
     const originalCreate = sdk.MidenClient.create;
     sdk.MidenClient.create = async function (...args) {
       progress(args[0]?.useWorker === true ? 'sdk-create-worker' : 'sdk-create-other');
+      const wrapper = sdk.MidenClient._WasmWebClient;
+      const originalFactory = wrapper.createClientWithExternalKeystore;
+      const originalWasm = wrapper.prototype.getWasmWebClient;
+      wrapper.createClientWithExternalKeystore = async function (...values) {
+        progress(typeof Worker === 'function' ? 'sdk-factory-worker-available' : 'sdk-factory-worker-absent');
+        const result = await Reflect.apply(originalFactory, this, values);
+        progress('sdk-factory-returned');
+        return result;
+      };
+      wrapper.prototype.getWasmWebClient = async function (...values) {
+        progress('sdk-wasm-client-enter');
+        const result = await Reflect.apply(originalWasm, this, values);
+        progress('sdk-wasm-client-returned');
+        return result;
+      };
       try {
         const result = await Reflect.apply(originalCreate, this, args);
         progress('sdk-create-returned');
         return result;
       } finally {
+        wrapper.createClientWithExternalKeystore = originalFactory;
+        wrapper.prototype.getWasmWebClient = originalWasm;
         sdk.MidenClient.create = originalCreate;
       }
     };
