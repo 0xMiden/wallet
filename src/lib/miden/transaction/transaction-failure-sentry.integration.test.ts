@@ -847,15 +847,20 @@ describe('closed queue facts without failure text', () => {
         type: 'consume',
         reason: 'queued_expired',
         queueAge: '30m_to_1h',
+        queueSighting: 'never',
+        preflightSync: 'not_entered',
+        queueHidden: 'not_measured',
         error: TRANSACTION_EXPIRED_ERROR
       })
     );
     const { message, strings } = capturedFailure();
     expect(message).toContain(
-      '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; queue age 30m_to_1h; submit crossing unavailable; point pipeline;'
+      '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; queue age 30m_to_1h; queue sighting never; sync attempt not_entered; queue hidden not_measured; submit crossing unavailable; point pipeline;'
     );
     expect(message).toContain('; point pipeline; queued_expired.');
-    expect(message).toContain('; queue age 30m_to_1h; submit crossing unavailable; point pipeline; queued_expired.');
+    expect(message).toContain(
+      '; queue age 30m_to_1h; queue sighting never; sync attempt not_entered; queue hidden not_measured; submit crossing unavailable; point pipeline; queued_expired.'
+    );
     for (const text of privateText) {
       expect(message).not.toContain(text);
       expect(strings).not.toContain(text);
@@ -912,7 +917,7 @@ describe('closed queue facts without failure text', () => {
       expect(report).toHaveBeenCalledWith(expect.objectContaining({ reason: 'queued_expired', queueAge: expectedAge }));
       const { message } = capturedFailure();
       expect(message).toContain(
-        `; queue age ${expectedAge}; submit crossing unavailable; point pipeline; queued_expired.`
+        `; queue age ${expectedAge}; queue sighting never; sync attempt not_entered; queue hidden not_measured; submit crossing unavailable; point pipeline; queued_expired.`
       );
     } finally {
       clock.mockRestore();
@@ -945,7 +950,7 @@ describe('closed queue facts without failure text', () => {
       );
       const { message, strings } = capturedFailure();
       expect(message).toContain(
-        '; queue age unavailable; submit crossing unavailable; point pipeline; queued_expired.'
+        '; queue age unavailable; queue sighting never; sync attempt not_entered; queue hidden not_measured; submit crossing unavailable; point pipeline; queued_expired.'
       );
       expect(message).not.toContain(String(claim.id));
       expect(strings).not.toContain(String(claim.id));
@@ -1094,7 +1099,10 @@ it.each([false, true])('uses only earlier exact gate membership at committed exp
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: 'queued_expired',
-        queueAdmissionObservation: changed ? 'unavailable' : 'in_progress_gate'
+        queueAdmissionObservation: changed ? 'unavailable' : 'in_progress_gate',
+        queueSighting: changed ? 'never' : 'in_progress_gate',
+        preflightSync: 'not_entered',
+        queueHidden: 'not_measured'
       })
     );
     expect(consumeQueueAdmission(changed ? { ...waiting, queuedSeq: 2 } : waiting)).toBe('unavailable');
