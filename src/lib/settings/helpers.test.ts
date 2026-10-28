@@ -109,6 +109,38 @@ describe('settings helpers', () => {
       localStorage.setItem(key, 'true');
       expect(read()).toBe(true);
     });
+
+    it.each(['null', 'getter', 'read', 'json', 'nonboolean'])(
+      'keeps established background choices when storage fails with %s',
+      async failure => {
+        setAutoConsumeSetting(false);
+        setDelegateProofSetting(false);
+        await Promise.resolve();
+        localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, 'true');
+        if (failure === 'null') {
+          Object.defineProperty(window, 'localStorage', { configurable: true, value: null });
+        } else if (failure === 'getter') {
+          Object.defineProperty(window, 'localStorage', {
+            configurable: true,
+            get() {
+              throw new DOMException('Storage unavailable', 'SecurityError');
+            }
+          });
+        } else if (failure === 'read') {
+          jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new DOMException('Storage unavailable', 'SecurityError');
+          });
+        } else {
+          localStorage.setItem(DELEGATE_PROOF_STORAGE_KEY, failure === 'json' ? '{broken' : '"false"');
+        }
+
+        expect(() => mirrorBackgroundSettings()).not.toThrow();
+        await Promise.resolve();
+        expect(await isAutoConsumeEnabledAsync()).toBe(false);
+        expect(await isDelegateProofEnabledAsync()).toBe(false);
+        expect(await areBackgroundSettingsMirrored()).toBe(false);
+      }
+    );
   });
 
   describe('isValidGuardianUrl', () => {

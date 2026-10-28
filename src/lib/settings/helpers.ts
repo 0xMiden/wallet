@@ -23,9 +23,19 @@ function setSetting(key: string, value: boolean) {
   } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
+function readSetting(key: string, defaultValue: boolean): boolean | null {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === null) return defaultValue;
+    const value: unknown = JSON.parse(stored);
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function getSetting(key: string, defaultValue: boolean) {
-  const stored = localStorage.getItem(key);
-  return stored ? (JSON.parse(stored) as boolean) : defaultValue;
+  return readSetting(key, defaultValue) ?? defaultValue;
 }
 
 /**
@@ -224,9 +234,13 @@ export function hasTelemetryChoice(): boolean {
  * where `localStorage` is available.
  */
 export function mirrorBackgroundSettings(): void {
-  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
-  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
-  mirrorSetting(TELEMETRY_STORAGE_KEY, isTelemetryEnabled());
+  const autoConsume = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  const delegateProof = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  const telemetry = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+  if (autoConsume === null || delegateProof === null || telemetry === null) return;
+  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, autoConsume);
+  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, delegateProof);
+  mirrorSetting(TELEMETRY_STORAGE_KEY, telemetry);
   // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
   // holds off background native-consume, so it never acts on read-miss defaults for a
   // user who opted out of auto-consume or remote proving.
