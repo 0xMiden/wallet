@@ -96,7 +96,7 @@ export async function restoreWalletRecoveryRows(
             throw new StorageContinuityError();
           await target.table('transactions').put({
             ...(current ?? entry.row),
-            extraInputs: entry.row.extraInputs,
+            extraInputs: current?.extraInputs ?? entry.row.extraInputs,
             amount: entry.row.amount,
             faucetId: entry.row.faucetId,
             restoredFromBackup: true,
