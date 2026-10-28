@@ -62,7 +62,7 @@ export async function updateTokensBaseMetadata(
   await tokensBaseMetadataWriteQueue.add(async () => {
     const cached = (await readMetadata()) ?? {};
     const next = boundedMetadata(cached, toSet);
-    if (stableMetadata(cached) !== stableMetadata(next)) await writeMetadata(next);
+    if (stableMetadata(cached) !== stableMetadata(next) || Object.keys(next).length > 0) await writeMetadata(next);
   });
 }
 
