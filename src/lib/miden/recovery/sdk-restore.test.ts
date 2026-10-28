@@ -1,7 +1,12 @@
 import type { NoteFile } from '@miden-sdk/miden-sdk/lazy';
 import Dexie from 'dexie';
 
-import { restoreSdkRecovery, decodeSdkRecoveryCommand, type RecoverySdkWriter } from './sdk-restore';
+import {
+  advanceRecoveryChain,
+  restoreSdkRecovery,
+  decodeSdkRecoveryCommand,
+  type RecoverySdkWriter
+} from './sdk-restore';
 import type { RecoveryNoteEntry } from './types';
 
 const mockConsumedNoteFiles = new WeakSet<object>();
@@ -166,6 +171,39 @@ it('refuses the retained import when recovery chain advancement fails', async ()
     ])
   ).rejects.toThrow('chain advancement refused');
   expect(client.notes.import).not.toHaveBeenCalled();
+});
+
+it('advances at most once and accepts a chain height beyond the retained block', async () => {
+  const free = jest.fn();
+  const chain = { getSyncHeight: jest.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(7), syncChain: jest.fn() };
+  chain.syncChain.mockResolvedValue({ free });
+  await expect(advanceRecoveryChain(chain, 5, () => {})).resolves.toBeUndefined();
+  expect(chain.syncChain).toHaveBeenCalledTimes(1);
+  expect(free).toHaveBeenCalledTimes(1);
+});
+
+it('does not sync when the client already covers the retained block', async () => {
+  const chain = { getSyncHeight: jest.fn().mockResolvedValue(5), syncChain: jest.fn() };
+  await expect(advanceRecoveryChain(chain, 5, () => {})).resolves.toBeUndefined();
+  expect(chain.syncChain).not.toHaveBeenCalled();
+});
+
+it.each([1, 4])('refuses a chain that has not advanced to the retained block', async after => {
+  const chain = {
+    getSyncHeight: jest.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(after),
+    syncChain: jest.fn().mockResolvedValue({ free: jest.fn() })
+  };
+  await expect(advanceRecoveryChain(chain, 5, () => {})).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  expect(chain.syncChain).toHaveBeenCalledTimes(1);
+});
+
+it('propagates a chain sync rejection without retrying', async () => {
+  const chain = {
+    getSyncHeight: jest.fn().mockResolvedValue(1),
+    syncChain: jest.fn().mockRejectedValue(new Error('sync'))
+  };
+  await expect(advanceRecoveryChain(chain, 5, () => {})).rejects.toThrow('sync');
+  expect(chain.syncChain).toHaveBeenCalledTimes(1);
 });
 
 it.each(['accepted', 'rejected'])(

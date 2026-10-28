@@ -27,11 +27,34 @@ export interface RecoverySdkWriter extends RecoverySdkReader {
   notes: RecoverySdkReader['notes'] & Pick<MidenClient['notes'], 'import'>;
 }
 
+export async function advanceRecoveryChain(
+  client: Pick<MidenClient, 'getSyncHeight' | 'syncChain'>,
+  target: number,
+  assertCurrent: () => void
+): Promise<void> {
+  if (!Number.isSafeInteger(target) || target < 0 || target > 0xffffffff) throw new StorageContinuityError();
+  assertCurrent();
+  const before = await client.getSyncHeight();
+  assertCurrent();
+  if (!Number.isSafeInteger(before) || before < 0 || before > 0xffffffff) throw new StorageContinuityError();
+  if (before >= target) return;
+  const result = await client.syncChain();
+  try {
+    assertCurrent();
+  } finally {
+    result.free();
+  }
+  const after = await client.getSyncHeight();
+  assertCurrent();
+  if (!Number.isSafeInteger(after) || after < target || after > 0xffffffff) throw new StorageContinuityError();
+}
+
 export async function restoreSdkRecovery(
   client: RecoverySdkWriter,
   command: SdkRecoveryCommand,
   assertCurrent: () => void,
-  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>
+  acquire?: (file: NoteFile, importNote: () => Promise<unknown>) => Promise<unknown>,
+  advance?: (target: number) => Promise<void>
 ): Promise<void> {
   assertCurrent();
   if (command.kind === 'account') {
@@ -68,6 +91,17 @@ export async function restoreSdkRecovery(
           assertRetainedInputRecord(existing[0]!, commitment, full !== undefined);
           return;
         }
+      }
+      const proof = file.inclusionProof();
+      try {
+        const location = proof?.location();
+        try {
+          if (location && advance) await advance(location.blockNum());
+        } finally {
+          location?.free();
+        }
+      } finally {
+        proof?.free();
       }
       assertCurrent();
       const importNote = () => {
