@@ -1,0 +1,48 @@
+name: Earn load frozen regression proof
+on:
+  push:
+    branches: [ci/aa-load-red-proof]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD > proof/workflow-sha.txt
+          echo b9152e096b44e781d64e12912b2e78d0044e9432 > proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = b9152e096b44e781d64e12912b2e78d0044e9432
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/aa-load-red-proof.yml
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000 > proof/install.log 2>&1
+      - name: Expected failing Earn load diagnostics regressions
+        run: |
+          yarn jest --runTestsByPath src/lib/epoch/positions.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnLoadError.test.tsx src/screens/earn-flow/EarnPositionDetail.test.tsx src/screens/earn-flow/EarnPositions.test.tsx src/screens/earn-flow/EarnWithdrawAmount.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/useEarnPositions.test.ts --maxWorkers=2 --json --outputFile=proof/results.json > proof/tests.log 2>&1
+      - name: Verify functional failures and executed tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node - <<'JSCODE'
+          const fs = require('fs');
+          const d = JSON.parse(fs.readFileSync('proof/results.json'));
+          const n = d.numPassedTests + d.numFailedTests;
+          console.log(JSON.stringify({executed:n, passed:d.numPassedTests, failed:d.numFailedTests, runtime:d.numRuntimeErrorTestSuites}));
+          if (!n || d.numFailedTests < 19 || d.numRuntimeErrorTestSuites !== 0) process.exit(1);
+          for (const suite of d.testResults) for (const a of suite.assertionResults) if (a.status === 'failed') console.log(a.fullName);
+          JSCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aa-load-red-proof
+          path: proof/
