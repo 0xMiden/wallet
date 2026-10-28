@@ -244,7 +244,16 @@ export async function readSdkRecoverySnapshot(
       const commitment = noteDetailsCommitment(details);
       const id = file.noteId()?.toString();
       if (id) {
+        Reflect.set(globalThis, '__noteRestoreRetainedReadEntered', true);
         const records = await client.notes.list({ ids: [id] });
+        Reflect.set(globalThis, '__noteRestoreRetainedReadReturned', true);
+        Reflect.set(globalThis, '__noteRestoreRetainedCountOne', records.length === 1);
+        if (records.length === 1) {
+          Reflect.set(globalThis, '__noteRestoreRetainedAuthenticated', records[0]!.isAuthenticated());
+          Reflect.set(globalThis, '__noteRestoreRetainedUnverified', records[0]!.state() === InputNoteState.Unverified);
+          Reflect.set(globalThis, '__noteRestoreRetainedInvalid', records[0]!.state() === InputNoteState.Invalid);
+          Reflect.set(globalThis, '__noteRestoreRetainedCommitted', records[0]!.state() === InputNoteState.Committed);
+        }
         check();
         if (records.length !== 1) throw new StorageContinuityError();
         assertRetainedInputRecord(records[0]!, commitment, full !== undefined);
