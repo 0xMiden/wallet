@@ -197,8 +197,16 @@ const uiCases = [
   ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
   ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
   ['usdcxBurnFeeUnavailable', 'field', { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }],
-  ['mainnetAccessCheckFailed', 'inline', { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' }],
-  ['noteClaimFailedRetry', 'notice', { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }]
+  [
+    'mainnetAccessCheckFailed',
+    'inline',
+    { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' }
+  ],
+  [
+    'noteClaimFailedRetry',
+    'notice',
+    { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }
+  ]
 ] as const;
 it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {
   Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
@@ -261,19 +269,25 @@ it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating
 it.each([
   ['mainnetAccessCheckFailed', 'inline', 'mainnet_access_check', 'mainnetAccessCheckFailure', 'invitation_check'],
   ['noteClaimFailedRetry', 'notice', 'note_claim', 'noteClaimFailureOrigin', 'queue_single']
-])('rejects incomplete or arbitrary caller facts for %s without invoking accessors', (id, surface, kind, field, valid) => {
-  const getter = jest.fn(() => valid);
-  const values = [
-    { kind, [field]: valid },
-    { kind, [field]: 'private-account amount=123', uiFailureKind: 'network' },
-    { kind, [field]: valid, uiFailureKind: 'private-account amount=123' },
-    Object.defineProperty({ kind, uiFailureKind: 'network' }, field, { get: getter })
-  ];
-  for (const value of values) {
-    jest.mocked(captureCrash).mockClear();
-    _resetUserVisibleErrorLimitsForTest();
-    Reflect.apply(reportUserVisibleError, undefined, [id, surface, value]);
-    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({ userErrorId: id, userErrorSurface: surface });
+])(
+  'rejects incomplete or arbitrary caller facts for %s without invoking accessors',
+  (id, surface, kind, field, valid) => {
+    const getter = jest.fn(() => valid);
+    const values = [
+      { kind, [field]: valid },
+      { kind, [field]: 'private-account amount=123', uiFailureKind: 'network' },
+      { kind, [field]: valid, uiFailureKind: 'private-account amount=123' },
+      Object.defineProperty({ kind, uiFailureKind: 'network' }, field, { get: getter })
+    ];
+    for (const value of values) {
+      jest.mocked(captureCrash).mockClear();
+      _resetUserVisibleErrorLimitsForTest();
+      Reflect.apply(reportUserVisibleError, undefined, [id, surface, value]);
+      expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+        userErrorId: id,
+        userErrorSurface: surface
+      });
+    }
+    expect(getter).not.toHaveBeenCalled();
   }
-  expect(getter).not.toHaveBeenCalled();
-});
+);

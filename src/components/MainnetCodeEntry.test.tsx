@@ -27,9 +27,7 @@ let mockRpcClientFailure: unknown;
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   MidenClient: { ready: () => mockSdkReady() },
-  Endpoint: class {
-    constructor(_url: string) {}
-  },
+  Endpoint: class {},
   RpcClient: class {
     constructor(_endpoint: unknown) {
       if (mockRpcClientFailure !== undefined) throw mockRpcClientFailure;

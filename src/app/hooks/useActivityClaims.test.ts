@@ -1773,7 +1773,7 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     ]);
   });
 
-  it('classifies an owned watched row once without borrowing its enqueue failure', async () => {
+  it('classifies an owned watched row once from its own raw failure', async () => {
     const rawError = 'IndexedDB failed for 0x1234567890abcdef1234567890abcdef, 1234.5678 private-canary';
     render(React.createElement(ClaimCards));
     open();
@@ -2051,7 +2051,13 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     advance(999);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'unknown' }
+      ]
+    ]);
   });
 });
 

@@ -1,5 +1,6 @@
 import { BURN_FEE_FAILURES, type BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 
+import { classifyError } from './classify';
 import { closedDiagnosticPair, ownDiagnosticData } from './closed-root-diagnostics';
 
 export const FEATURE_UNAVAILABLE_FEATURES = [
@@ -35,6 +36,56 @@ export const PENDING_RETRY_REASONS = [
   'unexpected'
 ] as const;
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
+export type MainnetAccessCheckFailure =
+  | 'endpoint_resolve'
+  | 'sdk_ready'
+  | 'rpc_client'
+  | 'invitation_check'
+  | 'unrecorded';
+export const MAINNET_ACCESS_CHECK_FAILURES: readonly MainnetAccessCheckFailure[] = [
+  'endpoint_resolve',
+  'sdk_ready',
+  'rpc_client',
+  'invitation_check',
+  'unrecorded'
+];
+export type NoteClaimFailureOrigin = 'queue_single' | 'queue_batch' | 'transaction_row';
+export const NOTE_CLAIM_FAILURE_ORIGINS: readonly NoteClaimFailureOrigin[] = [
+  'queue_single',
+  'queue_batch',
+  'transaction_row'
+];
+export type UiFailureKind =
+  | 'network'
+  | 'rpc'
+  | 'proving'
+  | 'validation'
+  | 'storage'
+  | 'access_denied'
+  | 'timeout'
+  | 'unknown'
+  | 'unavailable';
+export const UI_FAILURE_KINDS: readonly UiFailureKind[] = [
+  'network',
+  'rpc',
+  'proving',
+  'validation',
+  'storage',
+  'access_denied',
+  'timeout',
+  'unknown',
+  'unavailable'
+];
+
+export function classifyUiFailure(error: unknown): UiFailureKind {
+  try {
+    const kind = classifyError(error);
+    return kind === 'auth' ? 'access_denied' : kind;
+  } catch {
+    return 'unavailable';
+  }
+}
+
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
@@ -49,7 +100,9 @@ export type UiEvidenceInput =
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
-  | { kind: 'burn_fee'; burnFeeFailure: BurnFeeFailure };
+  | { kind: 'burn_fee'; burnFeeFailure: BurnFeeFailure }
+  | { kind: 'mainnet_access_check'; mainnetAccessCheckFailure: MainnetAccessCheckFailure; uiFailureKind: UiFailureKind }
+  | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind };
 export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
@@ -57,6 +110,9 @@ export type UiProducerDiagnostics = {
   pendingRetryReason?: PendingRetryReason;
   recipientValidationStage?: RecipientValidationStage;
   burnFeeFailure?: BurnFeeFailure;
+  mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
+  noteClaimFailureOrigin?: NoteClaimFailureOrigin;
+  uiFailureKind?: UiFailureKind;
 };
 export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
@@ -64,7 +120,10 @@ export const UI_PRODUCER_KEYS = [
   'submissionFeedbackBranch',
   'pendingRetryReason',
   'recipientValidationStage',
-  'burnFeeFailure'
+  'burnFeeFailure',
+  'mainnetAccessCheckFailure',
+  'noteClaimFailureOrigin',
+  'uiFailureKind'
 ] as const;
 const groups = {
   feature_unavailable: {
@@ -84,6 +143,16 @@ const groups = {
     id: 'raw_pending_activity_retry_failed',
     surface: 'notice',
     fields: { pendingRetryReason: PENDING_RETRY_REASONS }
+  },
+  mainnet_access_check: {
+    id: 'mainnetAccessCheckFailed',
+    surface: 'inline',
+    fields: { mainnetAccessCheckFailure: MAINNET_ACCESS_CHECK_FAILURES, uiFailureKind: UI_FAILURE_KINDS }
+  },
+  note_claim: {
+    id: 'noteClaimFailedRetry',
+    surface: 'notice',
+    fields: { noteClaimFailureOrigin: NOTE_CLAIM_FAILURE_ORIGINS, uiFailureKind: UI_FAILURE_KINDS }
   },
   burn_fee: {
     id: 'usdcxBurnFeeUnavailable',
@@ -159,3 +228,7 @@ export const snapshotPendingRetry = retries.snapshot;
 const recipients = closedErrorObservation(RECIPIENT_VALIDATION_STAGES);
 export const annotateRecipientValidation = recipients.annotate;
 export const snapshotRecipientValidation = recipients.snapshot;
+
+const mainnetChecks = closedErrorObservation(MAINNET_ACCESS_CHECK_FAILURES);
+export const annotateMainnetAccessCheckFailure = mainnetChecks.annotate;
+export const snapshotMainnetAccessCheckFailure = mainnetChecks.snapshot;
