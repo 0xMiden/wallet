@@ -408,7 +408,10 @@ export function useEarnPositions(): {
         ? 'configuration'
         : (EARN_POSITIONS_LOAD_STAGES.find(value => value === suppliedStage) ?? 'unrecorded');
     const outcome =
-      firstError?.error !== undefined && data !== undefined && data.errors.length < data.owners.length
+      readError === undefined &&
+      firstError?.error !== undefined &&
+      data !== undefined &&
+      data.errors.length < data.owners.length
         ? 'partial_failure'
         : 'complete_failure';
     const errorDiagnostics = error
