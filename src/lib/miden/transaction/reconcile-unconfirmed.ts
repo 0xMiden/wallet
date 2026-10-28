@@ -310,6 +310,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
         : { priorError: failed.rawError }),
       ...(failed.attemptId !== undefined &&
       failed.submitEvidence?.length === 1 &&
+      failed.submitEvidence[0] !== undefined &&
       failed.submitEvidence[0].attemptId === failed.attemptId &&
       failed.submitEvidence[0].submitContext !== undefined
         ? { priorSubmitContext: failed.submitEvidence[0].submitContext }

@@ -180,7 +180,7 @@ describe('the never-committed verdicts', () => {
           'TypeError: Load failed'
       )
     );
-    expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0].submitContext).toBeUndefined();
+    expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0]?.submitContext).toBeUndefined();
   });
 
   it('does not attribute one attempt context to a multi-attempt expiry verdict', async () => {
