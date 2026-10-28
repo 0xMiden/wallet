@@ -1,0 +1,32 @@
+name: Issue1948 V8 split integrity tests v4
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check syntax and fail-closed integrity tests
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          for script in .github/ci/v8-split/*.mjs .github/ci/v8-split/*.cjs; do node --check "$script"; done
+          node --test .github/ci/v8-split/core.test.mjs .github/ci/v8-split/gate.test.mjs .github/ci/v8-split/provenance.test.mjs 2>&1 | tee proof/test.log
+          grep -Eq '^# tests [1-9][0-9]*$' proof/test.log
+          grep -Eq '^# fail 0$' proof/test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v8-split-synthetic-v4
+          path: proof/
+          if-no-files-found: error
