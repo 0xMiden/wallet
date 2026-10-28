@@ -6,7 +6,6 @@ import { NETWORKS } from 'lib/miden/networks';
 import {
   getStorageAvailability,
   sanitizeStorageAvailability,
-  subscribeStorageAvailability,
   type StorageAvailability
 } from 'lib/miden/storage-health';
 import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
@@ -133,8 +132,6 @@ export const store = createStore<StoreState>({
     ...state,
     settings
   }));
-
-subscribeStorageAvailability(storageAvailabilityUpdated);
 
 /**
  * Helpers
