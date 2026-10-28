@@ -3,7 +3,7 @@ import React from 'react';
 import { Clipboard } from '@capacitor/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import type { MainnetAccessOutcome } from 'lib/mainnet-access';
+import { checkMainnetAccessCode, type MainnetAccessOutcome } from 'lib/mainnet-access';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { MainnetCodeEntryFields, useMainnetCodeEntry } from './MainnetCodeEntry';
@@ -20,6 +20,33 @@ jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: j
 const mockReport = jest.mocked(reportUserVisibleError);
 const mockCheck = jest.fn<Promise<MainnetAccessOutcome>, [string]>();
 const mockGranted = jest.fn();
+const mockSdkReady = jest.fn<Promise<void>, []>();
+const mockInvitationCheck = jest.fn<Promise<boolean>, [string]>();
+let mockEndpointFailure: unknown;
+let mockRpcClientFailure: unknown;
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
+  MidenClient: { ready: () => mockSdkReady() },
+  Endpoint: class {
+    constructor(_url: string) {}
+  },
+  RpcClient: class {
+    constructor(_endpoint: unknown) {
+      if (mockRpcClientFailure !== undefined) throw mockRpcClientFailure;
+    }
+    isInvitationCodeValid(code: string) {
+      return mockInvitationCheck(code);
+    }
+  }
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => {
+    if (mockEndpointFailure !== undefined) throw mockEndpointFailure;
+    return 'https://node.example.invalid';
+  }
+}));
+
 function Entry({ rejected = false }: { rejected?: boolean }) {
   const entry = useMainnetCodeEntry({ check: mockCheck, onGranted: mockGranted, rejected });
   return (
@@ -42,6 +69,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockMobile = true;
   mockCheck.mockResolvedValue('granted');
+  mockSdkReady.mockResolvedValue();
+  mockInvitationCheck.mockResolvedValue(true);
+  mockEndpointFailure = undefined;
+  mockRpcClientFailure = undefined;
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -88,9 +119,19 @@ it.each([
   act(() => jest.advanceTimersByTime(999));
   expect(mockReport.mock.calls).toEqual([]);
   act(() => jest.advanceTimersByTime(1));
-  expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  const expected =
+    failure === 'unchecked'
+      ? [
+          [
+            id,
+            'inline',
+            { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'unrecorded', uiFailureKind: 'unknown' }
+          ]
+        ]
+      : [[id, 'inline']];
+  expect(mockReport.mock.calls).toEqual(expected);
   act(() => jest.advanceTimersByTime(1000));
-  expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  expect(mockReport.mock.calls).toEqual(expected);
 });
 
 it('reports a registration refusal already displayed when the entry opens', () => {
@@ -134,4 +175,58 @@ it.each(['change', 'unmount'])('drops a refusal cleared at 999 ms by %s', ending
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   act(() => jest.advanceTimersByTime(1000));
   expect(mockReport.mock.calls).toEqual([]);
+});
+
+it.each(['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check'])(
+  'reports the actual access-check failure at %s without its message',
+  async stage => {
+    const privateMessage = 'RPC failed for 0x1234567890abcdef1234567890abcdef with 1234.5678 private-canary';
+    const error = new Error(privateMessage);
+    if (stage === 'endpoint_resolve') mockEndpointFailure = error;
+    else if (stage === 'sdk_ready') mockSdkReady.mockRejectedValueOnce(error);
+    else if (stage === 'rpc_client') mockRpcClientFailure = error;
+    else mockInvitationCheck.mockRejectedValue(error);
+    mockCheck.mockImplementation(code => checkMainnetAccessCode(code));
+    render(<Entry />);
+    enterCode();
+    await submit();
+    expect(screen.getByTestId('mainnet-error')).toHaveTextContent('Visible mainnetAccessCheckFailed');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'mainnetAccessCheckFailed',
+        'inline',
+        {
+          kind: 'mainnet_access_check',
+          mainnetAccessCheckFailure: stage,
+          uiFailureKind: 'rpc'
+        }
+      ]
+    ]);
+    const report = JSON.stringify(mockReport.mock.calls);
+    for (const value of [privateMessage, '1234.5678', 'private-canary', '0x1234567890abcdef1234567890abcdef']) {
+      expect(report).not.toContain(value);
+    }
+  }
+);
+
+it('does not invent an access-check stage for a primitive rejection', async () => {
+  mockCheck.mockImplementation(code => checkMainnetAccessCode(code));
+  mockSdkReady.mockRejectedValueOnce('network rejected private-canary');
+  render(<Entry />);
+  enterCode();
+  await submit();
+  act(() => jest.advanceTimersByTime(1000));
+  expect(mockReport.mock.calls).toEqual([
+    [
+      'mainnetAccessCheckFailed',
+      'inline',
+      {
+        kind: 'mainnet_access_check',
+        mainnetAccessCheckFailure: 'unrecorded',
+        uiFailureKind: 'network'
+      }
+    ]
+  ]);
+  expect(JSON.stringify(mockReport.mock.calls)).not.toContain('private-canary');
 });

@@ -1714,8 +1714,9 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
   it.each(['activityAcceptTransfer', 'Accept All'])(
     'reports the real %s queue catch by its displayed fixed key after the Notice dwell',
     async action => {
-      mockQueue.mockRejectedValueOnce(new Error('Queue refused'));
-      mockQueueMany.mockRejectedValueOnce(new Error('Batch queue refused'));
+      const privateMessage = 'IndexedDB queue rejected 0x1234567890abcdef1234567890abcdef, 1234.5678 private-canary';
+      mockQueue.mockRejectedValueOnce(new Error(privateMessage));
+      mockQueueMany.mockRejectedValueOnce(new Error(privateMessage));
       render(React.createElement(ClaimCards));
       open();
       await click(action);
@@ -1727,7 +1728,21 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
       advance(999);
       expect(reportUserVisibleError).not.toHaveBeenCalled();
       advance(1);
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        [
+          'noteClaimFailedRetry',
+          'notice',
+          {
+            kind: 'note_claim',
+            noteClaimFailureOrigin: action === 'Accept All' ? 'queue_batch' : 'queue_single',
+            uiFailureKind: 'storage'
+          }
+        ]
+      ]);
+      const reported = JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls);
+      for (const value of [privateMessage, '1234.5678', 'private-canary', '0x1234567890abcdef1234567890abcdef']) {
+        expect(reported).not.toContain(value);
+      }
       advance(5000);
       expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
     }
@@ -1745,7 +1760,17 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     advance(999);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        {
+          kind: 'note_claim',
+          noteClaimFailureOrigin: 'transaction_row',
+          uiFailureKind: 'unavailable'
+        }
+      ]
+    ]);
   });
 
   it.each(['activityAcceptTransfer', 'Accept All'])(

@@ -212,3 +212,11 @@ it('documents every closed burnFeeFailure value', () => {
     ])
   );
 });
+
+it.each([
+  ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
+  ['uiFailureKind', ['network', 'rpc', 'proving', 'validation', 'storage', 'access_denied', 'timeout', 'unknown', 'unavailable']]
+])('documents exact caller categories for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
