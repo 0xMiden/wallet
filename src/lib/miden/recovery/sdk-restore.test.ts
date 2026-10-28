@@ -68,9 +68,11 @@ let records: ReturnType<typeof record>[];
 let afterImport: () => void;
 const client: RecoverySdkWriter = {
   settings: {
-    get: jest.fn().mockImplementation(async () => marker),
-    set: jest.fn().mockImplementation(async (_key: string, value: string) => {
-      marker = value;
+    get: jest
+      .fn()
+      .mockImplementation(async () => (marker === null ? null : Array.from(new TextEncoder().encode(marker)))),
+    set: jest.fn().mockImplementation(async (_key: string, value: number[]) => {
+      marker = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(value));
     })
   },
   accounts: {
