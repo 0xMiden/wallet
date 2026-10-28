@@ -5224,6 +5224,35 @@ describe('user-visible history action errors', () => {
     expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it('does not report a retry refusal that settles after switching transaction rows', async () => {
+    const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+      'lib/telemetry/ui-producer-diagnostics'
+    );
+    const failure = new Error('previous row retry refusal');
+    annotatePendingRetry(failure, 'guardian_hold');
+    let rejectRetry: (error: Error) => void = () => {};
+    mockRequeueFailedTransaction.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectRetry = reject;
+      })
+    );
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    const view = await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    setMockRow({ ...baseSendTx, id: 'tx-2', status: 3, error: 'Other failure', displayMessage: 'Failed' });
+    view.rerender(<HistoryDetails transactionId="tx-2" />);
+    await flush();
+    await act(async () => {
+      rejectRetry(failure);
+    });
+    await flush();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
   it('reports a live retry fee refusal with insufficientFeeAsset', async () => {
     const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
       'lib/miden/transaction/claim-fee'
