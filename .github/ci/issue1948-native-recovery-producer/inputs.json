@@ -1,0 +1,30 @@
+{
+  "base": "0be404fd47d00a8c422b7e6faa67f8c17d0ad7ea",
+  "base_tree": "d174e4d09891f0b6aa7b29cf33d3748a57d71261",
+  "changed_source_paths": [
+    "playwright/proofs/storage-recovery-native-fixtures/src/main.rs"
+  ],
+  "compile_only": true,
+  "files": {
+    "playwright/proofs/storage-recovery-native-fixtures/Cargo.toml": "4897eaff144d088ba0d355c360f93182885151e4adad3bfafb3a5f0fdd53e61c",
+    "playwright/proofs/storage-recovery-native-fixtures/README.md": "19e2e3f7ce12dd5257a63b876e8214b2c7a2ccf315b4534a8a2210921e0c97fd",
+    "playwright/proofs/storage-recovery-native-fixtures/pinned-sdk.Cargo.lock": "c8b254c0e0ee462271c5d5805b1a79399cb709c97bd7c650d8d5b2f2f058fac1",
+    "playwright/proofs/storage-recovery-native-fixtures/src/main.rs": "dd293b71ebc950fbd16babafefc58e1b98a5b5c8bf33441127e5a3b2f1c1e5d1",
+    "playwright/proofs/storage-recovery-native-fixtures/verify-lock.py": "6172856040308fe6c3fb7fc982322e55487a77d95b063ff64ba13a2ab7109c50"
+  },
+  "jobs": 2,
+  "proof_paths": [
+    ".github/ci/issue1948-native-recovery-producer/inputs.json",
+    ".github/ci/issue1948-native-recovery-producer/run.py",
+    ".github/workflows/issue1948-native-recovery-producer.yml"
+  ],
+  "rayon_threads": 2,
+  "runtime_acceptance": false,
+  "rust_version": "1.98.1",
+  "schema": 1,
+  "sdk_lock_sha256": "c8b254c0e0ee462271c5d5805b1a79399cb709c97bd7c650d8d5b2f2f058fac1",
+  "sdk_source": "fd52477d7c7d5d475dc14987ebbd7a36dbb703da",
+  "sdk_tree": "0d4504105c5ba62f9ab439cfc19cf3ee503277a5",
+  "source": "ced7030295d20647f9e107435e1782ba7612e28c",
+  "source_tree": "40d58ba8a79be5c898620fb6e7c0959b5b431e3d"
+}

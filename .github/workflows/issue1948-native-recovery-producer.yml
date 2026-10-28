@@ -1,0 +1,63 @@
+name: Issue1948 exact native recovery fixture producer compile
+on:
+  push:
+    branches: ['ci/1948-native-recovery-producer-*']
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: 2
+      RAYON_NUM_THREADS: 2
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ced7030295d20647f9e107435e1782ba7612e28c
+          path: wallet
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xMiden/web-sdk
+          ref: fd52477d7c7d5d475dc14987ebbd7a36dbb703da
+          path: sdk-reference
+          persist-credentials: false
+      - name: Bind exact source and untouched SDK reference
+        timeout-minutes: 2
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py bind
+      - name: Prepare disposable producer copy
+        timeout-minutes: 2
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py prepare
+      - name: Install exact compiler
+        timeout-minutes: 6
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py toolchain
+      - name: Resolve only allowed dependency identities
+        timeout-minutes: 11
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py resolve
+      - name: Compile without executing fixture or browser
+        timeout-minutes: 27
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py build
+      - name: Verify original source and SDK preservation
+        if: always() && hashFiles('proof/source.json') != ''
+        timeout-minutes: 2
+        run: python3 controller/.github/ci/issue1948-native-recovery-producer/run.py preserve
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-native-recovery-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: native-recovery-producer-binary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: producer-binary/
+          if-no-files-found: error
