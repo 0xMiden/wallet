@@ -227,6 +227,11 @@ function pruneOldIntervals(): void {
  * Install the `visibilitychange` listener that records hidden intervals.
  * Idempotent — safe to call more than once. Call once at mobile startup.
  */
+/** True after mobile startup has installed the visibility listener. Desktop and extension never do. */
+export function isBackgroundTimeTrackingInstalled(): boolean {
+  return installed;
+}
+
 export function initBackgroundTimeTracking(): void {
   if (installed) return;
   /* istanbul ignore next -- defensive no-DOM/SSR guard; unreachable under the jsdom test env */

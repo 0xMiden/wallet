@@ -134,7 +134,15 @@ import {
   stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
-import { pruneQueueAdmission, recordQueueAdmission, type QueueAdmissionMember } from './queue-admission-diagnostics';
+import {
+  noteQueueSighting,
+  pruneQueueAdmission,
+  recordQueueAdmission,
+  retainQueueSightings,
+  upgradedQueueSighting,
+  type QueueAdmissionMember,
+  type QueueSighting
+} from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
@@ -669,6 +677,45 @@ const requeueWakeDelayMs = (
  * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
  */
 const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
+ * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
+ * an equal or stronger look for this same incarnation, and a failed write leaves the in-memory look in place.
+ */
+const persistQueueSighting = (
+  row: QueueAdmissionMember & { queueSighting?: QueueSighting },
+  observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
+): void => {
+  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  void Repo.transactions
+    .where({ id: row.id })
+    .modify(stored => {
+      const next = upgradedQueueSighting(stored.queueSighting, observation);
+      if (!next) return false;
+      stored.queueSighting = next;
+      stored.queueSightingAt = initiatedAt;
+      stored.queueSightingSeq = queuedSeq;
+      return undefined;
+    })
+    .catch(() => undefined);
+};
+
+/** Latest pre-send sync step for this queued incarnation. A failed write does not stop the sync. */
+const rememberPreflightSync = async (
+  row: Pick<ITransaction, 'id' | 'initiatedAt' | 'queuedSeq'>,
+  step: 'entered' | 'returned' | 'threw'
+): Promise<void> => {
+  if (!row.id) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  await Repo.transactions.where({ id: row.id }).modify(stored => {
+    stored.preflightSync = step;
+    stored.preflightSyncAt = initiatedAt;
+    stored.preflightSyncSeq = queuedSeq;
+  });
+};
 
 /**
  * What one pass of the transaction loop did. `processed`: it ran a row that left the queue (Completed or Failed) or
@@ -1452,7 +1499,14 @@ const generateTransactionWithProvider = async (
   // Errors propagate to the loop, which requeues ordinary transient failures
   // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
-  await syncUnderBoundedLock();
+  await rememberPreflightSync(transaction, 'entered').catch(() => undefined);
+  try {
+    await syncUnderBoundedLock();
+  } catch (error) {
+    await rememberPreflightSync(transaction, 'threw').catch(() => undefined);
+    throw error;
+  }
+  await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
@@ -4683,7 +4737,11 @@ export const generateTransactionsLoop = async (
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();
   if (inProgressTransactions.length > 0) {
-    for (const member of admissionMembers) recordQueueAdmission(member, 'in_progress_gate');
+    for (const member of admissionMembers) {
+      recordQueueAdmission(member, 'in_progress_gate');
+      persistQueueSighting(member, 'in_progress_gate');
+    }
+    retainQueueSightings(admissionMembers);
     return;
   }
 
@@ -4715,10 +4773,18 @@ export const generateTransactionsLoop = async (
   const nextTransaction = queuedTransactions.find(tx => {
     const ready = isQueuedRowReady(tx, now);
     examined.push(tx);
-    recordQueueAdmission(tx, ready ? 'selected' : 'row_ineligible');
+    const observation = ready ? 'selected' : 'row_ineligible';
+    recordQueueAdmission(tx, observation);
+    persistQueueSighting(tx, observation);
     return ready;
   });
   pruneQueueAdmission(examined);
+  for (const tx of queuedTransactions) {
+    if (examined.includes(tx)) continue;
+    noteQueueSighting(tx, 'not_reached');
+    persistQueueSighting(tx, 'not_reached');
+  }
+  retainQueueSightings(queuedTransactions);
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong

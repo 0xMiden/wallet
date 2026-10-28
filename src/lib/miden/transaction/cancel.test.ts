@@ -3,6 +3,11 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  __resetBackgroundTimeForTest,
+  hiddenSecondsSince,
+  initBackgroundTimeTracking
+} from 'lib/mobile/background-time';
 import { captureDiagnosticLog } from 'lib/telemetry/crash';
 import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 
@@ -10,6 +15,7 @@ import {
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   cancelStuckTransactions,
+  queueHiddenBucket,
   SESSION_STARTED_AT,
   isTransactionStuck
 } from './cancel';
@@ -25,7 +31,7 @@ import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
-import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
 // A table of rows keyed by id, enough for cancelTransaction's read and its guarded modify.
@@ -494,4 +500,29 @@ it('keeps concurrent reaper timestamp observations local to each selected row', 
   expect(serialized).not.toContain('private-first');
   expect(serialized).not.toContain('private-second');
   expect(serialized).not.toContain(String(SESSION_STARTED_AT));
+});
+
+describe('queueHiddenBucket', () => {
+  const row = { initiatedAt: 1_000 } as ITransaction;
+  const nowMs = 4_600_000;
+  afterEach(() => {
+    __resetBackgroundTimeForTest();
+    jest.mocked(hiddenSecondsSince).mockReset();
+    jest.mocked(hiddenSecondsSince).mockImplementation(() => 0);
+  });
+  it('stays unobserved until this run is recording background time', () => {
+    expect(queueHiddenBucket(row, nowMs)).toBe('unobserved');
+    expect(queueHiddenBucket({ initiatedAt: Number.NaN } as ITransaction, nowMs)).toBe('unobserved');
+  });
+  it('splits a recorded wait into none, under half and half or more', () => {
+    initBackgroundTimeTracking();
+    const hidden = jest.mocked(hiddenSecondsSince);
+    hidden.mockReturnValue(0);
+    expect(queueHiddenBucket(row, nowMs)).toBe('none');
+    hidden.mockReturnValue(1_799);
+    expect(queueHiddenBucket(row, nowMs)).toBe('under_half');
+    hidden.mockReturnValue(1_800);
+    expect(queueHiddenBucket(row, nowMs)).toBe('half_or_more');
+    expect(queueHiddenBucket({ initiatedAt: Number.NaN } as ITransaction, nowMs)).toBe('unavailable');
+  });
 });
