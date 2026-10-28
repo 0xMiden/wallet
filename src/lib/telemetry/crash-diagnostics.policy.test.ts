@@ -196,3 +196,11 @@ it.each([
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
 });
+
+
+it.each([
+  ['earnPositionsLoadStage', ['configuration', 'owner_lookup', 'request', 'response_decode', 'position_decode', 'unrecorded']],
+  ['earnPositionsLoadOutcome', ['complete_failure', 'partial_failure']]
+])('documents the exact Earn load observations for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});

@@ -6,6 +6,7 @@ import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
 
 let readEarnVaults: typeof import('./pools-read').readEarnVaults;
 let fetchEarnPositions: typeof import('./positions').fetchEarnPositions;
+let readLoadEvidence: typeof import('lib/telemetry/ui-producer-diagnostics').snapshotUiProducer;
 
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
@@ -23,6 +24,7 @@ const AAVE_LISTING = listingFor(
 beforeEach(async () => {
   await jest.isolateModulesAsync(async () => {
     ({ fetchEarnPositions } = await import('./positions'));
+    ({ snapshotUiProducer: readLoadEvidence } = await import('lib/telemetry/ui-producer-diagnostics'));
     ({ readEarnVaults } = await import('./pools-read'));
   });
   jest.mocked(getEarnVaults).mockReturnValue([AAVE_LISTING, TEST_EARN_VAULT]);
@@ -459,5 +461,57 @@ describe('getEarnDepositEvmAddresses', () => {
     withRows([row({ restoredFromBackup: true, extraInputs: { evmRecipient: attacker } }), row()]);
 
     expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
+  });
+});
+
+
+describe('source-owned Earn load diagnostics', () => {
+  const canary = 'private-owner 0xabcdef1234567890 amount 1234.56';
+  it.each([
+    ['request rejection', 'request', () => Promise.reject(new Error(canary))],
+    ['HTTP refusal', 'request', () => answer({ message: canary }, 503)],
+    ['JSON rejection', 'response_decode', () => ({ ok: true, status: 200, json: async () => { throw new Error(canary); } })],
+    ['unsuccessful envelope', 'response_decode', () => answer({ success: false, error: canary })],
+    ['malformed funded position', 'position_decode', () => positionsAnswer([{ ...apiItem('1', 1), data: null }])]
+  ] as const)('retains the owned stage for %s without copying its private cause', async (_name, stage, response) => {
+    serve(response);
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+    expect(result.positions).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ owner: OWNER, stage });
+    expect(JSON.stringify({ stage: Reflect.get(result.errors[0], 'stage') })).not.toContain(canary);
+  });
+
+  it.each(['request', 'response_decode'])('keeps the timed-out %s boundary without changing the deadline', async stage => {
+    jest.useFakeTimers();
+    try {
+      serve((_owner, init) => {
+        const stalled = () => new Promise<never>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
+        return stage === 'request' ? stalled() : { ok: true, status: 200, json: stalled };
+      });
+      const reading = fetchEarnPositions({ owners: [OWNER] });
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect((await reading).errors).toEqual([{ owner: OWNER, error: 'Request timed out after 15000 ms', stage }]);
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('keeps a configuration failure on its exact root and preserves its rejection', async () => {
+    const failure = new Error(canary);
+    jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => { throw failure; });
+    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toBe(failure);
+    expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
+      earnPositionsLoadStage: 'configuration', earnPositionsLoadOutcome: 'complete_failure'
+    });
+    expect(readLoadEvidence(new Error('wrapper', { cause: failure }), 'earnPositionsLoadError', 'notice')).toBeUndefined();
+  });
+
+  it('keeps an activity owner lookup failure on its exact root', async () => {
+    const failure = new Error(canary);
+    const Repo = jest.requireMock('lib/miden/repo');
+    Repo.transactions.filter.mockReturnValueOnce({ toArray: async () => { throw failure; } });
+    await expect(fetchEarnPositions()).rejects.toBe(failure);
+    expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
+      earnPositionsLoadStage: 'owner_lookup', earnPositionsLoadOutcome: 'complete_failure'
+    });
   });
 });

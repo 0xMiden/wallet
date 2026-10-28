@@ -436,6 +436,16 @@ describe('EarnWithdrawReview after a failed load', () => {
     mockLoadState = { isLoading: false };
   });
 
+  it('forwards the selected failure evidence from withdrawal review to the real Notice', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    const evidence = { kind: 'earn_positions_load', earnPositionsLoadStage: 'owner_lookup', earnPositionsLoadOutcome: 'complete_failure' };
+    mockLoadState = Object.assign({ isLoading: false, error: 'private failure' }, { errorDiagnostics: evidence });
+    render(<EarnWithdrawReview positionId="unknown" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+  });
+
   it('says a per-owner positions failure too, which is not a request failure', () => {
     mockLoadState = { isLoading: false, error: 'owner unavailable' };
     render(<EarnWithdrawReview positionId="unknown" />);
