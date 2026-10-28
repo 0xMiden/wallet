@@ -1453,8 +1453,16 @@ describe('iOS native per-call failures', () => {
       rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' })),
       rejectionOf(NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] }))
     ]);
-    expect(readReownNativeFailure(a.error)).toEqual({ nativeOrigin: 'argument_validation', requestAge: 'unknown', published: 'unobserved' });
-    expect(readReownNativeFailure(b.error)).toEqual({ nativeOrigin: 'request_call_error', requestAge: 'unknown', published: 'unobserved' });
+    expect(readReownNativeFailure(a.error)).toEqual({
+      nativeOrigin: 'argument_validation',
+      requestAge: 'unknown',
+      published: 'unobserved'
+    });
+    expect(readReownNativeFailure(b.error)).toEqual({
+      nativeOrigin: 'request_call_error',
+      requestAge: 'unknown',
+      published: 'unobserved'
+    });
     expect(readReownNativeFailure(c.error)).toBeUndefined();
   });
 });

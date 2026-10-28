@@ -2337,10 +2337,15 @@ it('carriesIOSPerCallBridgeDiagnosticWithoutPrivateFields', () => {
   jest.mocked(isDesktop).mockReturnValue(false);
   const cause = new Error('private-topic 0x1234567890 9.84');
   markReownNativeFailure(cause, { nativeOrigin: 'unconfigured', requestAge: 'unknown', published: 'unobserved' });
-  reportTransactionFailure({ type: 'bridged-receive', bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause } });
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause }
+  });
   const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
   expect(snapshotCrashDiagnostics(report)).toEqual({
-    reownNativeOrigin: 'unconfigured', reownRequestAge: 'unknown', reownPublished: 'unobserved'
+    reownNativeOrigin: 'unconfigured',
+    reownRequestAge: 'unknown',
+    reownPublished: 'unobserved'
   });
   expect(JSON.stringify(snapshotCrashDiagnostics(report))).not.toContain('private-topic');
 });

@@ -1202,41 +1202,45 @@ describe('crash-report egress', () => {
   it.each(['request_construction_error', 'request_call_error'])(
     'reports only the closed iOS per-call diagnostic %s on the real Sentry wire',
     async origin => {
-    consentOn();
-    jest.mocked(Capacitor.getPlatform).mockReturnValue('ios');
-    const address = `0x${'a1'.repeat(20)}`;
-    const poison = ['private-topic-123', address, '1234.5678', 'https://private.example.invalid/path'];
-    const code = `REOWN_IOS_REQUEST_FAILURE:${origin}`;
-    const original = Object.assign(new Error(poison.join(' ')), { code, data: { privateData: poison } });
-    jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(original);
-    let caught: unknown;
-    try {
-      await NativeReown.sendTransaction({ chainId: 1, to: address });
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBe(original);
-    reportTransactionFailure({
-      type: 'bridged-receive',
-      point: 'bridge_receive_settlement',
-      bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause: caught },
-      error: caught
-    });
-    await flushEgress();
-    const events = sentryEvents();
-    expect(events).toHaveLength(1);
-    const event = events[0];
-    if (event === undefined) throw new Error('Expected one Sentry event');
-    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
-      reownNativeOrigin: origin, reownRequestAge: 'unknown', reownPublished: 'unobserved'
-    });
-    expect(objectAt(event, 'tags')).toMatchObject({
-      reown_native_origin: origin, reown_request_age: 'unknown', reown_published: 'unobserved'
-    });
-    for (const text of [...poison, code, 'REOWN_IOS_REQUEST_FAILURE:']) {
-      for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
-    }
-    expect(leaksIn(wireText())).toEqual([]);
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('ios');
+      const address = `0x${'a1'.repeat(20)}`;
+      const poison = ['private-topic-123', address, '1234.5678', 'https://private.example.invalid/path'];
+      const code = `REOWN_IOS_REQUEST_FAILURE:${origin}`;
+      const original = Object.assign(new Error(poison.join(' ')), { code, data: { privateData: poison } });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(original);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: address });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(original);
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause: caught },
+        error: caught
+      });
+      await flushEgress();
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('Expected one Sentry event');
+      expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+        reownNativeOrigin: origin,
+        reownRequestAge: 'unknown',
+        reownPublished: 'unobserved'
+      });
+      expect(objectAt(event, 'tags')).toMatchObject({
+        reown_native_origin: origin,
+        reown_request_age: 'unknown',
+        reown_published: 'unobserved'
+      });
+      for (const text of [...poison, code, 'REOWN_IOS_REQUEST_FAILURE:']) {
+        for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      }
+      expect(leaksIn(wireText())).toEqual([]);
     }
   );
 
