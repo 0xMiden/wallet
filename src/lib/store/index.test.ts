@@ -1880,6 +1880,40 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('post-action state refresh during backend startup', () => {
+    it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse]
+    ] as const)('%s waits for initialized state without repeating the mutation', async (action, responseType) => {
+      jest.useFakeTimers();
+      try {
+        useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true });
+        const pending = {
+          status: WalletStatus.Idle, accounts: [], currentAccount: null, networks: [], settings: null,
+          ownMnemonic: null, backendInitialized: false
+        };
+        const ready = { ...pending, status: WalletStatus.Locked, backendInitialized: true };
+        mockRequest
+          .mockResolvedValueOnce({ type: responseType })
+          .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: pending })
+          .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: ready });
+        let settled = false;
+        const operation = (action === 'createAccount'
+          ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
+          : useWalletStore.getState().removeSeedPhrase('password')).then(() => { settled = true; });
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+        expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+        expect(settled).toBe(false);
+        await jest.advanceTimersByTimeAsync(250);
+        await operation;
+        expect(useWalletStore.getState().status).toBe(WalletStatus.Locked);
+        expect(mockRequest).toHaveBeenCalledTimes(3);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   describe('revealMnemonic', () => {
     it('returns the mnemonic from the response', async () => {
       mockRequest.mockResolvedValueOnce({
