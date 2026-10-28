@@ -13,6 +13,8 @@ function mockNoteFile(bytes: Uint8Array) {
     noteDetails: () => (expected ? details : undefined),
     note: () => (expected ? undefined : details),
     noteId: () => (expected ? undefined : { toString: () => 'note-a', free: () => {} }),
+    inclusionProof: () =>
+      expected ? undefined : { location: () => ({ blockNum: () => 5, free: () => {} }), free: () => {} },
     noteType: () => (expected ? 'NoteDetails' : 'NoteWithProof'),
     noteTag: () => (expected ? { asU32: () => (bytes[0] === 2 ? 71 : 0), free: () => {} } : undefined),
     afterBlockNum: () => (expected ? (bytes[0] === 2 ? 19 : 0) : undefined),
@@ -133,6 +135,35 @@ it('imports a retained input file and verifies its body before acknowledging the
   ).resolves.toBeUndefined();
   expect(records).toHaveLength(1);
   expect(client.notes.import).toHaveBeenCalledTimes(1);
+});
+
+it('advances chain state before importing a retained full-proof input', async () => {
+  const advance = jest.fn().mockResolvedValue(undefined);
+  await expect(
+    Reflect.apply(restoreSdkRecovery, undefined, [
+      client,
+      { kind: 'note', note, accountId: 'retained' },
+      () => {},
+      undefined,
+      advance
+    ])
+  ).resolves.toBeUndefined();
+  expect(advance).toHaveBeenCalledWith(5);
+  expect(advance.mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(client.notes.import).mock.invocationCallOrder[0]!);
+});
+
+it('refuses the retained import when recovery chain advancement fails', async () => {
+  const advance = jest.fn().mockRejectedValue(new Error('chain advancement refused'));
+  await expect(
+    Reflect.apply(restoreSdkRecovery, undefined, [
+      client,
+      { kind: 'note', note, accountId: 'retained' },
+      () => {},
+      undefined,
+      advance
+    ])
+  ).rejects.toThrow('chain advancement refused');
+  expect(client.notes.import).not.toHaveBeenCalled();
 });
 
 it.each(['accepted', 'rejected'])(
