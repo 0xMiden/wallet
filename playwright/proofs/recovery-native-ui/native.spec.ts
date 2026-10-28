@@ -37,13 +37,14 @@ test('synthetic recovery controls respond to native taps in both themes', async 
       `);
       await expect.poll(() => session.eval<boolean>("return !!document.querySelector('[data-testid=storage-recovery-page]');"), { timeout: 30_000 }).toBe(true);
       const tap = async (label: string) => {
-        const point = await session.eval<{ x: number; y: number; width: number; height: number } | null>(`
+        const point = await session.eval<{ x: number; y: number; width: number; height: number; hit: boolean } | null>(`
           var b = Array.from(document.querySelectorAll('button')).find(x => (x.textContent || '').trim() === ${JSON.stringify(label)});
           if (!b) return null;
           var r = b.getBoundingClientRect();
-          return {x:r.left+r.width/2,y:r.top+r.height/2,width:innerWidth,height:innerHeight};
+          var x=r.left+r.width/2, y=r.top+r.height/2;
+          return {x,y,width:innerWidth,height:innerHeight,hit:b.contains(document.elementFromPoint(x,y))};
         `);
-        if (!point || point.x < 0 || point.y < 0 || point.x >= point.width || point.y >= point.height) throw new Error('Tap target outside viewport');
+        if (!point || !point.hit || point.x < 0 || point.y < 0 || point.x >= point.width || point.y >= point.height) throw new Error('Tap target outside viewport');
         if (ios) await exec('idb', ['ui', 'tap', '--udid', device, String(point.x), String(point.y)], { timeout: 30_000 });
         else {
           const { stdout } = await exec('adb', ['-s', device, 'shell', 'wm', 'size'], { timeout: 30_000 });
