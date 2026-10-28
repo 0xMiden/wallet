@@ -1167,6 +1167,22 @@ describe('an unknown submit outcome', () => {
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
   });
+
+  it('reports a bare indefinite submit as unavailable and keeps its measured visibility', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      submitLegMs: 5000,
+      error: new Error(`submission of transaction ${TX_ID} came back without a definite outcome`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; submit_outcome_unknown; endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s. '
+    );
+    expectNoTransactionData(message);
+  });
 });
 
 describe('a submit the node refused', () => {
@@ -1855,6 +1871,31 @@ describe('the never-committed verdict', () => {
     expect(message).toContain(
       '; point node_verdict; never_committed; rule expired; prior transaction_execution_failed; cause fetch_inputs; proof wait over_half_window. authentication'
     );
+    expectNoTransactionData(message);
+  });
+
+  it('rejects unlisted prior submit context without leaking private values', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'consume',
+      stage: 'submitting',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      priorError: new Error(
+        `failed to submit proven transaction: submission of transaction ${ACCOUNT_HEX} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      ),
+      priorSubmitContext: {
+        endpoint: 'submit_proven_transaction',
+        status: 'unavailable',
+        hidden: ACCOUNT_HEX,
+        leg: 'under_9s'
+      }
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('app hidden during submit unavailable; submit leg unavailable');
     expectNoTransactionData(message);
   });
 

@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
+
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.
 - [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.

@@ -407,6 +407,7 @@ export interface TransactionFailure {
   error?: unknown;
   /** The failure that preceded an expired `never_committed` verdict; only its fixed identity is reported. */
   priorError?: unknown;
+  priorSubmitContext?: { endpoint: string; status: string; hidden: string; leg: string };
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
@@ -756,6 +757,41 @@ export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[
   return submitGrpcFailure(error)?.status;
 }
 
+/**
+ * Endpoint and gRPC status of an indefinite submit, or undefined when the error is not that outcome. No parsed
+ * gRPC request leaves both `unavailable`, so a measured hidden answer and submit leg still attach. A parsed request
+ * keeps its endpoint and its status, with `other` when that status is outside the unknown-outcome list.
+ */
+function indefiniteSubmitOutcome(error: unknown):
+  | {
+      endpoint: (typeof SUBMIT_ENDPOINTS)[number] | 'unavailable';
+      status: (typeof SUBMIT_UNKNOWN_OUTCOME_STATUSES)[number];
+    }
+  | undefined {
+  if (!isIndefiniteSubmitOutcomeError(error)) return undefined;
+  const parsed = submitGrpcFailure(error);
+  if (parsed === undefined) return { endpoint: 'unavailable', status: 'unavailable' };
+  return {
+    endpoint: parsed.endpoint,
+    status: SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(value => value === parsed.status) ?? 'other'
+  };
+}
+
+export function captureSubmitContext(error: unknown, hidden: boolean | undefined, legMs: number | undefined) {
+  const outcome = indefiniteSubmitOutcome(error);
+  if (outcome === undefined) return undefined;
+  const { endpoint, status } = outcome;
+  const leg =
+    legMs === undefined || !Number.isFinite(legMs) || legMs < 0
+      ? 'unavailable'
+      : legMs < 9000
+        ? 'under_9s'
+        : legMs <= 11000
+          ? '9_to_11s'
+          : 'over_11s';
+  return { endpoint, status, hidden: hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no', leg };
+}
+
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
@@ -771,10 +807,9 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const refusal = submitRequestFailure(error);
-  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
-  const matched = grpcStatusOf(refusal?.kind)?.[0];
-  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
+  const outcome = indefiniteSubmitOutcome(error) ?? { endpoint: 'unavailable', status: 'unavailable' };
+  const endpoint = outcome.endpoint;
+  const status = outcome.status;
   return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
     hiddenDuringSubmit,
     submitLegMs
@@ -807,6 +842,32 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }, fail
   return node === 'expired'
     ? `${identity}; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
     : identity;
+}
+
+function priorIdentity(failure: TransactionFailure): string {
+  const context = failure.priorSubmitContext;
+  if (
+    context &&
+    !isIndefiniteSubmitOutcomeError(failure.priorError) &&
+    (SUBMIT_ENDPOINTS.some(value => value === context.endpoint) || context.endpoint === 'unavailable') &&
+    SUBMIT_UNKNOWN_OUTCOME_STATUSES.some(value => value === context.status) &&
+    SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
+    SUBMIT_LEG_BUCKETS.some(value => value === context.leg)
+  ) {
+    return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
+  }
+  const outcome = indefiniteSubmitOutcome(failure.priorError);
+  if (
+    context &&
+    outcome &&
+    SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
+    SUBMIT_LEG_BUCKETS.some(value => value === context.leg) &&
+    outcome.endpoint === context.endpoint &&
+    outcome.status === context.status
+  ) {
+    return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
+  }
+  return failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError });
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -1026,7 +1087,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           ? `${reason}; rule ${(reportedNeverCommittedRule = diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other'))}` +
             (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
               ? ''
-              : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
+              : `; prior ${priorIdentity(failure)}`) +
             (failure.neverCommittedRule === 'expired'
               ? `; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
               : '')
