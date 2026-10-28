@@ -100,6 +100,11 @@ async function prepare(password, includePrivate) {
       for (const proof of [false, true]) {
         await control('learn', { kind: 'header', height });
         const response = await rpc.getBlockHeaderByNumber(height, proof);
+        if (height === fixture.block && !proof) {
+          const root = response.noteRoot();
+          check('noteHeaderMatchesFixture', root.toHex() === fixture.trustedNoteRoot);
+          root.free();
+        }
         response.free();
       }
     }
@@ -314,7 +319,7 @@ async function recover(password) {
       }
     });
   }
-  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched', 'ReceiptReturned', 'CallbackReturned', 'ImportResolved', 'ImportRejected', 'ErrorString', 'ErrorObject', 'Errorstorage', 'Errornetwork', 'Errornote', 'Errordatabase', 'Errortransaction', 'Errordeserialize', 'Errorblock', 'Errorheader', 'Errorinvalid', 'Errorproof']
+  const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched', 'ReceiptReturned', 'CallbackReturned', 'ImportResolved', 'ImportRejected', 'ErrorString', 'ErrorObject', 'Errorstorage', 'Errornetwork', 'Errornote', 'Errordatabase', 'Errortransaction', 'Errordeserialize', 'Errorblock', 'Errorheader', 'Errorinvalid', 'Errorproof', 'ErrorRootMismatch']
     .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
   return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }

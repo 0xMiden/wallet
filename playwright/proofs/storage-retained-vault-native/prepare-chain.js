@@ -279,6 +279,7 @@ export async function prepareChain(sdk) {
       })),
       noteId,
       noteDetailsId: commitment,
+      trustedNoteRoot: trustedRoot,
       fullBytes: Array.from(fullBytes),
       expectedBytes: Array.from(expectedBytes),
       block,
