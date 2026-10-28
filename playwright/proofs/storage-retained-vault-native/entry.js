@@ -7,6 +7,7 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
+import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
 import { applyEndpointOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -58,8 +59,17 @@ async function endpoints(feeFaucetId) {
     presetName: 'localnet',
     feeFaucetId
   });
+  progress('native-wasm-lookup');
+  const wasm = await getWasmOrThrow();
+  progress('native-error-class');
+  check('nativeErrorClass', typeof NoteAcquisitionRetentionError === 'function');
+  progress('native-acquisition-gate');
+  check('nativeAcquisitionGate', typeof wasm.WebClient?.prototype?.installNoteAcquisitionGate === 'function');
+  progress('native-resolver');
+  check('nativeResolver', typeof wasm.resolveStoreName === 'function');
   progress('native-store-name');
   sdkStore = await nativeStorageName(`${location.origin}/rpc`);
+  progress('native-distinct-store');
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
 async function prepare(password, includePrivate) {
