@@ -306,7 +306,7 @@ export class RecoveryJournal {
         return verified;
       });
     } catch (error) {
-      if (error !== capacityError) this.onFailure(error);
+      this.onFailure(error);
       throw error;
     }
   }
