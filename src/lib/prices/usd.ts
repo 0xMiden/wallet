@@ -111,7 +111,7 @@ const mergePrices = async (prices: TokenPrices, now: number, requested: readonly
     if (!requested.includes(symbol) && !isCoveredSymbol(symbol)) continue;
     const priceMicro = toPriceMicro(info.price);
     if (priceMicro === undefined) continue;
-    cache[symbol] = { priceMicro: priceMicro.toString(), fetchedAt: now };
+    cache[symbol] = { priceMicro: priceMicro.toString(), fetchedAt: cache[symbol]?.fetchedAt ?? now };
     accepted.add(symbol);
   }
   const bounded = boundedPrices(cache, now, accepted);
