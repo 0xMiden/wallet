@@ -73,7 +73,54 @@ async function endpoints(feeFaucetId) {
   progress('native-distinct-store');
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
-async function prepare(password, includePrivate) {
+async function observedClient() {
+  const originalCreate = sdk.MidenClient.create;
+  sdk.MidenClient.create = async function (...args) {
+    progress(args[0]?.useWorker === true ? 'sdk-create-worker' : 'sdk-create-other');
+    const wrapper = sdk.MidenClient._WasmWebClient;
+    const originalFactory = wrapper.createClientWithExternalKeystore;
+    const originalWasm = wrapper.prototype.getWasmWebClient;
+    wrapper.createClientWithExternalKeystore = async function (...values) {
+      progress(typeof Worker === 'function' ? 'sdk-factory-worker-available' : 'sdk-factory-worker-absent');
+      const result = await Reflect.apply(originalFactory, this, values);
+      progress('sdk-factory-returned');
+      return result;
+    };
+    wrapper.prototype.getWasmWebClient = async function (...values) {
+      progress('sdk-wasm-client-enter');
+      const result = await Reflect.apply(originalWasm, this, values);
+      progress('sdk-wasm-client-returned');
+      const originalNativeCreate = result.createClientWithExternalKeystore;
+      result.createClientWithExternalKeystore = async function (...nativeArgs) {
+        window.__retainedNativeCreating = true;
+        window.__retainedStorageEvent('nativeMarker').catch(() => {});
+        progress('sdk-native-create-enter');
+        const heartbeat = setInterval(() => window.__retainedStorageEvent('nativeHeartbeat').catch(() => {}), 1000);
+        try {
+          const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);
+          progress('sdk-native-create-returned');
+          return client;
+        } finally {
+          clearInterval(heartbeat);
+          result.createClientWithExternalKeystore = originalNativeCreate;
+        }
+      };
+      return result;
+    };
+    try {
+      const result = await Reflect.apply(originalCreate, this, args);
+      progress('sdk-create-returned');
+      return result;
+    } finally {
+      wrapper.createClientWithExternalKeystore = originalFactory;
+      wrapper.prototype.getWasmWebClient = originalWasm;
+      sdk.MidenClient.create = originalCreate;
+    }
+  };
+  progress('pre-loss-client');
+  return await getMidenClient();
+}
+async function prepare(password, includePrivate, comparisonOnly = false) {
   guard();
   progress('wasm-ready');
   await ensureSdkWasmReady();
@@ -115,6 +162,10 @@ async function prepare(password, includePrivate) {
   await control('seal', {});
   await initializeStorageHealth();
   check('initialHealthy', getStorageHealth().status === 'healthy');
+  if (comparisonOnly) {
+    for (const material of fixture.custody) material.secretBytes.fill(0);
+    return { feeFaucetId: fixture.feeFaucetId };
+  }
   progress('real-password-protector');
   const raw = Passworder.generateVaultKey();
   const key = await Passworder.importVaultKey(raw);
@@ -158,51 +209,7 @@ async function prepare(password, includePrivate) {
   if (includePrivate) await sdk.importStore(sdkStore, fixture.database, { durability: 'strict' });
   progress('pre-loss-lock');
   await withWasmClientLock(async () => {
-    const originalCreate = sdk.MidenClient.create;
-    sdk.MidenClient.create = async function (...args) {
-      progress(args[0]?.useWorker === true ? 'sdk-create-worker' : 'sdk-create-other');
-      const wrapper = sdk.MidenClient._WasmWebClient;
-      const originalFactory = wrapper.createClientWithExternalKeystore;
-      const originalWasm = wrapper.prototype.getWasmWebClient;
-      wrapper.createClientWithExternalKeystore = async function (...values) {
-        progress(typeof Worker === 'function' ? 'sdk-factory-worker-available' : 'sdk-factory-worker-absent');
-        const result = await Reflect.apply(originalFactory, this, values);
-        progress('sdk-factory-returned');
-        return result;
-      };
-      wrapper.prototype.getWasmWebClient = async function (...values) {
-        progress('sdk-wasm-client-enter');
-        const result = await Reflect.apply(originalWasm, this, values);
-        progress('sdk-wasm-client-returned');
-        const originalNativeCreate = result.createClientWithExternalKeystore;
-        result.createClientWithExternalKeystore = async function (...nativeArgs) {
-          window.__retainedNativeCreating = true;
-          window.__retainedStorageEvent('nativeMarker').catch(() => {});
-          progress('sdk-native-create-enter');
-          const heartbeat = setInterval(() => window.__retainedStorageEvent('nativeHeartbeat').catch(() => {}), 1000);
-          try {
-            const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);
-            progress('sdk-native-create-returned');
-            return client;
-          } finally {
-            clearInterval(heartbeat);
-            result.createClientWithExternalKeystore = originalNativeCreate;
-          }
-        };
-        return result;
-      };
-      try {
-        const result = await Reflect.apply(originalCreate, this, args);
-        progress('sdk-create-returned');
-        return result;
-      } finally {
-        wrapper.createClientWithExternalKeystore = originalFactory;
-        wrapper.prototype.getWasmWebClient = originalWasm;
-        sdk.MidenClient.create = originalCreate;
-      }
-    };
-    progress('pre-loss-client');
-    const wallet = await getMidenClient();
+    const wallet = await observedClient();
     if (!includePrivate) {
       progress('pre-loss-account-insert');
       const parsed = sdk.Account.deserialize(new Uint8Array(fixture.accountBytes));
@@ -315,4 +322,19 @@ async function recover(password) {
   }
   return { phase, checks: { ...checks }, progress: observed, service };
 }
-window.__retainedProof = { prepare, recover };
+async function compareClient(feeFaucetId, fresh) {
+  guard();
+  if (fresh) {
+    await ensureSdkWasmReady();
+    await endpoints(feeFaucetId);
+    await initializeStorageHealth();
+  }
+  check('initialHealthy', getStorageHealth().status === 'healthy');
+  await withWasmClientLock(async () => {
+    progress('pre-loss-client');
+    const wallet = await observedClient();
+    check('comparisonCreated', !!wallet);
+  });
+  return { phase, checks: { comparisonCreated: checks.comparisonCreated === true } };
+}
+window.__retainedProof = { prepare, recover, compareClient };

@@ -78,8 +78,82 @@ function safeReport(value) {
     throw new Error('closed-report');
   return { phase: value.phase, checks: value.checks };
 }
+async function installPage(context, report, service) {
+  const page = await context.newPage();
+  await page.exposeBinding('__retainedStorageEvent', (_source, value) => {
+    if (!Object.hasOwn(report.storageEvents, value)) throw new Error('storage-event-bound');
+    report.storageEvents[value]++;
+  });
+  await page.addInitScript(() => {
+    const original = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (...args) {
+      window.__retainedStorageEvent('open').catch(() => {});
+      if (window.__retainedNativeCreating) window.__retainedStorageEvent('nativeOpen').catch(() => {});
+      const request = Reflect.apply(original, this, args);
+      for (const [event, name] of [
+        ['upgradeneeded', 'upgrade'],
+        ['blocked', 'blocked'],
+        ['success', 'success'],
+        ['error', 'error']
+      ]) request.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
+      return request;
+    };
+    const originalDatabases = IDBFactory.prototype.databases;
+    if (originalDatabases) IDBFactory.prototype.databases = function (...args) {
+      const native = window.__retainedNativeCreating;
+      if (native) window.__retainedStorageEvent('nativeDatabasesStart').catch(() => {});
+      return Reflect.apply(originalDatabases, this, args).finally(() => {
+        if (native) window.__retainedStorageEvent('nativeDatabasesEnd').catch(() => {});
+      });
+    };
+    const originalTransaction = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (...args) {
+      window.__retainedStorageEvent('txStart').catch(() => {});
+      const category = window.__retainedNativeCreating
+        ? this.name === window.__retainedSdkStore ? 'sdk' : 'other'
+        : null;
+      if (category) window.__retainedStorageEvent(category + 'TxStart').catch(() => {});
+      const transaction = Reflect.apply(originalTransaction, this, args);
+      if (category) transaction.addEventListener('complete', () => window.__retainedStorageEvent(category + 'TxComplete').catch(() => {}));
+      for (const [event, name] of [
+        ['complete', 'txComplete'],
+        ['abort', 'txAbort'],
+        ['error', 'txError']
+      ]) transaction.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
+      return transaction;
+    };
+  });
+  page.on('worker', worker => {
+    report.workerEvents.started++;
+    worker.on('close', () => report.workerEvents.closed++);
+  });
+  const workerAsset = url => {
+    try {
+      return /worker|\.wasm$/i.test(new URL(url).pathname);
+    } catch {
+      return false;
+    }
+  };
+  context.on('request', request => {
+    if (workerAsset(request.url())) report.workerEvents.assetRequests++;
+  });
+  context.on('requestfailed', request => {
+    if (workerAsset(request.url())) report.workerEvents.assetFailures++;
+  });
+  context.on('response', response => {
+    if (workerAsset(response.url()) && response.status() === 404) report.workerEvents.assetNotFound++;
+  });
+  await page.exposeBinding('__retainedReportPhase', (_source, value) => {
+    if (!phases.has(value)) throw new Error('phase-bound');
+    report.phase = value;
+    console.log('retained-proof-phase=' + value);
+  });
+  await page.goto(`${service.origin}/st/`);
+  await page.waitForFunction(() => typeof window.__retainedProof?.prepare === 'function');
+  return page;
+}
 for (const includePrivate of [false, true]) {
-  test(`st/main/retained-vault/${includePrivate ? 'private-primary' : 'account-only'}`, async ({
+  test(`st/main/comparison/${includePrivate ? 'fresh-origin' : 'post-fixture'}`, async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -110,114 +184,47 @@ for (const includePrivate of [false, true]) {
         }
         return route.continue();
       });
-      const page = await context.newPage();
-      await page.exposeBinding('__retainedStorageEvent', (_source, value) => {
-        if (!Object.hasOwn(report.storageEvents, value)) throw new Error('storage-event-bound');
-        report.storageEvents[value]++;
-      });
-      await page.addInitScript(() => {
-        const original = IDBFactory.prototype.open;
-        IDBFactory.prototype.open = function (...args) {
-          window.__retainedStorageEvent('open').catch(() => {});
-          if (window.__retainedNativeCreating) window.__retainedStorageEvent('nativeOpen').catch(() => {});
-          const request = Reflect.apply(original, this, args);
-          for (const [event, name] of [
-            ['upgradeneeded', 'upgrade'],
-            ['blocked', 'blocked'],
-            ['success', 'success'],
-            ['error', 'error']
-          ]) request.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
-          return request;
-        };
-        const originalDatabases = IDBFactory.prototype.databases;
-        if (originalDatabases) IDBFactory.prototype.databases = function (...args) {
-          const native = window.__retainedNativeCreating;
-          if (native) window.__retainedStorageEvent('nativeDatabasesStart').catch(() => {});
-          return Reflect.apply(originalDatabases, this, args).finally(() => {
-            if (native) window.__retainedStorageEvent('nativeDatabasesEnd').catch(() => {});
-          });
-        };
-        const originalTransaction = IDBDatabase.prototype.transaction;
-        IDBDatabase.prototype.transaction = function (...args) {
-          window.__retainedStorageEvent('txStart').catch(() => {});
-          const category = window.__retainedNativeCreating
-            ? this.name === window.__retainedSdkStore ? 'sdk' : 'other'
-            : null;
-          if (category) window.__retainedStorageEvent(category + 'TxStart').catch(() => {});
-          const transaction = Reflect.apply(originalTransaction, this, args);
-          if (category) transaction.addEventListener('complete', () => window.__retainedStorageEvent(category + 'TxComplete').catch(() => {}));
-          for (const [event, name] of [
-            ['complete', 'txComplete'],
-            ['abort', 'txAbort'],
-            ['error', 'txError']
-          ]) transaction.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
-          return transaction;
-        };
-      });
-      page.on('worker', worker => {
-        report.workerEvents.started++;
-        worker.on('close', () => report.workerEvents.closed++);
-      });
-      const workerAsset = url => {
-        try {
-          return /worker|\.wasm$/i.test(new URL(url).pathname);
-        } catch {
-          return false;
-        }
-      };
-      context.on('request', request => {
-        if (workerAsset(request.url())) report.workerEvents.assetRequests++;
-      });
-      context.on('requestfailed', request => {
-        if (workerAsset(request.url())) report.workerEvents.assetFailures++;
-      });
-      context.on('response', response => {
-        if (workerAsset(response.url()) && response.status() === 404) report.workerEvents.assetNotFound++;
-      });
-      await page.exposeBinding('__retainedReportPhase', (_source, value) => {
-        if (!phases.has(value)) throw new Error('phase-bound');
-        report.phase = value;
-        console.log('retained-proof-phase=' + value);
-      });
-      await page.goto(`${service.origin}/st/`);
-      await page.waitForFunction(() => typeof window.__retainedProof?.prepare === 'function');
+      const page = await installPage(context, report, service);
       report.stage = 'prepare';
-      const prepared = await page.evaluate(
-        async ({ password, includePrivate }) => {
-          try {
-            return { ok: true, value: await window.__retainedProof.prepare(password, includePrivate) };
-          } catch {
-            return { ok: false, phase: window.__retainedPhase || 'initial' };
-          }
-        },
-        { password, includePrivate }
-      );
-      report.phase = prepared.ok ? prepared.value.phase : prepared.phase;
-      expect(prepared.ok, `prepare:${report.phase}`).toBe(true);
-      report.prepare = safeReport(prepared.value);
-      expect(Object.values(report.prepare.checks).every(Boolean)).toBe(true);
-      await page.reload();
-      await page.waitForFunction(() => typeof window.__retainedProof?.recover === 'function');
-      report.stage = 'recover';
-      const restored = await page.evaluate(async password => {
+      const setup = await page.evaluate(async ({ password }) => {
         try {
-          return { ok: true, value: await window.__retainedProof.recover(password) };
+          return { ok: true, value: await window.__retainedProof.prepare(password, false, true) };
         } catch {
           return { ok: false, phase: window.__retainedPhase || 'initial' };
         }
-      }, password);
-      report.phase = restored.ok ? restored.value.phase : restored.phase;
-      expect(restored.ok, `recover:${report.phase}`).toBe(true);
-      report.recover = safeReport(restored.value);
-      expect(report.recover.checks.missingAccountGuardianBranch).toBe(true);
-      expect(report.recover.checks.recoveredAccountVerified).toBe(true);
-      expect(report.recover.checks.priorRequiredEvidenceRetained).toBe(true);
-      expect(report.recover.checks.recovered).toBe(true);
-      expect(report.recover.checks.healthyAfterRecovery).toBe(true);
-      expect(report.recover.checks.rebuiltNativeAccount).toBe(true);
-      if (includePrivate) expect(report.recover.checks.rebuiltAuthenticatedPrivate).toBe(true);
-      expect(report.outsideRequests).toBe(0);
-      report.stage = 'complete';
+      }, { password });
+      report.phase = setup.ok ? 'sdk-generated-request-images' : setup.phase;
+      expect(setup.ok, `setup:${report.phase}`).toBe(true);
+      let comparisonContext;
+      try {
+        let comparisonPage = page;
+        if (includePrivate) {
+          comparisonContext = await browser.newContext();
+          await comparisonContext.route('**/*', route => {
+            if (new URL(route.request().url()).origin !== service.origin) {
+              report.outsideRequests++;
+              return route.abort();
+            }
+            return route.continue();
+          });
+          comparisonPage = await installPage(comparisonContext, report, service);
+        }
+        report.stage = 'compare';
+        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh }) => {
+          try {
+            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh) };
+          } catch {
+            return { ok: false, phase: window.__retainedPhase || 'initial' };
+          }
+        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate });
+        report.phase = result.ok ? result.value.phase : result.phase;
+        expect(result.ok, `compare:${report.phase}`).toBe(true);
+        report.prepare = { phase: result.value.phase, checks: result.value.checks };
+        expect(report.prepare.checks.comparisonCreated).toBe(true);
+        report.stage = 'complete';
+      } finally {
+        if (comparisonContext) await comparisonContext.close();
+      }
     } finally {
       report.service = service.summary();
       if (!phases.has(report.phase)) report.phase = 'initial';
