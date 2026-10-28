@@ -38,6 +38,10 @@ function getSetting(key: string, defaultValue: boolean) {
   return readSetting(key, defaultValue) ?? defaultValue;
 }
 
+function getOperationalSetting(key: string, defaultValue: boolean) {
+  return readSetting(key, defaultValue) ?? false;
+}
+
 /**
  * Write a boolean setting to the platform KV store so the extension service worker
  * (which has no `localStorage`) can read it via `readMirroredSetting`. Guarded:
@@ -71,7 +75,7 @@ export function setDelegateProofSetting(enabled: boolean) {
 }
 
 export function isDelegateProofEnabled() {
-  return getSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  return getOperationalSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
 }
 
 /**
@@ -89,7 +93,7 @@ export function setAutoConsumeSetting(enabled: boolean) {
 }
 
 export function isAutoConsumeEnabled() {
-  return getSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  return getOperationalSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
 }
 
 /**

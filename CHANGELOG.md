@@ -2,7 +2,7 @@
 
 ## 1.17.9 (TBD)
 
-- [FIX][all] Preference reads keep their defaults when local storage is unavailable or contains invalid values.
+- [FIX][all] Unreadable auto-consume and delegated-proving preferences fail closed, while unset preferences keep their defaults.
 
 - [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
