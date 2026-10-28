@@ -91,7 +91,9 @@ export function mergeExternalRecoveryData(
         continue;
       }
     }
-    if (!entries.some(value => value.kind === entry.kind && value.id === entry.id)) entries.push(entry);
+    const existing = entries.findIndex(value => value.kind === entry.kind && value.id === entry.id);
+    if (existing < 0) entries.push(entry);
+    else entries[existing] = entry;
   }
   const result = validateJournal({
     version: 1,
