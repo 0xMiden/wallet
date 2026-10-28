@@ -305,8 +305,7 @@ export const useWalletStore = create<WalletStore>()(
       const previous = get();
       const incomingAvailability = sanitizeStorageAvailability(state.storageAvailability ?? { status: 'pending' });
       const storageAvailability =
-        previous.storageAvailability.status === 'unavailable' &&
-        (incomingAvailability.status === 'pending' || incomingAvailability.epoch <= previous.storageAvailability.epoch)
+        previous.storageAvailability.status === 'unavailable' && incomingAvailability.status === 'pending'
           ? previous.storageAvailability
           : incomingAvailability;
       const justBecameReady =
