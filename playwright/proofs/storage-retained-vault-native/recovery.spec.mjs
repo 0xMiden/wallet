@@ -154,7 +154,7 @@ async function installPage(context, report, service) {
 }
 for (const variant of ['fresh-sdk', 'isolated-callbacks']) {
   const includePrivate = variant !== 'post-fixture';
-  test(`st/main/comparison/${variant}`, async ({
+  test(`st/main/profiler/${variant}`, async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -174,6 +174,7 @@ for (const variant of ['fresh-sdk', 'isolated-callbacks']) {
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
       storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0, nativeHeartbeat: 0, diagnosticStorageFailure: 0, diagnosticAcquisition: 0 },
+      profiler: { markerSeen: false, completed: false, createSettled: false, createSucceeded: false, wasmSamples: 0, jsSamples: 0, otherSamples: 0 },
       phase: 'initial',
       service: null
     };
@@ -210,19 +211,46 @@ for (const variant of ['fresh-sdk', 'isolated-callbacks']) {
           });
           comparisonPage = await installPage(comparisonContext, report, service);
         }
-        report.stage = 'compare';
-        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh, directSdk, isolatedCallbacks }) => {
+        report.stage = 'profile';
+        const session = await comparisonContext.newCDPSession(comparisonPage);
+        await session.send('Profiler.enable');
+        await session.send('Profiler.setSamplingInterval', { interval: 1000 });
+        await session.send('Profiler.start');
+        const pending = comparisonPage.evaluate(async ({ feeFaucetId, isolatedCallbacks }) => {
           try {
-            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh, directSdk, isolatedCallbacks) };
+            await window.__retainedProof.compareClient(feeFaucetId, true, true, isolatedCallbacks);
+            return true;
           } catch {
-            return { ok: false, phase: window.__retainedPhase || 'initial' };
+            return false;
           }
-        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate, directSdk: true, isolatedCallbacks: variant === 'isolated-callbacks' });
-        report.phase = result.ok ? result.value.phase : result.phase;
-        expect(result.ok, `compare:${report.phase}`).toBe(true);
-        report.prepare = { phase: result.value.phase, checks: result.value.checks };
-        expect(report.prepare.checks.comparisonCreated).toBe(true);
-        report.stage = 'complete';
+        }, { feeFaucetId: setup.value.feeFaucetId, isolatedCallbacks: variant === 'isolated-callbacks' });
+        pending.then(value => {
+          report.profiler.createSettled = true;
+          report.profiler.createSucceeded = value === true;
+        }, () => { report.profiler.createSettled = true; });
+        const deadline = Date.now() + 20_000;
+        while (report.storageEvents.nativeMarker === 0 && !report.profiler.createSettled && Date.now() < deadline)
+          await new Promise(resolve => setTimeout(resolve, 50));
+        report.profiler.markerSeen = report.storageEvents.nativeMarker > 0;
+        if (report.profiler.markerSeen) await new Promise(resolve => setTimeout(resolve, 10_000));
+        const stopped = await Promise.race([
+          session.send('Profiler.stop').then(value => ({ ok: true, value }), () => ({ ok: false })),
+          new Promise(resolve => setTimeout(() => resolve({ ok: false }), 10_000))
+        ]);
+        if (stopped.ok) {
+          const categories = new Map(stopped.value.profile.nodes.map(node => {
+            const frame = node.callFrame;
+            const kind = frame.url.startsWith('wasm:') || frame.functionName.startsWith('wasm-function')
+              ? 'wasmSamples' : frame.url.startsWith('http:') || frame.url.startsWith('https:') ? 'jsSamples' : 'otherSamples';
+            return [node.id, kind];
+          }));
+          for (const sample of stopped.value.profile.samples || []) report.profiler[categories.get(sample) || 'otherSamples']++;
+          report.profiler.completed = true;
+        }
+        report.stage = 'profile-complete';
+        expect(report.profiler.markerSeen).toBe(true);
+        expect(report.profiler.completed).toBe(true);
+        expect(report.profiler.wasmSamples + report.profiler.jsSamples + report.profiler.otherSamples).toBeGreaterThan(0);
       } finally {
         if (comparisonContext) await comparisonContext.close();
       }
