@@ -486,6 +486,105 @@ describe('settings helpers', () => {
     });
   });
 
+  describe('in-flight background settings copies', () => {
+    it('does not restore telemetry from an older copy after a newer copy fails', async () => {
+      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
+        localStorage.setItem(key, 'true');
+      }
+      let releaseCopy!: () => void;
+      const copyPending = new Promise<void>(resolve => {
+        releaseCopy = resolve;
+      });
+      let signalPaused!: () => void;
+      const copyPaused = new Promise<void>(resolve => {
+        signalPaused = resolve;
+      });
+      let parked = false;
+      let clears = 0;
+      mockSet = async items => {
+        if (items[BG_SETTINGS_MIRRORED_KEY] === false && ++clears === 2) {
+          throw new Error('Newer copy cannot clear its marker');
+        }
+        if (!parked && items[DELEGATE_PROOF_STORAGE_KEY] === true) {
+          parked = true;
+          signalPaused();
+          await copyPending;
+        }
+        Object.assign(mockKvStore, items);
+      };
+
+      try {
+        mirrorBackgroundSettings();
+        await copyPaused;
+        await setTelemetrySetting(false);
+        expect(await isTelemetryEnabledAsync()).toBe(false);
+        mirrorBackgroundSettings();
+        releaseCopy();
+        await nextTask();
+        expect(await isTelemetryEnabledAsync()).toBe(false);
+        expect(await areBackgroundSettingsMirrored()).toBe(false);
+      } finally {
+        releaseCopy();
+      }
+    });
+
+    it('does not apply an older telemetry write after a completed opt-out of that key', async () => {
+      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
+        localStorage.setItem(key, 'true');
+      }
+      let releaseWrite!: () => void;
+      const writePending = new Promise<void>(resolve => {
+        releaseWrite = resolve;
+      });
+      let signalPaused!: () => void;
+      const writePaused = new Promise<void>(resolve => {
+        signalPaused = resolve;
+      });
+      let parked = false;
+      mockSet = async items => {
+        if (!parked && items[TELEMETRY_STORAGE_KEY] === true) {
+          parked = true;
+          signalPaused();
+          await writePending;
+        }
+        Object.assign(mockKvStore, items);
+      };
+
+      try {
+        mirrorBackgroundSettings();
+        await writePaused;
+        let completedDuringPark = false;
+        const optOut = setTelemetrySetting(false).then(() => {
+          completedDuringPark = true;
+        });
+        await nextTask();
+        const completedConsent = completedDuringPark && (await isTelemetryEnabledAsync());
+        expect(completedConsent).toBe(false);
+        releaseWrite();
+        await optOut;
+        expect(await isTelemetryEnabledAsync()).toBe(false);
+        expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(false);
+      } finally {
+        releaseWrite();
+      }
+    });
+
+    it('a rejected telemetry copy does not block a later opt-out', async () => {
+      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
+        localStorage.setItem(key, 'true');
+      }
+      mockSet = async items => {
+        if (items[TELEMETRY_STORAGE_KEY] === true) throw new Error('Telemetry copy unavailable');
+        Object.assign(mockKvStore, items);
+      };
+      mirrorBackgroundSettings();
+      await nextTask();
+      expect(await areBackgroundSettingsMirrored()).toBe(false);
+      await setTelemetrySetting(false);
+      expect(await isTelemetryEnabledAsync()).toBe(false);
+    });
+  });
+
   describe('haptic feedback setting', () => {
     it('returns default value when not set', () => {
       expect(isHapticFeedbackEnabled()).toBe(DEFAULT_HAPTIC_FEEDBACK);
