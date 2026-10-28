@@ -1,0 +1,73 @@
+{
+  "approved_target_lock_changes": {
+    "\"@miden-sdk/node-darwin-arm64@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "f3eac40494062158c97221dafd7dda7d899752671d1f701afb63f6f16bc979bc",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-arm64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-darwin-x64@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "7965585a0d0f361e40f7af828cfb59ace2afd7ced6725dbdc3b6748eb78a8424",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-x64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-linux-x64-gnu@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "671434909252186506721776c82a7f1345e89b4b7d406fdc94320187a41d467c",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-gnu@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-linux-x64-musl@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "26f0e430bac8c13d2c00e5a0d6216de37b4115b07f3db271f22e93e63baa3cb6",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-musl@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    }
+  },
+  "checks": [
+    {
+      "argv": [
+        "yarn",
+        "tsc",
+        "--noEmit"
+      ],
+      "kind": "type",
+      "name": "types",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/recovery/receipt-lifecycle.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=cold-loss-results.json",
+        "--testNamePattern",
+        "Task4C2 cold loss"
+      ],
+      "expected_count": 3,
+      "expected_filtered": 13,
+      "kind": "test",
+      "name": "cold-loss",
+      "results_json": "cold-loss-results.json",
+      "timeout_seconds": 600
+    }
+  ],
+  "package_sha256": {
+    "@miden-sdk/miden-sdk": "90ab279019f48ff41beefae89f48cbf903600b5bcb1a362f944094e709c7f8fb",
+    "@miden-sdk/react": "dae046f97d54bafa0d298982b94e4dd642fbfe121769ecb21a04280ae89bb8e2",
+    "@miden-sdk/vite-plugin": "ab0de5991cda8e80ed6c0fb3e6177a54a813709ec9d68620b791f1d989a0f3b6"
+  },
+  "phase": "financial-cold-mutant-receipt",
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-injection.yml",
+    ".github/ci/issue1948-sdk-injection.py",
+    ".github/ci/issue1948-sdk-injection-inputs.json"
+  ],
+  "wallet_source": "467c29bad1ea1f55304edb2ac568753190223bc8",
+  "wallet_tree": "652be0b5e54a1ff5d79bd3fbce4fff9820078636"
+}
