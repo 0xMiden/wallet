@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][all] Crash reports distinguish burn fee, access-check and note-claim failures and retain fixed execution categories through privacy filtering without including financial or authentication data.
+- [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.
 - [CHANGE][all] An expired queued transaction reports the strongest way the processing loop looked at that wait, whether its pre-send network update started, finished or failed, and, on mobile, whether this run recorded the wait as mostly backgrounded. A wait the loop never saw says never.
 - [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
