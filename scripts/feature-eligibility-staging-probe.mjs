@@ -770,7 +770,24 @@ export function createProbeController(effects) {
     }
     return result;
   };
-  return { run, cleanup };
+  const inspect = async manifest => {
+    let ownershipCheck;
+    try {
+      await validManifest(manifest);
+      await authenticate();
+      const present = await owned(manifest, check => {
+        ownershipCheck = check;
+      });
+      return { inspection: present ? 'verified' : 'absent', reason: 'complete' };
+    } catch (error) {
+      return {
+        inspection: 'blocked',
+        reason: reasonOf(error),
+        ...(ownershipCheck ? { ownershipCheck } : {})
+      };
+    }
+  };
+  return { run, cleanup, inspect };
 }
 
 export function createLocalProbeEffects(env) {
