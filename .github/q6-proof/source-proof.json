@@ -1,0 +1,15 @@
+{
+  "head": "ffc7e70e0a0c166a98baf8c32d9d73551d4c8f57",
+  "tree": "66d8454d55abe8f950304a5e40569d3daaaa34af",
+  "full_patch": "/Users/celrisen/.local/state/walletsentry/runs/20261028T1440Z-queue/review-Q6/C3-fixture-v3-full.patch",
+  "full_patch_sha256": "31bc72214071608bf613948eb601984d5258f258de9bbb390acccf4950bf6271",
+  "functional_reverse_patch": "/Users/celrisen/.local/state/walletsentry/runs/20261028T1440Z-queue/review-Q6/C3-functional-reverse.patch",
+  "functional_reverse_sha256": "3d3b5614bede34aab80a79c3708b7371b5b197fb0358f8f1d9052e9f07e579fb",
+  "functional_hunks": 7,
+  "source_helpers_blob": "6117b4a33d5074dcb36aefff349057e389c4b9f4",
+  "helpers_test_blob": "0a62d4368d1ad36376adc3103d49ae60312b7ea9",
+  "production_unchanged_from_v2": true,
+  "change": "Only tests: next task boundary observes nested promise-backed mock writes; all106 tests and assertion policies preserved.",
+  "expected_baseline": "106 passed,0failed,0runtime",
+  "expected_old_original_source": "23functional failed,83passed,0runtime,106executed (same initial CI red roots)"
+}

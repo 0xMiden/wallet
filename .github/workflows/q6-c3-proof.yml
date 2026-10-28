@@ -1,0 +1,46 @@
+name: Settings storage C3 green and mutation proof v3
+on:
+  push:
+    branches: [ci/q6-c3-green-mutation-proof-v3]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen implemented source and packet
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-c3-proof-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-c3-proof-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 610fc41cd0232b5adf5ddc80aedb715791154386
+          cp -R .github/q6-proof "$RUNNER_TEMP/q6-c3-proof-packet"
+          git checkout --detach 610fc41cd0232b5adf5ddc80aedb715791154386
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-c3-proof-evidence/source-sha.txt"
+          test "$(git rev-parse HEAD^{tree})" = 66d8454d55abe8f950304a5e40569d3daaaa34af
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-c3-proof-evidence/install.log"
+      - name: Full typecheck and strict named lint
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/q6-c3-proof-evidence/typecheck.log"
+          yarn eslint src/lib/settings/helpers.ts src/lib/settings/helpers.test.ts src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-c3-proof-evidence/lint.log"
+      - name: Prove baseline, seven hunk mutations, and closing green
+        run: bash "$RUNNER_TEMP/q6-c3-proof-packet/proof.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-c3-green-mutation-proof
+          path: ${{ runner.temp }}/q6-c3-proof-evidence
+          if-no-files-found: error
