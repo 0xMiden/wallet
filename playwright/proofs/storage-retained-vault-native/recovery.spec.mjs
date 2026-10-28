@@ -98,7 +98,7 @@ for (const includePrivate of [false, true]) {
       recover: null,
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
-      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0 },
+      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0 },
       phase: 'initial',
       service: null
     };
@@ -127,6 +127,17 @@ for (const includePrivate of [false, true]) {
             ['error', 'error']
           ]) request.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
           return request;
+        };
+        const originalTransaction = IDBDatabase.prototype.transaction;
+        IDBDatabase.prototype.transaction = function (...args) {
+          window.__retainedStorageEvent('txStart').catch(() => {});
+          const transaction = Reflect.apply(originalTransaction, this, args);
+          for (const [event, name] of [
+            ['complete', 'txComplete'],
+            ['abort', 'txAbort'],
+            ['error', 'txError']
+          ]) transaction.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
+          return transaction;
         };
       });
       page.on('worker', worker => {
