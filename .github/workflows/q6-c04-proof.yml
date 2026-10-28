@@ -1,0 +1,45 @@
+name: Settings C04 green and mutation proof
+on:
+  push:
+    branches: [ci/q6-c04-green-mutation-proof-v2]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-c04-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-c04-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 34ebf5cfb432e08ff127613ee0271bb04a02c608
+          cp -R .github/q6-c04-proof "$RUNNER_TEMP/q6-c04-packet"
+          git checkout --detach 34ebf5cfb432e08ff127613ee0271bb04a02c608
+          test "$(git rev-parse HEAD^{tree})" = bd275b063a1d43ee143685dcc9e7a3c238d393e5
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-c04-evidence/install.log"
+      - name: Full typecheck and strict named lint
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/q6-c04-evidence/typecheck.log"
+          yarn eslint src/lib/settings/helpers.ts src/lib/settings/helpers.test.ts src/lib/settings/helpers.capacitor-mirror.test.ts src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-c04-evidence/lint.log"
+      - name: Baseline111, four mutations, closing111
+        run: bash "$RUNNER_TEMP/q6-c04-packet/proof.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-c04-green-mutation-proof
+          path: ${{ runner.temp }}/q6-c04-evidence
+          if-no-files-found: error
