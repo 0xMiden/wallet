@@ -8,7 +8,7 @@ for f,h in m['file_sha256'].items(): assert hashlib.sha256(pathlib.Path(f).read_
 out=e/'red.json';cmd=['yarn','jest','--runTestsByPath',*m['suites'],'--maxWorkers=2','--json','--outputFile='+str(out)]
 with (e/'red.log').open('w') as log: r=subprocess.run(cmd,stdout=log,stderr=subprocess.STDOUT)
 x=json.loads(out.read_text());failed=[a for t in x['testResults'] for a in t['assertionResults'] if a['status']=='failed']
-allowed=[r'bridge deposit user-visible errors']
+allowed=[r'^user-visible bridge deposit producers ']
 messages='\n'.join(s for a in failed for s in a['failureMessages'])
 summary={'source':m['source'],'tree':m['tree'],'command':cmd,'exit':r.returncode,'total':x['numTotalTests'],'passed':x['numPassedTests'],'failed':x['numFailedTests'],'runtime':x['numRuntimeErrorTestSuites'],'failed_names':[a['fullName'] for a in failed]}
 (e/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
