@@ -90,6 +90,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: strin
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: {
     decodeGuardianHistory: jest.fn(),
+    importGuardianHistoryP2ideNotes: jest.fn(async () => undefined),
     getGuardianResultCommitment: jest.fn()
   }
 }));
@@ -174,6 +175,22 @@ it('paginates current source first, removes duplicate operators, and merges dupl
   await run();
   expect(createClient).not.toHaveBeenCalled();
   expect(await transactions.count()).toBe(3);
+});
+
+it('imports sent P2IDE notes before completing a history page', async () => {
+  await run();
+  expect(midenClientProxy.importGuardianHistoryP2ideNotes).toHaveBeenCalledWith('2', account.publicKey, 'note-2');
+});
+
+it('keeps a failed note import pending and retries the history page', async () => {
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockRejectedValueOnce(new Error('note import failed'));
+  const result = await run();
+  expect(result.sourceFailures).toBeGreaterThan(0);
+  expect(await operatorCheckpoint('https://one')).toMatchObject({ failure: 'network' });
+  expect((await operatorCheckpoint('https://one'))?.cursor).toBeUndefined();
+  source('https://one', [{ entries: [entry(2)], nextCursor: 'next' }, { entries: [entry(1)] }]);
+  expect((await run()).sourceFailures).toBe(0);
+  expect((await operatorCheckpoint('https://one'))?.completed).toBe(true);
 });
 
 it('preserves a richer local action matched through its execution commitment', async () => {
