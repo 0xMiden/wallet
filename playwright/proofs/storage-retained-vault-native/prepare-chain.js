@@ -259,7 +259,9 @@ export async function prepareChain(sdk) {
 
     const finalChain = await client.serializeMockChain();
     const database = await sdk.exportStore(await client.storeIdentifier());
-    const feeFaucetId = await client.feeFaucetId();
+    const fee = await client.feeFaucetId();
+    const feeFaucetId = fee.toString();
+    fee.free();
     check('boundedChain', finalChain.length > 0 && finalChain.length <= 16 * 1024 * 1024);
     check('boundedDatabase', typeof database === 'string' && database.length <= 16 * 1024 * 1024);
     check('custodyCount', custody.length === 3);

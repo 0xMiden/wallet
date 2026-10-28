@@ -44,6 +44,10 @@ const phases = new Set([
   'actual-missing-account-recovery'
 ]);
 const checkNames = new Set([
+  'endpointBound',
+  'nativeErrorClass',
+  'nativeAcquisitionGate',
+  'nativeResolver',
   'distinctSdkStore',
   'producerBound',
   'initialHealthy',

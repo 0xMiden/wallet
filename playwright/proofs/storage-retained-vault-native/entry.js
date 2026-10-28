@@ -9,7 +9,7 @@ import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
-import { applyEndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
@@ -46,7 +46,7 @@ const control = async (action, body) => {
 };
 async function endpoints(feeFaucetId) {
   progress('endpoint-override');
-  applyEndpointOverride({
+  await applyEndpointOverride({
     rpcUrl: location.origin,
     proverUrl: `${location.origin}/prover`,
     noteTransportUrl: `${location.origin}/notes`,
@@ -59,6 +59,7 @@ async function endpoints(feeFaucetId) {
     presetName: 'localnet',
     feeFaucetId
   });
+  check('endpointBound', getEffectiveRpcUrl() === location.origin);
   progress('native-wasm-lookup');
   const wasm = await getWasmOrThrow();
   progress('native-error-class');
