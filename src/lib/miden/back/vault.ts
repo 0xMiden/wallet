@@ -1547,7 +1547,7 @@ export class Vault {
       getPlain<unknown>(VAULT_KEY_PASSWORD_STORAGE_KEY),
       getPlain<unknown>(VAULT_KEY_HARDWARE_STORAGE_KEY)
     ]);
-    return accounts || mnemonic || password !== undefined || hardware !== undefined;
+    return accounts && mnemonic && password !== undefined && hardware !== undefined;
   }
 
   static async isExist() {
