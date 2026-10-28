@@ -1,0 +1,45 @@
+name: Settings F4 expanded regression proof
+on:
+  push:
+    branches: [ci/q6-f4-expanded-red-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test-only source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-f4-expanded-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-f4-expanded-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = fe7d7d1ce789d21026e8132b04f463a58b83874d
+          cp -R .github/q6-f4-expanded-proof "$RUNNER_TEMP/q6-f4-expanded-packet"
+          git checkout --detach fe7d7d1ce789d21026e8132b04f463a58b83874d
+          test "$(git rev-parse HEAD^{tree})" = 210e069a79a6a3a2478d59f901ed51eee3bfadef
+          cp "$RUNNER_TEMP/q6-f4-expanded-packet/source.json" "$RUNNER_TEMP/q6-f4-expanded-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-f4-expanded-evidence/install.log"
+      - name: Strict named lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/lib/settings/helpers.ts src/lib/settings/helpers.test.ts src/lib/settings/helpers.capacitor-mirror.test.ts src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-f4-expanded-evidence/lint.log"
+      - name: Verify four intended failures across 111 named tests
+        run: python3 "$RUNNER_TEMP/q6-f4-expanded-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-f4-expanded-red-proof
+          path: ${{ runner.temp }}/q6-f4-expanded-evidence
+          if-no-files-found: error

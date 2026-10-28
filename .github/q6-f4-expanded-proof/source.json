@@ -1,0 +1,29 @@
+{
+  "source_sha": "fe7d7d1ce789d21026e8132b04f463a58b83874d",
+  "source_tree": "210e069a79a6a3a2478d59f901ed51eee3bfadef",
+  "test_files": [
+    "src/lib/settings/helpers.test.ts",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx"
+  ],
+  "test_blobs": {
+    "src/lib/settings/helpers.test.ts": "28f52a56502d986e077954a74b9c404819b7a852",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts": "280a161c981d976102d6d26fee675804d93c558f",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx": "9e9157a7ccd86f4d9e33b760133fe090fe624f71"
+  },
+  "production_helpers_blob": "6117b4a33d5074dcb36aefff349057e389c4b9f4",
+  "frozen_native_it_sha256": "08d6fb0c32918a165f5f8c890aa3a9a17f70c79b522b0d9e8286098255f0d2f0",
+  "expected_counts": {
+    "total": 111,
+    "passed": 107,
+    "failed": 4,
+    "runtime": 0
+  },
+  "expected_failures": {
+    "keeps a completed telemetry opt-out while a sequential native mirror batch is in flight": 2,
+    "keeps completed later-key opt-outs while an earlier native write is in flight": 2,
+    "settings helpers in-flight background settings copies does not restore telemetry from an older copy after a newer copy fails": 1,
+    "settings helpers in-flight background settings copies does not apply an older telemetry write after a completed opt-out of that key": 1
+  },
+  "recovery_control": "settings helpers in-flight background settings copies a rejected telemetry copy does not block a later opt-out"
+}
