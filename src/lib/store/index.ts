@@ -996,7 +996,7 @@ export const useWalletStore = create<WalletStore>()(
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) return;
         const currentAvailability = get().storageAvailability;
-        if (currentAvailability.status !== 'healthy' || currentAvailability.epoch !== epoch) return;
+        if (currentAvailability.status === 'pending' && epoch >= 0) return;
         set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
       } finally {
         fetchingAddresses.delete(accountAddress);
