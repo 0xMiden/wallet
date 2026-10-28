@@ -212,7 +212,7 @@ describe('the never-committed verdicts', () => {
     let intercept = true;
     const where = jest.spyOn(Repo.transactions, 'where').mockImplementation(query => {
       const collection = originalWhere(query);
-      if (intercept) {
+      if (intercept && typeof collection.modify === 'function') {
         const modify = collection.modify.bind(collection);
         collection.modify = async changes => {
           const result = await modify(changes);
