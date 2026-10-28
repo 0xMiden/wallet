@@ -114,6 +114,16 @@ async function prepare(password, includePrivate) {
     await control('learn', { kind: 'account' });
     const proof = await rpc.getAccountProof(id);
     proof.free();
+    const nullifier = sdk.Word.fromHex('0x' + fixture.nullifier);
+    try {
+      const prefix = Number(nullifier.toU64s()[3] >> 48n);
+      await control('learn', { kind: 'nullifier' });
+      const updates = await rpc.syncNullifiers(new Uint16Array([prefix]), fixture.block, generated.headers - 1);
+      check('learnedEmptyNullifiers', updates.length === 0);
+      updates.forEach(update => update.free());
+    } finally {
+      nullifier.free();
+    }
   } finally {
     id.free();
     rpc.free();

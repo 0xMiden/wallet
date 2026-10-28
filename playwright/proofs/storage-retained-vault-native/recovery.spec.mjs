@@ -62,6 +62,7 @@ const checkNames = new Set([
   'sdkMissingBeforeRecovery',
   'continuityRefused',
   'unavailableAfterLoss',
+  'learnedEmptyNullifiers',
   'noteHeaderMatchesFixture',
   'encryptedJournalSurvived',
   'missingAccountGuardianBranch',

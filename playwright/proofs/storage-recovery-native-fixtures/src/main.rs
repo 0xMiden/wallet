@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use miden_client::account::AccountId;
 use miden_client::rpc::domain::account::AccountProof;
-use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse};
+use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse};
 use miden_client::rpc::{RpcEndpoint, RpcLimits};
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
@@ -108,7 +108,22 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     {
         return Err("limits_wire_binding");
     }
+    if chain.nullifier_tree().num_nullifiers() != 0 {
+        return Err("nullifier_tree_not_empty");
+    }
+    let tip_number = tip.block_num().as_u32();
+    let nullifiers = SyncNullifiersResponse {
+        pagination_info: Some(PaginationInfo { chain_tip: tip_number, block_num: tip_number }),
+        nullifiers: vec![],
+    };
+    let nullifier_bytes = nullifiers.encode_to_vec();
+    let decoded = SyncNullifiersResponse::decode(nullifier_bytes.as_slice()).map_err(|_| "nullifier_wire")?;
+    let page = decoded.pagination_info.ok_or("nullifier_page_missing")?;
+    if page.chain_tip != tip_number || page.block_num != tip_number || !decoded.nullifiers.is_empty() {
+        return Err("nullifier_wire_binding");
+    }
     let mut outputs = vec![
+        ("nullifiers.pb".to_owned(), nullifier_bytes),
         ("account.pb".to_owned(), account_bytes),
         ("limits.pb".to_owned(), limits_bytes),
     ];
