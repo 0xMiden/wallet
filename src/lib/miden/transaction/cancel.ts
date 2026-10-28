@@ -490,7 +490,11 @@ const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | '
  * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
  * write does for an unconfirmed row today.
  */
-export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<number> => {
+export const markTransactionUnconfirmed = async (
+  tx: ITransaction,
+  error: unknown,
+  originAttemptId?: string
+): Promise<number> => {
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
@@ -518,6 +522,26 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     // window left open would refuse its Retry as possibly still running.
     row.cancelledInFlightAt = undefined;
     if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      if (
+        row.status === ITransactionStatus.Failed &&
+        originAttemptId !== undefined &&
+        row.attemptId === originAttemptId
+      ) {
+        const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
+        const entry = matching.length === 1 ? matching[0] : undefined;
+        if (
+          entry &&
+          entry.submitContext === undefined &&
+          (transactionId === undefined || entry.transactionId === transactionId)
+        ) {
+          const context = captureSubmitContext(
+            error,
+            hiddenDuringSubmit(row, returnedAtMs),
+            submitLegMs(row, returnedAtMs)
+          );
+          if (context) entry.submitContext = context;
+        }
+      }
       return attemptId === undefined && !windowOpen ? false : undefined;
     }
     if (tx.attemptId !== undefined && row.attemptId === tx.attemptId) {
@@ -576,37 +600,6 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     step: stepOfStage(existing?.stage)
   });
   return returnedAtMs;
-};
-
-/**
- * A cancel already failed the row, so the unconfirmed write kept that failure and returned before its snapshot.
- * Record the originating attempt's submit context from that same return sample, and no other field: the later
- * indefinite outcome must not become the row's error, and this write sends no pipeline report.
- */
-const recordFailedSubmitContext = async (
-  rowId: string,
-  originAttemptId: string | undefined,
-  error: unknown,
-  returnedAtMs: number
-): Promise<void> => {
-  const transactionId = indefiniteSubmitTransactionId(error);
-  await Repo.transactions.where({ id: rowId }).modify(row => {
-    if (
-      originAttemptId === undefined ||
-      row.status !== ITransactionStatus.Failed ||
-      row.attemptId !== originAttemptId
-    ) {
-      return false;
-    }
-    const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
-    const entry = matching.length === 1 ? matching[0] : undefined;
-    if (entry === undefined || entry.submitContext !== undefined) return false;
-    if (transactionId !== undefined && entry.transactionId !== transactionId) return false;
-    const context = captureSubmitContext(error, hiddenDuringSubmit(row, returnedAtMs), submitLegMs(row, returnedAtMs));
-    if (!context) return false;
-    entry.submitContext = context;
-    return undefined;
-  });
 };
 
 /**
@@ -714,8 +707,7 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
-    const returnedAtMs = await markTransactionUnconfirmed(tx, error);
-    await recordFailedSubmitContext(tx.id, originAttemptId, error, returnedAtMs);
+    await markTransactionUnconfirmed(tx, error, originAttemptId);
     return;
   }
   // A lock-recovery eviction (issue #775) is treated like an offscreen
