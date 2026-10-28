@@ -1846,7 +1846,6 @@ export class Vault {
       return { imported: true, retainedEntries: result.snapshot.entries.length };
     } catch (error) {
       failed = true;
-      quarantineAcceptedEvidence();
       throw error;
     }
   }
