@@ -1,0 +1,48 @@
+name: AA review frozen green and mutation proof
+on:
+  push:
+    branches: [ci/aa-council-green-e384]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source and immutable proof packet
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path.cwd();packet=root/'.github/aa-review-proof';m=json.loads((packet/'manifest.json').read_text());git=lambda *a:subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')==m['source_sha']
+          assert git('rev-parse','HEAD^:')==m['source_tree']
+          assert git('rev-parse','HEAD^^')==m['regression_checkpoint']
+          expected=['.github/workflows/aa-review-green.yml',*[str(f.relative_to(root)) for f in packet.iterdir() if f.is_file()]]
+          assert sorted(git('diff','--name-only','HEAD^','HEAD').splitlines())==sorted(expected)
+          hashes=json.loads((packet/'hashes.json').read_text())
+          for rel,expected in hashes.items():assert hashlib.sha256((root/rel).read_bytes()).hexdigest()==expected,rel
+          assert hashlib.sha256((packet/'rev-mutate.sh').read_bytes()).hexdigest()==m['canonical_runner_sha256']
+          assert hashlib.sha256((packet/'fix.patch').read_bytes()).hexdigest()==m['fix_patch_sha256']
+          out=root/'proof';out.mkdir();(out/'binding.json').write_text(json.dumps({'workflow_sha':git('rev-parse','HEAD'),'source_sha':m['source_sha'],'source_tree':m['source_tree'],'regression_checkpoint':m['regression_checkpoint'],'packet_hashes':hashes},indent=2))
+          PYCODE
+          cp -R .github/aa-review-proof "$RUNNER_TEMP/aa-review-proof"
+          git checkout --detach 23b4e67905e9af5b4a08d34a7e81d432435fa59f
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000 > proof/install.log 2>&1
+      - name: Green gates and exact expected mutations
+        run: |
+          python3 -m py_compile "$RUNNER_TEMP/aa-review-proof/verify.py" "$RUNNER_TEMP/aa-review-proof/mutation-test.py"
+          python3 "$RUNNER_TEMP/aa-review-proof/verify.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aa-review-green-e384
+          path: proof/

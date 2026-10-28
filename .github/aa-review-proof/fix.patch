@@ -1,0 +1,47 @@
+diff --git a/src/app/pages/Earn.tsx b/src/app/pages/Earn.tsx
+index f5ec0e9f60c17d0f5d777f3ebad85473d3908020..39c2c44ee20ce2dc1fd43ce5a033b2068ad62f3c 100644
+--- a/src/app/pages/Earn.tsx
++++ b/src/app/pages/Earn.tsx
+@@ -20,7 +20,7 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
+ 
+ const Earn: FC = () => {
+   const { t } = useTranslation();
+-  const { summary, positions, vaults, isLoading, error, notOnNetwork, refetch } = useEarnPositions();
++  const { summary, positions, vaults, isLoading, error, errorDiagnostics, notOnNetwork, refetch } = useEarnPositions();
+   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
+   // stays said until a load succeeds and the empty state never flashes back.
+   const loadFailed = Boolean(error);
+@@ -79,7 +79,7 @@ const Earn: FC = () => {
+               flight the slot stays empty, and a failed load says so and retries - in place of the
+               list when there is nothing to show, above the last-good cards when there is. */}
+           {positions.length === 0 && loadFailed ? (
+-            <EarnLoadError onRetry={refetch} />
++            <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />
+           ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
+             <EmptyState
+               surface="dashed"
+@@ -91,7 +91,7 @@ const Earn: FC = () => {
+             />
+           ) : (
+             <>
+-              {loadFailed && <EarnLoadError onRetry={refetch} />}
++              {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+               <div className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x">
+                 <div className="flex gap-3 px-4 pb-1">
+                   {positions.map(position => (
+diff --git a/src/screens/earn-flow/useEarnPositions.ts b/src/screens/earn-flow/useEarnPositions.ts
+index 8fe0ff0846d6bf116d2b5475782039af796ff76e..5e71f658ff330d9a7451896bb23f782a48fa7352 100644
+--- a/src/screens/earn-flow/useEarnPositions.ts
++++ b/src/screens/earn-flow/useEarnPositions.ts
+@@ -408,7 +408,10 @@ export function useEarnPositions(): {
+         ? 'configuration'
+         : (EARN_POSITIONS_LOAD_STAGES.find(value => value === suppliedStage) ?? 'unrecorded');
+     const outcome =
+-      firstError?.error !== undefined && data !== undefined && data.errors.length < data.owners.length
++      readError === undefined &&
++      firstError?.error !== undefined &&
++      data !== undefined &&
++      data.errors.length < data.owners.length
+         ? 'partial_failure'
+         : 'complete_failure';
+     const errorDiagnostics = error
