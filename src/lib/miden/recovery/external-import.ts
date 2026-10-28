@@ -73,7 +73,7 @@ export function mergeExternalRecoveryData(
     const previous = floors.get(account.accountId);
     if (previous && previous.nonce === account.nonce && previous.commitment !== account.commitment)
       throw new RecoveryDataFileError('account');
-    if (!previous || BigInt(account.nonce) > BigInt(previous.nonce)) floors.set(account.accountId, account);
+    if (!previous || BigInt(account.nonce) < BigInt(previous.nonce)) floors.set(account.accountId, account);
   }
   if (binding.accountIds.some(id => !floors.has(id))) throw new RecoveryDataFileError('account');
   const entries = [...(retained?.entries ?? [])];
