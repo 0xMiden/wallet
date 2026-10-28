@@ -2979,7 +2979,9 @@ describe('user-visible bridge deposit producers', () => {
 
   const answerFastFallback = (finalResult: unknown) => {
     let reads = 0;
-    const contract = TEST_EVM_USDC.address;
+    const config = READY_SNAPSHOT.config;
+    if (!config) throw new Error('Synthetic ready bridge config is missing');
+    const contract = config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress;
     global.fetch = jest.fn().mockImplementation((_url: unknown, init?: RequestInit) => {
       const payload: { method?: unknown; params?: unknown[] } = JSON.parse(String(init?.body ?? '{}'));
       const call = payload.params?.[0];
