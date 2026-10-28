@@ -478,17 +478,18 @@ export type KeyDerivation = 'v1';
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
 
 /**
- * Persisted finding that the account's on-chain hot signer (signer slot 0) is
- * not the hot key this device holds: another device, most often a seed
- * recovery, rotated the key and holds the account now. The verdict names the
- * local key it was judged against, so it binds to that key alone: a record
- * whose `hotPublicKey` has moved on carries a verdict about a key it no longer
- * uses, and the predicate ignores it.
+ * Persisted finding that no on-chain signer slot holds the hot key this device
+ * holds: another device, most often a seed recovery, rotated the key out and
+ * holds the account now. The check is by membership, because the signer set can
+ * hold more than one hot key and a membership change moves the slots. The
+ * verdict names the local key it was judged against, so it binds to that key
+ * alone: a record whose `hotPublicKey` has moved on carries a verdict about a
+ * key it no longer uses, and the predicate ignores it.
  */
 export interface HotKeyRotatedOutVerdict {
   /** This device's hot key at the time of the check (`WalletAccount.hotPublicKey`). */
   hotPublicKey: string;
-  /** The hot-signer commitment the chain named instead. */
+  /** Evidence only: a signer commitment the chain named in place of this device's key (the first slot). */
   onChainHotCommitment: string;
   /** Wall-clock time of the check, ms since the epoch. */
   detectedAt: number;

@@ -1602,11 +1602,19 @@ describe('generateTransaction — Guardian routing', () => {
   // A rotation that can run to completion: the cold service's proposal creator is
   // scripted per test, completion runs for real with its re-register stubbed, and
   // the hardening check that follows it finds the account already hardened.
-  const arrangeRotation = (createProposal: jest.Mock, waitForTransactionCommit = jest.fn(async () => {})) => {
+  const arrangeRotation = (
+    createProposal: jest.Mock,
+    waitForTransactionCommit = jest.fn(async () => {}),
+    createAddProposal: jest.Mock = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => ({
+      id: 'prop-add',
+      nonce: 7
+    }))
+  ) => {
     const client = makeClientApi(makeResult());
     const coldService = {
       guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: createProposal,
+      createAddHotKeyProposal: createAddProposal,
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -10222,6 +10230,45 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('Guardian replace-hot-key: a row in add mode builds an add proposal with the minted key', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+    tx.extraInputs = { mode: 'add' };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(coldService.createAddHotKeyProposal).toHaveBeenCalledTimes(1);
+    expect(coldService.createAddHotKeyProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(createProposal).not.toHaveBeenCalled();
+    // The rest of the pipeline is the same as for a replace.
+    expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-add', undefined);
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('Guardian replace-hot-key: a row without a mode builds a replace proposal', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, provider } = arrangeRotation(createProposal);
+    expect(tx.extraInputs.mode).toBeUndefined();
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(createProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+  });
+
   it('Guardian replace-hot-key: a row that already persisted its key proposes with that key and mints nothing (#904)', async () => {
     const createProposal = proposalFor();
     const { tx, row, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
@@ -13049,8 +13096,18 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('replace-hot-key');
     // The guardian the rotation runs under is recorded now, so its history row names it for good;
-    // newHotPublicKey joins it during generateGuardianTransaction.
-    expect(row.extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+    // newHotPublicKey joins it during generateGuardianTransaction. Without a mode argument the row is a replace.
+    expect(row.extraInputs).toEqual({ mode: 'replace', guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the add mode on the row when the caller asks for it', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeGuardianProvider(true), 'add');
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'add',
+      guardianEndpoint: 'https://old.guardian'
+    });
   });
 
   it('records the guardian when the provider spells the account id differently', async () => {
@@ -13069,7 +13126,10 @@ describe('initiateReplaceHotKeyTransaction', () => {
       ]
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
-    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'replace',
+      guardianEndpoint: 'https://old.guardian'
+    });
   });
 
   it('records the network default for an account that names no guardian of its own', async () => {
@@ -13089,6 +13149,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'replace',
       guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
     });
   });

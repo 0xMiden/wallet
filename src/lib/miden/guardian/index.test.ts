@@ -21,11 +21,13 @@ import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
   isProposalChainSyncError,
+  MAX_SIGNERS,
   MultisigService,
   POST_COMMIT_GUARDIAN_TIMEOUT_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
-  type ProposalSyncPhase
+  type ProposalSyncPhase,
+  SignerSetFullError
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
@@ -223,12 +225,22 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 const mockGetSignerDetailsFromAccount = jest.fn();
+// The cold lookup by membership. Without a test value it finds nothing.
+const mockFindOwnSignerCommitment = jest.fn(async (..._a: unknown[]): Promise<string | undefined> => undefined);
+// The on-chain signer set and its membership check, from one array a test sets.
+let mockSignerCommitments: string[] = [];
+const mockGetSignerCommitmentsFromAccount = jest.fn((..._a: unknown[]) => mockSignerCommitments);
+const mockHasSignerCommitment = jest.fn((_account: unknown, commitment: string) =>
+  mockSignerCommitments.some(c => c.toLowerCase() === commitment.toLowerCase())
+);
 // The staleness guard itself is a collaborator here, covered against real
 // nonces in account.test.ts; these tests only assert that the import path
 // routes its write THROUGH it rather than calling accounts.insert directly.
 const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
-  getSignerCommitmentsFromAccount: () => [],
+  getSignerCommitmentsFromAccount: (...a: unknown[]) => mockGetSignerCommitmentsFromAccount(...a),
+  findOwnSignerCommitment: (...a: unknown[]) => mockFindOwnSignerCommitment(...a),
+  hasSignerCommitment: (account: unknown, commitment: string) => mockHasSignerCommitment(account, commitment),
   // Kept REAL: it is pure string validation, and it is the guard that keeps a
   // guardian's wire response out of the transaction script source.
   assertGuardianKeyCommitment: jest.requireActual('./account').assertGuardianKeyCommitment,
@@ -376,6 +388,8 @@ describe('MultisigService', () => {
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
     // Default: AccountInspector reads an empty signer set unless a test overrides it.
     mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+    mockSignerCommitments = [];
+    mockFindOwnSignerCommitment.mockResolvedValue('cold-commit-no-prefix');
   });
 
   describe('constructor + getters', () => {
@@ -2624,17 +2638,19 @@ describe('MultisigService', () => {
   });
 
   describe('buildColdMultisigService', () => {
-    it('reads the cold commitment from on-chain via getSignerDetailsFromAccount(_, true) and inits a service with cold pubkey', async () => {
+    it('finds the cold commitment by membership of the cold public key and inits a service with cold pubkey', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub' } as never;
       const loaded = makeMultisig();
       multisigClientConfig.load.mockResolvedValueOnce(loaded);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'cold-commit-no-prefix' });
+      mockFindOwnSignerCommitment.mockResolvedValueOnce('cold-commit-no-prefix');
 
       const signWordFn = jest.fn(async () => 'sig');
       const svc = await MultisigService.buildColdMultisigService(account, walletAccount, signWordFn);
 
-      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(account, true);
+      expect(mockFindOwnSignerCommitment).toHaveBeenCalledWith(account, 'cold-pub');
+      // Not by position: an add rotation can put a hot key at any index.
+      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
       expect(svc).toBeInstanceOf(MultisigService);
       // The service initialized via init forwards the COLD pubkey/commitment
       // (each prefixed with 0x) to the WalletSigner. We can't introspect that
@@ -2648,7 +2664,6 @@ describe('MultisigService', () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub', requiresHotKeyRotation: true } as never;
       const facts = { guardianSignerInSet: 'unknown', guardianSigningKey: 'cold', hotKeyRotationPending: 'yes' };
-      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
       multisigClientConfig.load.mockResolvedValueOnce(makeMultisig());
       const svc = await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig');
       expect(svc.authFacts).toEqual(facts);
@@ -2675,11 +2690,21 @@ describe('MultisigService', () => {
       expect(multisigClientConfig.load).not.toHaveBeenCalled();
     });
 
+    it('throws before init when the cold public key is not an on-chain signer', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub' } as never;
+      mockFindOwnSignerCommitment.mockResolvedValueOnce(undefined);
+
+      await expect(MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig')).rejects.toThrow(
+        'Guardian account acc-id: the recovery (cold) key is not an on-chain signer of this account'
+      );
+      expect(multisigClientConfig.load).not.toHaveBeenCalled();
+    });
+
     it('holds its commitment read and its init on the options a caller passes, and on the default hold otherwise', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub' } as never;
       const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' };
-      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
       wasmLockOptionsSeen.length = 0;
 
       await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig', options);
@@ -2946,6 +2971,115 @@ describe('MultisigService', () => {
       });
 
       expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createAddHotKeyProposal', () => {
+    const staleAccount = { id: () => ({ toString: () => 'acc-id' }) } as never;
+    const freshAccount = { kind: 'fresh-account' };
+
+    it('builds a proposal whose target list is the current set plus the new hot key, threshold unchanged', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      // The adopt refreshes the loaded config; the threshold is read after it.
+      multisig.syncState.mockImplementationOnce(async () => {
+        multisig.threshold = 2;
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSignerCommitments = ['0xhot1', 'coldcommit', '0xhot2'];
+      mockGetAccount.mockResolvedValueOnce(freshAccount);
+      wasmLockOptionsSeen.length = 0;
+
+      const result = await service.createAddHotKeyProposal(staleAccount, 'newhot');
+
+      // The set comes from a fresh read after the sync and the adopt, not from the stale copy.
+      expect(mockGetAccount).toHaveBeenCalledWith('acc-id');
+      expect(mockGetSignerCommitmentsFromAccount).toHaveBeenCalledWith(freshAccount);
+      expect(mockGetSignerCommitmentsFromAccount).not.toHaveBeenCalledWith(staleAccount);
+      expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        ['0xhot1', '0xcoldcommit', '0xhot2', '0xnewhot'],
+        { accountId: 'acc-id', signatureScheme: 'ecdsa' }
+      );
+      expect(wasmLockOptionsSeen).toContainEqual({ label: 'add-hot-key-build' });
+      expect(multisig.createProposal).toHaveBeenCalledWith(
+        expect.any(Number),
+        'base64-bytes',
+        expect.objectContaining({
+          proposalType: 'add_signer',
+          targetThreshold: 2,
+          targetSignerCommitments: ['0xhot1', '0xcoldcommit', '0xhot2', '0xnewhot'],
+          saltHex: 'salt-hex',
+          boundBlockNum: 4242,
+          requiredSignatures: 1,
+          description: 'Add device (hot) signer'
+        })
+      );
+      expect(multisig.getEffectiveThreshold).toHaveBeenCalledWith('add_signer');
+      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
+    });
+
+    it('refuses a new hot key that is already a signer, before it builds', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSignerCommitments = ['0xhot1', '0xcold', '0xNEWHOT'];
+      mockGetAccount.mockResolvedValueOnce(freshAccount);
+
+      await expect(service.createAddHotKeyProposal(staleAccount, '0xnewhot')).rejects.toMatchObject({
+        name: 'HotKeyAlreadySignerError'
+      });
+      expect(mockHasSignerCommitment).toHaveBeenCalledWith(freshAccount, '0xnewhot');
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the set already holds MAX_SIGNERS signers, and builds one below it', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSignerCommitments = Array.from({ length: MAX_SIGNERS }, (_, i) => `0xsigner${i}`);
+      mockGetAccount.mockResolvedValueOnce(freshAccount);
+
+      const refusal = service.createAddHotKeyProposal(staleAccount, '0xnewhot');
+      await expect(refusal).rejects.toBeInstanceOf(SignerSetFullError);
+      await expect(refusal).rejects.toThrow(`it already has ${MAX_SIGNERS} signers`);
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+
+      // Falsifier: one signer fewer goes through, and the new key is the last of MAX_SIGNERS.
+      mockSignerCommitments = mockSignerCommitments.slice(1);
+      mockGetAccount.mockResolvedValueOnce(freshAccount);
+      await service.createAddHotKeyProposal(staleAccount, '0xnewhot');
+      const targets = mockBuildUpdateSignersTransactionRequest.mock.calls[0]?.[2];
+      expect(Array.isArray(targets) ? targets.length : 0).toBe(MAX_SIGNERS);
+    });
+
+    it('refuses an account whose signer set cannot be read', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSignerCommitments = [];
+      mockGetAccount.mockResolvedValueOnce(freshAccount);
+
+      await expect(service.createAddHotKeyProposal(staleAccount, '0xnewhot')).rejects.toThrow(
+        'Account acc-id: its on-chain signer set cannot be read'
+      );
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+    });
+
+    it('stops before it reads the signer set when the hold is evicted during the account read', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSignerCommitments = ['0xhot1', '0xcold'];
+      mockGetAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return freshAccount;
+      });
+
+      await expect(service.createAddHotKeyProposal(staleAccount, '0xnewhot')).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(mockGetSignerCommitmentsFromAccount).not.toHaveBeenCalled();
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
   });

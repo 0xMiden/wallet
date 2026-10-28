@@ -33,6 +33,7 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
+  type HotKeyActivationMode,
   IAgglayerDelivery,
   IBridgedSendNoteParams,
   IBridgeProvider,
@@ -1299,11 +1300,16 @@ export const initiateSwitchGuardianTransaction = async (
  * + secureHotKey facade are only touched once we're actually processing the
  * tx) and persisted to the vault BEFORE submission. Cold-signed; default
  * `update_signers` threshold (1) means cold alone satisfies on-chain.
+ *
+ * `mode` selects the target signer set. `replace` (the default) removes the
+ * other device keys. `add` keeps them and adds the new hot key. The row
+ * records the mode, so a later run of the row uses the same mode.
  */
 export const initiateReplaceHotKeyTransaction = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  mode: HotKeyActivationMode = 'replace'
 ): Promise<string> => {
   const account = await resolveGuardianWalletAccount(
     accountId,
@@ -1315,7 +1321,7 @@ export const initiateReplaceHotKeyTransaction = async (
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
   // resolves (the account's own, else the network default), as the switch records its previous one.
   const guardianEndpoint = resolveGuardianEndpoint(account);
-  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  dbTransaction.extraInputs = guardianEndpoint ? { mode, guardianEndpoint } : { mode };
   return queueRecoveryChange(dbTransaction);
 };
 

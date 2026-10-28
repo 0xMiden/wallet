@@ -213,9 +213,10 @@ jest.mock('lib/secure-hot-key', () => ({
   signHotDigest: jest.fn()
 }));
 
-// provideRecoverySeed reads the on-chain cold signer via getSignerDetailsFromAccount.
-// Mock it so tests can drive the match / mismatch branches.
-const mockGetSignerDetailsFromAccount = jest.fn();
+// provideRecoverySeed, spawnFromMidenClient and importHotKeyPair check signer membership
+// through hasSignerCommitment, which reads the on-chain signer set. Mock the set so tests
+// can drive the match / mismatch branches.
+const mockGetSignerCommitmentsFromAccount = jest.fn((_account: unknown): string[] => []);
 // createHDAccount resolves a second Guardian account's endpoint from the sibling
 // account's per-account field via resolveGuardianEndpoint. Default: echo the
 // account's guardianEndpoint, then a stand-in default.
@@ -223,7 +224,10 @@ const mockResolveGuardianEndpoint = jest.fn((acc: any) => acc?.guardianEndpoint 
 const mockFetchGuardianCreateKey = jest.fn();
 const mockRegisterGuardianAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  hasSignerCommitment: (account: unknown, commitment: string) =>
+    mockGetSignerCommitmentsFromAccount(account).some(onChain =>
+      jest.requireActual('lib/secure-hot-key/commitment').sameCommitment(onChain, commitment)
+    ),
   fetchGuardianCreateKey: (...a: unknown[]) => mockFetchGuardianCreateKey(...a),
   registerGuardianAccount: (...a: unknown[]) => mockRegisterGuardianAccount(...a),
   resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
@@ -3046,13 +3050,13 @@ describe('Vault.spawnFromMidenClient', () => {
       serialize: () => new Uint8Array([9, 9]),
       free: jest.fn()
     });
-    const stageGuardianStore = (derived: ReturnType<typeof derivedColdKey>, onChain = '0a0b0c') => {
+    const stageGuardianStore = (derived: ReturnType<typeof derivedColdKey>, onChain = ['aabb', '0a0b0c']) => {
       const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
       sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => derived);
       const row = { id: () => 'pk-guardian' as any, isFaucet: () => false };
       mockMidenClient.getAccounts.mockResolvedValueOnce([row]);
       mockMidenClient.getAccount.mockResolvedValueOnce(row);
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: onChain });
+      mockGetSignerCommitmentsFromAccount.mockReturnValueOnce(onChain);
     };
 
     it('restores as a recovered account: cold key kept, everyday key to be replaced', async () => {
@@ -3062,7 +3066,7 @@ describe('Vault.spawnFromMidenClient', () => {
       const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [guardianRecord], []);
 
       expect(mockKeystoreInsert).toHaveBeenCalledWith('pk-guardian', derived);
-      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), true);
+      expect(mockGetSignerCommitmentsFromAccount).toHaveBeenCalled();
       const [stored] = await vault.fetchAccounts();
       expect(stored).toMatchObject({
         publicKey: 'pk-guardian',
@@ -4403,7 +4407,7 @@ describe('recovery seed waiting time', () => {
         free: jest.fn()
       }));
       mockGetAccount.mockResolvedValueOnce({});
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      mockGetSignerCommitmentsFromAccount.mockReturnValueOnce(['020304']);
       await vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, action);
       const resumed = await Repo.transactions.get(transaction.id);
       expect(resumed?.awaitingRecoverySeed).toBe(false);
@@ -4453,7 +4457,7 @@ describe('recovery seed waiting time', () => {
         free: jest.fn()
       }));
       mockGetAccount.mockResolvedValueOnce({});
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      mockGetSignerCommitmentsFromAccount.mockReturnValueOnce(['020304']);
       // provideRecoverySeed calls `where` exactly once, for the resume write.
       where.mockImplementationOnce(
         () =>
@@ -4518,7 +4522,7 @@ describe('recovery seed waiting time', () => {
       mockGetAccount.mockResolvedValueOnce({});
       // The on-chain cold signer is what picks the HD index when the account
       // cannot name one itself.
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      mockGetSignerCommitmentsFromAccount.mockReturnValueOnce(['020304']);
       await vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, getRecoveryAction(transaction));
 
       // getAuthorizedRecoveryPublicKey is the only source for this key.
@@ -4566,19 +4570,19 @@ describe('recovery seed waiting time', () => {
         revokeWasmHold();
         return {};
       });
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      mockGetSignerCommitmentsFromAccount.mockReturnValueOnce(['020304']);
 
       const error = await vault
         .provideRecoverySeed(transaction.id, VALID_MNEMONIC, getRecoveryAction(transaction))
         .catch((cause: unknown) => cause);
 
       expect(isWasmClientPoisonedError(error)).toBe(true);
-      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      expect(mockGetSignerCommitmentsFromAccount).not.toHaveBeenCalled();
       await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
     } finally {
       // Neither queued reply is consumed once the read is refused.
       sdk.AuthSecretKey.ecdsaWithRNG.mockReset().mockImplementation(ecdsaWithRNG);
-      mockGetSignerDetailsFromAccount.mockReset();
+      mockGetSignerCommitmentsFromAccount.mockReset().mockImplementation(() => []);
       clearRecoveryAuthorizations();
       await Repo.transactions.delete(transaction.id);
     }
@@ -5123,9 +5127,10 @@ describe('Vault.importHotKeyPair', () => {
     requiresHotKeyRotation: true,
     guardianNoteRecoveryPending: true
   };
-  const pastedKey = (commitment: string) => ({
+  // The pasted key's public key hex is `publicHex`, and its commitment is `commitment`.
+  const pastedKey = (commitment: string, publicHex = 'dead') => ({
     publicKey: () => ({
-      serialize: () => Uint8Array.from([0x02, 0xde, 0xad]),
+      serialize: () => Uint8Array.from([0x02, ...Buffer.from(publicHex, 'hex')]),
       toCommitment: () => ({ toHex: () => commitment, free: jest.fn() }),
       free: jest.fn()
     }),
@@ -5133,21 +5138,19 @@ describe('Vault.importHotKeyPair', () => {
     getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(),
     free: jest.fn()
   });
-  const stage = (pasted: string, hotOnChain: string, coldOnChain = '0a0b0c') => {
-    mockDeserializeHotSecretKey.mockReturnValueOnce(pastedKey(pasted) as any);
+  const stage = (pasted: string, onChain: string[], publicHex = 'dead') => {
+    mockDeserializeHotSecretKey.mockReturnValueOnce(pastedKey(pasted, publicHex) as any);
     mockGetAccount.mockResolvedValueOnce({} as any);
-    mockGetSignerDetailsFromAccount.mockImplementation(async (_account: unknown, cold: boolean) => ({
-      commitment: cold ? coldOnChain : hotOnChain
-    }));
+    mockGetSignerCommitmentsFromAccount.mockImplementation(() => onChain);
   };
 
   afterEach(() => {
-    mockGetSignerDetailsFromAccount.mockReset();
+    mockGetSignerCommitmentsFromAccount.mockReset().mockImplementation(() => []);
   });
 
   it('installs the key the restored account names as its everyday signer and ends the rotation gate', async () => {
     const vault = await seedVault('pw', { accounts: [recovered] });
-    stage('0xaabb', '0xAABB');
+    stage('0xaabb', ['0xAABB', '0xccdd']);
 
     const result = await vault.importHotKeyPair(recovered.publicKey, PAIR);
 
@@ -5156,19 +5159,30 @@ describe('Vault.importHotKeyPair', () => {
     expect(await isStored(keys.accAuthPubKey('dead'))).toBe(true);
   });
 
+  it('accepts an everyday key at any slot of the signer set, not only slot 0', async () => {
+    const vault = await seedVault('pw', { accounts: [recovered] });
+    stage('0xeeff', ['0xaabb', '0xccdd', '0xEEFF']);
+
+    const result = await vault.importHotKeyPair(recovered.publicKey, PAIR);
+
+    expect(result.accounts[0]).toMatchObject({ hotPublicKey: 'dead', requiresHotKeyRotation: false });
+    expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(true);
+  });
+
   it('refuses the recovery key pasted as the everyday key, writing nothing', async () => {
     const vault = await seedVault('pw', { accounts: [recovered] });
-    stage('0x0a0b0c', '0xaabb');
+    // The cold key is a member of the signer set too, so membership alone must not accept it.
+    stage('0xccdd', ['0xaabb', '0xccdd'], recovered.coldPublicKey);
 
     await expect(vault.importHotKeyPair(recovered.publicKey, PAIR)).rejects.toThrow('importHotKeyIsRecoveryKey');
 
-    expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(false);
+    expect(await isStored(keys.accAuthSecretKey(recovered.coldPublicKey!))).toBe(false);
     expect((await vault.fetchAccounts())[0]!.requiresHotKeyRotation).toBe(true);
   });
 
   it('refuses a key that is not the account everyday signer', async () => {
     const vault = await seedVault('pw', { accounts: [recovered] });
-    stage('0xffff', '0xaabb');
+    stage('0xffff', ['0xaabb', '0xccdd']);
 
     await expect(vault.importHotKeyPair(recovered.publicKey, PAIR)).rejects.toThrow('importHotKeyNotActive');
     expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(false);

@@ -25,8 +25,10 @@ import { observeProposalCreateRejection } from 'lib/telemetry/proposal-create-di
 
 import {
   assertGuardianKeyCommitment,
+  findOwnSignerCommitment,
   getSignerCommitmentsFromAccount,
   getSignerDetailsFromAccount,
+  hasSignerCommitment,
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
@@ -107,6 +109,33 @@ export class GuardianReRegisterRefusedError extends Error {
 }
 
 export const isGuardianReRegisterRefusal = (error: unknown): boolean => error instanceof GuardianReRegisterRefusedError;
+
+/**
+ * The highest number of signers a multisig account can hold. This value is the
+ * `MAX_SIGNERS` of `@openzeppelin/miden-multisig-client` (`account/layout`).
+ * The package does not export it from its root, and its `exports` map does not
+ * permit a deep import, so this copy must agree with it.
+ */
+export const MAX_SIGNERS = 64;
+
+/** `createAddHotKeyProposal` refused: the new hot key is already an on-chain signer. */
+export class HotKeyAlreadySignerError extends Error {
+  constructor(accountId: string) {
+    super(`Not adding the device key to account ${accountId}: it is already an on-chain signer`);
+    this.name = 'HotKeyAlreadySignerError';
+  }
+}
+
+/** `createAddHotKeyProposal` refused: the account already holds `MAX_SIGNERS` signers. */
+export class SignerSetFullError extends Error {
+  constructor(accountId: string, signerCount: number) {
+    super(
+      `Not adding the device key to account ${accountId}: it already has ${signerCount} signers, ` +
+        `and the limit is ${MAX_SIGNERS}`
+    );
+    this.name = 'SignerSetFullError';
+  }
+}
 
 const MAX_SYNC_RETRIES = 30;
 const SYNC_RETRY_DELAY_MS = 1000;
@@ -295,10 +324,11 @@ export class MultisigService {
 
   /**
    * Build a transient cold-bound MultisigService for ops that must be cold-signed
-   * (switch_guardian co-sign and replace_hot_key). The cold commitment is read
-   * from on-chain storage via getSignerDetailsFromAccount(_, true) — order
-   * convention `[hot, cold]` is preserved across rotations because
-   * createReplaceHotKeyProposal uses an in-place swap target list.
+   * (switch_guardian co-sign and replace_hot_key). The cold commitment is the
+   * on-chain signer whose commitment is the commitment of
+   * `walletAccount.coldPublicKey` (`findOwnSignerCommitment`). Do not use a
+   * position in the signer list: an add rotation appends a hot key, so the set
+   * can have more than two signers and its order is not a contract.
    *
    * Caller is expected to drop the returned service immediately after use so
    * cold key material doesn't outlive the operation.
@@ -340,14 +370,20 @@ export class MultisigService {
     // surfaces as the SDK's own `isDisposed` throw, i.e. a failed attempt and a
     // retry, not a wrong commitment written to the guardian. Should this method
     // ever read a field that a rotation moves, that reasoning expires and the
-    // threading is required.
-    const { commitment, signerCommitments } = await withWasmClientLock(
-      async () => ({
-        commitment: (await getSignerDetailsFromAccount(account, true)).commitment,
-        signerCommitments: getSignerCommitmentsFromAccount(account)
-      }),
-      lockOptions
-    );
+    // threading is required. The cold commitment is found by membership, not by
+    // position, so a rotation that moves the order does not change the result.
+    const coldPublicKey = walletAccount.coldPublicKey;
+    const { commitment, signerCommitments } = await withWasmClientLock(async () => {
+      const allCommitments = getSignerCommitmentsFromAccount(account);
+      const ownCold = await findOwnSignerCommitment(account, coldPublicKey);
+      return { commitment: ownCold, signerCommitments: allCommitments };
+    }, lockOptions);
+    if (commitment === undefined) {
+      throw new Error(
+        `Guardian account ${walletAccount.publicKey}: the recovery (cold) key is not an on-chain signer of this account`
+      );
+    }
+    const coldCommitment = commitment.startsWith('0x') ? commitment : `0x${commitment}`;
     const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
     const authFacts = await readGuardianAuthFacts(
       `0x${walletAccount.coldPublicKey}`,
@@ -359,7 +395,7 @@ export class MultisigService {
       MultisigService.init(
         account,
         `0x${walletAccount.coldPublicKey}`,
-        `0x${commitment}`,
+        coldCommitment,
         signWordFn,
         guardianEndpoint,
         lockOptions
@@ -470,7 +506,8 @@ export class MultisigService {
    * The account's loaded on-chain auth structure: overall threshold, signer
    * commitments, and per-procedure thresholds. Used by the E2E harness to
    * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
-   * the signer set is `[hot, cold]`) — properties the balance-only checks miss.
+   * the signer set holds the cold key and one or more hot keys, `[hot, cold]`
+   * for a new account) — properties the balance-only checks miss.
    */
   getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1058,6 +1095,97 @@ export class MultisigService {
       'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
+    return proposal;
+  }
+
+  /**
+   * Build a proposal that adds a hot signer and keeps every current signer. It is
+   * an `update_signers` proposal whose target list is the current on-chain set
+   * followed by `newHotCommit`, with the threshold unchanged. The other devices'
+   * hot keys continue to work.
+   *
+   * The current set is read in the build hold from a fresh read of the account,
+   * after `syncBeforeRotationBuild`. Do not read it from `account`: that copy was
+   * read before the sync and the guardian adopt, so a signer that another device
+   * added since then is not in it, and the update would remove that signer. Do not
+   * use the SDK's `createAddSignerProposal` either: it reads a cached list and it
+   * does not give the salt back.
+   *
+   * Refuses with `HotKeyAlreadySignerError` when the new commitment is already a
+   * signer, and with `SignerSetFullError` when the set holds `MAX_SIGNERS`. Both
+   * refusals occur before a sign or a submit.
+   *
+   * Sign and submit this proposal with a cold-bound MultisigService, as for
+   * `createReplaceHotKeyProposal`. The first parameter is kept for call-site parity
+   * with it and is not read, for the reason above.
+   */
+  async createAddHotKeyProposal(_account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
+    const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
+    const newHotCommitment = ensure0x(newHotCommitmentHex);
+    // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
+    const targetThreshold = this.multisig.threshold;
+
+    const { summaryBase64, saltHex, boundBlockNum, targetSignerCommitments } = await withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        // An eviction ABANDONS this callback rather than cancelling it, so every
+        // WASM call after a parking await needs the ownership re-check. All the
+        // transitions here are pre-sign and pre-submit: stopping costs the user a
+        // retry and nothing else.
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the client build');
+        const freshAccount = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the account read');
+        if (!freshAccount) {
+          throw new Error(`Account ${this.accountId} is missing from local client`);
+        }
+        const currentSigners = getSignerCommitmentsFromAccount(freshAccount).map(ensure0x);
+        if (currentSigners.length === 0) {
+          throw new Error(`Account ${this.accountId}: its on-chain signer set cannot be read`);
+        }
+        if (hasSignerCommitment(freshAccount, newHotCommitment)) {
+          throw new HotKeyAlreadySignerError(this.accountId);
+        }
+        if (currentSigners.length >= MAX_SIGNERS) {
+          throw new SignerSetFullError(this.accountId, currentSigners.length);
+        }
+        const targets = [...currentSigners, newHotCommitment];
+        const { request, salt } = await buildUpdateSignersTransactionRequest(webClient, targetThreshold, targets, {
+          // The account id selects the fee-aware builder (see createReplaceHotKeyProposal).
+          accountId: this.accountId,
+          signatureScheme: 'ecdsa'
+        });
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the update-signers request build');
+        const builtBoundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        // `summary` and `salt` are borrows of the client's RefCell, so touching them
+        // past an eviction IS the double borrow.
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the summary execution');
+        return {
+          summaryBase64: u8ToB64(summary.serialize()),
+          saltHex: salt.toHex(),
+          boundBlockNum: builtBoundBlockNum,
+          targetSignerCommitments: targets
+        };
+      },
+      { label: 'add-hot-key-build' }
+    );
+    const metadata: ProposalMetadata = {
+      proposalType: 'add_signer',
+      targetThreshold,
+      targetSignerCommitments,
+      saltHex,
+      boundBlockNum,
+      requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+      description: 'Add device (hot) signer'
+    };
+
+    const proposal = await this.proposalStep(
+      'proposal_create',
+      () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
+      'replace-hot-key'
+    );
+    console.log('Created add-hot-key proposal:', proposal.id);
     return proposal;
   }
 

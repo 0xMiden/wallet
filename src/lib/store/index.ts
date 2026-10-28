@@ -1446,7 +1446,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // thresholds + the active guardian-operator commitment) for E2E assertions —
   // the harness's balance checks can't see the 3-key shape. The guardian
   // commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) is a SEPARATE storage slot
-  // from the multisig `signerCommitments` (`[hot, cold]`) — a guardian switch
+  // from the multisig `signerCommitments` (hot keys and cold, in any order) — a guardian switch
   // changes the former while the latter (and its threshold) stay put, so it's
   // the field E2E specs need to verify a switch actually landed. Dynamic
   // imports avoid a static cycle.
@@ -1553,7 +1553,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       const [
         { GuardianHttpClient },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { getSignerDetailsFromAccount },
+        { findOwnSignerCommitment },
         { isGuardianAccountReleased },
         { WalletSigner },
         { registerGuardianOrigin },
@@ -1579,7 +1579,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccount.publicKey);
           assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
           if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
-          return (await getSignerDetailsFromAccount(account)).commitment;
+          // This device's hot signer, found by membership: its slot is not fixed.
+          const own = await findOwnSignerCommitment(account, hotPublicKey);
+          if (own === undefined) throw new Error(`No on-chain signer holds the hot key of ${accountPublicKey}`);
+          return own.replace(/^0x/, '');
         },
         { label: 'e2e-guardian-operator-view' }
       );

@@ -160,6 +160,8 @@ export interface IHistoryEntry {
   newHotPublicKey?: string;
   /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */
   rotationGuardianEndpoint?: string;
+  /** `replace-hot-key`: the rotation added this device's key next to the other devices instead of replacing them. */
+  hotKeyAdded?: boolean;
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;

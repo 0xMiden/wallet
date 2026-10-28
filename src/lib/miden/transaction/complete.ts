@@ -62,6 +62,7 @@ import {
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
+  type HotKeyActivationMode,
   INoteDeliveryState,
   isOpenSettlementClaim,
   ITransaction,
@@ -528,6 +529,16 @@ const storedAccountIdFor = async (guardianProvider: GuardianAccountProvider, acc
 export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
 export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
 
+/** The history message of a landed rotation: an add keeps the other devices, a replace rotates them out. */
+const hotKeyActivationMessage = (mode: HotKeyActivationMode | undefined): string => {
+  switch (mode) {
+    case 'add':
+      return 'Device added';
+    default:
+      return 'Everyday key rotated';
+  }
+};
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -555,7 +566,8 @@ export const completeReplaceHotKeyTransaction = async (
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
-    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // on-chain account (now [new-hot, cold] after a replace, or the earlier set
+    // plus new-hot after an add) right before registering (#619 gap
     // 3) — otherwise this could re-push the OLD allowlist, the historical
     // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
     // Best-effort: an on-chain-successful rotation must not be failed by a
@@ -645,7 +657,7 @@ export const completeReplaceHotKeyTransaction = async (
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
-      displayMessage: 'Everyday key rotated',
+      displayMessage: hotKeyActivationMessage(tx.extraInputs.mode),
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
@@ -658,7 +670,8 @@ export const completeReplaceHotKeyTransaction = async (
         : landedTransactionIdFields(landed))
     });
 
-    // The account now has both signers on-chain, so bring it up to the same
+    // The account now has its new hot signer and the cold signer on-chain (and,
+    // after an add, the other devices' hot signers too), so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2, which the update_signers rotation above can't carry). Best-effort and
     // idempotent; never affects the rotation's success. After an eviction during

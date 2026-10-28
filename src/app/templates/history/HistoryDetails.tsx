@@ -495,6 +495,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
+          hotKeyAdded: hotKeyExtra?.mode === 'add',
           errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),

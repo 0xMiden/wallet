@@ -6,7 +6,7 @@ import {
   type GuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { findOwnSignerCommitment, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
@@ -191,8 +191,16 @@ async function createGuardianClientContext(account: WalletAccount, endpoint?: st
   const commitment = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
     if (!sdkAccount) throw new Error(`Recovered Guardian account ${account.publicKey} is unavailable locally`);
-    const details = await getSignerDetailsFromAccount(sdkAccount, useCold);
-    return details.commitment;
+    // Find this device's own signer by membership. Its slot is not fixed: a
+    // membership change moves the slots.
+    const own = await findOwnSignerCommitment(sdkAccount, signerPublicKey);
+    if (own === undefined) {
+      throw new Error(
+        `Recovered Guardian account ${account.publicKey}: no on-chain signer holds this device's ` +
+          `${useCold ? 'cold' : 'hot'} key`
+      );
+    }
+    return own.startsWith('0x') ? own.slice(2) : own;
   });
 
   const guardianEndpoint = endpoint ?? resolveGuardianEndpoint(account);

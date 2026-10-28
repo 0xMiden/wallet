@@ -114,7 +114,7 @@ import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { commitmentToHex } from 'lib/secure-hot-key/commitment';
+import { commitmentFromPublicKeyHex, commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
@@ -216,13 +216,36 @@ async function dappLog(message: string): Promise<void> {
 }
 
 /**
- * The connected account's first auth public-key commitment, b64-encoded.
+ * The commitment of THIS DEVICE's hot key for `accountId`, or undefined when the wallet record has no hot
+ * key or the record cannot be read. The signer set can hold one hot key per device, with this device's
+ * after the earlier ones, so the key handed to a dApp must be chosen by commitment and never by slot:
+ * `Vault.signDataWithHotKey` only signs with the key this device holds. Runs outside the WASM lock.
+ */
+async function ownHotCommitmentOf(vault: Vault, accountId: string): Promise<string | undefined> {
+  try {
+    const accounts = await vault.fetchAccounts();
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountId));
+    if (!account?.hotPublicKey) return undefined;
+    return await commitmentFromPublicKeyHex(account.hotPublicKey);
+  } catch (error) {
+    console.warn('[dapp] Could not derive this device hot-key commitment; falling back to signer order', error);
+    return undefined;
+  }
+}
+
+/**
+ * The connected account's auth public-key commitment, b64-encoded: this device's hot key when
+ * `ownHotCommitment` names it, else the first signer.
  *
  * `hold` is the caller's lock hold, REQUIRED rather than optional: both connect
  * paths run this inside `withWasmClientLock`, and an optional guard is one a
  * future caller disables by forgetting it.
  */
-async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Promise<string> {
+async function getAccountPublicKeyB64(
+  accountId: string,
+  hold: WasmLockHold,
+  ownHotCommitment: string | undefined
+): Promise<string> {
   const account = await midenClientProxy.getAccount(accountId);
   // The account read parks (offscreen round trip, or inline store/gRPC work). A
   // watchdog eviction during it hands the mutex to a successor without stopping
@@ -233,7 +256,7 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
   if (!account) {
     throw new Error('Account not found');
   }
-  const publicKeyCommitments = resolvePublicKeyCommitments(account);
+  const publicKeyCommitments = resolvePublicKeyCommitments(account, ownHotCommitment);
   if (publicKeyCommitments.length === 0) {
     throw new Error('Account has no public key commitments');
   }
@@ -259,7 +282,8 @@ async function publicKeyBelongsToAccount(
   // The caller's lock hold, REQUIRED rather than optional for the same reason as
   // getAccountPublicKeyB64's: an optional guard is one a future caller disables
   // by forgetting it.
-  hold: WasmLockHold
+  hold: WasmLockHold,
+  ownHotCommitment: string | undefined
 ): Promise<boolean> {
   const supplied = commitmentToHex(suppliedPublicKey);
   if (supplied === undefined) return false;
@@ -271,7 +295,7 @@ async function publicKeyBelongsToAccount(
   // never as an authorization verdict.
   assertWasmHoldCurrent(hold, 'after the sign-authorization account read');
   if (!account) return false;
-  return resolvePublicKeyCommitments(account).some(
+  return resolvePublicKeyCommitments(account, ownHotCommitment).some(
     commitment => commitmentToHex(Buffer.from(commitment.serialize()).toString('hex')) === supplied
   );
 }
@@ -525,10 +549,11 @@ export async function generatePromisifyRequestPermission(
           if (confirmed && accountPublicKey) {
             let publicKey: string;
             try {
-              publicKey = await withUnlocked(async () => {
+              publicKey = await withUnlocked(async ({ vault }) => {
+                const ownHotCommitment = await ownHotCommitmentOf(vault, accountPublicKey);
                 // Wrap WASM client operations in a lock to prevent concurrent access
                 return await withWasmClientLock(async hold => {
-                  return await getAccountPublicKeyB64(accountPublicKey, hold);
+                  return await getAccountPublicKeyB64(accountPublicKey, hold, ownHotCommitment);
                 });
               });
             } catch (e) {
@@ -581,9 +606,10 @@ async function readApprovedKeyBefore(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      withUnlocked(async () => {
+      withUnlocked(async ({ vault }) => {
+        const ownHotCommitment = await ownHotCommitmentOf(vault, accountPublicKey);
         return await withWasmClientLock(async hold => {
-          return await getAccountPublicKeyB64(accountPublicKey, hold);
+          return await getAccountPublicKeyB64(accountPublicKey, hold, ownHotCommitment);
         });
       }),
       new Promise<typeof KEY_READ_PAST_DEADLINE>(resolve => {
@@ -819,9 +845,12 @@ const generatePromisifySign = async (
           // wallet is only reliably unlocked from this point. Checking earlier
           // would refuse legitimate requests that arrive while locked, which is
           // worse than approving and then declining.
-          const authorized = await withUnlocked(() =>
-            withWasmClientLock(hold => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold))
-          ).catch((err: unknown) => pipelineKillIn(err) ?? false);
+          const authorized = await withUnlocked(async ({ vault }) => {
+            const ownHotCommitment = await ownHotCommitmentOf(vault, dApp.accountId);
+            return withWasmClientLock(hold =>
+              publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold, ownHotCommitment)
+            );
+          }).catch((err: unknown) => pipelineKillIn(err) ?? false);
           if (authorized !== true) {
             // A kill (a lock-recovery eviction, an offscreen abort or a
             // terminated client, issue #775) is not an authorization verdict:

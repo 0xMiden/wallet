@@ -82,7 +82,7 @@ import {
 import type { CreatedGuardianKeys, GuardianCreateKey, PendingGuardianRegistration } from '../guardian/account';
 import {
   fetchGuardianCreateKey,
-  getSignerDetailsFromAccount,
+  hasSignerCommitment,
   registerGuardianAccount,
   resolveGuardianEndpoint
 } from '../guardian/account';
@@ -511,8 +511,6 @@ export class Vault {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       assertWasmHoldCurrent(hold, 'in provideRecoverySeed after the account read');
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
-      const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
-      const onChainCommitment = normalizeHex(commitment);
       for (const hdIndex of hdIndices) {
         const seed = deriveColdSeed(hdIndex);
         const key = AuthSecretKey.ecdsaWithRNG(seed);
@@ -522,7 +520,8 @@ export class Vault {
         try {
           const publicKeyHex = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
           const matchesStoredKey = account.coldPublicKey === undefined || publicKeyHex === account.coldPublicKey;
-          if (matchesStoredKey && onChainCommitment === normalizeHex(derivedCommitment.toHex())) {
+          // The derived cold key must be a member of the signer set, in any slot.
+          if (matchesStoredKey && hasSignerCommitment(sdkAccount, derivedCommitment.toHex())) {
             authorizeRecovery(transaction, publicKeyHex, key.serialize());
             return;
           }
@@ -1581,12 +1580,12 @@ export class Vault {
               // The phrase has to derive the cold signer the restored account names on chain, else the
               // file and the phrase belong to different wallets and nothing would ever sign.
               if (walletAccount.authScheme !== 'ecdsa') failMismatchedImport('guardian-auth-scheme');
-              const { commitment: onChainCold } = await getSignerDetailsFromAccount(account, true);
-              assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the cold signer read');
+              // The derived cold key must be a member of the signer set. Its slot is not
+              // fixed: a membership change moves the slots.
               const derivedPublicKey = secretKey.publicKey();
               const derivedCommitment = derivedPublicKey.toCommitment();
               const coldPublicKey = Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex');
-              const matchesChain = normalizeHex(derivedCommitment.toHex()) === normalizeHex(onChainCold);
+              const matchesChain = hasSignerCommitment(account, derivedCommitment.toHex());
               derivedCommitment.free();
               derivedPublicKey.free();
               if (
@@ -2079,6 +2078,7 @@ export class Vault {
       ) {
         throw new PublicError('This account does not need an everyday key');
       }
+      const coldPublicKey = account.coldPublicKey;
       const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
       const { hotPublicKey, hotSecretKeyHex } = await withWasmClientLock(async hold => {
         const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
@@ -2095,17 +2095,19 @@ export class Vault {
           const publicKey = secretKey.publicKey();
           const commitment = publicKey.toCommitment();
           try {
-            const pasted = normalizeHex(commitment.toHex());
-            const { commitment: hotOnChain } = await getSignerDetailsFromAccount(sdkAccount, false);
-            assertWasmHoldCurrent(hold, 'in importHotKeyPair after the everyday signer read');
-            if (normalizeHex(hotOnChain) !== pasted) {
-              const { commitment: coldOnChain } = await getSignerDetailsFromAccount(sdkAccount, true);
-              throw new PublicError(
-                getMessage(normalizeHex(coldOnChain) === pasted ? 'importHotKeyIsRecoveryKey' : 'importHotKeyNotActive')
-              );
+            const pastedPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
+            // The cold key is also a member of the signer set, so check it first: it must never
+            // become the everyday key.
+            if (normalizeHex(pastedPublicKey) === normalizeHex(coldPublicKey)) {
+              throw new PublicError(getMessage('importHotKeyIsRecoveryKey'));
+            }
+            // Accept the key when any slot holds its commitment. The signer set can hold more than
+            // one everyday key, and a membership change moves the slots.
+            if (!hasSignerCommitment(sdkAccount, commitment.toHex())) {
+              throw new PublicError(getMessage('importHotKeyNotActive'));
             }
             return {
-              hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+              hotPublicKey: pastedPublicKey,
               hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
             };
           } finally {
