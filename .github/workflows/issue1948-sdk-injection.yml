@@ -1,0 +1,91 @@
+name: Issue1948 synthetic native recovery UI
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Native UI ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            runner: macos-26-xlarge
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MIDEN_E2E_TEST: 'true'
+      MIDEN_USE_MOCK_CLIENT: 'true'
+      E2E_NETWORK: testnet
+      FEATURE_ELIGIBILITY_URL: https://eligibility.example/v1/eligibility
+      NODE_OPTIONS: --max-old-space-size=8192
+      NATIVE_UI_PLATFORM: ${{ matrix.platform }}
+      NATIVE_UI_RESULTS: ${{ github.workspace }}/proof/results.json
+      NATIVE_UI_TEST_OUTPUT: ${{ github.workspace }}/proof/test-results
+      NATIVE_UI_SCREENSHOTS: ${{ github.workspace }}/proof/screenshots
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 686d321e33f8842568d2efc67161edac012e103e
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Expected red sync recovery resume
+        run: |
+          set -uo pipefail
+          cd replay
+          yarn jest --runTestsByPath src/lib/miden/front/useSyncTrigger.test.tsx --testNamePattern='resumes the native sync loop once storage recovers while Ready' --maxWorkers=2 --no-coverage --json --outputFile=../proof/sync-results.json 2>&1 | tee ../proof/sync-tests.log
+          result=${PIPESTATUS[0]}
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sync-recovery-resume-red
+          path: proof/
+          if-no-files-found: error
