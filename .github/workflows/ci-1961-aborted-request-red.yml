@@ -1,0 +1,34 @@
+name: Aborted intercom request expected red
+on:
+  push:
+    branches: [ci/1961-aborted-request-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: test "$(git rev-parse HEAD^)" = 4bbdb13dde72152eaea49ef31abfdce16cccdab4
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - name: Verify the expected aborted request failure
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/intercom/client.test.ts --testNamePattern='rejects immediately if the signal is already aborted' --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+          status=${PIPESTATUS[0]}
+          test "$status" -ne 0 || exit 1
+          node -e "const x=require('./proof/results.json');const a=x.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status!=='pending');if(a.length!==1 || a[0].status!=='failed' || !a[0].failureMessages.join(' ').includes('toHaveBeenCalled')) {console.error(JSON.stringify(a));process.exit(1)} console.log('Expected red: an aborted request was sent')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aborted-intercom-request-red
+          path: proof/
