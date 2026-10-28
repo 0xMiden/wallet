@@ -1,0 +1,24 @@
+name: H8 isolated formatting
+on:
+  push:
+    branches: [ci/h8-ios-format]
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 112b8e72aa60055dbb9cd55c2bd59ffa12a97ddd
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - name: Format exact source files
+        run: |
+          yarn prettier --write src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native.ts src/lib/telemetry/transaction-failure.ts src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts
+          mkdir -p proof
+          git diff --binary -- src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native.ts src/lib/telemetry/transaction-failure.ts src/lib/walletconnect/native.test.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts > proof/format.patch
+      - uses: actions/upload-artifact@v4
+        with: { name: h8-ios-format, path: proof/format.patch, if-no-files-found: error }
