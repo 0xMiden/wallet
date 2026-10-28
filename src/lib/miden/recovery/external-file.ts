@@ -148,7 +148,7 @@ export async function decryptRecoveryDataFile(
   try {
     checked = await Passworder.decryptJson(file.passwordCheck, cipher);
   } catch {
-    throw new RecoveryDataFileError('password');
+    throw new RecoveryDataFileError('malformed');
   }
   assertCurrent();
   if (checked !== PASSWORD_CHECK) throw new RecoveryDataFileError('password');
