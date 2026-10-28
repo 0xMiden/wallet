@@ -1,0 +1,12 @@
+{
+  "source": "7ffa74db5cd0fb1db58d025cb87f8f7ddfb91a5f",
+  "tree": "7f93a028979378349bbfce4bfcf3d86bc3840110",
+  "suites": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx"
+  ],
+  "file_sha256": {
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx": "9e5b20f92a62f7a058e02c5056d98aa14f284d3d459bf633557ee37a6d745ff5"
+  },
+  "expected_failures": 13,
+  "purpose": "Producer stage evidence regression before reader instrumentation"
+}
