@@ -1,0 +1,125 @@
+{
+  "source": "20c24ddbcff1c32eccec17562aee149f4557a6bf",
+  "source_tree": "2af05fb4a4ae0f8197e11001c9b3daff31050d41",
+  "harness_sha256": "b6ccd14bf91683c16333efa88638662b57a22d174ec15ce023e10c8cffcd730b",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "stale-reader",
+      "path": "src/screens/storage-recovery/RecoveryDataFlow.tsx",
+      "before": "      next.onload = () => {\n        if (!current()) return;",
+      "after": "      next.onload = () => {",
+      "suites": [
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx"
+      ],
+      "pattern": "a\\ later\\ selected\\ file\\ owns\\ the\\ read\\ even\\ when\\ the\\ first\\ FileReader\\ finishes\\ last",
+      "expected_assertion": "a later selected file owns the read even when the first FileReader finishes last",
+      "expected_functional_assertion": "expect(mockImport).toHaveBeenCalledWith second file",
+      "prediction": "Removing reader ownership lets the late first read replace the second file.",
+      "source_file_sha256": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12"
+    },
+    {
+      "id": "cancel-operation",
+      "path": "src/screens/storage-recovery/RecoveryDataFlow.tsx",
+      "before": "    if (id) void cancelRecoveryDataOperation(id).catch(() => undefined);",
+      "after": "    if (id) void id;",
+      "suites": [
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx"
+      ],
+      "pattern": "unmount\\ retires\\ a\\ pending\\ backend\\ import\\ using\\ its\\ exact\\ operation\\ identity",
+      "expected_assertion": "unmount retires a pending backend import using its exact operation identity",
+      "expected_functional_assertion": "expect(mockCancel).toHaveBeenCalledWith(call[3])",
+      "prediction": "Dropping cancellation prevents the exact pending operation from being retired.",
+      "source_file_sha256": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12"
+    },
+    {
+      "id": "file-password-error",
+      "path": "src/screens/storage-recovery/RecoveryDataFlow.tsx",
+      "before": "    case 'RecoveryDataFile:password':\n      return 'recoveryDataWrongPassword';",
+      "after": "    case 'RecoveryDataFile:password':\n      return undefined;",
+      "suites": [
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx"
+      ],
+      "pattern": "a\\ wrong\\ file\\ password\\ is\\ shown\\ as\\ a\\ file\\ error\\ rather\\ than\\ a\\ wallet\\ authentication\\ error",
+      "expected_assertion": "a wrong file password is shown as a file error rather than a wallet authentication error",
+      "expected_functional_assertion": "expect recoveryDataWrongPassword present",
+      "prediction": "Omitting the file password mapping prevents the localized file error from appearing.",
+      "source_file_sha256": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12"
+    },
+    {
+      "id": "reader-error-category",
+      "path": "src/screens/storage-recovery/RecoveryDataFlow.tsx",
+      "before": "        setError('recoveryDataReadFailed');",
+      "after": "        setError('recoveryDataMalformed');",
+      "suites": [
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx"
+      ],
+      "pattern": "Task5\\ recovery\\ file\\ read\\ failure\\ is\\ distinct\\ from\\ malformed\\ file\\ contents",
+      "expected_assertion": "Task5 recovery file read failure is distinct from malformed file contents",
+      "expected_functional_assertion": "expect recoveryDataReadFailed present",
+      "prediction": "Misclassifying a read failure as malformed file omits the intended read failure message.",
+      "source_file_sha256": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12"
+    },
+    {
+      "id": "hardware-storage-error",
+      "path": "src/screens/storage-recovery/RecoveryDataFlow.tsx",
+      "before": "    return 'recoveryDataUnavailable';\n  const message",
+      "after": "    return undefined;\n  const message",
+      "suites": [
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx"
+      ],
+      "pattern": "Task5\\ recovery\\ hardware\\ file\\ failure\\ does\\ not\\ masquerade\\ as\\ biometric\\ authentication\\ failure",
+      "expected_assertion": "Task5 recovery hardware file failure does not masquerade as biometric authentication failure",
+      "expected_functional_assertion": "expect recoveryDataUnavailable present",
+      "prediction": "Dropping unavailable classification hides the actionable file error for hardware authentication.",
+      "source_file_sha256": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12"
+    },
+    {
+      "id": "coalesce-authenticated-operation",
+      "path": "src/lib/auth/strict-action-authentication.ts",
+      "before": "          if (attempt !== undefined) return attempt;",
+      "after": "",
+      "suites": [
+        "src/lib/auth/strict-action-authentication.test.ts"
+      ],
+      "pattern": "coalesces\\ repeated\\ confirmation\\ into\\ the\\ same\\ authenticated\\ operation",
+      "expected_assertion": "coalesces repeated confirmation into the same authenticated operation",
+      "expected_functional_assertion": "expect(perform).toHaveBeenCalledTimes(1)",
+      "prediction": "Removing attempt coalescing invokes the authenticated backend operation twice.",
+      "source_file_sha256": "11d760bfd1ddb18cb13476e1198a4b7d1d2bec7e6e83730cc63d70c6dda09361"
+    },
+    {
+      "id": "retire-authenticated-completion",
+      "path": "src/lib/auth/strict-action-authentication.ts",
+      "before": "              return generation === challengeGeneration ? 'authenticated' : 'cancelled';",
+      "after": "              return 'authenticated';",
+      "suites": [
+        "src/lib/auth/strict-action-authentication.test.ts"
+      ],
+      "pattern": "retires\\ a\\ late\\ authenticated\\ operation\\ result\\ when\\ the\\ challenge\\ is\\ cancelled",
+      "expected_assertion": "retires a late authenticated operation result when the challenge is cancelled",
+      "expected_functional_assertion": "expect(result).resolves.toBe('cancelled')",
+      "prediction": "A completion after cancellation is incorrectly returned authenticated.",
+      "source_file_sha256": "11d760bfd1ddb18cb13476e1198a4b7d1d2bec7e6e83730cc63d70c6dda09361"
+    },
+    {
+      "id": "no-share-after-unmount",
+      "path": "src/screens/encrypted-file-flow/ExportFileComplete.tsx",
+      "before": "        if (!mountedRef.current) {\n          await Filesystem.deleteFile({ path: fullFileName, directory: Directory.Cache }).catch(() => undefined);\n          return;\n        }\n",
+      "after": "",
+      "suites": [
+        "src/screens/encrypted-file-flow/ExportFileComplete.test.tsx"
+      ],
+      "pattern": "a\\ prepared\\ file\\ write\\ finishing\\ after\\ unmount\\ opens\\ no\\ share\\ sheet\\ and\\ cleans\\ its\\ cache\\ file",
+      "expected_assertion": "a prepared file write finishing after unmount opens no share sheet and cleans its cache file",
+      "expected_functional_assertion": "expect(mockShare).not.toHaveBeenCalled()",
+      "prediction": "Removing the ownership check opens the share sheet after unmount.",
+      "source_file_sha256": "c331d447f8963a0b2146aef6108302bf6c83f3ed8d2c906c57310e76c951ed6e"
+    }
+  ],
+  "baseline_evidence": {
+    "scope": "Each exact single-selector baseline must pass in the same CI disposable checkout before mutation.",
+    "source": "20c24ddbcff1c32eccec17562aee149f4557a6bf"
+  }
+}

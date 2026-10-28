@@ -1,0 +1,81 @@
+name: Issue1948 recovery file authentication mutation proof
+on:
+  push:
+    branches: ['ci/1948-inline-mutations-*']
+permissions:
+  contents: read
+jobs:
+  mutations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 20c24ddbcff1c32eccec17562aee149f4557a6bf
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Exact single-test baselines and predicted ordinary assertion kills
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          cd replay
+          python3 "$GITHUB_WORKSPACE/controller/.github/ci/issue1948-mutations/run.py" --manifest "$GITHUB_WORKSPACE/controller/.github/ci/issue1948-mutations/manifest.json" --output "$GITHUB_WORKSPACE/proof/results" 2>&1 | tee "$GITHUB_WORKSPACE/proof/mutations.log"
+      - name: Verify original production source restored
+        if: always() && hashFiles('proof/frozen-replay.json') != ''
+        run: git -C replay diff --exit-code -- src
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-recovery-file-auth-mutations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proof/
+            !proof/package-preparation.zip
+            controller/.github/ci/issue1948-mutations/
+          if-no-files-found: error
