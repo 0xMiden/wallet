@@ -1,7 +1,8 @@
 import React from 'react';
 
-const mode = new URLSearchParams(location.search).get('result');
-export const useMidenContext = () => ({
+const params = new URLSearchParams(location.search);
+const mode = params.get('result');
+const context = {
   ready: true,
   storageAvailability: { status: 'unavailable', epoch: 1 },
   recoverWalletStorage: async () => {
@@ -12,7 +13,16 @@ export const useMidenContext = () => ({
   exportRecoveryDataFile: async () => '{"fixture":"encrypted"}',
   importRecoveryDataFile: async () => { throw new Error('RecoveryDataFile:malformed'); },
   cancelRecoveryDataOperation: async () => undefined
-});
+};
+export const useMidenContext = () => {
+  const value = params.has('stable') ? context : { ...context, cancelRecoveryDataOperation: async () => undefined };
+  const previous = Reflect.get(window, '__fixtureCancel');
+  if (previous && previous !== value.cancelRecoveryDataOperation) {
+    Reflect.set(window, '__fixtureCancelChanges', (Reflect.get(window, '__fixtureCancelChanges') ?? 0) + 1);
+  }
+  Reflect.set(window, '__fixtureCancel', value.cancelRecoveryDataOperation);
+  return value;
+};
 export const useMobileBackHandler = () => undefined;
 export const useHideNavbarWhileOpen = () => undefined;
 export const hapticLight = () => undefined;
