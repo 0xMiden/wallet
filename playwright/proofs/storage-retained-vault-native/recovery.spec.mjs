@@ -3,8 +3,8 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 
-const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned', 'feeOmitted'];
-for (const variant of ['wallet-policy', 'wallet-factory']) test(`st/static-comparison/${variant}`, async ({}, testInfo) => {
+const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned', 'feeOmitted', 'feePresent'];
+for (const variant of ['fee-omitted', 'fee-present']) test(`st/static-comparison/${variant}`, async ({}, testInfo) => {
   const counts = Object.fromEntries(eventNames.map(name => [name, 0]));
   const report = { counts, outsideRequests: 0, rejectedRequests: 0, settled: false, succeeded: false };
   const root = resolve(process.env.RECOVERY_PROOF_BUILD_ROOT || 'proof-dist/retained');
@@ -27,6 +27,18 @@ for (const variant of ['wallet-policy', 'wallet-factory']) test(`st/static-compa
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
+  const seedBrowser = await chromium.launch({ headless: true });
+  const seedContext = await seedBrowser.newContext();
+  await seedContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  const seedPage = await seedContext.newPage();
+  await seedPage.goto(`${origin}/st/`);
+  await seedPage.waitForFunction(() => typeof window.__sdkGenerateFee === 'function');
+  const fee = await seedPage.evaluate(async () => {
+    try { return await window.__sdkGenerateFee(); } catch { return null; }
+  });
+  expect(typeof fee).toBe('string');
+  await seedContext.close();
+  await seedBrowser.close();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   try {
@@ -63,15 +75,15 @@ for (const variant of ['wallet-policy', 'wallet-factory']) test(`st/static-compa
     });
     await page.goto(`${origin}/st/`);
     await page.waitForFunction(() => typeof window.__sdkControl === 'function');
-    const pending = page.evaluate(async variant => {
-      try { await window.__sdkControl(variant); return true; } catch { return false; }
-    }, variant);
+    const pending = page.evaluate(async ({ variant, fee }) => {
+      try { await window.__sdkControl(variant, fee); return true; } catch { return false; }
+    }, { variant, fee });
     pending.then(value => { report.settled = true; report.succeeded = value === true; }, () => { report.settled = true; });
     const deadline = Date.now() + 20_000;
     while (!counts.nativeEntry && !report.settled && Date.now() < deadline)
       await new Promise(resolve => setTimeout(resolve, 50));
     if (counts.nativeEntry) await new Promise(resolve => setTimeout(resolve, 10_000));
-    expect(counts.feeOmitted).toBe(1);
+    expect(variant === 'fee-present' ? counts.feePresent : counts.feeOmitted).toBe(1);
     expect(counts.nativeEntry).toBe(1);
     expect(report.outsideRequests).toBe(0);
   } finally {

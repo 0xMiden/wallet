@@ -7,7 +7,15 @@ import { applyEndpointOverride, getEffectiveFeeFaucetId } from 'lib/miden-chain/
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 const event = name => window.__sdkControlEvent(name).catch(() => {});
-window.__sdkControl = async variant => {
+window.__sdkGenerateFee = async () => {
+  await sdk.MidenClient.ready();
+  const { prepareChain } = await import('./prepare-chain');
+  const fixture = await prepareChain(sdk);
+  for (const material of fixture.custody) material.secretBytes.fill(0);
+  fixture.chain.fill(0);
+  return fixture.feeFaucetId;
+};
+window.__sdkControl = async (variant, fee) => {
   await sdk.MidenClient.ready();
   applyEndpointOverride({
     rpcUrl: location.origin,
@@ -19,9 +27,11 @@ window.__sdkControl = async variant => {
     guardianUrl: `${location.origin}/guardian`,
     allowNoGuardian: false,
     networkName: MIDEN_NETWORK_NAME.LOCALNET,
-    presetName: 'localnet'
+    presetName: 'localnet',
+    feeFaucetId: variant === 'fee-present' ? fee : undefined
   });
-  if (getEffectiveFeeFaucetId() === undefined) event('feeOmitted');
+  if (variant === 'fee-present' && getEffectiveFeeFaucetId() === fee) event('feePresent');
+  else if (variant === 'fee-omitted' && getEffectiveFeeFaucetId() === undefined) event('feeOmitted');
   else throw new Error('unexpected-fee-faucet');
   await initializeStorageHealth();
   const store = await nativeStorageName(location.origin);
@@ -43,20 +53,10 @@ window.__sdkControl = async variant => {
   let created;
   try {
     await withWasmClientLock(async () => {
-      const client = variant === 'wallet-factory' ? await getMidenClient() : await sdk.MidenClient.create({
-        rpcUrl: location.origin,
-        noteTransportUrl: `${location.origin}/notes`,
-        noteTransportMaxRetries: 0,
-        proverUrl: `${location.origin}/prover`,
-        autoSync: false,
-        useWorker: true,
-        indexedDb: nativeStoragePolicy(store, () => true),
-        ...nativeNoteAcquisition(MIDEN_NETWORK_NAME.LOCALNET, () => true, () => created),
-        keystore: { getKey: refuse, insertKey: refuse, sign: refuse }
-      });
+      const client = await getMidenClient();
       created = client;
       event('factoryReturned');
-      if (variant !== 'wallet-factory') client.terminate();
+
     });
   } finally {
     wrapper.prototype.getWasmWebClient = original;
