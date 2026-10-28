@@ -39,6 +39,14 @@ for (const surface of surfaces) for (const theme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Export recovery data' }).click();
     await expect(page.getByTestId('export-file-password')).toBeVisible();
     await capture(page, `${prefix}-export`);
+    await page.mouse.move(surface.width / 2, surface.height / 2);
+    await page.mouse.wheel(0, 600);
+    await expect(page.getByTestId('export-file-password-verify-input')).toBeInViewport();
+    expect(await page.getByTestId('export-file-password-verify-input').evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === element;
+    })).toBe(true);
+    await capture(page, `${prefix}-export-scrolled`);
     await page.getByTestId('export-file-password-input').fill('VisualFixture1!');
     await page.getByTestId('export-file-password-verify-input').fill('VisualFixture1!');
     await page.getByTestId('export-file-submit').click();
@@ -65,5 +73,9 @@ for (const surface of surfaces) for (const theme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Check storage' }).click();
     await expect(page.getByText('The check could not finish. Wallet actions remain paused.')).toBeVisible();
     await capture(page, `${prefix}-recovery-error`);
+    await page.mouse.move(surface.width / 2, surface.height / 2);
+    await page.mouse.wheel(0, 600);
+    await expect(page.getByText('The check could not finish. Wallet actions remain paused.')).toBeInViewport();
+    await capture(page, `${prefix}-recovery-error-scrolled`);
   });
 }
