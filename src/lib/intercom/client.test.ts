@@ -186,6 +186,7 @@ describe('IntercomClient', () => {
     const controller = new AbortController();
     controller.abort();
     await expect(client.request({ action: 'x' }, { signal: controller.signal })).rejects.toThrow('Aborted');
+    expect(mockPostMessage).not.toHaveBeenCalled();
   });
 
   it('abort after port replacement does not throw (cleanup swallows dead-port removeListener)', async () => {
