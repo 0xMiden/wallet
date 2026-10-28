@@ -25,6 +25,7 @@ test('synthetic recovery controls respond to native taps in both themes', async 
   const emulator = new EmulatorControl();
   try {
     await expect.poll(() => session.eval<boolean>('return !!window.__TEST_STORE__;'), { timeout: 60_000 }).toBe(true);
+    await expect.poll(() => session.eval<boolean>('return window.__TEST_STORE__.getState().isInitialized === true;'), { timeout: 60_000 }).toBe(true);
     for (const theme of ['light', 'dark']) {
       await session.eval(`
         var s = window.__TEST_STORE__;
