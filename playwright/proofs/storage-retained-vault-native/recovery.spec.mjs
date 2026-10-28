@@ -3,8 +3,8 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 
-const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned'];
-test('st/sdk-only/pre-open-control', async ({}, testInfo) => {
+const eventNames = ['nativeEntry', 'heartbeat', 'databasesStart', 'databasesEnd', 'open', 'openSuccess', 'openBlocked', 'openError', 'failureCallback', 'factoryReturned', 'feeOmitted'];
+for (const variant of ['wallet-policy', 'wallet-factory']) test(`st/static-comparison/${variant}`, async ({}, testInfo) => {
   const counts = Object.fromEntries(eventNames.map(name => [name, 0]));
   const report = { counts, outsideRequests: 0, rejectedRequests: 0, settled: false, succeeded: false };
   const root = resolve(process.env.RECOVERY_PROOF_BUILD_ROOT || 'proof-dist/retained');
@@ -63,14 +63,15 @@ test('st/sdk-only/pre-open-control', async ({}, testInfo) => {
     });
     await page.goto(`${origin}/st/`);
     await page.waitForFunction(() => typeof window.__sdkControl === 'function');
-    const pending = page.evaluate(async () => {
-      try { await window.__sdkControl(); return true; } catch { return false; }
-    });
+    const pending = page.evaluate(async variant => {
+      try { await window.__sdkControl(variant); return true; } catch { return false; }
+    }, variant);
     pending.then(value => { report.settled = true; report.succeeded = value === true; }, () => { report.settled = true; });
     const deadline = Date.now() + 20_000;
     while (!counts.nativeEntry && !report.settled && Date.now() < deadline)
       await new Promise(resolve => setTimeout(resolve, 50));
     if (counts.nativeEntry) await new Promise(resolve => setTimeout(resolve, 10_000));
+    expect(counts.feeOmitted).toBe(1);
     expect(counts.nativeEntry).toBe(1);
     expect(report.outsideRequests).toBe(0);
   } finally {
