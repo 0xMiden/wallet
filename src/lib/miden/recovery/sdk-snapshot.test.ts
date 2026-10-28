@@ -34,6 +34,24 @@ describe('SDK generation byte contract', () => {
     await expect(readSdkGeneration(client)).resolves.toBe('sdk');
   });
 
+  it('reads a typed byte-array marker', async () => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce(new Uint8Array([115, 100, 107]));
+    await expect(readSdkGeneration(client)).resolves.toBe('sdk');
+  });
+
+  it('refuses an oversized decoded marker', async () => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce(Array(129).fill(97));
+    await expect(readSdkGeneration(client)).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  });
+
+  it('refuses oversized encoded input before decoding', async () => {
+    const client = reader();
+    jest.mocked(client.settings.get).mockResolvedValueOnce(Array(513).fill(97));
+    await expect(readSdkGeneration(client)).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  });
+
   it('writes and reads back a marker using SDK byte values', async () => {
     const client = reader();
     let stored: number[] | null = null;
@@ -81,7 +99,10 @@ afterEach(async () => {
 
 function reader(): RecoverySdkReader {
   return {
-    settings: { get: jest.fn().mockResolvedValue('sdk-generation'), set: jest.fn().mockResolvedValue(undefined) },
+    settings: {
+      get: jest.fn().mockResolvedValue(Array.from(new TextEncoder().encode('sdk-generation'))),
+      set: jest.fn().mockResolvedValue(undefined)
+    },
     accounts: {
       get: jest.fn().mockResolvedValue({
         nonce: () => ({ asInt: () => 3n }),
@@ -166,7 +187,7 @@ it('refuses to replace a marker changed by another lifecycle', async () => {
 });
 it('verifies a newly initialized marker before returning success', async () => {
   const client = reader();
-  jest.mocked(client.settings.get).mockResolvedValueOnce(null).mockResolvedValueOnce('wrong');
+  jest.mocked(client.settings.get).mockResolvedValueOnce(null).mockResolvedValueOnce([119, 114, 111, 110, 103]);
   await expect(initializeSdkGeneration(client, 'new', null, () => {})).rejects.toThrow();
 });
 
@@ -308,7 +329,10 @@ describe('Task4C3I bounded recovery baseline', () => {
 
   it('refuses a generation changed while reading the paged baseline', async () => {
     const client = pagedReader();
-    jest.mocked(client.settings.get).mockResolvedValueOnce('sdk-generation').mockResolvedValue('replaced-generation');
+    jest
+      .mocked(client.settings.get)
+      .mockResolvedValueOnce(Array.from(new TextEncoder().encode('sdk-generation')))
+      .mockResolvedValue(Array.from(new TextEncoder().encode('replaced-generation')));
     client.notes.listPage.mockResolvedValueOnce({
       notes: [record(privateId, 0)],
       nextCursor: cursorA,
