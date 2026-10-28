@@ -49,10 +49,7 @@ export function mergeExternalRecoveryData(
 ): RecoveryJournalData {
   const incoming = validateJournal(source);
   const retained = local && validateJournal(local);
-  if (
-    incoming.scope.network !== binding.scope.network ||
-    (retained && retained.scope.network !== binding.scope.network)
-  )
+  if (retained && retained.scope.network !== binding.scope.network)
     throw new RecoveryDataFileError('network');
   if (
     retained &&
