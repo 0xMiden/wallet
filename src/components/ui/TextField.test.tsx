@@ -716,3 +716,20 @@ describe('user-visible error reporting', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });
+
+it('forwards backup evidence once without putting diagnostics on the native field', () => {
+  jest.useFakeTimers();
+  jest.clearAllMocks();
+  const evidence = { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' } as const;
+  const { rerender } = render(
+    <TextField errorId="encryptedWalletFileWrongNetwork" error="Failed" errorDiagnostics={evidence} />
+  );
+  expect(screen.getByRole('textbox')).not.toHaveAttribute('errorDiagnostics');
+  expect(screen.getByRole('textbox')).not.toHaveAttribute('backupNetworkFailureStage');
+  act(() => jest.advanceTimersByTime(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledWith('encryptedWalletFileWrongNetwork', 'field', evidence);
+  rerender(<TextField errorId="encryptedWalletFileWrongNetwork" error="Failed" errorDiagnostics={evidence} />);
+  act(() => jest.advanceTimersByTime(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  jest.useRealTimers();
+});
