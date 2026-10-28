@@ -1,0 +1,6 @@
+[
+ {"id":"exact_pair","path":"src/lib/telemetry/ui-producer-diagnostics.ts","old":"id: 'raw_bridge_balance_failed',","new":"id: 'invalidAmount',","prediction":"Owned bridge evidence no longer reaches any positive schema, reporting root or real wire assertion."},
+ {"id":"finite_stage","path":"src/lib/telemetry/ui-producer-diagnostics.ts","old":"  'value_decode',\n","new":"","prediction":"The value_decode schema case and real bridge crash envelope reject an allowed producer stage."},
+ {"id":"amount_forwarding","path":"src/components/AmountInput.tsx","old":"useUserVisibleError(error ? errorId : null, 'field', undefined, errorDiagnostics);","new":"useUserVisibleError(error ? errorId : null, 'field');","prediction":"The actual Form dwell report omits its owned producer evidence."},
+ {"id":"visible_identity_filter","path":"src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx","old":"amountErrorId === 'raw_bridge_balance_failed' ? errorDiagnostics : undefined","new":"errorDiagnostics","prediction":"After a balance-limit error replaces the raw balance error, the actual Form report incorrectly retains old balance evidence."}
+]

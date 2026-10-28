@@ -1,0 +1,37 @@
+{
+  "source": "ed7adc8397bd769fe1b948dd4ee76c8325c07722",
+  "tree": "e557be972a8402f03b46f9efa14c7047850ad8c6",
+  "parent": "0aa78be7ce89c12082a7588bcd132e2dbbd3831b",
+  "paths": [
+    "CHANGELOG.md",
+    "docs/privacy/index.md",
+    "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "src/components/AmountInput.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx"
+  ],
+  "sha256": {
+    "CHANGELOG.md": "62260deb1f224757c2b5c2b91ae3c3d91f16790e4ceb34c2a8ca60178927997a",
+    "docs/privacy/index.md": "0be902764968086eaac25430168a40f97967fb26acf3595131b5cd2dd656edc2",
+    "src/lib/telemetry/ui-producer-diagnostics.ts": "4caffb240273ec7d1316222893df5d7feb6d0ea61c259a01229a49214b8deb28",
+    "src/components/AmountInput.tsx": "3d6bbd8d396010ce12271c2a58bf8b8c0a3ea12f71c1491281a00442f8d7ada1",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx": "f59c4d8b4f2485c66602ebd089566b06b3e9e16be6bf13ac3f61669c1de14d04"
+  },
+  "purpose": "Contract and actual consumer green plus independent mutations; reader-stage implementation still absent",
+  "regression_suites": [
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx"
+  ],
+  "baseline_suites": [
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx",
+    "src/components/AmountInput.test.tsx",
+    "src/lib/telemetry/use-user-visible-error.test.tsx",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts"
+  ],
+  "mutation_sha256": "5ce94aac0c1535c9bd26e7e10cd2d5300084c619dda03a7564217749a4f17c16"
+}
