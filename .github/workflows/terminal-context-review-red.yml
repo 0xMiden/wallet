@@ -1,0 +1,36 @@
+name: Terminal context review red proof
+on:
+  push:
+    branches: [ci/terminal-context-review-red]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source
+        run: test "$(git rev-parse HEAD^)" = 74b6686c3828908bf241c162c484f30bc02afc29
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Run regression proof
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/miden/transaction/failure-identity.integration.test.ts --maxWorkers=2 --json --outputFile=proof/results.json > proof/tests.log 2>&1
+          result=$?
+          cat proof/tests.log
+          test "$result" -ne 0
+          node -e "const x=require('./proof/results.json'); const a=x.testResults.flatMap(s=>s.assertionResults); const wanted=['retains submit context after a user cancellation','retains measured context for an indefinite outcome without gRPC details']; if(x.numRuntimeErrorTestSuites || x.numFailedTests!==2 || !wanted.every(n=>a.some(t=>t.title===n && t.status==='failed' && t.failureMessages.some(m=>m.includes('toContain'))))) process.exit(1); console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,runtime:x.numRuntimeErrorTestSuites}));"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-context-review-red
+          path: proof/
