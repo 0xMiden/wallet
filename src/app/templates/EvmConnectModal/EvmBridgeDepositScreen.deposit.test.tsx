@@ -3078,6 +3078,36 @@ describe('user-visible bridge deposit producers', () => {
     });
   });
 
+  it('records the selected Circle balance request failure at the real field', async () => {
+    const config = READY_SNAPSHOT.config;
+    if (!config) throw new Error('Synthetic ready bridge config is missing');
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockSnapshot = {
+      ...READY_SNAPSHOT,
+      config: {
+        ...config,
+        supportedEvmChains: { ...TEST_BRIDGE_CONFIG.supportedEvmChains, ...config.supportedEvmChains }
+      }
+    };
+    global.fetch = jest.fn().mockRejectedValue(new Error('synthetic Circle balance transport failure'));
+    jest.useFakeTimers();
+    try {
+      renderScreen();
+      await flushBridgePromises();
+      act(() => mockLastTokenSelect('CIRCLE_USDC'));
+      await flushBridgePromises();
+      expect(screen.getByText('synthetic Circle balance transport failure')).toBeInTheDocument();
+      await expectErrorAfterDwell('raw_bridge_balance_failed', 'field', {
+        kind: 'bridge_balance_read',
+        bridgeBalanceBranch: 'circle_usdc',
+        bridgeBalanceStage: 'request'
+      });
+      expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    } finally {
+      mockBridgeSnapshot = undefined;
+    }
+  });
+
   it('records a removed Circle source as configuration rather than a completed read', async () => {
     mockSnapshot = { ...READY_SNAPSHOT, status: 'loading' };
     mockAvailability = { usdcxDeposit: { state: 'loading' } };
