@@ -1,0 +1,11 @@
+{
+  "source": "35d8d9cd735a06601fd0157adbeb03f63638433c",
+  "tree": "d251bc381c85c7e094ef367c0724e0863eb3612b",
+  "sha256": {
+    "src/app/templates/history/HistoryDetails.test.tsx": "353ea6fe7d6a6eaac1a59cb65897a5eef97366a81382751d6f64beddaf91403b",
+    "src/app/templates/history/SwapDetail.test.tsx": "24d540abc6b6e452bb99745b79e10c25f6fd318e75f490363bca130876e23926",
+    "src/app/templates/history/useTransactionActions.ts": "2091ed639004525dc185a11ccde57a0c1b63f450aa820f275b1fb4bdceb19185",
+    "src/app/templates/history/HistoryDetails.tsx": "457acb321730b4f746f19d9fe87e65e58be5b96becb47e699b19323cad07cc05",
+    "src/app/templates/history/SwapDetail.tsx": "c3c7bc104b0728eb000dcbc14704b52b8aadeddcce305ea97105c19528d1fb91"
+  }
+}
