@@ -323,7 +323,7 @@ async function recover(password) {
   }
   return { phase, checks: { ...checks }, progress: observed, service };
 }
-async function compareClient(feeFaucetId, fresh, directSdk) {
+async function compareClient(feeFaucetId, fresh, directSdk, isolatedCallbacks) {
   guard();
   if (fresh) {
     await ensureSdkWasmReady();
@@ -335,9 +335,18 @@ async function compareClient(feeFaucetId, fresh, directSdk) {
     progress('pre-loss-client');
     let created;
     const refuse = async () => { throw new Error('comparison-keystore-refused'); };
+    const storage = nativeStoragePolicy(sdkStore, () => true);
+    const acquisition = nativeNoteAcquisition(MIDEN_NETWORK_NAME.LOCALNET, () => true, () => created);
+    if (isolatedCallbacks) {
+      storage.onFailure = () => window.__retainedStorageEvent('diagnosticStorageFailure').catch(() => {});
+      acquisition.beforeNoteAcquisition = async () => {
+        window.__retainedStorageEvent('diagnosticAcquisition').catch(() => {});
+        throw new Error('comparison-acquisition-refused');
+      };
+    }
     const options = directSdk ? {
-      indexedDb: nativeStoragePolicy(sdkStore, () => true),
-      ...nativeNoteAcquisition(MIDEN_NETWORK_NAME.LOCALNET, () => true, () => created),
+      indexedDb: storage,
+      ...acquisition,
       autoSync: false,
       rpcUrl: location.origin,
       noteTransportUrl: `${location.origin}/notes`,

@@ -152,7 +152,7 @@ async function installPage(context, report, service) {
   await page.waitForFunction(() => typeof window.__retainedProof?.prepare === 'function');
   return page;
 }
-for (const variant of ['fresh-origin', 'fresh-sdk']) {
+for (const variant of ['fresh-sdk', 'isolated-callbacks']) {
   const includePrivate = variant !== 'post-fixture';
   test(`st/main/comparison/${variant}`, async ({
     browser
@@ -173,7 +173,7 @@ for (const variant of ['fresh-origin', 'fresh-sdk']) {
       recover: null,
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
-      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0, nativeHeartbeat: 0 },
+      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0, nativeHeartbeat: 0, diagnosticStorageFailure: 0, diagnosticAcquisition: 0 },
       phase: 'initial',
       service: null
     };
@@ -211,13 +211,13 @@ for (const variant of ['fresh-origin', 'fresh-sdk']) {
           comparisonPage = await installPage(comparisonContext, report, service);
         }
         report.stage = 'compare';
-        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh, directSdk }) => {
+        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh, directSdk, isolatedCallbacks }) => {
           try {
-            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh, directSdk) };
+            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh, directSdk, isolatedCallbacks) };
           } catch {
             return { ok: false, phase: window.__retainedPhase || 'initial' };
           }
-        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate, directSdk: variant === 'fresh-sdk' });
+        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate, directSdk: true, isolatedCallbacks: variant === 'isolated-callbacks' });
         report.phase = result.ok ? result.value.phase : result.phase;
         expect(result.ok, `compare:${report.phase}`).toBe(true);
         report.prepare = { phase: result.value.phase, checks: result.value.checks };
