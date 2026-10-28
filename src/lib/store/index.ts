@@ -74,6 +74,17 @@ function assertResponse(condition: boolean): asserts condition {
   }
 }
 
+async function refreshStateAfterAction(): Promise<MidenState> {
+  let backoffMs = 250;
+  for (;;) {
+    const response = await request({ type: WalletMessageType.GetStateRequest });
+    assertResponse(response.type === WalletMessageType.GetStateResponse);
+    if (response.state.backendInitialized !== false) return response.state;
+    await new Promise(resolve => setTimeout(resolve, backoffMs));
+    backoffMs = Math.min(backoffMs * 2, 3_000);
+  }
+}
+
 /**
  * The faucet's own metadata of each token, as last given to the store.
  * `assetsMetadata` holds it with the user's override applied, so a cleared override needs this copy.
@@ -391,9 +402,7 @@ export const useWalletStore = create<WalletStore>()(
       // race the CreateAccount response (extension port reconnect, SW waking, etc.),
       // leaving consumers that await createAccount — notably CreateAccount.tsx's
       // length-diff effect — looking at a stale accounts array.
-      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
-      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
-      get().syncFromBackend(stateRes.state);
+      get().syncFromBackend(await refreshStateAfterAction());
     },
 
     updateCurrentAccount: async accountPublicKey => {
@@ -448,9 +457,7 @@ export const useWalletStore = create<WalletStore>()(
     removeSeedPhrase: async password => {
       const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
       assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
-      const state = await request({ type: WalletMessageType.GetStateRequest });
-      assertResponse(state.type === WalletMessageType.GetStateResponse);
-      get().syncFromBackend(state.state);
+      get().syncFromBackend(await refreshStateAfterAction());
     },
     provideRecoverySeed: async (transactionId, mnemonic, action) => {
       const res = await request({

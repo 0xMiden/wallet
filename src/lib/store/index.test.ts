@@ -1914,6 +1914,40 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('post-action refresh compatibility', () => {
+    it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse, true],
+      ['createAccount', WalletMessageType.CreateAccountResponse, undefined],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, true],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, undefined]
+    ] as const)('%s accepts initialized Idle with marker %s', async (action, responseType, marker) => {
+      mockRequest
+        .mockResolvedValueOnce({ type: responseType })
+        .mockResolvedValueOnce({
+          type: WalletMessageType.GetStateResponse,
+          state: { status: WalletStatus.Idle, accounts: [], currentAccount: null, networks: [], settings: null,
+            ownMnemonic: null, backendInitialized: marker }
+        });
+      if (action === 'createAccount') await useWalletStore.getState().createAccount(WalletType.OnChain, 'New');
+      else await useWalletStore.getState().removeSeedPhrase('password');
+      expect(useWalletStore.getState().status).toBe(WalletStatus.Idle);
+      expect(useWalletStore.getState().isInitialized).toBe(true);
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse]
+    ] as const)('%s propagates a refresh error without repeating the mutation', async (action, responseType) => {
+      mockRequest.mockResolvedValueOnce({ type: responseType }).mockRejectedValueOnce(new Error('refresh failed'));
+      const operation = action === 'createAccount'
+        ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New')
+        : useWalletStore.getState().removeSeedPhrase('password');
+      await expect(operation).rejects.toThrow('refresh failed');
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('revealMnemonic', () => {
     it('returns the mnemonic from the response', async () => {
       mockRequest.mockResolvedValueOnce({
