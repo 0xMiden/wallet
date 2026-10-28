@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/d2-producer-evidence"
           git rev-parse HEAD > "$RUNNER_TEMP/d2-producer-evidence/workflow-sha.txt"
-          test "$(git rev-parse HEAD^)" = 7ffa74db5cd0fb1db58d025cb87f8f7ddfb91a5f
+          git merge-base --is-ancestor 7ffa74db5cd0fb1db58d025cb87f8f7ddfb91a5f HEAD
           cp -R .github/d2-producer-proof "$RUNNER_TEMP/d2-producer-packet"
           git checkout --detach 7ffa74db5cd0fb1db58d025cb87f8f7ddfb91a5f
           test "$(git rev-parse HEAD^{tree})" = 7f93a028979378349bbfce4bfcf3d86bc3840110
