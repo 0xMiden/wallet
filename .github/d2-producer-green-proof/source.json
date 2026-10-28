@@ -1,0 +1,49 @@
+{
+  "source": "58eb76e53fae68a33275d533517310bddeb4ef96",
+  "tree": "6f31036a26a3b6a57ac923b0d5188c91f45c68e6",
+  "parent": "7da5fbb370e6c67b434b6178e9fa38e043bf9fef",
+  "paths": [
+    "CHANGELOG.md",
+    "docs/privacy/index.md",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "src/components/AmountInput.tsx",
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "src/lib/telemetry/user-visible-error.test.ts"
+  ],
+  "sha256": {
+    "CHANGELOG.md": "62260deb1f224757c2b5c2b91ae3c3d91f16790e4ceb34c2a8ca60178927997a",
+    "docs/privacy/index.md": "0be902764968086eaac25430168a40f97967fb26acf3595131b5cd2dd656edc2",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx": "5bcff7b4be878acf807ebcc4f9a80e526f1839c24ea0c56f7960ed95302d9d82",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx": "f59c4d8b4f2485c66602ebd089566b06b3e9e16be6bf13ac3f61669c1de14d04",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx": "769532ae4e19924b5950a70ff16173a6f3d6ceeb58421d0cb76dd40b0bb21668",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx": "f231f00346767c1d80c8b044e20df99afddf296dbfe20ac32f1c614f7036a890",
+    "src/components/AmountInput.tsx": "3d6bbd8d396010ce12271c2a58bf8b8c0a3ea12f71c1491281a00442f8d7ada1",
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts": "a6268c2559df0076ecb29ef77133d4bf84d4ad09bdfd82dc422378e25a2d6866",
+    "src/lib/telemetry/egress-boundary.test.ts": "3ee49a05e57efd982b4224630c629bb871b3d1cbea417921e6b1276c4cbb3875",
+    "src/lib/telemetry/ui-producer-diagnostics.ts": "4caffb240273ec7d1316222893df5d7feb6d0ea61c259a01229a49214b8deb28",
+    "src/lib/telemetry/user-visible-error.test.ts": "b0b8d390bd40ae266f8ab41a818c61df7079b3e7bedb101ed927791601bd2198"
+  },
+  "purpose": "Full bridge producer green and10 independent functional provenance/forwarding mutations",
+  "regression_suites": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx"
+  ],
+  "baseline_suites": [
+    "src/lib/telemetry/bridge-balance-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx",
+    "src/components/AmountInput.test.tsx",
+    "src/lib/telemetry/use-user-visible-error.test.tsx",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx",
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx"
+  ],
+  "mutation_sha256": "e4262343ece5927eabf8f9fe7ed6b9fa92802c7e5c6803023b74b3e1d03b0b73",
+  "supplemental_red_source": "7da5fbb370e6c67b434b6178e9fa38e043bf9fef"
+}
