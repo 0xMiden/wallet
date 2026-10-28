@@ -1,0 +1,37 @@
+name: Terminal submit context focused proof
+on:
+  push:
+    branches: ['ci/terminal-context-typed-green']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source
+        run: test "$(git rev-parse HEAD^)" = 25b1c3ca4258f3c4938077c4694cf69f2b575b9f
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Focused tests
+        run: |
+          mkdir -p proof
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/transaction/failure-identity.integration.test.ts src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/proof-wait-availability.integration.test.ts src/lib/telemetry/transaction-failure.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+          node -e "const x=require('./proof/results.json'); console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,runtime:x.numRuntimeErrorTestSuites})); if(x.numPassedTests===0||x.numFailedTests||x.numRuntimeErrorTestSuites) process.exit(1)"
+      - name: Type check
+        run: yarn ts
+      - name: Lint changed TypeScript
+        run: yarn eslint src/lib/miden/db/types.ts src/lib/miden/transaction/cancel.ts src/lib/miden/transaction/reconcile-unconfirmed.ts src/lib/miden/transaction/verdict-rules.ts src/lib/miden/transaction/failure-identity.integration.test.ts src/lib/telemetry/transaction-failure.ts src/lib/telemetry/transaction-failure.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-submit-focused-proof
+          path: proof/
