@@ -1,0 +1,41 @@
+{
+  "source": "595cf22f6f10b58fd6afb61f616ab7914519aaaf",
+  "tree": "699185c94ac3f158a707b51280c63495050dc20f",
+  "parent": "bba451c9f7e91cb656abe0938e23d2a0a7ca1b87",
+  "paths": [
+    "CHANGELOG.md",
+    "docs/privacy/index.md",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "src/lib/telemetry/user-visible-error.test.ts"
+  ],
+  "sha256": {
+    "CHANGELOG.md": "4af80a2500fc5dcf56e87dc914d67d304ba78eef4cc390f9a7b60d20b030bfa1",
+    "docs/privacy/index.md": "31530464400b5b325c62546be01eb7ef7034b97f6ca42711b71d425ab897a0f4",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts": "d3c1defe77587d085c9a2d92ccf89ef29832b481e721fd62dfe8a580346739b6",
+    "src/lib/telemetry/egress-boundary.test.ts": "42633910d1005d94691ad6d14146114932e510a00650a8bfbec2a66656ff8757",
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts": "45e9cd0cc9e9f9e5845a8620a70e786f0dcbb23495e8bbd4daf397499b8187b6",
+    "src/lib/telemetry/ui-producer-diagnostics.ts": "70c2a5e5ea64d7db3757bb4ee142a4beab7e61f538a77ca55b72d79bf8fe6e63",
+    "src/lib/telemetry/user-visible-error.test.ts": "4d464dd627c0e9dc226c404a559026bca0b7172e9fa61740d4bb1221798af01d"
+  },
+  "purpose": "Privacy-policy supplemental red followed by full retry contract green and6 independent provenance/privacy mutations",
+  "regression_suites": [
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts"
+  ],
+  "baseline_suites": [
+    "src/lib/telemetry/retry-notice-diagnostics.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/lib/telemetry/crash-diagnostics.test.ts",
+    "src/lib/telemetry/crash.test.ts",
+    "src/lib/telemetry/use-user-visible-error.test.tsx"
+  ],
+  "mutation_sha256": "8518fc0eec494f3982e78c2da376a22373c54e540d7c3a0304dc76a32c216e1a",
+  "old_policy_source": "e28c2cb2c5bbcd2b7be1f645a50c5817c348ef82"
+}

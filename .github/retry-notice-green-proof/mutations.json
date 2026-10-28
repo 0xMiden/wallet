@@ -1,0 +1,44 @@
+[
+  {
+    "id": "pair-history_retry",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "  history_retry: {\n    id: 'raw_history_retry_failed',",
+    "new": "  history_retry: {\n    id: 'invalidAmount',",
+    "prediction": "The exact owned pair must retain its root and wire evidence."
+  },
+  {
+    "id": "pair-history_payback_retry",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "  history_payback_retry: {\n    id: 'raw_history_retry_failed',",
+    "new": "  history_payback_retry: {\n    id: 'invalidAmount',",
+    "prediction": "The exact owned pair must retain its root and wire evidence."
+  },
+  {
+    "id": "pair-transaction_retry",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "  transaction_retry: {\n    id: 'raw_transaction_retry_failed',",
+    "new": "  transaction_retry: {\n    id: 'invalidAmount',",
+    "prediction": "The exact owned pair must retain its root and wire evidence."
+  },
+  {
+    "id": "history-origin",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "retryNoticeOrigin: ['history_primary', 'history_earn_receive'],",
+    "new": "retryNoticeOrigin: ['history_primary'],",
+    "prediction": "Earn receive origin remains independently accepted only on history inline."
+  },
+  {
+    "id": "history-reason",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "retryNoticeOrigin: ['history_primary', 'history_earn_receive'],\n      pendingRetryReason: PENDING_RETRY_REASONS",
+    "new": "retryNoticeOrigin: ['history_primary', 'history_earn_receive'],\n      pendingRetryReason: PENDING_RETRY_REASONS.filter(reason => reason !== 'guardian_hold')",
+    "prediction": "The owned history reason survives validation and real wire transport."
+  },
+  {
+    "id": "reject-extra-fields",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "    return closedDiagnosticPair<UiEvidenceInput>(value, { kind: [kind], ...group.fields });",
+    "new": "    if (kind === 'history_retry') {\n      const trimmed = {\n        kind,\n        retryNoticeOrigin: ownDiagnosticData(value, 'retryNoticeOrigin'),\n        pendingRetryReason: ownDiagnosticData(value, 'pendingRetryReason')\n      };\n      return closedDiagnosticPair<UiEvidenceInput>(trimmed, { kind: [kind], ...group.fields });\n    }\n    return closedDiagnosticPair<UiEvidenceInput>(value, { kind: [kind], ...group.fields });",
+    "prediction": "An input with extra private fields must be rejected rather than silently sanitized and promoted."
+  }
+]
