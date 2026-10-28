@@ -335,6 +335,28 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('stops and restarts one native sync loop across health transitions', async () => {
+    let health: storageHealth.StorageHealth = { status: 'healthy', epoch: 0 };
+    jest.spyOn(storageHealth, 'initializeStorageHealth').mockResolvedValue();
+    jest.spyOn(storageHealth, 'getStorageHealth').mockImplementation(() => health);
+    const { rerender, unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    health = { status: 'unavailable', epoch: 1, reason: 'continuity', backend: 'wallet', operation: 'validate', time: 0 };
+    storeState.storageAvailability = health;
+    rerender(<HookHost />);
+    requestImmediateSync();
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    health = { status: 'healthy', epoch: 2 };
+    storeState.storageAvailability = health;
+    rerender(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2));
+    unmount();
+    requestImmediateSync();
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(2);
+  });
+
   it('mobile/desktop: drives syncState directly and flips the store sync flag', async () => {
     const { unmount } = render(<HookHost />);
 
