@@ -24,6 +24,7 @@ const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0'
 const digest = async bytes => hex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
 const check = (name, value) => {
   checks[name] = value === true;
+  window.__retainedChecks = { ...checks };
   if (!checks[name]) throw new Error(name);
 };
 const progress = value => {
@@ -226,8 +227,11 @@ async function prepare(password, includePrivate) {
   });
   fixture.database = '';
   progress('retained-vault-baseline');
+  progress('baseline-continuity');
   check('baselineEstablished', await vault.verifyStorageContinuity(true));
+  progress('baseline-journal');
   const journal = await vault.readRecoveryJournal();
+  progress('baseline-floor');
   check('retainedAccountFloor', journal?.accounts.length === 1);
   const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
   check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);

@@ -37,6 +37,9 @@ const phases = new Set([
   'pre-loss-account-read',
   'pre-loss-note-read',
   'retained-vault-baseline',
+  'baseline-continuity',
+  'baseline-journal',
+  'baseline-floor',
   'orderly-sdk-disposal',
   'disposable-sdk-store-loss',
   'restart-real-vault',
@@ -191,12 +194,13 @@ for (const includePrivate of [false, true]) {
           try {
             return { ok: true, value: await window.__retainedProof.prepare(password, includePrivate) };
           } catch {
-            return { ok: false, phase: window.__retainedPhase || 'initial' };
+            return { ok: false, phase: window.__retainedPhase || 'initial', checks: window.__retainedChecks || {} };
           }
         },
         { password, includePrivate }
       );
       report.phase = prepared.ok ? prepared.value.phase : prepared.phase;
+      if (!prepared.ok) report.prepare = safeReport({ phase: prepared.phase, checks: prepared.checks });
       expect(prepared.ok, `prepare:${report.phase}`).toBe(true);
       report.prepare = safeReport(prepared.value);
       expect(Object.values(report.prepare.checks).every(Boolean)).toBe(true);
