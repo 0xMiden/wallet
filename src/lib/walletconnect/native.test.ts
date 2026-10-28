@@ -1473,7 +1473,8 @@ it.each(['request_construction_error', 'request_call_error'])(
     jest.mocked(isAndroid).mockReturnValue(true);
     jest.mocked(isIOS).mockReturnValue(false);
     const code =
-      'REOWN_NATIVE_REQUEST_FAILURE:' + JSON.stringify({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' });
+      'REOWN_NATIVE_REQUEST_FAILURE:' +
+      JSON.stringify({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' });
     const original = Object.assign(new Error('wallet wording'), {
       code
     });
