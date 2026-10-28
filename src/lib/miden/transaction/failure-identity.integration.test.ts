@@ -251,11 +251,14 @@ describe('the never-committed verdicts', () => {
       stageTimestamps: { submitting: Date.now() - 5_000 }
     };
     await Repo.transactions.put(row);
-    await markTransactionUnconfirmed(row, new Error(
-      `submission of transaction ${TRANSACTION} came back without a definite outcome`
-    ));
+    await markTransactionUnconfirmed(
+      row,
+      new Error(`submission of transaction ${TRANSACTION} came back without a definite outcome`)
+    );
     await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
-    expect(captured()[1]?.message).toContain('endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s');
+    expect(captured()[1]?.message).toContain(
+      'endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
     jest.mocked(isMobile).mockReturnValue(false);
     __resetBackgroundTimeForTest();
   });

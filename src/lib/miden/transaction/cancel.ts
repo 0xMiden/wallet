@@ -710,11 +710,7 @@ const cancelWhilePipelineMayStillRun = async (
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
-export const cancelTransactionAfterPipelineStopped = async (
-  tx: Transaction,
-  error: any,
-  originAttemptId?: string
-) => {
+export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any, originAttemptId?: string) => {
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
