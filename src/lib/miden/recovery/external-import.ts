@@ -71,8 +71,6 @@ export function mergeExternalRecoveryData(
   const floors = new Map(retained?.accounts.map(account => [account.accountId, account]));
   for (const account of incoming.accounts) {
     const previous = floors.get(account.accountId);
-    if (previous && previous.nonce === account.nonce && previous.commitment !== account.commitment)
-      throw new RecoveryDataFileError('account');
     if (!previous || BigInt(account.nonce) > BigInt(previous.nonce)) floors.set(account.accountId, account);
   }
   if (binding.accountIds.some(id => !floors.has(id))) throw new RecoveryDataFileError('account');
