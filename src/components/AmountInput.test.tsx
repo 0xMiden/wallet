@@ -632,3 +632,21 @@ describe('user-visible error reporting', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });
+
+it('reports fixed producer diagnostics only while its error is visibly rendered', async () => {
+  jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
+  const evidence = { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' };
+  const props: React.ComponentProps<typeof AmountInput> = {
+    errorId: 'usdcxBurnFeeUnavailable',
+    error: 'Fee unavailable'
+  };
+  const { rerender } = render(<AmountInput {...Object.assign(props, { errorDiagnostics: evidence })} />);
+  await act(async () => jest.advanceTimersByTimeAsync(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxBurnFeeUnavailable', 'field', evidence);
+  jest.mocked(reportUserVisibleError).mockClear();
+  rerender(<AmountInput {...Object.assign({}, props, { error: undefined, errorDiagnostics: evidence })} />);
+  await act(async () => jest.advanceTimersByTimeAsync(2000));
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  jest.useRealTimers();
+});

@@ -2645,6 +2645,18 @@ describe('actions', () => {
       });
     });
 
+    it('preserves only a fixed failed-measurement reason on the response', async () => {
+      const failed: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(
+        Object.assign(failed, { failure: 'dry_run_failed', message: 'private-account amount=123' })
+      );
+      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'dry_run_failed'
+      });
+    });
+
     it.each<'busy' | 'failed'>(['busy', 'failed'])('answers %s as itself, with no reserve', async outcome => {
       mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome });
 

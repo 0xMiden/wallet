@@ -180,3 +180,41 @@ it('asks again for the same target only once it changes', async () => {
 
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
+
+it('keeps the backend failure reason without forwarding backend error content', async () => {
+  mockEstimate.mockResolvedValue(
+    Object.assign({}, FAILED, { failure: 'dry_run_failed', message: 'private-account amount=123' })
+  );
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current).toEqual({ status: 'failed', failure: 'dry_run_failed' }));
+});
+
+it('distinguishes request rejection from an estimate that failed', async () => {
+  mockEstimate.mockRejectedValue(new Error('private-account amount=123'));
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current).toEqual({ status: 'failed', failure: 'request_failed' }));
+  expect(mockEstimate).toHaveBeenCalledTimes(2);
+});
+
+it('identifies exhaustion of the existing three-answer busy budget', async () => {
+  jest.useFakeTimers();
+  mockEstimate.mockResolvedValue(BUSY);
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await elapse(PAST_EVERY_BACKOFF_MS);
+  expect(result.current).toEqual({ status: 'failed', failure: 'busy_exhausted' });
+  expect(mockEstimate).toHaveBeenCalledTimes(3);
+});
+
+it('labels unknown legacy failure metadata without copying arbitrary values', async () => {
+  mockEstimate.mockResolvedValue(Object.assign({}, FAILED, { failure: 'private-account amount=123' }));
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current).toEqual({ status: 'failed', failure: 'estimate_failed' }));
+});
+
+it('does not retain a failure reason after a successful retry', async () => {
+  mockEstimate
+    .mockResolvedValueOnce(Object.assign({}, FAILED, { failure: 'dry_run_failed' }))
+    .mockResolvedValueOnce(measured(315n));
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 315n }));
+});

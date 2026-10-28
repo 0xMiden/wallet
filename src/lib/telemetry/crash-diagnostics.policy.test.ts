@@ -196,3 +196,19 @@ it.each([
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
 });
+
+it('documents every closed burnFeeFailure value', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'burnFeeFailure'))).toEqual(
+    new Set([
+      'configuration_failed',
+      'native_asset_failed',
+      'request_build_failed',
+      'dry_run_failed',
+      'result_decode_failed',
+      'probe_mismatch',
+      'busy_exhausted',
+      'request_failed',
+      'estimate_failed'
+    ])
+  );
+});
