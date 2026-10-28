@@ -1,0 +1,17 @@
+name: Main toolbar diagnostic
+on:
+  push:
+    branches: [ci/main-toolbar-diagnostic]
+permissions:
+  contents: read
+jobs:
+  bind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = 4fac1bec2385b3e6b2a7c0eb2bb541d08e32d9a7
+  toolbar:
+    needs: bind
+    uses: ./.github/workflows/native-toolbar.yml
