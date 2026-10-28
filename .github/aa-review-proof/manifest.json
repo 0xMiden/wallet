@@ -1,0 +1,369 @@
+{
+  "source_sha": "49e717ec5a6656b4fd7a4292fc51c397577ef25f",
+  "source_tree": "a1877d34b5a0f0db5bc92b94db0e5a314e1bb156",
+  "regression_checkpoint": "e384918e8fc11297ba4ba65554d04a581b78c293",
+  "base_sha": "ae61c4bdca3aa1c5d3daf6597ae33a223a25a333",
+  "test_files": [
+    "src/lib/epoch/positions.test.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/screens/earn-flow/EarnLoadError.test.tsx",
+    "src/screens/earn-flow/EarnPositionDetail.test.tsx",
+    "src/screens/earn-flow/EarnPositions.test.tsx",
+    "src/screens/earn-flow/EarnWithdrawAmount.test.tsx",
+    "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+    "src/screens/earn-flow/useEarnPositions.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/app/pages/Earn.test.tsx",
+    "src/components/ui/TextField.test.tsx",
+    "src/screens/onboarding/import-wallet-flow/ImportWalletFile.test.tsx"
+  ],
+  "lint_files": [
+    "src/app/pages/Earn.test.tsx",
+    "src/app/pages/Earn.tsx",
+    "src/components/ui/TextField.test.tsx",
+    "src/components/ui/TextField.tsx",
+    "src/lib/epoch/positions.test.ts",
+    "src/lib/epoch/positions.ts",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts",
+    "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/screens/earn-flow/EarnLoadError.test.tsx",
+    "src/screens/earn-flow/EarnLoadError.tsx",
+    "src/screens/earn-flow/EarnPositionDetail.test.tsx",
+    "src/screens/earn-flow/EarnPositionDetail.tsx",
+    "src/screens/earn-flow/EarnPositions.test.tsx",
+    "src/screens/earn-flow/EarnPositions.tsx",
+    "src/screens/earn-flow/EarnWithdrawAmount.test.tsx",
+    "src/screens/earn-flow/EarnWithdrawAmount.tsx",
+    "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+    "src/screens/earn-flow/EarnWithdrawReview.tsx",
+    "src/screens/earn-flow/useEarnPositions.test.ts",
+    "src/screens/earn-flow/useEarnPositions.ts",
+    "src/screens/onboarding/import-wallet-flow/ImportWalletFile.test.tsx",
+    "src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx"
+  ],
+  "source_file_sha256": {
+    ".github/workflows/feature-eligibility.yml": "d19c625c505ecaf17156ed799b277cb83f3cbbf6f6d5c2b909d239abdd4bfc71",
+    ".github/workflows/probe-feature-eligibility.yml": "58c1eef1e1b90c04953c79efb9e5395b7c6e8df9255784ded7a85dae4c6a6170",
+    "CHANGELOG.md": "22283c603a7b84ab8ea9246547cb6cc5f608fdf7fb4023972c8bbbdd62d6a845",
+    "docs/privacy/index.md": "6aa949fcc81ed28b564fc80e0383dbbda249063304d79535c889f36167de62ac",
+    "scripts/feature-eligibility-staging-inspect.mjs": "c39654e83490846a966ce80e0d484295669eadf4cbfa69e68c4d3c55bc1aaa13",
+    "scripts/feature-eligibility-staging-inspect.test.mjs": "a2191b4d3038a4550470d02d10f62ab9be63f6e2161ef13c8781e37df1c07431",
+    "scripts/feature-eligibility-staging-probe.mjs": "c80d116033667fbf6a0a41d0b7b78ed2c4ae5dcb74a213b3822718b283fbd591",
+    "scripts/feature-eligibility-staging-probe.test.mjs": "9bd1e4edd81bc2188dc0e84627ff83ff5ccc65ee32a9062d5953925fb1709fa0",
+    "src/app/pages/Earn.test.tsx": "fae63de86536a3fc740b21a934b48a8bcb037037ff1ec6d8463f364c4cf0eaa9",
+    "src/app/pages/Earn.tsx": "2df4446fde4343629db55ff9cec5186bd82a1d02309dbe5755ff8fd61250f1c9",
+    "src/components/ui/TextField.test.tsx": "6ca9d1900319bf945787c62a0a2d46b450db7e6adca33439149dcc386dbfa0c9",
+    "src/components/ui/TextField.tsx": "d2572cfac99550a7cb014489472bbfcd94921ac967df6b0b3dcb203cbd2ba1d4",
+    "src/lib/epoch/positions.test.ts": "3da22c57bbe8977433313b8aa54991fa92926d14cd689dca04759fcdf9371a7d",
+    "src/lib/epoch/positions.ts": "1f98fbfe07d21677510249d61b1b528d6cebbed2ee42bb4b9d67b641241e99cc",
+    "src/lib/telemetry/crash-diagnostics.policy.test.ts": "21d126b4aa02665688cf1097061c2124718152eef25cd380cc271e2779464192",
+    "src/lib/telemetry/egress-boundary.test.ts": "8c60282237719ba2a1354bac47c041a3b1b9580bc8249e07a433a97be9e2027e",
+    "src/lib/telemetry/ui-producer-diagnostics.test.ts": "34bc918e336d8181970ee4dbce068b779752132a17cb2670e38e2cad3000241b",
+    "src/lib/telemetry/ui-producer-diagnostics.ts": "4852ee73af67b1ee7ec91b77587b198dbcba488c8b529b0314a4da24bb953cda",
+    "src/lib/telemetry/user-visible-error.test.ts": "c547160f2d1d990be711192a7d00b099b17df6b0126db600e149ec625ef53b0f",
+    "src/screens/earn-flow/EarnLoadError.test.tsx": "4ecb2d53494c7964ad5473bafe908bed95596281ce0ed3805a2758c63ffdc149",
+    "src/screens/earn-flow/EarnLoadError.tsx": "65aa50e3a81672a4087b5137b30a8a9846b50b1c7ef37df9d9f6af28d40a0a32",
+    "src/screens/earn-flow/EarnPositionDetail.test.tsx": "9f38aa64b3a68118d32d570c71b0a3ac44903fba5adeec06e66f2f8c40e2f265",
+    "src/screens/earn-flow/EarnPositionDetail.tsx": "508f943f258d81d47a9fdcb13c8864cf9d045f669ec5b0d7f3afba7764b00b81",
+    "src/screens/earn-flow/EarnPositions.test.tsx": "4cd34471c0aff6a96fc6e788707983122664c2c1bc3d46a44190be58613798d7",
+    "src/screens/earn-flow/EarnPositions.tsx": "d6060957f7919aa8c81e16bc9119381ab3656c826c32d1b8ade58a624b01387c",
+    "src/screens/earn-flow/EarnWithdrawAmount.test.tsx": "1eb5726d4d0763e6ed82a4bc68fd3fc961974c2af6b920dad8797b06bf2ffc91",
+    "src/screens/earn-flow/EarnWithdrawAmount.tsx": "33457d4600904fbde29ec0cefff2f3b36af4c59df1888702a192fabe9885e493",
+    "src/screens/earn-flow/EarnWithdrawReview.test.tsx": "69b7d66713daaf47ddd5c82332e85c783292a8df49b313e25c83e56de9cedc30",
+    "src/screens/earn-flow/EarnWithdrawReview.tsx": "946c505cf7e18a34d87d2951accbe068b844023e859df3e27abf87a652e76918",
+    "src/screens/earn-flow/useEarnPositions.test.ts": "6ae42e1196534412d697aeffa571bb6a5504cbca932a956de67c4e1816dc037e",
+    "src/screens/earn-flow/useEarnPositions.ts": "c2944b65e61ed402a1af72c9687c998e42054bf8cadcd69538266b13aae0bb1f",
+    "src/screens/onboarding/import-wallet-flow/ImportWalletFile.test.tsx": "bfca8a95e5e19650aa4a0a6098ed2225fddd7736aca92fc5efe72fa36e01117c",
+    "src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx": "759efba692490a21a7588bbbddd84048bf658d79dbcdfcac914bce58affed12b"
+  },
+  "cases": [
+    {
+      "name": "request-stage",
+      "path": "src/lib/epoch/positions.ts",
+      "old": "let stage: EarnPositionsLoadStage = 'request';",
+      "new": "let stage: EarnPositionsLoadStage = 'unrecorded';",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/epoch/positions.test.ts"
+      ],
+      "test_name_pattern": "request rejection|HTTP refusal|timed-out request",
+      "prediction": "Three owned request stage assertions fail; request behavior and deadline remain unchanged.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 3,
+      "expected_failed_names": [
+        "source-owned Earn load diagnostics retains the owned stage for request rejection without copying its private cause",
+        "source-owned Earn load diagnostics retains the owned stage for HTTP refusal without copying its private cause",
+        "source-owned Earn load diagnostics keeps the timed-out request boundary without changing the deadline"
+      ]
+    },
+    {
+      "name": "response-stage",
+      "path": "src/lib/epoch/positions.ts",
+      "old": "stage = 'response_decode';",
+      "new": "stage = 'request';",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/epoch/positions.test.ts"
+      ],
+      "test_name_pattern": "JSON rejection|unsuccessful envelope|timed-out response_decode",
+      "prediction": "Three owned response-stage assertions fail.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 3,
+      "expected_failed_names": [
+        "source-owned Earn load diagnostics retains the owned stage for JSON rejection without copying its private cause",
+        "source-owned Earn load diagnostics retains the owned stage for unsuccessful envelope without copying its private cause",
+        "source-owned Earn load diagnostics keeps the timed-out response_decode boundary without changing the deadline"
+      ]
+    },
+    {
+      "name": "position-stage",
+      "path": "src/lib/epoch/positions.ts",
+      "old": "error: 'positions response unreadable', stage: 'position_decode'",
+      "new": "error: 'positions response unreadable', stage: 'request'",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/epoch/positions.test.ts"
+      ],
+      "test_name_pattern": "malformed funded position|payload cannot be read|no USD value",
+      "prediction": "Three decode assertions fail on the controlled reason, no new runtime failures.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 3,
+      "expected_failed_names": [
+        "fetchEarnPositions settles an owner whose payload cannot be read as that owner's error, while the others load",
+        "fetchEarnPositions settles a funded position with no USD value as that owner's error",
+        "source-owned Earn load diagnostics retains the owned stage for malformed funded position without copying its private cause"
+      ]
+    },
+    {
+      "name": "owner-lookup-stage",
+      "path": "src/lib/epoch/positions.ts",
+      "old": "earnPositionsLoadStage: 'owner_lookup'",
+      "new": "earnPositionsLoadStage: 'configuration'",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/epoch/positions.test.ts"
+      ],
+      "test_name_pattern": "activity owner lookup failure",
+      "prediction": "Exact-root owner-lookup assertion fails; rejection identity is preserved.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "source-owned Earn load diagnostics keeps an activity owner lookup failure on its exact root"
+      ]
+    },
+    {
+      "name": "configuration-stage",
+      "path": "src/lib/epoch/positions.ts",
+      "old": "earnPositionsLoadStage: 'configuration'",
+      "new": "earnPositionsLoadStage: 'owner_lookup'",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/epoch/positions.test.ts"
+      ],
+      "test_name_pattern": "configuration failure on its exact root",
+      "prediction": "Exact-root config assertion fails; rejection identity is preserved.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "source-owned Earn load diagnostics keeps a configuration failure on its exact root and preserves its rejection"
+      ]
+    },
+    {
+      "name": "current-load-outcome",
+      "path": "src/screens/earn-flow/useEarnPositions.ts",
+      "old": "data.errors.length < data.owners.length",
+      "new": "data.positions.length > 0",
+      "replacement_count": 1,
+      "test_files": [
+        "src/screens/earn-flow/useEarnPositions.test.ts"
+      ],
+      "test_name_pattern": "all failed with carried positions|one empty owner succeeded",
+      "prediction": "Both stale-carry and empty-success outcome assertions fail; financial state is unmodified.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 2,
+      "expected_failed_names": [
+        "useEarnPositions reports the matching closed load evidence when all failed with carried positions",
+        "useEarnPositions reports the matching closed load evidence when one empty owner succeeded"
+      ]
+    },
+    {
+      "name": "first-displayed-error-stage",
+      "path": "src/screens/earn-flow/useEarnPositions.ts",
+      "old": "safeOwnDiagnosticData(firstError, 'stage')",
+      "new": "safeOwnDiagnosticData(data?.errors.at(-1), 'stage')",
+      "replacement_count": 1,
+      "test_files": [
+        "src/screens/earn-flow/useEarnPositions.test.ts"
+      ],
+      "test_name_pattern": "first displayed error owns its stage",
+      "prediction": "One attribution assertion fails, proving the stage follows the displayed first error.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "useEarnPositions reports the matching closed load evidence when first displayed error owns its stage"
+      ]
+    },
+    {
+      "name": "exact-pair",
+      "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+      "old": "if (id !== group.id || surface !== group.surface) return undefined;",
+      "new": "if (kind !== 'earn_positions_load' && (id !== group.id || surface !== group.surface)) return undefined;",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/telemetry/user-visible-error.test.ts"
+      ],
+      "test_name_pattern": "another pair.*earnPositionsLoadError|mismatching pair",
+      "prediction": "Wrong-ID and wrong-surface/privacy assertions fail for AA.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 3,
+      "expected_failed_names": [
+        "rejects UI evidence on another pair without changing the report identity for earnPositionsLoadError",
+        "rejects an Earn load observation on the mismatching pair earnPositionsLoadError/inline",
+        "rejects an Earn load observation on the mismatching pair earnVaultLoadError/notice"
+      ]
+    },
+    {
+      "name": "closed-field-validation",
+      "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+      "old": "const group = groups[kind as keyof typeof groups];",
+      "new": "if (kind === 'earn_positions_load') return value as UiEvidenceInput;\n    const group = groups[kind as keyof typeof groups];",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/telemetry/user-visible-error.test.ts"
+      ],
+      "test_name_pattern": "incomplete arbitrary inherited and accessor Earn",
+      "prediction": "Closed field/privacy assertions fail, including accessor or arbitrary values; runtime errors must remain0.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "rejects incomplete arbitrary inherited and accessor Earn observations without reading them"
+      ]
+    },
+    {
+      "name": "display-forwarding",
+      "path": "src/screens/earn-flow/EarnLoadError.tsx",
+      "old": "        errorDiagnostics={validateUiEvidence(errorId, 'notice', errorDiagnostics)}\n",
+      "new": "",
+      "replacement_count": 1,
+      "test_files": [
+        "src/screens/earn-flow/EarnLoadError.test.tsx",
+        "src/screens/earn-flow/EarnPositions.test.tsx",
+        "src/screens/earn-flow/EarnPositionDetail.test.tsx",
+        "src/screens/earn-flow/EarnWithdrawAmount.test.tsx",
+        "src/screens/earn-flow/EarnWithdrawReview.test.tsx"
+      ],
+      "test_name_pattern": "forwards.*(positions load evidence|matching closed source|selected failure evidence)",
+      "prediction": "Five actual-display assertions fail on missing evidence; unrelated vault remains unannotated.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 5,
+      "expected_failed_names": [
+        "EarnWithdrawReview after a failed load forwards the selected failure evidence from withdrawal review to the real Notice",
+        "EarnPositionDetail after a failed load forwards the selected failure evidence from position detail to the real Notice",
+        "forwards the selected failure evidence from withdrawal amount to the real Notice",
+        "EarnPositions forwards only the displayed positions load evidence through the real Notice",
+        "forwards the matching closed source observation to the displayed positions warning"
+      ]
+    },
+    {
+      "name": "outgoing-group",
+      "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+      "old": "  earn_positions_load: {\n    id: 'earnPositionsLoadError',\n    surface: 'notice',\n    fields: {\n      earnPositionsLoadStage: EARN_POSITIONS_LOAD_STAGES,\n      earnPositionsLoadOutcome: EARN_POSITIONS_LOAD_OUTCOMES\n    }\n  },",
+      "new": "",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/telemetry/egress-boundary.test.ts"
+      ],
+      "test_name_pattern": "retains only the closed Earn load",
+      "prediction": "Two actual SDK outgoing-envelope assertions fail on missing controlled fields.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 2,
+      "expected_failed_names": [
+        "user-visible error reports retains only the closed Earn load complete_failure evidence on actual outgoing envelopes",
+        "user-visible error reports retains only the closed Earn load partial_failure evidence on actual outgoing envelopes"
+      ]
+    },
+    {
+      "name": "policy-stage-declaration",
+      "path": "docs/privacy/index.md",
+      "old": "`configuration`, `owner_lookup`, `request`, `response_decode`, `position_decode`, `unrecorded`",
+      "new": "`configuration`, `owner_lookup`, `request`, `response_decode`, `position_decode`",
+      "replacement_count": 1,
+      "test_files": [
+        "src/lib/telemetry/crash-diagnostics.policy.test.ts"
+      ],
+      "test_name_pattern": "exact Earn load observations for earnPositionsLoadStage",
+      "prediction": "One policy assertion fails because unrecorded declaration was removed.",
+      "role": "expected functional failure, executed>0, failed>0, runtime0; restore exact bytes in finally",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "documents the exact Earn load observations for earnPositionsLoadStage"
+      ]
+    },
+    {
+      "name": "tab-empty-forwarding",
+      "path": "src/app/pages/Earn.tsx",
+      "old": "            <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />",
+      "new": "            <EarnLoadError onRetry={refetch} />",
+      "replacement_count": 1,
+      "test_files": [
+        "src/app/pages/Earn.test.tsx"
+      ],
+      "test_name_pattern": "forwards load evidence when the failed Earn tab has no positions",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "Earn page forwards load evidence when the failed Earn tab has no positions"
+      ]
+    },
+    {
+      "name": "tab-retained-forwarding",
+      "path": "src/app/pages/Earn.tsx",
+      "old": "{loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}",
+      "new": "{loadFailed && <EarnLoadError onRetry={refetch} />}",
+      "replacement_count": 1,
+      "test_files": [
+        "src/app/pages/Earn.test.tsx"
+      ],
+      "test_name_pattern": "forwards load evidence when the failed Earn tab retains positions",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "Earn page forwards load evidence when the failed Earn tab retains positions"
+      ]
+    },
+    {
+      "name": "current-rejected-read-outcome",
+      "path": "src/screens/earn-flow/useEarnPositions.ts",
+      "old": "      readError === undefined &&\n",
+      "new": "",
+      "replacement_count": 1,
+      "test_files": [
+        "src/screens/earn-flow/useEarnPositions.test.ts"
+      ],
+      "test_name_pattern": "reports complete failure for a rejected refresh with retained partial data",
+      "expected_executed": 1,
+      "expected_failed_names": [
+        "useEarnPositions reports complete failure for a rejected refresh with retained partial data"
+      ]
+    }
+  ],
+  "canonical_files": [
+    "src/app/pages/Earn.tsx",
+    "src/screens/earn-flow/useEarnPositions.ts"
+  ],
+  "expected_canonical_hunks": 4,
+  "expected_canonical_tests": 125,
+  "scope": "affected green gates and semantic plus canonical hunk mutations; no coverage or merge-gate claim",
+  "expected_semantic_failures": 29,
+  "canonical_runner_sha256": "32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc",
+  "fix_patch_sha256": "b173157d959f1a448f835aa7ca856918c7109134eacd5b39bdebc5a431439099",
+  "minimum_baseline_tests": 892,
+  "expected_test_suites": 14,
+  "node_tests": [
+    "scripts/feature-eligibility-staging-inspect.test.mjs",
+    "scripts/feature-eligibility-staging-probe.test.mjs"
+  ]
+}
