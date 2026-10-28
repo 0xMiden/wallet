@@ -7075,6 +7075,10 @@ describe('Vault storage continuity', () => {
     const native = await sdkFactory.getWasmOrThrow();
     const storeName = native.resolveStoreName(getEffectiveRpcUrl(), undefined);
     const primarySdk = fixture.client.client;
+    const getSyncHeight = jest.fn(async () => 10);
+    const syncChain = jest.fn();
+    Reflect.set(primarySdk, 'getSyncHeight', getSyncHeight);
+    Reflect.set(primarySdk, 'syncChain', syncChain);
     Reflect.set(
       primarySdk,
       'storeIdentifier',
@@ -7112,6 +7116,8 @@ describe('Vault storage continuity', () => {
       delivered,
       settings,
       accounts,
+      getSyncHeight,
+      syncChain,
       progress,
       nestedBefore,
       callbackClient,
@@ -7147,6 +7153,8 @@ describe('Vault storage continuity', () => {
       expect(f.delivered).not.toHaveBeenCalled();
       const recovered = await f.recover();
       expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.getSyncHeight).toHaveBeenCalledTimes(1);
+      expect(f.syncChain).not.toHaveBeenCalled();
       expect(f.delivered.mock.calls[0]?.[0].noteFileBytes).toEqual(f.noteFile);
       expect(recovered).toBe(true);
       expect(f.adopted()).toBe(true);
