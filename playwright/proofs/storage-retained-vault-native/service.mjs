@@ -54,11 +54,12 @@ export async function createRecoveryService(buildRoot, binary) {
   let pending;
   let sealed = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, mmrReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, mmrReads: 0, submitCalls: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url || '/', 'http://127.0.0.1');
+      if (url.pathname.endsWith('/SubmitProvenTx') || url.pathname.endsWith('/SubmitProvenTxBatch')) counts.submitCalls++;
       response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
       response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
       const send = value => {

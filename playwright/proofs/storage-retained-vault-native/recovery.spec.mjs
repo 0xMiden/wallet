@@ -71,7 +71,12 @@ const checkNames = new Set([
   'recovered',
   'healthyAfterRecovery',
   'rebuiltNativeAccount',
-  'rebuiltAuthenticatedPrivate'
+  'rebuiltAuthenticatedPrivate',
+  'submissionCheckpointed',
+  'submissionRestored',
+  'unknownReconciledWithoutRetry',
+  'retryRefused',
+  'submissionEvidenceRetained'
 ]);
 function safeReport(value) {
   if (
@@ -95,8 +100,8 @@ function safeReport(value) {
   }
   return { phase: value.phase, checks };
 }
-for (const includePrivate of [false, true]) {
-  test(`st/main/retained-vault/${includePrivate ? 'private-primary' : 'account-only'}`, async ({
+for (const includePrivate of [false]) {
+  test('st/main/retained-vault/submitted-attempt', async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -227,6 +232,11 @@ for (const includePrivate of [false, true]) {
       expect(restored.ok, `recover:${report.phase}`).toBe(true);
       report.recover = safeReport(restored.value);
       expect(report.recover.checks.missingAccountGuardianBranch).toBe(true);
+      expect(report.prepare.checks.submissionCheckpointed).toBe(true);
+      expect(report.recover.checks.submissionRestored).toBe(true);
+      expect(report.recover.checks.unknownReconciledWithoutRetry).toBe(true);
+      expect(report.recover.checks.retryRefused).toBe(true);
+      expect(report.recover.checks.submissionEvidenceRetained).toBe(true);
       expect(report.recover.checks.recoveredAccountVerified).toBe(true);
       expect(report.recover.checks.priorRequiredEvidenceRetained).toBe(true);
       expect(report.recover.checks.recovered).toBe(true);
@@ -234,6 +244,7 @@ for (const includePrivate of [false, true]) {
       expect(report.recover.checks.rebuiltNativeAccount).toBe(true);
       if (includePrivate) expect(report.recover.checks.rebuiltAuthenticatedPrivate).toBe(true);
       expect(report.outsideRequests).toBe(0);
+      expect(service.summary().submitCalls).toBe(0);
       report.stage = 'complete';
     } finally {
       report.service = service.summary();

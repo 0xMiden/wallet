@@ -13,6 +13,8 @@ import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effec
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import { requeueFailedTransaction } from 'lib/miden/transaction/retry';
 
 import { prepareChain } from './prepare-chain';
 
@@ -242,7 +244,35 @@ async function prepare(password, includePrivate) {
   fixture.database = '';
   progress('retained-vault-baseline');
   check('baselineEstablished', await vault.verifyStorageContinuity(true));
+  const syntheticId = 'disposable-submitted-attempt';
+  const attemptId = 'disposable-attempt';
+  const requestBytes = new Uint8Array([1, 2, 3]);
+  const evidence = {
+    transactionId: '0x' + '11'.repeat(32),
+    initialCommitment: '0x' + '22'.repeat(32),
+    finalCommitment: '0x' + '33'.repeat(32),
+    initialNonce: '1',
+    refBlock: 1,
+    refBlockCommitment: '0x' + '44'.repeat(32),
+    outputNoteIds: [],
+    nullifiers: [],
+    expirationBlock: 30
+  };
+  await Repo.transactions.add({
+    id: syntheticId,
+    accountId: fixture.accountId,
+    type: 'send',
+    status: ITransactionStatus.Unconfirmed,
+    initiatedAt: 1,
+    displayIcon: 'SEND',
+    mayHaveSubmitted: true,
+    attemptId,
+    submitEvidence: [{ attemptId, capturedAt: 1, source: 'stage', ...evidence }]
+  });
+  await vault.retainTransactionRecovery(syntheticId, { requestBytes, notes: [] }, evidence, attemptId);
   const journal = await vault.readRecoveryJournal();
+  const retainedAttempt = journal?.entries.find(entry => entry.kind === 'transaction' && entry.id === syntheticId);
+  check('submissionCheckpointed', retainedAttempt?.mayHaveSubmitted === true && retainedAttempt.row?.submitEvidence?.length === 1);
   check('retainedAccountFloor', journal?.accounts.length === 1);
   const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
   check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
@@ -317,6 +347,22 @@ async function recover(password) {
   checks.recovered = recovered === true;
   checks.healthyAfterRecovery = getStorageHealth().status === 'healthy';
   if (recovered) {
+    const row = await Repo.transactions.get('disposable-submitted-attempt');
+    check('submissionRestored', row?.status === ITransactionStatus.Unconfirmed && row.mayHaveSubmitted === true &&
+      row.restoredFromJournal === true && row.submitEvidence?.length === 1 &&
+      row.submitEvidence[0].attemptId === 'disposable-attempt' && row.submitEvidence[0].transactionId === '0x' + '11'.repeat(32) &&
+      row.requestBytes?.length === 3 && row.requestBytes.every((value, index) => value === [1, 2, 3][index]));
+    const reconciliation = await vault.reconcileStorageRecovery();
+    const unresolved = await Repo.transactions.get('disposable-submitted-attempt');
+    check('unknownReconciledWithoutRetry', reconciliation.reconciled === 0 && unresolved?.status === ITransactionStatus.Unconfirmed &&
+      unresolved.mayHaveSubmitted === true && unresolved.submitEvidence?.length === 1);
+    let refused = false;
+    try { await requeueFailedTransaction('disposable-submitted-attempt'); } catch { refused = true; }
+    const afterRetry = await Repo.transactions.get('disposable-submitted-attempt');
+    check('retryRefused', refused && afterRetry?.status === ITransactionStatus.Unconfirmed && afterRetry.mayHaveSubmitted === true);
+    const afterJournal = await vault.readRecoveryJournal();
+    check('submissionEvidenceRetained', afterJournal?.entries.some(entry => entry.kind === 'transaction' &&
+      entry.id === 'disposable-submitted-attempt' && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
     await withWasmClientLock(async () => {
       const wallet = await getMidenClient();
       const account = await wallet.getAccount(state.accountId);
