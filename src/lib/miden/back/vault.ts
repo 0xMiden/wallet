@@ -1571,9 +1571,16 @@ export class Vault {
   }
 
   private static async recoveryDataAccounts(key: CryptoKey, check: () => void): Promise<WalletAccount[]> {
-    await fetchAndDecryptOne<unknown>(checkStrgKey, key);
-    check();
-    const accounts: unknown = await fetchAndDecryptOne(accountsStrgKey, key);
+    let accounts: unknown;
+    try {
+      await fetchAndDecryptOne<unknown>(checkStrgKey, key);
+      check();
+      accounts = await fetchAndDecryptOne(accountsStrgKey, key);
+    } catch (error) {
+      check();
+      if (error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND) throw new RecoveryDataFileError('unavailable');
+      throw error;
+    }
     check();
     if (
       !Array.isArray(accounts) ||
