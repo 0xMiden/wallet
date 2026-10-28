@@ -1,0 +1,53 @@
+name: H8 iOS synthetic Relay proof
+on:
+  push:
+    branches: [ci/h8-ios-relay-proof]
+permissions:
+  contents: read
+jobs:
+  reference-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 112b8e72aa60055dbb9cd55c2bd59ffa12a97ddd
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install hash-pinned binary reference engine
+        run: |
+          cat > "$RUNNER_TEMP/requirements.txt" <<'REQ'
+          sentry-relay==0.10.1 --hash=sha256:3325ef78796553ddb921c9f392d8c5b2b48a0698e95dc2b0ef55d767c66f7160
+          cffi==2.0.0 --hash=sha256:3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba
+          pycparser==2.23 --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934
+          REQ
+          python -m pip install --only-binary=:all: --no-deps --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+      - name: Test synthetic values offline
+        run: |
+          python - <<'PY'
+          import json, socket
+          from pathlib import Path
+          from unittest.mock import patch
+          from sentry_relay.processing import convert_datascrubbing_config, pii_strip_event
+          source = Path('src/lib/walletconnect/native-request-failure.ts').read_text()
+          values = ['unconfigured', 'argument_validation', 'request_construction_error', 'request_call_error']
+          assert all("'" + value + "'" in source for value in values)
+          settings = {'scrubData': True, 'scrubDefaults': True, 'scrubIpAddresses': False, 'excludeFields': [], 'sensitiveFields': []}
+          def forbid(*args, **kwargs):
+              raise AssertionError('Network forbidden during synthetic processing')
+          results = []
+          with patch.object(socket, 'socket', forbid), patch.object(socket, 'create_connection', forbid):
+              config = convert_datascrubbing_config(settings)
+              for origin in values:
+                  event = {'message': 'synthetic diagnostic', 'extra': {'walletDiagnostics': {'reownNativeOrigin': origin, 'reownRequestAge': 'unknown', 'reownPublished': 'unobserved'}}, 'tags': {'reown_native_origin': origin}}
+                  result = pii_strip_event(config, event)
+                  assert result['extra']['walletDiagnostics']['reownNativeOrigin'] == origin, result
+                  assert result['tags']['reown_native_origin'] == origin, result
+                  results.append({'origin': origin, 'preserved': True})
+              result = pii_strip_event(config, {'message':'synthetic diagnostic', 'contexts':{'proof':{'password':'synthetic_canary', 'access_token':'synthetic_canary', 'neutral':'synthetic_auth_marker', 'ordinary':'synthetic_canary'}}})['contexts']['proof']
+              assert result['password'] == '[Filtered]' and result['access_token'] == '[Filtered]' and result['neutral'] == '[Filtered]' and result['ordinary'] == 'synthetic_canary', result
+          Path('h8-relay-proof.json').write_text(json.dumps({'synthetic_only':True,'offline':True,'engine':'sentry-relay 0.10.1','cases':results,'privacy_canaries':'passed','limitation':'Reference engine does not establish SaaS server version'},indent=2)+'\n')
+          print(Path('h8-relay-proof.json').read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        with: { name: h8-ios-relay-proof, path: h8-relay-proof.json, if-no-files-found: error }
