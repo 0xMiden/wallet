@@ -179,6 +179,78 @@ beforeEach(async () => {
   jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
 });
 
+it('backfills on each collection visit without SDK calls or balance snapshots', async () => {
+  jest.mocked(midenClientProxy.getTransactionCommitState).mockRejectedValue(new Error('offline'));
+  await Repo.transactions.add(row({ status: ITransactionStatus.Completed, transactionId: undefined }));
+  const firstVisit = render(<MyBadges />);
+  await waitFor(() => expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true'));
+  firstVisit.unmount();
+  await Repo.transactions.add(
+    row({
+      id: 'deposit',
+      type: 'bridged-receive',
+      status: ITransactionStatus.Completed,
+      transactionId: undefined,
+      extraInputs: { phase: 'received' }
+    })
+  );
+  const nextVisit = render(<MyBadges />);
+  await waitFor(() =>
+    expect(screen.getByTestId('badge-medallion-first-deposit')).toHaveAttribute('data-earned', 'true')
+  );
+  expect(mockStored).toEqual(['first-deposit', 'first-send']);
+  expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+  expect(midenClientProxy.getPswapLineages).not.toHaveBeenCalled();
+  expect(withWasmClientLock).not.toHaveBeenCalled();
+  nextVisit.unmount();
+});
+
+it('backfills recovered Mainnet history without a badgeNetwork stamp', async () => {
+  await Repo.transactions.add(
+    row({
+      status: ITransactionStatus.Completed,
+      badgeNetwork: undefined,
+      recovered: true,
+      restoredFromBackup: true,
+      recovery: {
+        version: 5,
+        network: 'mainnet',
+        operators: ['guardian'],
+        nonce: 1,
+        inputNotes: [],
+        outputNotes: [],
+        completeness: 'decoded',
+        reclaimed: false
+      }
+    })
+  );
+  const view = render(<MyBadges />);
+  await waitFor(() => expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true'));
+  expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it.each(['testnet', 'override', 'legacy', 'failed', 'imported'])(
+  'does not backfill %s history when the collection opens',
+  async kind => {
+    mockMainnet = kind !== 'testnet';
+    mockOverride = kind === 'override' ? {} : null;
+    await Repo.transactions.add(
+      row({
+        status: kind === 'failed' ? ITransactionStatus.Failed : ITransactionStatus.Completed,
+        badgeNetwork: kind === 'legacy' ? undefined : 'mainnet',
+        restoredFromBackup: kind === 'imported'
+      })
+    );
+    const view = render(<MyBadges />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    });
+    expect(mockWrite).not.toHaveBeenCalled();
+    view.unmount();
+  }
+);
+
 it.each([false, true])(
   'reacts to a real IndexedDB status event and updates the count and card (onboarding choice: %s)',
   async onboarding => {
