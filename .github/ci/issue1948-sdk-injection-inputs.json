@@ -1,0 +1,105 @@
+{
+  "wallet_source": "20c24ddbcff1c32eccec17562aee149f4557a6bf",
+  "wallet_tree": "2af05fb4a4ae0f8197e11001c9b3daff31050d41",
+  "phase": "sdk-addon-coverage-diagnostic",
+  "package_sha256": {
+    "@miden-sdk/miden-sdk": "90ab279019f48ff41beefae89f48cbf903600b5bcb1a362f944094e709c7f8fb",
+    "@miden-sdk/react": "dae046f97d54bafa0d298982b94e4dd642fbfe121769ecb21a04280ae89bb8e2",
+    "@miden-sdk/vite-plugin": "ab0de5991cda8e80ed6c0fb3e6177a54a813709ec9d68620b791f1d989a0f3b6"
+  },
+  "approved_target_lock_changes": {
+    "\"@miden-sdk/node-darwin-arm64@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-arm64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "f3eac40494062158c97221dafd7dda7d899752671d1f701afb63f6f16bc979bc",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-darwin-x64@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-x64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "7965585a0d0f361e40f7af828cfb59ace2afd7ced6725dbdc3b6748eb78a8424",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-linux-x64-gnu@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-gnu@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "671434909252186506721776c82a7f1345e89b4b7d406fdc94320187a41d467c",
+      "after_sha256": null
+    },
+    "\"@miden-sdk/node-linux-x64-musl@0.17.5\"": {
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-musl@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary.",
+      "before_sha256": "26f0e430bac8c13d2c00e5a0d6216de37b4115b07f3db271f22e93e63baa3cb6",
+      "after_sha256": null
+    }
+  },
+  "checks": [
+    {
+      "name": "types",
+      "kind": "type",
+      "argv": [
+        "yarn",
+        "tsc",
+        "--noEmit"
+      ],
+      "timeout_seconds": 600
+    },
+    {
+      "name": "combined-actions",
+      "kind": "test",
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/back/actions.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=combined-actions-results.json"
+      ],
+      "timeout_seconds": 600,
+      "results_json": "combined-actions-results.json",
+      "expected_count": 188,
+      "expected_filtered": 0
+    },
+    {
+      "name": "combined-restore",
+      "kind": "test",
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/recovery/restore.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=combined-restore-results.json"
+      ],
+      "timeout_seconds": 600,
+      "results_json": "combined-restore-results.json",
+      "expected_count": 15,
+      "expected_filtered": 0
+    }
+  ],
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-injection.yml",
+    ".github/ci/issue1948-sdk-injection.py",
+    ".github/ci/issue1948-sdk-injection-inputs.json"
+  ],
+  "diagnostics": {
+    "proxy": {
+      "pattern": "^(?:MidenClientProxy\\ \u2014\\ flag\\ routing\\ the\\ try\\-lock\\ read\\ reports\\ busy\\ without\\ waiting|MidenClientProxy\\ \u2014\\ flag\\ routing\\ the\\ try\\-lock\\ inline\\ read\\ runs\\ under\\ the\\ caller\\ hold|MidenClientProxy\\ \u2014\\ flag\\ routing\\ flag\\ OFF\\ \u2192\\ getAccount\\ goes\\ inline\\ \\(getMidenClient\\),\\ never\\ touches\\ offscreen|MidenClientProxy\\ \u2014\\ flag\\ routing\\ flag\\ ON\\ but\\ no\\ chrome\\.offscreen\\ API\\ \u2192\\ falls\\ back\\ inline|MidenClientProxy\\ \u2014\\ flag\\ routing\\ flag\\ ON\\ \u2192\\ getAccount\\ routes\\ through\\ the\\ offscreen\\ proxy\\ and\\ rehydrates\\ the\\ Account|MidenClientProxy\\ \u2014\\ flag\\ routing\\ flag\\ ON\\ \u2192\\ getAccount\\ returns\\ null\\ when\\ the\\ offscreen\\ result\\ is\\ null\\ \\(no\\ rehydrate\\)|MidenClientProxy\\ \u2014\\ flag\\ routing\\ flag\\ ON\\ \u2192\\ an\\ ok:false\\ offscreen\\ response\\ rejects\\ the\\ caller|MidenClientProxy\\ \u2014\\ flag\\ routing\\ routes\\ pending\\-note\\ recovery\\ chunks\\ inline\\ when\\ the\\ offscreen\\ client\\ is\\ disabled|MidenClientProxy\\ \u2014\\ flag\\ routing\\ routes\\ proposal\\-note\\ import\\ through\\ offscreen\\ and\\ preserves\\ note\\ bytes|MidenClientProxy\\ \u2014\\ flag\\ routing\\ routes\\ one\\ public\\-backfill\\ range\\ through\\ offscreen\\ with\\ its\\ bounds|MidenClientProxy\\ \u2014\\ flag\\ routing\\ carries\\ the\\ note\\ page\\ offset\\ and\\ the\\ cursor\\ back\\ over\\ the\\ boundary|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ malformed\\ nextNoteOffset\\ \\(not\\-a\\-number\\)|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ malformed\\ nextNoteOffset\\ \\(\\-1\\)|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ malformed\\ nextNoteOffset\\ \\(1\\.5\\)|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ non\\-boolean\\ saturated\\ from\\ the\\ offscreen\\ document|MidenClientProxy\\ \u2014\\ flag\\ routing\\ routes\\ the\\ scan\\-range\\ resolution\\ through\\ offscreen\\ with\\ its\\ created\\-at\\ seconds|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ recovery\\ chunk\\ payload\\ with\\ a\\ missing\\ count|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ recovery\\ chunk\\ payload\\ with\\ a\\ non\\-numeric\\ count|MidenClientProxy\\ \u2014\\ flag\\ routing\\ rejects\\ a\\ recovery\\ chunk\\ payload\\ with\\ a\\ negative\\ count|MidenClientProxy\\ \u2014\\ slice\\-3\\ reads:\\ syncState\\ flag\\ OFF\\ \u2192\\ syncState\\ goes\\ inline\\ \\(getMidenClient\\),\\ never\\ touches\\ offscreen|MidenClientProxy\\ \u2014\\ slice\\-3\\ reads:\\ syncState\\ flag\\ ON\\ \u2192\\ syncState\\ dispatches\\ OFFSCREEN_CALL\\ with\\ the\\ sync\\ deadline\\ \\+\\ empty\\ args,\\ resolves\\ void|MidenClientProxy\\ \u2014\\ slice\\-6b\\ waitForTransactionCommit\\ \\(structural\\ commit\\-wait\\)\\ flag\\ OFF\\ \u2192\\ waitForTransactionCommit\\ runs\\ inline\\ under\\ withWasmClientLock\\ \\(byte\\-identical\\),\\ never\\ touches\\ offscreen|MidenClientProxy\\ \u2014\\ slice\\-6b\\ waitForTransactionCommit\\ \\(structural\\ commit\\-wait\\)\\ flag\\ ON\\ but\\ no\\ chrome\\.offscreen\\ API\\ \u2192\\ waitForTransactionCommit\\ falls\\ back\\ inline|MidenClientProxy\\ \u2014\\ slice\\-6b\\ waitForTransactionCommit\\ \\(structural\\ commit\\-wait\\)\\ flag\\ ON\\ \u2192\\ dispatches\\ OFFSCREEN_CALL\\ to\\ the\\ realm\\ that\\ applied\\ the\\ tx\\ \\(150s\\ deadline\\),\\ never\\ the\\ dormant\\ SW\\ client|MidenClientProxy\\ \u2014\\ slice\\-6b\\ waitForTransactionCommit\\ \\(structural\\ commit\\-wait\\)\\ flag\\ ON\\ \u2192\\ a\\ deadline\\ kill\\ rejects\\ with\\ OperationAbortedError\\ \\(parity\\ with\\ flag\\-off\\ waitFor\\ timeout\\ \u2192\\ Failed\\))$",
+      "pending": 182,
+      "selected": 25,
+      "selected_titles_sha256": "242864ea2cbf4a1beb91e2e4210a4b55ff533e9940153c122cce30c2a1e10d19",
+      "full_titles_sha256": "9a034b6ba1e9f7e34c88abebaf13df4673fd20c6520d26076acfefb88a525a02"
+    },
+    "offscreen": {
+      "pattern": "^(?:offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ boots\\ the\\ rayon\\ pool\\ and\\ signals\\ OFFSCREEN_READY\\ \\(COI\\ on,\\ MT\\ build,\\ hwc\\ known\\)|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ installs\\ the\\ prove\\ worker\\ as\\ the\\ local\\ prove\\ transport\\ without\\ starting\\ it\\ \\(\\#945\\)|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ boots\\ without\\ a\\ storage\\ read|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ warns\\ when\\ crossOriginIsolated\\ is\\ false\\ \\(SAB\\ unavailable\\)|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ caps\\ the\\ pool\\ at\\ 6\\ when\\ hardwareConcurrency\\ is\\ 8|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ caps\\ the\\ pool\\ at\\ 6\\ when\\ hardwareConcurrency\\ is\\ 10|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ caps\\ the\\ pool\\ at\\ 6\\ when\\ hardwareConcurrency\\ is\\ 16|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ leaves\\ a\\ 2\\-core\\ machine\\ uncapped|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ leaves\\ a\\ 4\\-core\\ machine\\ uncapped|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ leaves\\ a\\ 6\\-core\\ machine\\ uncapped|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ defaults\\ to\\ 4\\ threads\\ when\\ navigator\\.hardwareConcurrency\\ is\\ undefined|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ warns\\ and\\ skips\\ initThreadPool\\ when\\ the\\ SDK\\ build\\ is\\ single\\-threaded|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ swallows\\ the\\ OFFSCREEN_READY\\ sendMessage\\ rejection\\ when\\ the\\ SW\\ is\\ not\\ listening|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ logs\\ the\\ error\\ and\\ does\\ not\\ signal\\ ready\\ when\\ init\\(\\)\\ fails|offscreen/main\\ \u2014\\ startup\\ /\\ init\\(\\)\\ marks\\ the\\ realm\\ as\\ the\\ offscreen\\ document\\ \\(__MIDEN_IN_OFFSCREEN_DOC__\\ =\\ true\\)\\ at\\ module\\ load|offscreen/main\\ \u2014\\ telemetry\\ forwarding\\ installs\\ a\\ transport,\\ because\\ nothing\\ else\\ in\\ this\\ realm\\ would|offscreen/main\\ \u2014\\ telemetry\\ forwarding\\ does\\ not\\ let\\ a\\ forwarding\\ failure\\ escape\\ into\\ a\\ prove|offscreen/main\\ \u2014\\ onMessage\\ listener\\ guard\\ clauses\\ ignores\\ an\\ undefined\\ message\\ \\(returns\\ false,\\ no\\ response\\)|offscreen/main\\ \u2014\\ onMessage\\ listener\\ guard\\ clauses\\ ignores\\ a\\ message\\ not\\ targeted\\ at\\ the\\ offscreen\\ doc\\ \\(returns\\ false\\)|offscreen/main\\ \u2014\\ onMessage\\ listener\\ guard\\ clauses\\ ignores\\ a\\ non\\-OFFSCREEN_PROVE\\ message\\ even\\ when\\ target\\ matches\\ \\(returns\\ false\\)|offscreen/main\\ \u2014\\ OFFSCREEN_PROVE\\ handling\\ forwards\\ the\\ decoded\\ bytes\\ to\\ the\\ prove\\ worker\\ as\\ a\\ local\\ prove\\ for\\ a\\ null\\ descriptor\\ \\(\\#945\\)|offscreen/main\\ \u2014\\ OFFSCREEN_PROVE\\ handling\\ forwards\\ the\\ decoded\\ bytes\\ to\\ the\\ prove\\ worker\\ as\\ a\\ local\\ prove\\ for\\ a\\ 'local'\\ descriptor\\ \\(\\#945\\)|offscreen/main\\ \u2014\\ OFFSCREEN_PROVE\\ handling\\ forwards\\ the\\ decoded\\ bytes\\ to\\ the\\ prove\\ worker\\ as\\ a\\ local\\ prove\\ for\\ a\\ non\\-string\\ descriptor\\ \\(\\#945\\)|offscreen/main\\ \u2014\\ OFFSCREEN_PROVE\\ handling\\ answers\\ ok:false\\ for\\ a\\ string\\ descriptor\\ other\\ than\\ local\\ without\\ reaching\\ the\\ prove\\ worker\\ \\(\\#945\\)|offscreen/main\\ \u2014\\ OFFSCREEN_PROVE\\ handling\\ proves\\ successive\\ requests\\ through\\ the\\ one\\ worker\\ client,\\ constructing\\ no\\ WebClient\\ here)$",
+      "pending": 211,
+      "selected": 25,
+      "selected_titles_sha256": "da8a123d3887a2d31412b8faa299a1670e4c609a34f2530b90ebb218f18757aa",
+      "full_titles_sha256": "7db7b4755144b9a0c9d3c56231fe0e2f9abb8b3b9f1b86605f73c393570ead3b"
+    }
+  }
+}
