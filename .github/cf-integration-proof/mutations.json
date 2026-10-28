@@ -1,0 +1,16 @@
+[
+  {
+    "id": "caller-pair-binding",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "if (id !== group.id || surface !== group.surface) return undefined;",
+    "new": "if (kind !== 'mainnet_access_check' && kind !== 'note_claim' && (id !== group.id || surface !== group.surface)) return undefined;",
+    "prediction": "Existing finite caller-contract rejection assertions must fail; integrated backup-network cases remain covered by full baseline."
+  },
+  {
+    "id": "caller-closed-fields",
+    "path": "src/lib/telemetry/ui-producer-diagnostics.ts",
+    "old": "const group = groups[kind as keyof typeof groups];",
+    "new": "if (kind === 'mainnet_access_check') return { kind, mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' };\n    if (kind === 'note_claim') return { kind, noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' };\n    const group = groups[kind as keyof typeof groups];",
+    "prediction": "Existing finite caller-contract rejection assertions must fail; integrated backup-network cases remain covered by full baseline."
+  }
+]

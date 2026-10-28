@@ -1,0 +1,51 @@
+name: CF and backup network integration proof
+on:
+  push:
+    branches: [ci/cf-f0-integration-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cf-integration-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/cf-integration-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 03d34e0876d140481bbccfe47d4fa27468716e53
+          cp -R .github/cf-integration-proof "$RUNNER_TEMP/cf-integration-packet"
+          git checkout --detach 03d34e0876d140481bbccfe47d4fa27468716e53
+          test "$(git rev-parse HEAD^{tree})" = 85838146d9a0f0ec69a5aa5e69a38619a03b192c
+          cp "$RUNNER_TEMP/cf-integration-packet/source.json" "$RUNNER_TEMP/cf-integration-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/cf-integration-evidence/install.log"
+      - name: Full TypeScript check
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/cf-integration-evidence/types.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/app/hooks/useActivityClaims.test.ts src/app/hooks/useActivityClaims.ts src/app/templates/history/PendingActivityCard.test.tsx src/app/templates/history/PendingActivityCard.tsx src/components/AmountInput.test.tsx src/components/AmountInput.tsx src/components/MainnetCodeEntry.test.tsx src/components/MainnetCodeEntry.tsx src/components/ui/ErrorLine.tsx src/lib/mainnet-access.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/actions.ts src/lib/shared/types.ts src/lib/store/index.test.ts src/lib/store/index.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/ui-producer-diagnostics.ts src/lib/telemetry/user-visible-error.test.ts src/lib/usdcx/burn-fee-failure.ts src/lib/usdcx/burn-fee.test.ts src/lib/usdcx/burn-fee.ts src/lib/usdcx/use-burn-fee-reserve.test.ts src/lib/usdcx/use-burn-fee-reserve.ts src/screens/send-flow/SendAmount.test.tsx src/screens/send-flow/SendAmount.tsx src/screens/send-flow/SendManager.test.tsx src/screens/send-flow/SendManager.tsx src/components/ui/TextField.test.tsx src/components/ui/TextField.tsx src/screens/onboarding/import-wallet-flow/ImportWalletFile.test.tsx src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/cf-integration-evidence/lint.log"
+      - name: Verify green baseline and independent functional mutations
+        run: python3 "$RUNNER_TEMP/cf-integration-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cf-f0-integration-proof
+          path: ${{ runner.temp }}/cf-integration-evidence
+          if-no-files-found: error
