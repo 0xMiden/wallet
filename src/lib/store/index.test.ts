@@ -1890,9 +1890,7 @@ describe('useWalletStore', () => {
         let refreshSignal: AbortSignal | undefined;
         mockRequest.mockResolvedValueOnce({ type: responseType }).mockImplementationOnce((_request, options) => {
           refreshSignal = options?.signal;
-          return new Promise((_resolve, reject) => {
-            refreshSignal?.addEventListener('abort', () => reject(new Error('refresh aborted')));
-          });
+          return new Promise(() => {});
         });
         let settled = false;
         const operation = action === 'createAccount'
