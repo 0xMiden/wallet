@@ -167,6 +167,50 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     }
     let note = matching[0];
     let note_height = note.inclusion_proof().location().block_num();
+    let early_number = note_height.as_u32().checked_sub(1).ok_or("early_tip_underflow")?;
+    if early_number == 0 || early_number >= tip_number { return Err("early_tip_bound"); }
+    let early_tip = chain.block_header(early_number as usize);
+    let early_signed = chain.proven_blocks().get(early_number as usize).ok_or("early_signed_missing")?;
+    if early_signed.header().commitment() != early_tip.commitment() { return Err("early_signed_binding"); }
+    early_signed.signatures().verify_against(early_tip.commitment(), chain.block_header(0).validator_config())
+        .map_err(|_| "early_signature_invalid")?;
+    let stage_mmr = |from: u32, to: u32| -> Result<(Vec<u8>, Vec<u8>)> {
+        let begin = Forest::new(from as usize + 1).map_err(|_| "stage_start")?;
+        let finish = Forest::new(to as usize).map_err(|_| "stage_end")?;
+        let mut local = PartialMmr::from_peaks(mmr.peaks_at(begin).map_err(|_| "stage_peaks")?);
+        local.apply(mmr.get_delta(begin, finish).map_err(|_| "stage_delta_verify")?).map_err(|_| "stage_apply")?;
+        let header = chain.block_header(to as usize);
+        if local.peaks().hash_peaks() != header.chain_commitment() { return Err("stage_chain_binding"); }
+        let signed = chain.proven_blocks().get(to as usize).ok_or("stage_signed_missing")?;
+        if signed.header().commitment() != header.commitment() { return Err("stage_header_binding"); }
+        signed.signatures().verify_against(header.commitment(), chain.block_header(0).validator_config())
+            .map_err(|_| "stage_signature_invalid")?;
+        let request = SyncChainMmrRequest { current_client_block_height: from,
+            finality_level: i32::from(FinalityLevel::from(SyncTarget::CommittedChainTip)) }.encode_to_vec();
+        let response = SyncChainMmrResponse {
+            block_range: Some(BlockRange { block_from: from, block_to: to }),
+            mmr_delta: Some(mmr.get_delta(begin, finish).map_err(|_| "stage_delta")?.into()),
+            block_header: Some(header.clone().into()),
+            block_signatures: signed.signatures().as_signatures().iter().map(Into::into).collect(),
+            protocol_config: Some(protocol.into()),
+        }.encode_to_vec();
+        let decoded = ChainMmrInfo::try_from(SyncChainMmrResponse::decode(response.as_slice()).map_err(|_| "stage_wire")?)
+            .map_err(|_| "stage_domain")?;
+        if decoded.block_from.as_u32() != from || decoded.block_to.as_u32() != to || decoded.block_header.commitment() != header.commitment() {
+            return Err("stage_wire_binding");
+        }
+        Ok((request, response))
+    };
+    let (early_mmr_request, early_mmr_response) = stage_mmr(0, early_number)?;
+    let (advance_mmr_request, advance_mmr_response) = stage_mmr(early_number, tip_number)?;
+    let early_notes = SyncNotesResponse {
+        pagination_info: Some(PaginationInfo { chain_tip: early_number, block_num: early_number }),
+        blocks: vec![],
+    }.encode_to_vec();
+    let decoded = SyncNotesResponse::decode(early_notes.as_slice()).map_err(|_| "early_notes_wire")?;
+    if !decoded.blocks.is_empty() || decoded.pagination_info.as_ref().map(|p| (p.chain_tip, p.block_num)) != Some((early_number, early_number)) {
+        return Err("early_notes_binding");
+    }
     let note_header = chain.block_header(note_height.as_usize());
     let note_index = note.inclusion_proof().location().block_note_tree_index();
     note.inclusion_proof().note_path()
@@ -203,11 +247,11 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
         return Err("account_transactions_not_empty");
     }
     let transaction_request = SyncTransactionsRequest {
-        block_range: Some(BlockRange { block_from: 1, block_to: tip_number }),
+        block_range: Some(BlockRange { block_from: early_number + 1, block_to: tip_number }),
         account_ids: vec![account_id.into()],
     }.encode_to_vec();
     let decoded_request = SyncTransactionsRequest::decode(transaction_request.as_slice()).map_err(|_| "sync_transactions_request_wire")?;
-    if decoded_request.account_ids.len() != 1 || decoded_request.block_range.as_ref().map(|range| (range.block_from, range.block_to)) != Some((1, tip_number)) {
+    if decoded_request.account_ids.len() != 1 || decoded_request.block_range.as_ref().map(|range| (range.block_from, range.block_to)) != Some((early_number + 1, tip_number)) {
         return Err("sync_transactions_request_binding");
     }
     let transactions = SyncTransactionsResponse {
@@ -217,6 +261,11 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     let decoded = SyncTransactionsResponse::decode(transactions.as_slice()).map_err(|_| "sync_transactions_wire")?;
     if !decoded.transactions.is_empty() || decoded.pagination_info.is_none() { return Err("sync_transactions_binding"); }
     let mut outputs = vec![
+        ("early-mmr-request.pb".to_owned(), early_mmr_request),
+        ("early-mmr-response.pb".to_owned(), early_mmr_response),
+        ("advance-mmr-request.pb".to_owned(), advance_mmr_request),
+        ("advance-mmr-response.pb".to_owned(), advance_mmr_response),
+        ("early-notes.pb".to_owned(), early_notes),
         ("sync-transactions-request.pb".to_owned(), transaction_request),
         ("sync-notes.pb".to_owned(), sync_notes),
         ("sync-transactions.pb".to_owned(), transactions),
