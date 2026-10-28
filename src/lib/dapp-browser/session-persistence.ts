@@ -60,7 +60,6 @@ function boundSessions(sessions: PersistedSession[]): PersistedSession[] {
     if (encoded > MAX_PERSISTED_SESSION_BYTES || total > MAX_PERSISTED_SESSIONS_BYTES) continue;
     retained.push(next);
     bytes = total;
-    if (retained.length === MAX_PERSISTED_SESSIONS) break;
   }
   return retained;
 }
