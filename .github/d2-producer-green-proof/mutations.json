@@ -1,0 +1,72 @@
+[
+  {
+    "id": "drop-fast-observer",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId, evidence.observe)",
+    "new": "readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)",
+    "prediction": "Actual selected fast report must reject configuration in place of its observed stage."
+  },
+  {
+    "id": "drop-circle-observer",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "readCircleUsdcBalance(evmAddress, usdcxSource, evidence.observe)",
+    "new": "readCircleUsdcBalance(evmAddress, usdcxSource)",
+    "prediction": "Actual selected circle report must reject configuration in place of its observed stage."
+  },
+  {
+    "id": "drop-native-observer",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "readEthBalance(evmAddress, agglayerChainId, evidence.observe)",
+    "new": "readEthBalance(evmAddress, agglayerChainId)",
+    "prediction": "Actual selected native report must reject configuration in place of its observed stage."
+  },
+  {
+    "id": "drop-registered-observer",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "readErc20Balance(evmAddress, contractAddress, chainId, evidence.observe)",
+    "new": "readErc20Balance(evmAddress, contractAddress, chainId)",
+    "prediction": "Actual selected registered report must reject configuration in place of its observed stage."
+  },
+  {
+    "id": "drop-request-stage",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "    recordBalanceStage(observer, 'request');",
+    "new": "",
+    "prediction": "Actual field must distinguish the missing request boundary."
+  },
+  {
+    "id": "drop-response-stage",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "    recordBalanceStage(observer, 'response_decode');",
+    "new": "",
+    "prediction": "Actual field must distinguish the missing response boundary."
+  },
+  {
+    "id": "drop-rpc-rejected-stage",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "    recordBalanceStage(observer, 'rpc_rejected');",
+    "new": "",
+    "prediction": "Actual field must distinguish the missing rpc-rejected boundary."
+  },
+  {
+    "id": "drop-value-stage",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer);\n    recordBalanceStage(observer, 'value_decode');",
+    "new": "    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer);",
+    "prediction": "Nonhex/ABI/final fallback decoding reports must reject response_decode."
+  },
+  {
+    "id": "drop-parent-forwarding",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "              errorDiagnostics={\n                !amountExceedsBalance && error == null && selectedBalance.error != null\n                  ? selectedBalance.errorDiagnostics\n                  : undefined\n              }\n",
+    "new": "",
+    "prediction": "All14 owned actual field reports must lose their expected third argument."
+  },
+  {
+    "id": "share-token-observer",
+    "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx",
+    "old": "    for (const { contractAddress, decimals } of offered) {\n      const evidence = createBalanceEvidence('registered_erc20');",
+    "new": "    const evidence = createBalanceEvidence('registered_erc20');\n    for (const { contractAddress, decimals } of offered) {",
+    "prediction": "Sibling response decoding must not overwrite the selected rejected request stage."
+  }
+]
