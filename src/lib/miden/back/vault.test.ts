@@ -5411,7 +5411,12 @@ describe('Vault storage continuity', () => {
       free: () => {}
     });
     const list = jest.fn().mockImplementation(async () => [record()]);
-    const settings = { get: jest.fn().mockImplementation(async () => generation), set: jest.fn() };
+    const settings = {
+      get: jest.fn().mockImplementation(async () =>
+        generation === null ? null : Array.from(new TextEncoder().encode(generation))
+      ),
+      set: jest.fn()
+    };
     const accounts = {
       get: jest.fn().mockResolvedValue({
         nonce: () => ({ asInt: () => 4n }),
@@ -6493,9 +6498,9 @@ describe('Vault storage continuity', () => {
       exhausted: true
     }));
     const settings = {
-      get: jest.fn(async () => generation),
-      set: jest.fn(async (_key: string, next: string) => {
-        generation = next;
+      get: jest.fn(async () => (generation === null ? null : Array.from(new TextEncoder().encode(generation)))),
+      set: jest.fn(async (_key: string, next: number[]) => {
+        generation = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(next));
       })
     };
     const accounts = {
