@@ -1,0 +1,44 @@
+name: Retry history evidence green proof
+on:
+  push:
+    branches: [ci/retry-history-green-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/retry-history-green-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/retry-history-green-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 15ed866c35a6b72520abd8ac38a3f0e0e19bf4b4
+          cp -R .github/retry-history-green "$RUNNER_TEMP/retry-history-green-packet"
+          git checkout --detach 15ed866c35a6b72520abd8ac38a3f0e0e19bf4b4
+          cp "$RUNNER_TEMP/retry-history-green-packet/source.json" "$RUNNER_TEMP/retry-history-green-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/retry-history-green-evidence/install.log"
+      - name: Typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/retry-history-green-evidence/types.log"
+      - name: Strict named lint
+        run: yarn eslint src/app/templates/history/HistoryDetails.test.tsx src/app/templates/history/SwapDetail.test.tsx src/app/templates/history/useTransactionActions.ts src/app/templates/history/HistoryDetails.tsx src/app/templates/history/SwapDetail.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/retry-history-green-evidence/lint.log"
+      - name: Verify green and functional mutations
+        run: python3 "$RUNNER_TEMP/retry-history-green-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-history-green-proof
+          path: ${{ runner.temp }}/retry-history-green-evidence
+          if-no-files-found: error
