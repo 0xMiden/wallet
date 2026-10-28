@@ -7,8 +7,10 @@ use std::process::ExitCode;
 use miden_client::account::AccountId;
 use miden_client::rpc::domain::account::AccountProof;
 use miden_client::rpc::domain::sync::{ChainMmrInfo, SyncTarget};
+use miden_client::rpc::domain::note::SyncNotesBlock;
+use miden_client::note::NoteType;
 use miden_client::crypto::{Forest, PartialMmr};
-use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse, SyncChainMmrRequest, SyncChainMmrResponse, BlockRange, FinalityLevel};
+use miden_client::rpc::generated::rpc::{EndpointLimits, GetAccountResponse, GetBlockHeaderByNumberResponse, GetLimitsResponse, PaginationInfo, SyncNullifiersResponse, SyncChainMmrRequest, SyncChainMmrResponse, BlockRange, FinalityLevel, SyncNotesResponse, NoteSyncMetadata, NoteSyncRecord, SyncTransactionsResponse};
 use miden_client::rpc::{RpcEndpoint, RpcLimits};
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
@@ -157,7 +159,58 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     {
         return Err("mmr_wire_binding");
     }
+    let matching: Vec<_> = chain.committed_notes().values()
+        .filter(|note| note.metadata().note_type() == NoteType::Private)
+        .collect();
+    if matching.len() != 1 || matching[0].attachments().iter().next().is_some() {
+        return Err("private_note_inventory");
+    }
+    let note = matching[0];
+    let note_height = note.inclusion_proof().location().block_num();
+    let note_header = chain.block_header(note_height.as_usize());
+    let note_index = note.inclusion_proof().location().block_note_tree_index();
+    note.inclusion_proof().note_path()
+        .verify(note_index.into(), note.id().as_word(), &note_header.note_root())
+        .map_err(|_| "note_root_binding")?;
+    let inclusion = mmr.open(note_height.as_usize()).map_err(|_| "note_mmr_open")?;
+    mmr.peaks().verify(note_header.commitment(), inclusion.clone()).map_err(|_| "note_mmr_verify")?;
+    let metadata: miden_objects::proto::note::NoteMetadata = (*note.metadata()).into();
+    let sync_block = miden_client::rpc::generated::rpc::sync_notes_response::NoteSyncBlock {
+        block_header: Some(note_header.clone().into()),
+        mmr_path: Some(inclusion.merkle_path().clone().into()),
+        notes: vec![NoteSyncRecord {
+            metadata: Some(NoteSyncMetadata {
+                sender: metadata.sender,
+                note_type: metadata.note_type,
+                tag: metadata.tag,
+                attachments: vec![],
+                version: metadata.version,
+            }),
+            inclusion_proof: Some((&note.id(), note.inclusion_proof()).into()),
+        }],
+    };
+    let sync_notes = SyncNotesResponse {
+        pagination_info: Some(PaginationInfo { chain_tip: tip_number, block_num: tip_number }),
+        blocks: vec![sync_block],
+    }.encode_to_vec();
+    let mut decoded = SyncNotesResponse::decode(sync_notes.as_slice()).map_err(|_| "sync_notes_wire")?;
+    let block = SyncNotesBlock::try_from(decoded.blocks.pop().ok_or("sync_notes_missing")?)
+        .map_err(|_| "sync_notes_domain")?;
+    if block.block_header.commitment() != note_header.commitment() || !block.notes.contains_key(&note.id()) {
+        return Err("sync_notes_binding");
+    }
+    if chain.proven_blocks().iter().any(|block| block.body().transactions().as_slice().iter().any(|tx| tx.account_id() == account_id)) {
+        return Err("account_transactions_not_empty");
+    }
+    let transactions = SyncTransactionsResponse {
+        pagination_info: Some(PaginationInfo { chain_tip: tip_number, block_num: tip_number }),
+        transactions: vec![],
+    }.encode_to_vec();
+    let decoded = SyncTransactionsResponse::decode(transactions.as_slice()).map_err(|_| "sync_transactions_wire")?;
+    if !decoded.transactions.is_empty() || decoded.pagination_info.is_none() { return Err("sync_transactions_binding"); }
     let mut outputs = vec![
+        ("sync-notes.pb".to_owned(), sync_notes),
+        ("sync-transactions.pb".to_owned(), transactions),
         ("mmr-request.pb".to_owned(), request),
         ("mmr-response.pb".to_owned(), response),
         ("nullifiers.pb".to_owned(), nullifier_bytes),
