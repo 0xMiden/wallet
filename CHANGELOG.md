@@ -4,6 +4,7 @@
 
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 
+- [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.
 - [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.
 - [CHANGE][all] An expired queued transaction reports the strongest way the processing loop looked at that wait, whether its pre-send network update started, finished or failed, and, on mobile, whether this run recorded the wait as mostly backgrounded. A wait the loop never saw says never.
