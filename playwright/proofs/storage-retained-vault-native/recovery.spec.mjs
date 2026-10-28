@@ -98,6 +98,7 @@ for (const includePrivate of [false, true]) {
       recover: null,
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
+      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0 },
       phase: 'initial',
       service: null
     };
@@ -110,6 +111,24 @@ for (const includePrivate of [false, true]) {
         return route.continue();
       });
       const page = await context.newPage();
+      await page.exposeBinding('__retainedStorageEvent', (_source, value) => {
+        if (!Object.hasOwn(report.storageEvents, value)) throw new Error('storage-event-bound');
+        report.storageEvents[value]++;
+      });
+      await page.addInitScript(() => {
+        const original = IDBFactory.prototype.open;
+        IDBFactory.prototype.open = function (...args) {
+          window.__retainedStorageEvent('open').catch(() => {});
+          const request = Reflect.apply(original, this, args);
+          for (const [event, name] of [
+            ['upgradeneeded', 'upgrade'],
+            ['blocked', 'blocked'],
+            ['success', 'success'],
+            ['error', 'error']
+          ]) request.addEventListener(event, () => window.__retainedStorageEvent(name).catch(() => {}));
+          return request;
+        };
+      });
       page.on('worker', worker => {
         report.workerEvents.started++;
         worker.on('close', () => report.workerEvents.closed++);
