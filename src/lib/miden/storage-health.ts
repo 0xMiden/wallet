@@ -43,11 +43,7 @@ export interface StorageRecoveryCapability {
 const recoveryCapabilities = new WeakMap<StorageRecoveryCapability, number>();
 
 export function assertStorageRecoveryAllowed(capability: StorageRecoveryCapability): void {
-  if (
-    recoveryCapabilities.get(capability) !== failureRevision ||
-    capability.epoch !== snapshot.epoch ||
-    Date.now() >= capability.expiresAt
-  )
+  if (recoveryCapabilities.get(capability) !== failureRevision || capability.epoch !== snapshot.epoch)
     throw new StorageUnavailableError();
 }
 
