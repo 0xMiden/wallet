@@ -6,7 +6,8 @@ import { encryptAndSaveMany, savePlain } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
+import { nativeStorageName, nativeStoragePolicy } from 'lib/miden/sdk/native-storage-policy';
+import { nativeNoteAcquisition } from 'lib/miden/sdk/native-note-acquisition';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
 import { applyEndpointOverride } from 'lib/miden-chain/effective-endpoints';
@@ -73,7 +74,7 @@ async function endpoints(feeFaucetId) {
   progress('native-distinct-store');
   check('distinctSdkStore', sdkStore !== Repo.db.name && sdkStore !== 'mock_client_db');
 }
-async function observedClient() {
+async function observedClient(rawOptions) {
   const originalCreate = sdk.MidenClient.create;
   sdk.MidenClient.create = async function (...args) {
     progress(args[0]?.useWorker === true ? 'sdk-create-worker' : 'sdk-create-other');
@@ -118,7 +119,7 @@ async function observedClient() {
     }
   };
   progress('pre-loss-client');
-  return await getMidenClient();
+  return await (rawOptions ? sdk.MidenClient.create(rawOptions) : getMidenClient());
 }
 async function prepare(password, includePrivate, comparisonOnly = false) {
   guard();
@@ -322,7 +323,7 @@ async function recover(password) {
   }
   return { phase, checks: { ...checks }, progress: observed, service };
 }
-async function compareClient(feeFaucetId, fresh) {
+async function compareClient(feeFaucetId, fresh, directSdk) {
   guard();
   if (fresh) {
     await ensureSdkWasmReady();
@@ -332,8 +333,24 @@ async function compareClient(feeFaucetId, fresh) {
   check('initialHealthy', getStorageHealth().status === 'healthy');
   await withWasmClientLock(async () => {
     progress('pre-loss-client');
-    const wallet = await observedClient();
+    let created;
+    const refuse = async () => { throw new Error('comparison-keystore-refused'); };
+    const options = directSdk ? {
+      indexedDb: nativeStoragePolicy(sdkStore, () => true),
+      ...nativeNoteAcquisition(MIDEN_NETWORK_NAME.LOCALNET, () => true, () => created),
+      autoSync: false,
+      rpcUrl: location.origin,
+      noteTransportUrl: `${location.origin}/notes`,
+      noteTransportMaxRetries: 0,
+      keystore: { getKey: refuse, insertKey: refuse, sign: refuse },
+      feeFaucetId,
+      proverUrl: `${location.origin}/prover`,
+      useWorker: true
+    } : undefined;
+    const wallet = await observedClient(options);
+    if (directSdk) created = wallet;
     check('comparisonCreated', !!wallet);
+    if (directSdk) wallet.terminate();
   });
   return { phase, checks: { comparisonCreated: checks.comparisonCreated === true } };
 }

@@ -152,8 +152,9 @@ async function installPage(context, report, service) {
   await page.waitForFunction(() => typeof window.__retainedProof?.prepare === 'function');
   return page;
 }
-for (const includePrivate of [false, true]) {
-  test(`st/main/comparison/${includePrivate ? 'fresh-origin' : 'post-fixture'}`, async ({
+for (const variant of ['fresh-origin', 'fresh-sdk']) {
+  const includePrivate = variant !== 'post-fixture';
+  test(`st/main/comparison/${variant}`, async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -210,13 +211,13 @@ for (const includePrivate of [false, true]) {
           comparisonPage = await installPage(comparisonContext, report, service);
         }
         report.stage = 'compare';
-        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh }) => {
+        const result = await comparisonPage.evaluate(async ({ feeFaucetId, fresh, directSdk }) => {
           try {
-            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh) };
+            return { ok: true, value: await window.__retainedProof.compareClient(feeFaucetId, fresh, directSdk) };
           } catch {
             return { ok: false, phase: window.__retainedPhase || 'initial' };
           }
-        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate });
+        }, { feeFaucetId: setup.value.feeFaucetId, fresh: includePrivate, directSdk: variant === 'fresh-sdk' });
         report.phase = result.ok ? result.value.phase : result.phase;
         expect(result.ok, `compare:${report.phase}`).toBe(true);
         report.prepare = { phase: result.value.phase, checks: result.value.checks };
