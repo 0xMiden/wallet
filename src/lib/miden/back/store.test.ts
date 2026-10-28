@@ -2,6 +2,15 @@
  * Coverage tests for `lib/miden/back/store.ts`.
  * Tests effector store event handlers and helper functions.
  */
+import {
+  adoptStorageHealth,
+  flushStorageHealth,
+  getStorageHealth,
+  initializeStorageHealth,
+  markStorageUnavailable,
+  resetStorageHealthForLifecycle,
+  type StorageHealth
+} from 'lib/miden/storage-health';
 import { isLockedError } from 'lib/miden/transaction/helper';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -49,6 +58,7 @@ describe('back/store', () => {
   describe('toFront', () => {
     it('extracts only the public-facing fields', () => {
       const state: StoreState = {
+        storageAvailability: { status: 'healthy', epoch: 0 },
         inited: true,
         vault: {} as any,
         status: WalletStatus.Ready,
@@ -69,6 +79,7 @@ describe('back/store', () => {
 
     it('preserves guardianOperatorCommitment and guardianSyncStatus', () => {
       const state: StoreState = {
+        storageAvailability: { status: 'healthy', epoch: 0 },
         inited: true,
         vault: {} as any,
         status: WalletStatus.Ready,
@@ -233,5 +244,90 @@ describe('back/store', () => {
       expect(() => withUnlocked(factory)).toThrow('Wallet is locked');
       expect(factory).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('Task5 availability', () => {
+  beforeEach(async () => {
+    await initializeStorageHealth();
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  afterEach(async () => {
+    locked();
+    await flushStorageHealth();
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  it('projects one sanitized unavailable snapshot', () => {
+    const unavailable: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    const state = {
+      ...store.getState(),
+      storageAvailability: {
+        ...unavailable,
+        storeName: 'disposable-store',
+        eventId: 'internal-event',
+        error: new Error('internal diagnostic')
+      }
+    };
+
+    const front = toFront(state);
+
+    expect(Reflect.get(front, 'storageAvailability')).toEqual({
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    });
+    expect(front).not.toHaveProperty('vault');
+    expect(front).not.toHaveProperty('inited');
+  });
+
+  it('lock preserves unavailable state and hydration', () => {
+    inited(true);
+    markStorageUnavailable('continuity', { backend: 'sdk', operation: 'open' });
+    const incident = getStorageHealth();
+
+    locked();
+    const state = store.getState();
+    const front = toFront(state);
+
+    expect(state.inited).toBe(true);
+    expect(state.vault).toBeNull();
+    expect(front.status).toBe(WalletStatus.Locked);
+    expect(front.accounts).toEqual([]);
+    expect(front.currentAccount).toBeNull();
+    expect(Reflect.get(front, 'storageAvailability')).toEqual(incident);
+    expect(front).not.toHaveProperty('vault');
+  });
+});
+
+describe('Task5 availability followon broadcast projection', () => {
+  it('publishes the closed incident through the same mapped store used by every adapter', async () => {
+    await initializeStorageHealth();
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    const frames: unknown[] = [];
+    const mapped = store.map(toFront);
+    const stop = mapped.watch(state => frames.push(Reflect.get(state, 'storageAvailability')));
+    try {
+      markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+      const incident = getStorageHealth();
+      adoptStorageHealth({ status: 'healthy', epoch: incident.epoch + 1 });
+      expect(frames[frames.length - 1]).toEqual(incident);
+      expect(Reflect.get(toFront(store.getState()), 'storageAvailability')).toEqual(incident);
+    } finally {
+      stop();
+      await flushStorageHealth();
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
   });
 });
