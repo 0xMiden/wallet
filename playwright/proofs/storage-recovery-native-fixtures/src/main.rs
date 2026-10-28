@@ -128,7 +128,8 @@ fn produce(chain_path: &Path, account_path: &Path, output: &Path) -> Result<()> 
     let end = Forest::new(tip.block_num().as_usize()).map_err(|_| "mmr_end")?;
     let delta = mmr.get_delta(start, end).map_err(|_| "mmr_delta")?;
     let mut partial = PartialMmr::from_peaks(mmr.peaks_at(start).map_err(|_| "mmr_start_peaks")?);
-    partial.apply(delta.clone()).map_err(|_| "mmr_apply")?;
+    let verify_delta = mmr.get_delta(start, end).map_err(|_| "mmr_verify_delta")?;
+    partial.apply(verify_delta).map_err(|_| "mmr_apply")?;
     if partial.peaks().hash_peaks() != tip.chain_commitment() {
         return Err("mmr_tip_binding");
     }
