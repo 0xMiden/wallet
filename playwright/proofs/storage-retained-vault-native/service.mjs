@@ -54,7 +54,7 @@ export async function createRecoveryService(buildRoot, binary) {
   let pending;
   let sealed = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, nullifierReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, unknownSyncChainMmr: 0, unknownSyncNotes: 0, unknownSyncTransactions: 0, unknownHeaders: 0, unknownAccount: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
@@ -170,6 +170,11 @@ export async function createRecoveryService(buildRoot, binary) {
         if (!image) {
           if (url.pathname.endsWith('/SyncNullifiers')) counts.unknownNullifiers++;
           else if (url.pathname.endsWith('/GetLimits')) counts.unknownLimits++;
+          else if (url.pathname.endsWith('/SyncChainMmr')) counts.unknownSyncChainMmr++;
+          else if (url.pathname.endsWith('/SyncNotes')) counts.unknownSyncNotes++;
+          else if (url.pathname.endsWith('/SyncTransactions')) counts.unknownSyncTransactions++;
+          else if (url.pathname.endsWith('/GetBlockHeaderByNumber')) counts.unknownHeaders++;
+          else if (url.pathname.endsWith('/GetAccount')) counts.unknownAccount++;
           else counts.unknownOther++;
           throw new Error('unknown-rpc-request');
         }
