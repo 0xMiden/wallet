@@ -1,0 +1,46 @@
+name: Sentry instrumentation frozen regression proof
+on:
+  push:
+    branches:
+      - ci/sentry-instrumentation-red
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen regression source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 021505d289c720d5cf6f2d544db80db2a1317b40 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 021505d289c720d5cf6f2d544db80db2a1317b40
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/instrumentation-regression-proof.yml
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Expected failing fee and execution diagnostic regressions
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/components/AmountInput.test.tsx src/lib/miden/back/actions.test.ts src/lib/store/index.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/user-visible-error.test.ts src/lib/usdcx/burn-fee.test.ts src/lib/usdcx/use-burn-fee-reserve.test.ts src/screens/send-flow/SendAmount.test.tsx src/screens/send-flow/SendManager.test.tsx --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Verify nonzero executed regression count
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numFailedTests<1||x.numRuntimeErrorTestSuites!==0)process.exit(1);for(const s of x.testResults)for(const a of s.assertionResults)if(a.status==='failed')console.log(a.fullName)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: instrumentation-red-proof
+          path: proof/
