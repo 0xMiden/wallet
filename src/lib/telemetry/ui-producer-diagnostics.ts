@@ -44,6 +44,8 @@ export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failur
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
+export const BACKUP_NETWORK_FAILURE_STAGES = ['declared_network', 'genesis_header'] as const;
+export type BackupNetworkFailureStage = (typeof BACKUP_NETWORK_FAILURE_STAGES)[number];
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
@@ -62,7 +64,8 @@ export type UiEvidenceInput =
       kind: 'earn_positions_load';
       earnPositionsLoadStage: EarnPositionsLoadStage;
       earnPositionsLoadOutcome: EarnPositionsLoadOutcome;
-    };
+    }
+  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
 export type UiProducerDiagnostics = {
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
@@ -71,6 +74,7 @@ export type UiProducerDiagnostics = {
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   pendingRetryReason?: PendingRetryReason;
   recipientValidationStage?: RecipientValidationStage;
+  backupNetworkFailureStage?: BackupNetworkFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
   'earnPositionsLoadStage',
@@ -79,7 +83,8 @@ export const UI_PRODUCER_KEYS = [
   'featureUnavailableReason',
   'submissionFeedbackBranch',
   'pendingRetryReason',
-  'recipientValidationStage'
+  'recipientValidationStage',
+  'backupNetworkFailureStage'
 ] as const;
 const groups = {
   earn_positions_load: {
@@ -107,6 +112,11 @@ const groups = {
     id: 'raw_pending_activity_retry_failed',
     surface: 'notice',
     fields: { pendingRetryReason: PENDING_RETRY_REASONS }
+  },
+  backup_network_failure: {
+    id: 'encryptedWalletFileWrongNetwork',
+    surface: 'field',
+    fields: { backupNetworkFailureStage: BACKUP_NETWORK_FAILURE_STAGES }
   },
   recipient_validation: {
     id: 'invalidMidenAccountId',

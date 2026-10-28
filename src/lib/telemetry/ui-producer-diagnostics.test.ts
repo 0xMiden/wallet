@@ -60,3 +60,54 @@ it('keeps service and validator roots separate from causes and clears invalid re
   expect(snapshotPendingRetry(error)).toBeUndefined();
   expect(snapshotRecipientValidation(error)).toBeUndefined();
 });
+
+it.each(['declared_network', 'genesis_header'])('retains only the exact backup %s producer category', stage => {
+  const value = { kind: 'backup_network_failure', backupNetworkFailureStage: stage };
+  const root = new Error('private account 0x1234 password amount 123.45');
+  annotateCrash(root, { userErrorId: 'encryptedWalletFileWrongNetwork', userErrorSurface: 'field' });
+  annotateUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field', value);
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: 'encryptedWalletFileWrongNetwork',
+    userErrorSurface: 'field',
+    backupNetworkFailureStage: stage
+  });
+  expect(
+    snapshotUiProducer(new Error('wrapper', { cause: root }), 'encryptedWalletFileWrongNetwork', 'field')
+  ).toBeUndefined();
+});
+
+it('refuses private, inherited, accessor and trapped backup evidence and clears reused roots', () => {
+  const canary = 'private-file-network-genesis-password-identifier';
+  const valid = { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' };
+  const getter = jest.fn(() => canary);
+  const hostile = [
+    { ...valid, backupNetworkFailureStage: canary },
+    { ...valid, file: canary },
+    Object.create(valid),
+    Object.defineProperty({ kind: valid.kind }, 'backupNetworkFailureStage', { get: getter }),
+    new Proxy(valid, {
+      ownKeys() {
+        throw new Error(canary);
+      }
+    })
+  ];
+  const root = new Error(canary);
+  for (const value of hostile) {
+    annotateUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field', valid);
+    annotateUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field', value);
+    expect(snapshotUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field')).toBeUndefined();
+  }
+  for (const [id, surface] of [
+    ['encryptedWalletFileMalformed', 'field'],
+    ['encryptedWalletFileWrongNetwork', 'inline'],
+    ['encryptedWalletFileWrongNetwork', 'notice']
+  ])
+    expect(validateUiEvidence(id, surface, valid)).toBeUndefined();
+  expect(getter).not.toHaveBeenCalled();
+  annotateUiProducer(root, 'encryptedWalletFileWrongNetwork', 'field', valid);
+  expect(snapshotUiProducer(root, 'encryptedWalletFileWrongNetwork', 'inline')).toBeUndefined();
+  annotateCrash(root, { userErrorId: 'encryptedWalletFileMalformed', userErrorSurface: 'field' });
+  annotateCrash(root, { userErrorId: 'encryptedWalletFileWrongNetwork', userErrorSurface: 'field' });
+  expect(snapshotCrashDiagnostics(root)).not.toHaveProperty('backupNetworkFailureStage');
+  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toContain(canary);
+});
