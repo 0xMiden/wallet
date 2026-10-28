@@ -98,7 +98,7 @@ for (const includePrivate of [false, true]) {
       recover: null,
       outsideRequests: 0,
       workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
-      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0 },
+      storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0, nativeHeartbeat: 0 },
       phase: 'initial',
       service: null
     };

@@ -179,11 +179,13 @@ async function prepare(password, includePrivate) {
           window.__retainedNativeCreating = true;
           window.__retainedStorageEvent('nativeMarker').catch(() => {});
           progress('sdk-native-create-enter');
+          const heartbeat = setInterval(() => window.__retainedStorageEvent('nativeHeartbeat').catch(() => {}), 1000);
           try {
             const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);
             progress('sdk-native-create-returned');
             return client;
           } finally {
+            clearInterval(heartbeat);
             result.createClientWithExternalKeystore = originalNativeCreate;
           }
         };
