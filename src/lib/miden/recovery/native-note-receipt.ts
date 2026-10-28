@@ -369,5 +369,6 @@ export async function acknowledgeRetainedNativeNote(
   prepared.used = true;
   await prepared.acknowledge?.(preparedEntry(prepared));
   prepared.assertCurrent();
+  Reflect.set(globalThis, '__noteRestoreReceiptReturned', true);
   return true;
 }

@@ -174,6 +174,7 @@ export function nativeNoteAcquisition(
       if (await acknowledgeRetainedNativeNote(getClient(), hold, candidate)) {
         assertOwner();
         acknowledgeBatch();
+        Reflect.set(globalThis, '__noteRestoreCallbackReturned', true);
         return;
       }
       check();

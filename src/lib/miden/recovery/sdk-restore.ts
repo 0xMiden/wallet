@@ -77,7 +77,10 @@ export async function restoreSdkRecovery(
         assertCurrent();
         // The async SDK owns this separate handle, including native refusal.
         Reflect.set(globalThis, '__noteRestoreImportEntered', true);
-        return client.notes.import(NoteFile.deserialize(importBytes));
+        return client.notes.import(NoteFile.deserialize(importBytes)).then(
+          result => { Reflect.set(globalThis, '__noteRestoreImportResolved', true); return result; },
+          error => { Reflect.set(globalThis, '__noteRestoreImportRejected', true); throw error; }
+        );
       };
       Reflect.set(globalThis, '__noteRestoreAcquireEntered', true);
       if (acquire) await acquire(file, importNote);
