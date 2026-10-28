@@ -173,6 +173,17 @@ async function prepare(password, includePrivate) {
         progress('sdk-wasm-client-enter');
         const result = await Reflect.apply(originalWasm, this, values);
         progress('sdk-wasm-client-returned');
+        const originalNativeCreate = result.createClientWithExternalKeystore;
+        result.createClientWithExternalKeystore = async function (...nativeArgs) {
+          progress('sdk-native-create-enter');
+          try {
+            const client = await Reflect.apply(originalNativeCreate, this, nativeArgs);
+            progress('sdk-native-create-returned');
+            return client;
+          } finally {
+            result.createClientWithExternalKeystore = originalNativeCreate;
+          }
+        };
         return result;
       };
       try {

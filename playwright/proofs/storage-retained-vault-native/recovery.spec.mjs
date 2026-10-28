@@ -31,6 +31,8 @@ const phases = new Set([
   'sdk-factory-returned',
   'sdk-wasm-client-enter',
   'sdk-wasm-client-returned',
+  'sdk-native-create-enter',
+  'sdk-native-create-returned',
   'pre-loss-account-insert',
   'pre-loss-account-read',
   'pre-loss-note-read',
