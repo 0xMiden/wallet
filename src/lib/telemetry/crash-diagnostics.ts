@@ -629,6 +629,9 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     'offscreenDeadlineMethod',
     'offscreenDeadlineStage',
     'queueAdmissionObservation',
+    'queueSighting',
+    'preflightSync',
+    'queueHidden',
     'reapStartRelation'
   ] as const)
     delete snapshot[key];

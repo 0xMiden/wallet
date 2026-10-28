@@ -9,7 +9,11 @@ import {
   isIndefiniteSubmitOutcomeError
 } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import type { QueueAdmissionObservation } from 'lib/miden/transaction/queue-admission-diagnostics';
+import {
+  QUEUE_SIGHTINGS,
+  type QueueAdmissionObservation,
+  type QueueSighting
+} from 'lib/miden/transaction/queue-admission-diagnostics';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
@@ -34,7 +38,13 @@ import { annotateProofWaitAvailability, snapshotProofWaitAvailability } from './
 import { transferProposalCreateDiagnostics } from './proposal-create-diagnostics';
 import assertions from './protocol-assertions.json';
 import type { ReapStartRelation } from './reap-start-diagnostics';
-import { annotateTerminalReport } from './terminal-report-diagnostics';
+import {
+  annotateTerminalReport,
+  PREFLIGHT_SYNC_REPORTS,
+  QUEUE_HIDDEN_BUCKETS,
+  type PreflightSyncReport,
+  type QueueHiddenBucket
+} from './terminal-report-diagnostics';
 import {
   AUTH_LAYOUTS,
   COMMITMENT_MATCHES,
@@ -356,6 +366,8 @@ export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_st
 export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
 
 export const QUEUE_AGE_BUCKETS = ['30m_to_1h', '1h_to_6h', '6h_to_24h', 'over_24h', 'unavailable'] as const;
+export { QUEUE_SIGHTINGS, PREFLIGHT_SYNC_REPORTS, QUEUE_HIDDEN_BUCKETS };
+export type { PreflightSyncReport, QueueHiddenBucket };
 
 export type QueueAgeBucket = (typeof QUEUE_AGE_BUCKETS)[number];
 
@@ -408,6 +420,12 @@ export interface TransactionFailure {
   /** Age bucket for a row that expired while queued; the timestamp and exact age are never reported. */
   queueAge?: QueueAgeBucket;
   queueAdmissionObservation?: QueueAdmissionObservation;
+  /** Strongest look the processing loop recorded for this queued wait. */
+  queueSighting?: QueueSighting;
+  /** Latest pre-send sync step recorded for this queued wait. */
+  preflightSync?: PreflightSyncReport;
+  /** Hidden time this process recorded while the row waited. */
+  queueHidden?: QueueHiddenBucket;
   /** Whether this attempt's committed evidence shows that it reached the submit call. */
   submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -855,6 +873,9 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...STARTUP_SELECTIONS,
   ...STORED_STAGE_AGES,
   ...QUEUE_AGE_BUCKETS,
+  ...QUEUE_SIGHTINGS,
+  ...PREFLIGHT_SYNC_REPORTS,
+  ...QUEUE_HIDDEN_BUCKETS,
   ...SUBMIT_CROSSINGS,
   ...SUBMIT_RECORDS,
   'none',
@@ -981,6 +1002,18 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       reason === 'queued_expired' && failure.queueAge !== undefined
         ? `; queue age ${diagnostic<string>(failure.queueAge, QUEUE_AGE_BUCKETS, 'unavailable')}`
         : '';
+    const queueSighting =
+      reason === 'queued_expired'
+        ? `; queue sighting ${diagnostic<string>(failure.queueSighting, QUEUE_SIGHTINGS, 'never')}`
+        : '';
+    const preflightSync =
+      reason === 'queued_expired'
+        ? `; sync attempt ${diagnostic<string>(failure.preflightSync, PREFLIGHT_SYNC_REPORTS, 'not_entered')}`
+        : '';
+    const queueHidden =
+      reason === 'queued_expired'
+        ? `; queue hidden ${diagnostic<string>(failure.queueHidden, QUEUE_HIDDEN_BUCKETS, 'unavailable')}`
+        : '';
     const submitCrossing =
       failure.submitCrossing === undefined
         ? ''
@@ -1000,7 +1033,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${submitCrossing}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${queueSighting}${preflightSync}${queueHidden}${submitCrossing}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
@@ -1024,6 +1057,9 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     annotateTerminalReport(report, {
       queueAdmissionObservation:
         reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueAdmissionObservation') : undefined,
+      queueSighting: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueSighting') : undefined,
+      preflightSync: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'preflightSync') : undefined,
+      queueHidden: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueHidden') : undefined,
       reapStartRelation:
         reason === 'stuck_reaped'
           ? safeOwnDiagnosticData(safeOwnDiagnosticData(failure, 'reap'), 'startRelation')
