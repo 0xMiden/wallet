@@ -226,7 +226,11 @@ export function isCrashReportingEnabledAsync(): Promise<boolean> {
  * still sends no usage data, since `isTelemetryEnabled()` reads false.
  */
 export function hasTelemetryChoice(): boolean {
-  return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+  try {
+    return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /**

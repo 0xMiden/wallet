@@ -2,7 +2,7 @@
 
 ## 1.17.9 (TBD)
 
-- [FIX][all] Unreadable auto-consume and delegated-proving preferences fail closed, while unset preferences keep their defaults.
+- [FIX][all] Unreadable operational preferences fail closed, and unavailable telemetry storage no longer interrupts consent routing.
 
 - [CHANGE][all] Transaction confirmations show who sends what to whom, and a dApp approval names the requesting site.
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.

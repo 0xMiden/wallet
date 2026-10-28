@@ -74,6 +74,7 @@ describe('settings helpers', () => {
     afterEach(() => {
       if (storageDescriptor) Object.defineProperty(window, 'localStorage', storageDescriptor);
       jest.restoreAllMocks();
+      localStorage.clear();
     });
 
     it.each(readers)('settles $name to $closed when storage is null', ({ read, closed }) => {
