@@ -1447,7 +1447,7 @@ body[data-home-band]::before {
   z-index: 0;
   border-radius: 999px;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 68%);
-  animation: tx-glow 2.4s ease-in-out infinite;
+  animation: tx-glow 2.4s ease-in-out 2;
   pointer-events: none;
 }
 
@@ -1468,7 +1468,7 @@ body[data-home-band]::before {
   inset: 0;
   background: linear-gradient(110deg, transparent 32%, rgba(255, 255, 255, 0.38), transparent 68%);
   transform: translateX(-130%);
-  animation: tx-sheen 2.8s ease-in-out infinite;
+  animation: tx-sheen 2.8s ease-in-out 2;
   pointer-events: none;
 }
 
