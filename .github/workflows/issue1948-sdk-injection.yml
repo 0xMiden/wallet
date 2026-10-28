@@ -1,0 +1,157 @@
+name: Issue1948 synthetic native recovery UI
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Native UI ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            runner: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MIDEN_E2E_TEST: 'true'
+      MIDEN_USE_MOCK_CLIENT: 'true'
+      E2E_NETWORK: testnet
+      FEATURE_ELIGIBILITY_URL: https://eligibility.example/v1/eligibility
+      NODE_OPTIONS: --max-old-space-size=8192
+      NATIVE_UI_PLATFORM: ${{ matrix.platform }}
+      NATIVE_UI_RESULTS: ${{ github.workspace }}/proof/results.json
+      NATIVE_UI_TEST_OUTPUT: ${{ github.workspace }}/proof/test-results
+      NATIVE_UI_SCREENSHOTS: ${{ github.workspace }}/proof/screenshots
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 8b43f0f4cd037a54f61ba65456804ea9219e0c49
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Install iOS native tap tooling
+        if: matrix.platform == 'ios'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+      - name: Build simulator app
+        if: matrix.platform == 'ios'
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          cd replay
+          yarn test:e2e:mobile:build 2>&1 | tee ../proof/native-build.log
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../proof/native-build.log; then exit 1; fi
+          test -d ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+      - name: Boot disposable iPhone and run UI case
+        if: matrix.platform == 'ios'
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          cd replay
+          device=$(xcrun simctl list devices --json | jq -r '[.devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) | .value[] | select(.name == "iPhone 17" and .isAvailable)] | first | .udid // empty')
+          test -n "$device"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl launch "$device" com.miden.bread >/dev/null
+          export NATIVE_UI_DEVICE="$device"
+          idb ui describe-all --udid "$device" >/dev/null
+          yarn playwright test --config playwright/proofs/recovery-native-ui/native.config.ts 2>&1 | tee ../proof/native-ui.log
+      - name: Enable KVM
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        if: matrix.platform == 'android'
+        with:
+          packages: platform-tools
+      - name: Install Android SDK
+        if: matrix.platform == 'android'
+        run: sdkmanager --install "platform-tools" "emulator" "platforms;android-34" "system-images;android-34;default;x86_64"
+      - name: Build debug APK
+        if: matrix.platform == 'android'
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          cd replay
+          yarn test:e2e:android:build 2>&1 | tee ../proof/native-build.log
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../proof/native-build.log; then exit 1; fi
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Run disposable Android emulator UI case
+        if: matrix.platform == 'android'
+        timeout-minutes: 25
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          disable-animations: true
+          script: >-
+            bash -euo pipefail -c 'cd replay && export NATIVE_UI_DEVICE=$(adb get-serialno) && adb -s "$NATIVE_UI_DEVICE" install -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null && adb -s "$NATIVE_UI_DEVICE" shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS && adb -s "$NATIVE_UI_DEVICE" shell am start -n com.miden.wallet/.MainActivity >/dev/null && yarn playwright test --config playwright/proofs/recovery-native-ui/native.config.ts 2>&1 | tee ../proof/native-ui.log'
+      - name: Verify result and capped screenshots
+        run: python3 controller/.github/ci/issue1948-native-ui-verify.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-native-ui-${{ matrix.platform }}
+          path: proof/
+          if-no-files-found: error
