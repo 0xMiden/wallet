@@ -86,7 +86,7 @@ const sepolia = (): DerivedChainConfig => ({
       ]
     }
   },
-  epoch: { evmUsdc: SKIPPED }
+  epoch: { tokens: { USDC: SKIPPED } }
 });
 const whole = (): DerivedBridgeConfig => ({
   network: 'testnet',
@@ -102,7 +102,7 @@ const whole = (): DerivedBridgeConfig => ({
         l1BridgeCode: SKIPPED,
         depositTokens: SKIPPED
       },
-      epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } }
+      epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } }
     }
   },
   agglayer: { indexer: { state: 'absent' } },
@@ -186,7 +186,12 @@ it.each([
   ['chains that are a list', { ...whole(), chains: [sepolia()] }],
   ['a chain keyed by name', { ...whole(), chains: { sepolia: sepolia() } }],
   ['a chain that is not an object', { ...whole(), chains: { 11155111: 'sepolia' } }],
-  ['a chain with no agglayer reads', { ...whole(), chains: { 11155111: { epoch: sepolia().epoch } } }]
+  ['a chain with no agglayer reads', { ...whole(), chains: { 11155111: { epoch: sepolia().epoch } } }],
+  // An earlier build read only the route's USDC, with no token map: such a chain is derived again.
+  [
+    'a chain with the earlier single USDC read',
+    { ...whole(), chains: { 11155111: { ...sepolia(), epoch: { evmUsdc: ok({ symbol: 'USDC', decimals: 18 }) } } } }
+  ]
 ])('rejects %s', (_label, value) => {
   expect(parseStoredDerived(value, 'testnet', 4)).toBeNull();
 });
@@ -198,7 +203,7 @@ it.each([
   ['agglayer', 'evmNetworkId', { state: 'pending', value: 0 }],
   ['agglayer', 'l1BridgeCode', { state: 'pending', value: true }],
   ['agglayer', 'depositTokens', { state: 'pending', value: [] }],
-  ['epoch', 'evmUsdc', { state: 'pending', value: { symbol: 'USDC', decimals: 18 } }]
+  ['epoch', 'tokens', { USDC: { state: 'pending', value: { symbol: 'USDC', decimals: 18 } } }]
 ] as const)('rejects a snapshot whose chain %s.%s probe is in an unknown state', (section, probe, value) => {
   expect(parseStoredDerived(chain(section, probe, value), 'testnet', 4)).toBeNull();
 });
@@ -271,7 +276,8 @@ it.each([
       }
     ])
   ],
-  ['a symbol that is not text', 'epoch', 'evmUsdc', ok({ symbol: 6, decimals: 18 })]
+  ['a symbol that is not text', 'epoch', 'tokens', { USDC: ok({ symbol: 6, decimals: 18 }) }],
+  ['a token map that is a list', 'epoch', 'tokens', [ok({ symbol: 'USDC', decimals: 18 })]]
 ] as const)('rejects a chain with %s', (_label, section, probe, value) => {
   expect(parseStoredDerived(chain(section, probe, value), 'testnet', 4)).toBeNull();
 });
@@ -292,7 +298,15 @@ it('reads a derivation that threw as every check failed, on every configured cha
     version: 4,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {
-      sepolia: { chainId: 11155111, bridges: {} },
+      sepolia: {
+        chainId: 11155111,
+        bridges: {
+          epoch: {
+            ...route,
+            tokens: { USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: [] } }
+          }
+        }
+      },
       'base-sepolia': {
         chainId: 84532,
         bridges: { usdcx: { ...route, domain: 6, tokens: {} } }
@@ -301,15 +315,13 @@ it('reads a derivation that threw as every check failed, on every configured cha
     features: { earn: false, nearIntents: false }
   };
   const error = { state: 'error', message: 'wasm init failed' };
-  const reads = {
-    agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, depositTokens: error },
-    epoch: { evmUsdc: error }
-  };
+  const agglayer = { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, depositTokens: error };
   expect(failedDerivation(config, 'wasm init failed', 7)).toStrictEqual({
     network: 'testnet',
     version: 4,
     derivedAt: 7,
-    chains: { 11155111: reads, 84532: reads },
+    // Each token of a chain's Epoch route fails; a chain with no route has none.
+    chains: { 11155111: { agglayer, epoch: { tokens: { USDC: error } } }, 84532: { agglayer, epoch: { tokens: {} } } },
     agglayer: { indexer: error },
     epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }

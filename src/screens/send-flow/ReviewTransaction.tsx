@@ -188,14 +188,15 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [token, amount, isUsdcxBurn, amountExceedsPrecision]);
 
-  // Forward-quote the USDC output for the Fast (Epoch) route — drives the
+  // Forward-quote the EVM output for the Fast (Epoch) route on the chosen chain — drives the
   // "you receive" row.
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: to,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge && !isUsdcxBurn
+    enabled: isBridge && !isUsdcxBurn,
+    destinationChainId: bridgeNetworkObj?.chainId
   });
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
@@ -715,9 +716,6 @@ export const ReviewTransaction: React.FC = () => {
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
   const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
-  const destinationUsdc = Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).find(
-    chain => chain.chainId === bridgeNetworkObj?.chainId
-  )?.bridges.epoch?.tokens.USDC?.contractAddress;
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
@@ -893,9 +891,9 @@ export const ReviewTransaction: React.FC = () => {
                     ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
                       <EvmUsdValue
                         amount={epochQuote.amount}
-                        decimals={USDCX_DECIMALS}
+                        decimals={epochQuote.decimals ?? USDCX_DECIMALS}
                         chainId={bridgeNetworkObj?.chainId}
-                        address={destinationUsdc}
+                        address={epochQuote.address}
                       />
                     ) : undefined
                   }

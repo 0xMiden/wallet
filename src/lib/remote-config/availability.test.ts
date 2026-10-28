@@ -76,11 +76,11 @@ function withProbes({ agglayer = {}, epoch = {} }: DerivedPatch): BridgeConfigSn
   const chain = snapshot.derived.chains[11155111];
   if (!chain) throw new Error('The test chain is missing');
   const { indexer, ...chainAgglayer } = agglayer;
-  const { evmUsdc, ...providerEpoch } = epoch;
+  const { tokens, ...providerEpoch } = epoch;
   if (indexer) snapshot.derived.agglayer.indexer = indexer;
   snapshot.derived.epoch = { ...snapshot.derived.epoch, ...providerEpoch };
   chain.agglayer = { ...chain.agglayer, ...chainAgglayer };
-  if (evmUsdc) chain.epoch.evmUsdc = evmUsdc;
+  if (tokens) chain.epoch.tokens = { ...chain.epoch.tokens, ...tokens };
   return snapshot;
 }
 
@@ -173,7 +173,7 @@ it('requires the shared allocator only for Epoch operations', () => {
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['fastBridgeIn']],
-  ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the Epoch EVM token', { epoch: { tokens: { USDC: ABSENT } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
   ['the Miden bridge account', { agglayer: { rollupId: ABSENT, tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
@@ -193,7 +193,7 @@ it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
   ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['fastBridgeIn']],
-  ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the EVM token', { epoch: { tokens: { USDC: ERROR } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
   ['the bridge account', { agglayer: { rollupId: ERROR, tokens: ERROR } }, ['bridgeIn', 'bridgeOut']]

@@ -1,4 +1,4 @@
-import type { Probe } from './derive';
+import type { Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
 import type { GeoFeature, GeoLookup } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
@@ -107,6 +107,13 @@ function checkProbe<T>(probe: Probe<T> | undefined, name: string): FeatureAvaila
   }
 }
 
+// An Epoch route carries a token while that token's contract read is good, so the route is usable while one of them
+// is; else it reads as its first token's failure.
+function checkEpochTokens(reads: Record<string, Probe<TokenMetadata>> | undefined): FeatureAvailability | null {
+  const probes = Object.values(reads ?? {});
+  return probes.some(probe => probe.state === 'ok') ? null : checkProbe(probes[0], 'Epoch token');
+}
+
 function chainAvailability(
   feature: BridgeFeature,
   chain: SupportedEvmChainConfig,
@@ -143,11 +150,11 @@ function chainAvailability(
         if (!config.features.earn) return unavailable('off', 'features.earn is off');
         checks.push(checkProbe(derived?.epoch.market, 'Epoch market'));
       }
-      if (!providers.epoch.allocatorUrl || (feature !== 'earnDeposit' && !chain.bridges.epoch?.tokens.USDC))
+      if (!providers.epoch.allocatorUrl || (feature !== 'earnDeposit' && !chain.bridges.epoch))
         return unavailable('not-configured', 'Epoch provider or token is missing');
       if (!derived) return { state: 'loading' };
       checks.push(checkProbe(derived.epoch.allocator, 'Epoch allocator'));
-      if (feature !== 'earnDeposit') checks.push(checkProbe(reads?.epoch.evmUsdc, 'Epoch USDC'));
+      if (feature !== 'earnDeposit') checks.push(checkEpochTokens(reads?.epoch.tokens));
       // Earn spends the native USDCx on every network (selectEarnCollateral), never the legacy output faucet.
       if (feature === 'fastBridgeIn' && !overrides.earnCollateralFaucet) {
         checks.push(checkProbe(derived.epoch.midenUsdcFaucet, 'Epoch output faucet'));

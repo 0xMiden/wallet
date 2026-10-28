@@ -275,7 +275,14 @@ function keepValuesRead(
             l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode),
             depositTokens: kept(chain.agglayer.depositTokens, before.agglayer.depositTokens)
           },
-          epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
+          epoch: {
+            tokens: Object.fromEntries(
+              Object.entries(chain.epoch.tokens).map(([symbol, read]) => {
+                const earlier = before.epoch.tokens[symbol];
+                return [symbol, earlier ? kept(read, earlier) : read];
+              })
+            )
+          }
         }
       : chain;
   }

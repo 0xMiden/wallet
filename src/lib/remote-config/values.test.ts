@@ -116,7 +116,7 @@ const SEPOLIA_READS: DerivedChainConfig = {
     l1BridgeCode: { state: 'ok', value: true },
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+  epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } } }
 };
 const DERIVED: DerivedBridgeConfig = {
   network: 'testnet',
@@ -162,10 +162,15 @@ const withDerived = (patch: {
   agglayer?: Partial<DerivedChainConfig['agglayer']>;
   epoch?: Partial<DerivedBridgeConfig['epoch'] & DerivedChainConfig['epoch']>;
 }) => {
-  const { evmUsdc = SEPOLIA_READS.epoch.evmUsdc, ...providers } = patch.epoch ?? {};
+  const { tokens, ...providers } = patch.epoch ?? {};
   return snapshot(CONFIG, {
     ...DERIVED,
-    chains: { 11155111: { agglayer: { ...SEPOLIA_READS.agglayer, ...patch.agglayer }, epoch: { evmUsdc } } },
+    chains: {
+      11155111: {
+        agglayer: { ...SEPOLIA_READS.agglayer, ...patch.agglayer },
+        epoch: { tokens: { ...SEPOLIA_READS.epoch.tokens, ...tokens } }
+      }
+    },
     epoch: { ...DERIVED.epoch, ...providers }
   });
 };
@@ -232,7 +237,7 @@ describe('selectors', () => {
   });
 
   it('select nothing whose read did not succeed, but still name the configured faucet', () => {
-    const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, evmUsdc: { state: 'absent' } } });
+    const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, tokens: { USDC: { state: 'absent' } } } });
     expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: ERROR } }))).toBeNull();
     expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'skipped' } } }))).toBeNull();
     expect(selectMidenUsdc(failed)).toBeNull();
@@ -434,7 +439,7 @@ describe('getters', () => {
   });
 
   it('name the EVM USDC from the document alone while its read has not succeeded', () => {
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ epoch: { evmUsdc: ERROR } }));
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ epoch: { tokens: { USDC: ERROR } } }));
     expect(getEvmUsdcAddress()).toBe('0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69');
     expect(findEvmUsdc()).toBeNull();
     expect(() => getEvmUsdc()).toThrow(BridgeConfigUnavailableError);
@@ -463,7 +468,10 @@ describe('getters', () => {
       {
         ...DERIVED,
         chains: {
-          84532: { ...SEPOLIA_READS, epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } },
+          84532: {
+            ...SEPOLIA_READS,
+            epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } }
+          },
           11155111: SEPOLIA_READS
         }
       }
@@ -520,7 +528,7 @@ describe('getters', () => {
         l1BridgeCode: { state: 'ok', value: true },
         depositTokens: { state: 'skipped' }
       },
-      epoch: { evmUsdc: { state: 'skipped' } }
+      epoch: { tokens: {} }
     };
     const twoChains = snapshot(
       {

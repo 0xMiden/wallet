@@ -31,6 +31,14 @@ export interface EvmUsdc extends TokenMetadata {
   chainId: number;
 }
 
+/** One EVM token of an Epoch route, with the symbol and decimals its contract reports. */
+export interface EpochToken extends EvmUsdc {
+  /** The symbol the document keys the token under. */
+  key: string;
+  /** The Miden faucet the solver settles the token into (lowercase hex, `EpochTokenRead`); absent when none resolved. */
+  midenFaucetId?: string;
+}
+
 export interface EarnMarket {
   marketUid: string;
   protocolHash: `0x${string}`;
@@ -109,9 +117,40 @@ export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string)
 
 export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsdc | null {
   const chain = selectEpochChain(s, chainId);
-  const address = chain?.bridges.epoch?.tokens.USDC?.contractAddress;
-  const token = okValue(chain ? s.derived?.chains[chain.chainId]?.epoch.evmUsdc : undefined);
-  return address && chain && token ? { address: getAddress(address), chainId: chain.chainId, ...token } : null;
+  const usdc = chain ? selectEpochToken(s, chain.chainId, 'USDC') : null;
+  return usdc ? { address: usdc.address, chainId: usdc.chainId, symbol: usdc.symbol, decimals: usdc.decimals } : null;
+}
+
+/**
+ * The token the document keys `key` on the Epoch route of `chainId`, or null while the route lists none or its
+ * contract read has not succeeded.
+ */
+export function selectEpochToken(s: BridgeConfigSnapshot, chainId: number, key: string): EpochToken | null {
+  const token = selectEpochChain(s, chainId)?.bridges.epoch?.tokens[key];
+  const read = okValue(s.derived?.chains[chainId]?.epoch.tokens[key]);
+  return token && read ? { key, address: getAddress(token.contractAddress), chainId, ...read } : null;
+}
+
+/** Every token of the Epoch route of `chainId` whose contract read has succeeded, in document order. */
+export function selectEpochTokens(s: BridgeConfigSnapshot, chainId: number): EpochToken[] {
+  const keys = Object.keys(selectEpochChain(s, chainId)?.bridges.epoch?.tokens ?? {});
+  return keys.flatMap(key => selectEpochToken(s, chainId, key) ?? []);
+}
+
+/**
+ * The EVM token a Fast send of the Miden faucet `midenFaucetId` (lowercase hex) arrives as on `chainId`: the route's
+ * token that settles into that faucet. A route none of whose tokens resolved a faucet is read as a document from
+ * before the token list, so its USDC is the output, as it always was. Null while no token of the route fits.
+ */
+export function selectEpochOutputToken(
+  s: BridgeConfigSnapshot,
+  chainId: number,
+  midenFaucetId: string
+): EpochToken | null {
+  const tokens = selectEpochTokens(s, chainId);
+  if (tokens.every(token => token.midenFaucetId === undefined)) return selectEpochToken(s, chainId, 'USDC');
+  const faucet = midenFaucetId.toLowerCase();
+  return tokens.find(token => token.midenFaucetId === faucet) ?? null;
 }
 
 /** Read the market returned by the Epoch positions service. */
@@ -294,6 +333,11 @@ export function getMidenUsdc(): MidenUsdc {
 
 export function getEvmUsdc(chainId?: number): EvmUsdc {
   return getValue('EVM USDC', s => selectEvmUsdc(s, chainId));
+}
+
+/** The token a Fast send of `midenFaucetId` (lowercase hex) arrives as on `chainId` (`selectEpochOutputToken`). */
+export function getEpochOutputToken(chainId: number, midenFaucetId: string): EpochToken {
+  return getValue('Epoch output token', s => selectEpochOutputToken(s, chainId, midenFaucetId));
 }
 
 /** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */

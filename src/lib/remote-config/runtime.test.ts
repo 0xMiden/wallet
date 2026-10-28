@@ -126,7 +126,7 @@ const SEPOLIA_SKIPPED: DerivedChainConfig = {
     l1BridgeCode: { state: 'skipped' },
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'skipped' } }
+  epoch: { tokens: {} }
 };
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
   network: source.network,
@@ -752,7 +752,7 @@ describe('a re-derivation that cannot read a value', () => {
     };
     return {
       ...base,
-      chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } },
+      chains: { 11155111: { agglayer, epoch: { tokens: { USDC: { state: 'ok', value: USDC } } } } },
       epoch: { ...base.epoch, vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] } },
       swap: { pairs: { state: 'ok', value: SWAP_PAIRS } }
     };
@@ -766,7 +766,7 @@ describe('a re-derivation that cannot read a value', () => {
     };
     return {
       ...base,
-      chains: { 11155111: { agglayer, epoch: { evmUsdc: down } } },
+      chains: { 11155111: { agglayer, epoch: { tokens: { USDC: down } } } },
       epoch: { ...base.epoch, allocator: down, vaults: down },
       swap: { pairs: down }
     };
@@ -774,7 +774,7 @@ describe('a re-derivation that cannot read a value', () => {
   // The Sepolia reads with the shared allocator probe, as one flat object.
   const sepoliaReads = (derived: DerivedBridgeConfig | null) => ({
     ...derived?.chains[11155111]?.agglayer,
-    ...derived?.chains[11155111]?.epoch,
+    epochUsdc: derived?.chains[11155111]?.epoch.tokens.USDC,
     allocator: derived?.epoch.allocator
   });
 
@@ -789,7 +789,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
     const kept = {
       tokens: { state: 'ok', value: [ETH] },
-      evmUsdc: { state: 'ok', value: USDC },
+      epochUsdc: { state: 'ok', value: USDC },
       allocator: down,
       l1BridgeCode: { state: 'absent' }
     };
@@ -807,7 +807,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
     expect(selectSwapPairs(getBridgeConfigSnapshot())).toBeNull();
     expect(selectEarnVaultCatalog(getBridgeConfigSnapshot())).toBeNull();
-    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual(down);
   });
 
   it('keeps them through a fresher same-version commit from another realm, and not across a version', async () => {
@@ -823,7 +823,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(derived?.derivedAt).toBe(NOW + 5);
     expect(sepoliaReads(derived)).toMatchObject({
       tokens: { state: 'ok', value: [ETH] },
-      evmUsdc: { state: 'ok', value: USDC },
+      epochUsdc: { state: 'ok', value: USDC },
       allocator: down,
       l1BridgeCode: { state: 'absent' }
     });
@@ -861,7 +861,7 @@ describe('a re-derivation that cannot read a value', () => {
       expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(pairs);
       // Every other value is the new version's own read.
       expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
-      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual(down);
     }
   );
 

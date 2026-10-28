@@ -15,10 +15,18 @@ import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
+import { loadTokenFaucetsBySymbol } from 'lib/token-list/runtime';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import { type AgglayerDepositTokenConfig, type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
+import {
+  type AgglayerDepositTokenConfig,
+  type BridgeConfig,
+  epochCollateralFaucetId,
+  type EpochTokenConfig,
+  epochTokenFaucetId,
+  type EvmAddress
+} from './schema';
 import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
 import type { EarnMarket } from './values';
 
@@ -38,6 +46,14 @@ export interface BridgeToken {
 export interface TokenMetadata {
   symbol: string;
   decimals: number;
+}
+
+/**
+ * An Epoch token's contract read, with the Miden faucet the solver settles it into (lowercase hex): the document's
+ * output for it, else the token-list's entry for its Miden symbol. Absent when neither names one.
+ */
+export interface EpochTokenRead extends TokenMetadata {
+  midenFaucetId?: string;
 }
 
 /**
@@ -88,7 +104,8 @@ export interface DerivedChainConfig {
     /** The document's deposit tokens, each verified against the registry; skipped while the document lists none. */
     depositTokens: Probe<AgglayerDepositToken[]>;
   };
-  epoch: { evmUsdc: Probe<TokenMetadata> };
+  /** One ERC-20 read per token of the chain's Epoch route, keyed by the symbol the document gives it. */
+  epoch: { tokens: Record<string, Probe<EpochTokenRead>> };
 }
 
 /** Reads over one EVM chain's RPC. */
@@ -116,6 +133,10 @@ export interface DeriveDeps {
   /** Reads over the wallet's RPC for the chain, or null when the wallet ships none for it. */
   evm(chainId: number): EvmReads | null;
   fetch: JsonFetch;
+  /** The verified token-list's faucet per symbol on `network`, as the list spells each id; null with no list. */
+  tokenFaucetsBySymbol(network: string): Promise<Map<string, string> | null>;
+  /** A Miden account id in any spelling as lowercase hex. */
+  midenAccountHex(accountId: string): Promise<string>;
 }
 
 /** A confirmed absence: the node has no such account, or the account at that id is not an AggLayer bridge. */
@@ -283,11 +304,11 @@ const ERC20_ABI = parseAbi(['function symbol() view returns (string)', 'function
 // /health is Epoch's liveness route; a service that is down answers 503. The allocator body is the SDK's
 // HealthCheckResponse. It is admitted only when `status` is exactly `healthy` and the body would pass
 // `resolveServiceConfiguration` (epoch-intents-sdk 2.0.1) for every chain this document can hand the SDK: each
-// supported chain that names Epoch USDC, plus the Miden destination chain. The positions host, whose /health
+// supported chain that names an Epoch token, plus the Miden destination chain. The positions host, whose /health
 // answers `{ ok: true }`, is never taken for the allocator.
 function epochSdkChainIds(config: BridgeConfig): number[] {
   const chainIds = Object.values(config.supportedEvmChains).flatMap(chain =>
-    chain.bridges.epoch?.tokens.USDC?.contractAddress ? [chain.chainId] : []
+    chain.bridges.epoch ? [chain.chainId] : []
   );
   return [...new Set([...chainIds, MIDEN_DESTINATION_CHAIN_ID])];
 }
@@ -454,8 +475,16 @@ const defaultDeps: DeriveDeps = {
   readBridgeRegistry,
   readMidenFaucet: readMidenFaucetMetadata,
   evm: viemReads,
-  fetch: (url, init) => fetch(url, init)
+  fetch: (url, init) => fetch(url, init),
+  tokenFaucetsBySymbol: loadTokenFaucetsBySymbol,
+  midenAccountHex
 };
+
+async function midenAccountHex(accountId: string): Promise<string> {
+  if (/^0x[0-9a-f]{30}$/i.test(accountId)) return accountId.toLowerCase();
+  await ensureSdkWasmReady();
+  return AccountId.fromBech32(accountId).toString().toLowerCase();
+}
 
 async function attempt<T>(read: () => Promise<T>): Promise<Probe<T>> {
   try {
@@ -498,6 +527,46 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   if (!reads || !token) return { state: 'skipped' };
   const code = await checkCode(reads, token);
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
+}
+
+// The token-list's faucets by symbol. A list that cannot be read names no faucet: an Epoch token then has none, which
+// keeps it off the routes that need one and costs nothing else.
+async function readTokenFaucets(io: DeriveDeps, network: string): Promise<Map<string, string>> {
+  try {
+    return (await io.tokenFaucetsBySymbol(network)) ?? new Map();
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * An Epoch token's ERC-20 read, with the Miden faucet it settles into: the document's output for it, else the
+ * token-list's faucet for its Miden symbol (its key when the document names none). A faucet that cannot be resolved
+ * leaves the read without one; it never fails the read.
+ */
+async function probeEpochToken(
+  reads: EvmReads | null,
+  config: BridgeConfig,
+  symbol: string,
+  token: EpochTokenConfig,
+  tokenFaucets: Promise<Map<string, string>>,
+  io: DeriveDeps
+): Promise<Probe<EpochTokenRead>> {
+  const read = await probeErc20(reads, token.contractAddress);
+  if (read.state !== 'ok') return read;
+  const listed = epochTokenFaucetId(config, token) ?? (await tokenFaucets).get(token.midenSymbol ?? symbol);
+  if (listed === undefined) return read;
+  try {
+    return { state: 'ok', value: { ...read.value, midenFaucetId: await io.midenAccountHex(listed) } };
+  } catch {
+    return read;
+  }
+}
+
+/** Every read of `reads` settled, under the same keys. A read never rejects: a failure is its probe's error state. */
+async function settleEach<T>(reads: Record<string, Promise<Probe<T>>>): Promise<Record<string, Probe<T>>> {
+  const entries = await Promise.all(Object.entries(reads).map(async ([key, read]) => [key, await read] as const));
+  return Object.fromEntries(entries);
 }
 
 // The derivation settles only once every probe has, so the list a document may name is capped.
@@ -637,15 +706,22 @@ export async function deriveBridgeConfig(
   const readFaucet = sharedFaucetReads(io, rpcUrl);
   const supportedChains = Object.values(config.supportedEvmChains);
   const evmReads = new Map(supportedChains.map(chain => [chain.chainId, io.evm(chain.chainId)]));
-  // One USDC read per chain: its own probe, and the token of the Earn catalogue's positions fallback on that route.
-  const evmUsdcReads = new Map(
+  // One read per Epoch token per chain. The route's USDC read is also the token of the Earn catalogue's positions
+  // fallback on that route.
+  const tokenFaucets = readTokenFaucets(io, config.network);
+  const epochTokenReads = new Map(
     supportedChains.map(chain => [
       chain.chainId,
-      probeErc20(evmReads.get(chain.chainId) ?? null, chain.bridges.epoch?.tokens.USDC?.contractAddress)
+      Object.fromEntries(
+        Object.entries(chain.bridges.epoch?.tokens ?? {}).map(([symbol, token]) => [
+          symbol,
+          probeEpochToken(evmReads.get(chain.chainId) ?? null, config, symbol, token, tokenFaucets, io)
+        ])
+      )
     ])
   );
   const readEvmUsdc: EvmUsdcRead = chainId =>
-    evmUsdcReads.get(chainId) ?? Promise.resolve<Probe<TokenMetadata>>({ state: 'skipped' });
+    epochTokenReads.get(chainId)?.USDC ?? Promise.resolve<Probe<TokenMetadata>>({ state: 'skipped' });
   const [earn, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
     discoverEarnVaults(config, io, readEvmUsdc),
     when(epoch.allocatorUrl, url =>
@@ -660,10 +736,10 @@ export async function deriveBridgeConfig(
     supportedChains.map(async chain => {
       const reads = evmReads.get(chain.chainId) ?? null;
       const agglayer = chain.bridges.agglayer;
-      const [registry, l1Bridge, evmUsdc] = await Promise.all([
+      const [registry, l1Bridge, epochTokens] = await Promise.all([
         when(agglayer?.midenBridgeId, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
         probeL1Bridge(reads, agglayer?.contractAddress),
-        readEvmUsdc(chain.chainId)
+        settleEach(epochTokenReads.get(chain.chainId) ?? {})
       ]);
       let tokens: Probe<BridgeToken[]> =
         registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
@@ -677,7 +753,7 @@ export async function deriveBridgeConfig(
           l1BridgeCode: l1Bridge.code,
           depositTokens
         },
-        epoch: { evmUsdc }
+        epoch: { tokens: epochTokens }
       };
     })
   );

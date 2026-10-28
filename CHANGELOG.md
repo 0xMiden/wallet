@@ -9,6 +9,7 @@
 - [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
+- [CHANGE][all] An Epoch route of the bridge config lists any number of EVM tokens, each settling into the token-list faucet of its `midenSymbol`; a Fast send arrives as the route's token for the sent Miden token, and Polygon and Robinhood Chain are supported chains.
 
 ## 1.17.8 (2026-10-27)
 
