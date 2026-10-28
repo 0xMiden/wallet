@@ -80,7 +80,8 @@ async function refreshStateAfterAction(): Promise<MidenState> {
     const response = await request({ type: WalletMessageType.GetStateRequest });
     assertResponse(response.type === WalletMessageType.GetStateResponse);
     if (response.state.backendInitialized !== false) return response.state;
-    await new Promise(resolve => setTimeout(resolve, backoffMs));
+    const delayMs = backoffMs;
+    await new Promise(resolve => setTimeout(resolve, delayMs));
     backoffMs = Math.min(backoffMs * 2, 3_000);
   }
 }
