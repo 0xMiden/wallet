@@ -2278,6 +2278,46 @@ describe('crash-report egress', () => {
 });
 
 describe('user-visible error reports', () => {
+  const retryCases = [
+    ['raw_history_retry_failed', 'inline', 'history_retry', 'history_primary'],
+    ['raw_history_retry_failed', 'notice', 'history_payback_retry', 'history_payback'],
+    ['raw_transaction_retry_failed', 'inline', 'transaction_retry', 'status_screen']
+  ] as const;
+
+  it.each(retryCases)('sends only closed retry notice evidence for %s/%s', async (id, surface, kind, origin) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      id,
+      surface,
+      { kind, retryNoticeOrigin: origin, pendingRetryReason: 'guardian_hold' }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      retryNoticeOrigin: origin,
+      pendingRetryReason: 'guardian_hold'
+    });
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('kind');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each(retryCases)('rejects private retry extras for %s/%s', async (id, surface, kind, origin) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      id,
+      surface,
+      { kind, retryNoticeOrigin: origin, pendingRetryReason: 'guardian_hold', detail: POISON.mnemonic12 }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).not.toHaveProperty('retryNoticeOrigin');
+    expect(diagnostics).not.toHaveProperty('pendingRetryReason');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('sends only the closed startup attempt evidence through the real crash wire', async () => {
     consentOn();
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
