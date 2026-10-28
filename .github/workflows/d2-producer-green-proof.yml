@@ -1,0 +1,51 @@
+name: Bridge balance producer green and provenance mutations
+on:
+  push:
+    branches: [ci/d2-producer-green-proof]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d2-producer-green-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/d2-producer-green-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 0f73fda4e19ad49da1f71a87a484475783fc10b8
+          cp -R .github/d2-producer-green-proof "$RUNNER_TEMP/d2-producer-green-packet"
+          git checkout --detach 0f73fda4e19ad49da1f71a87a484475783fc10b8
+          test "$(git rev-parse HEAD^{tree})" = 1a21c39fbc808e34b6593b30a096bb5acdc6bd3f
+          cp "$RUNNER_TEMP/d2-producer-green-packet/source.json" "$RUNNER_TEMP/d2-producer-green-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/d2-producer-green-evidence/install.log"
+      - name: Full TypeScript check
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/d2-producer-green-evidence/types.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/lib/telemetry/bridge-balance-diagnostics.test.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/egress-boundary.test.ts src/app/templates/EvmConnectModal/EvmBridgeDepositForm.test.tsx src/lib/telemetry/ui-producer-diagnostics.ts src/components/AmountInput.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositForm.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/d2-producer-green-evidence/lint.log"
+      - name: Verify green baseline and independent functional mutations
+        run: python3 "$RUNNER_TEMP/d2-producer-green-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d2-producer-green-proof
+          path: ${{ runner.temp }}/d2-producer-green-evidence
+          if-no-files-found: error
