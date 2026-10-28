@@ -70,7 +70,6 @@ export function getSnapshot(sessionId: string): string | undefined {
 
 export function clearSnapshot(sessionId: string): void {
   // Invalidate captures already awaiting native output, including an otherwise empty cache.
-  pendingCaptures.get(sessionId)?.clear();
   pendingCaptures.delete(sessionId);
   if (snapshots.delete(sessionId)) {
     notify();
