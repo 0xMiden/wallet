@@ -539,7 +539,7 @@ const PageRouter: FC = () => {
       pathname === '/reset-required' ||
       pathname === '/forgot-password' ||
       pathname === '/forgot-password-info';
-    if (pathname === '/storage-recovery')
+    if (pathname === '/storage-recovery' && !miden.locked)
       return <StorageRecoveryPage onBack={() => Woozie.navigate('/', Woozie.HistoryAction.Replace)} />;
     if (!lifecycleRoute && !miden.locked) return <StorageRecoveryPage />;
     if (miden.locked && !lifecycleRoute)
