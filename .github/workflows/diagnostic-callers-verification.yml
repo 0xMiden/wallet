@@ -1,0 +1,40 @@
+name: Frozen diagnostic caller verification
+on:
+  push:
+    branches: [ci/sentry-callers-verification-v3]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source and audited proof packet
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path.cwd(); p=root/'.github/diagnostic-proof'; m=json.loads((p/'manifest.json').read_text())
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==m['source_sha']
+          changed=subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()
+          assert sorted(changed)==sorted(['.github/workflows/diagnostic-callers-verification.yml',*[str(x.relative_to(root)) for x in p.iterdir()]])
+          for rel,sha in json.loads((p/'hashes.json').read_text()).items(): assert hashlib.sha256((root/rel).read_bytes()).hexdigest()==sha
+          pathlib.Path('proof').mkdir(exist_ok=True)
+          pathlib.Path('proof/binding.json').write_text(json.dumps({'source':m['source_sha'],'workflow':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'packet_hashes':json.loads((p/'hashes.json').read_text())},indent=2))
+          PYCODE
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Green preflight and expected failing diagnostic mutations
+        run: python3 .github/diagnostic-proof/verify.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-caller-verification
+          path: proof/
