@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.9 (TBD)
+
+### Changes
+
+- [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+
 ## 1.17.8 (TBD)
 
 - Preserve bounded staging-probe preflight failures without claiming unverified cleanup.

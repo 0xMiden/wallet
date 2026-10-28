@@ -1,4 +1,7 @@
+import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { assessSpendingLimit } from 'lib/miden/spending-limits/policy';
+import type { SpendingLimitConfiguration } from 'lib/miden/spending-limits/types';
 
 import type { TokenPrices } from './binance';
 import { fetchTokenPrices } from './feed';
@@ -310,5 +313,140 @@ describe('prefetchUsdPrices', () => {
     await Promise.all([first, second]);
 
     expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']], [['USDC']]]);
+  });
+});
+
+describe('Task5 cache USD', () => {
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+  const encodedBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  let retained: unknown;
+
+  beforeEach(() => {
+    retained = {};
+    mockedRead.mockImplementation(async () => retained);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      retained = value;
+    });
+  });
+
+  it.each([
+    { label: 'expired', discarded: { priceMicro: '1000000', fetchedAt: 999 } },
+    { label: 'future', discarded: { priceMicro: '1000000', fetchedAt: 1601 } },
+    { label: 'malformed', discarded: { priceMicro: '1.5', fetchedAt: 1600 } }
+  ])('prunes $label quotes while preserving the boundary and newly requested value', async ({ discarded }) => {
+    retained = { ETH: { priceMicro: '1000000', fetchedAt: 1000 }, DISCARD: discarded };
+    mockedFetch.mockResolvedValue({ OP: quote(2) });
+
+    await prefetchUsdPrices(['OP'], 1600);
+
+    expect(retained).not.toHaveProperty('DISCARD');
+    expect(retained).toHaveProperty('ETH', { priceMicro: '1000000', fetchedAt: 1000 });
+    await expect(getPriceMicro('OP', 1600)).resolves.toBe(2_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedFetch).toHaveBeenCalledWith(['OP']);
+  });
+
+  it.each([
+    { label: 'entry count', count: 256, prefix: 'old-' },
+    { label: 'full UTF-8 value bytes', count: 32, prefix: '界'.repeat(800) }
+  ])('bounds $label while retaining a new requested quote', async ({ count, prefix }) => {
+    retained = Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [`${prefix}${index}`, { priceMicro: '1000000', fetchedAt: 1599 }])
+    );
+    mockedFetch.mockResolvedValue({ OP: quote(2) });
+
+    await prefetchUsdPrices(['OP'], 1600);
+
+    expect(typeof retained).toBe('object');
+    expect(retained).not.toBeNull();
+    if (typeof retained !== 'object' || retained === null) throw new Error('cache write was not an object');
+    expect(Object.keys(retained).length).toBeLessThanOrEqual(256);
+    expect(encodedBytes(retained)).toBeLessThanOrEqual(65_536);
+    await expect(getPriceMicro('OP', 1600)).resolves.toBe(2_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { age: 600, expected: 1_000_000n, fetches: 0 },
+    { age: 601, expected: 1_500_000n, fetches: 1 }
+  ])('keeps the existing quote freshness boundary at age $age', async ({ age, expected, fetches }) => {
+    retained = { ETH: { priceMicro: '1000000', fetchedAt: 1000 } };
+    mockedFetch.mockResolvedValue({ ETH: quote(1.5) });
+
+    await expect(getPriceMicro('ETH', 1000 + age)).resolves.toBe(expected);
+
+    expect(mockedFetch).toHaveBeenCalledTimes(fetches);
+  });
+
+  it('an equal price with the same fetchedAt queues no persistent write', async () => {
+    retained = { ETH: { priceMicro: '2000000', fetchedAt: 1000 } };
+
+    await writeUsdPriceCache({ ETH: quote(2) }, 1000);
+
+    expect(mockedWrite).not.toHaveBeenCalled();
+    expect(retained).toEqual({ ETH: { priceMicro: '2000000', fetchedAt: 1000 } });
+  });
+
+  it('an equal price with a later fetchedAt writes its genuine freshness update once', async () => {
+    retained = { ETH: { priceMicro: '2000000', fetchedAt: 1000 } };
+
+    await writeUsdPriceCache({ ETH: quote(2) }, 1001);
+
+    expect(mockedWrite).toHaveBeenCalledTimes(1);
+    expect(retained).toEqual({ ETH: { priceMicro: '2000000', fetchedAt: 1001 } });
+    await expect(getPriceMicro('ETH', 1601)).resolves.toBe(2_000_000n);
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it('cache pruning and repricing preserve the frozen spending stamp in the real policy', async () => {
+    const transaction: ITransaction = {
+      id: 'frozen-spend',
+      type: 'send',
+      accountId: 'account-a',
+      spentUsd: 90_000_000n,
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1_999_990,
+      displayIcon: 'SEND'
+    };
+    Object.freeze(transaction);
+    const config: SpendingLimitConfiguration = {
+      accountId: 'account-a',
+      limit: 100_000_000n,
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    };
+    retained = { ETH: { priceMicro: '90000000', fetchedAt: 1_999_000 } };
+    mockedFetch.mockResolvedValue({ ETH: quote(1) });
+
+    await expect(getPriceMicro('ETH', 2_000_000)).resolves.toBe(1_000_000n);
+    const assessment = assessSpendingLimit(config, [transaction], {
+      accountId: 'account-a',
+      usdAmount: 20_000_000n,
+      now: 2_000_000
+    });
+
+    expect(transaction.spentUsd).toBe(90_000_000n);
+    expect(assessment.breach).toMatchObject({
+      spent: 90_000_000n,
+      proposedTotal: 110_000_000n,
+      overBy: 10_000_000n
+    });
+  });
+});
+
+describe('Task5 cache canonical equality', () => {
+  it('persists pruning of oversized unrecognized quote fields even when the accepted price and stamp match', async () => {
+    let retained: unknown = {
+      ETH: { priceMicro: '2000000', fetchedAt: 1000, unused: '界'.repeat(30_000) }
+    };
+    mockedRead.mockImplementation(async () => retained);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      retained = value;
+    });
+    await writeUsdPriceCache({ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }, 1000);
+    expect(mockedWrite).toHaveBeenCalledTimes(1);
+    expect(new TextEncoder().encode(JSON.stringify(retained)).byteLength).toBeLessThanOrEqual(65_536);
+    expect(retained).toEqual({ ETH: { priceMicro: '2000000', fetchedAt: 1000 } });
   });
 });

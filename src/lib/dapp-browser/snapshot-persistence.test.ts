@@ -33,10 +33,29 @@ const mockRmdir = jest.fn(async ({ path }: { path: string }) => {
   }
 });
 
+const mockStat = jest.fn(async ({ path }: { path: string }) => {
+  const entry = fsStore[path];
+  if (!entry) throw new Error('ENOENT');
+  return { size: new TextEncoder().encode(entry.data).byteLength, mtime: 100, type: 'file', uri: path };
+});
+const mockReaddir = jest.fn(async ({ path }: { path: string }) => ({
+  files: Object.entries(fsStore)
+    .filter(([name]) => name.startsWith(`${path}/`))
+    .map(([name, entry]) => ({
+      name: name.slice(path.length + 1),
+      size: new TextEncoder().encode(entry.data).byteLength,
+      mtime: 100,
+      type: 'file',
+      uri: name
+    }))
+}));
+
 jest.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
   Filesystem: {
+    stat: (opts: { path: string }) => mockStat(opts),
+    readdir: (opts: { path: string }) => mockReaddir(opts),
     mkdir: (...args: unknown[]) => mockMkdir(...(args as [{ path: string }])),
     writeFile: (...args: unknown[]) => mockWriteFile(...(args as [{ path: string; data: string }])),
     readFile: (...args: unknown[]) => mockReadFile(...(args as [{ path: string }])),
@@ -142,8 +161,10 @@ describe('readSnapshotFromDisk', () => {
   });
 
   it('returns null when the underlying filesystem read returns a non-string (web fallback)', async () => {
+    fsStore[`${DIR}/blob.txt`] = { data: DATA_URL };
     mockReadFile.mockResolvedValueOnce({ data: new Uint8Array([1, 2, 3]) as unknown as string });
     expect(await readSnapshotFromDisk('blob')).toBeNull();
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -228,5 +249,51 @@ describe('ordered snapshot mutations', () => {
     await Promise.all([write, reset]);
     expect(await readSnapshotFromDisk('closed')).toBeNull();
     expect(Object.keys(fsStore)).toHaveLength(0);
+  });
+});
+
+describe('Task5 cache mobile previews', () => {
+  it('refuses an oversized UTF-8 preview before filesystem write', async () => {
+    await writeSnapshotToDisk('dapp-oversized', `data:image/jpeg;base64,${'A'.repeat(524_288)}`);
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(fsStore[`${DIR}/dapp-oversized.txt`]).toBeUndefined();
+  });
+
+  it('stats an oversized legacy preview before reading its body and removes only that owned file', async () => {
+    fsStore[`${DIR}/dapp-large.txt`] = { data: `data:image/jpeg;base64,${'A'.repeat(524_288)}` };
+    fsStore['unrelated.txt'] = { data: DATA_URL };
+    await expect(readSnapshotFromDisk('dapp-large')).resolves.toBeNull();
+    expect(mockReadFile).not.toHaveBeenCalled();
+    expect(fsStore[`${DIR}/dapp-large.txt`]).toBeUndefined();
+    expect(fsStore['unrelated.txt']?.data).toBe(DATA_URL);
+  });
+
+  it('bounds orphan preview count and bytes while preserving unrelated files and the new preview', async () => {
+    for (let index = 0; index < 8; index++) fsStore[`${DIR}/dapp-${index}.txt`] = { data: DATA_URL };
+    fsStore[`${DIR}/unrelated.bin`] = { data: 'unrelated' };
+    await writeSnapshotToDisk('dapp-new', DATA_URL);
+    const owned = Object.entries(fsStore).filter(([name]) => name.startsWith(`${DIR}/`) && name.endsWith('.txt'));
+    expect(owned.length).toBeLessThanOrEqual(8);
+    expect(
+      owned.reduce((total, [, entry]) => total + new TextEncoder().encode(entry.data).byteLength, 0)
+    ).toBeLessThanOrEqual(4_194_304);
+    expect(fsStore[`${DIR}/dapp-new.txt`]?.data).toBe(DATA_URL);
+    expect(fsStore[`${DIR}/unrelated.bin`]?.data).toBe('unrelated');
+  });
+
+  it('a removal queued during an accepted delayed write leaves no orphan afterward', async () => {
+    let finish!: () => void;
+    mockWriteFile.mockImplementationOnce(async ({ path, data }) => {
+      await new Promise<void>(resolve => {
+        finish = resolve;
+      });
+      fsStore[path] = { data };
+    });
+    const writing = writeSnapshotToDisk('dapp-closing', DATA_URL);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const removing = removeSnapshotFromDisk('dapp-closing');
+    finish();
+    await Promise.all([writing, removing]);
+    expect(fsStore[`${DIR}/dapp-closing.txt`]).toBeUndefined();
   });
 });

@@ -2,12 +2,17 @@ import '../../../../test/jest-mocks';
 
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getStorageHealth } from 'lib/miden/storage-health';
 
 import { fetchBalances } from './fetchBalances';
 
 // The real mutex is the subject here: these tests are about WHEN the balance read gets
 // the lock relative to other holds, which a stubbed lock cannot show.
 const mockGetAccount = jest.fn();
+const emptyAccount = {
+  vault: () => ({ fungibleAssets: () => [] }),
+  nonce: () => ({ asInt: () => 0n })
+};
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: { getAccount: (...args: unknown[]) => mockGetAccount(...args) }
 }));
@@ -45,7 +50,7 @@ describe('fetchBalances and the WASM lock', () => {
 
   beforeEach(() => {
     mockGetAccount.mockReset();
-    mockGetAccount.mockResolvedValue(null);
+    mockGetAccount.mockResolvedValue(emptyAccount);
     __resetSyncFuseStateForTests();
   });
 
@@ -65,6 +70,7 @@ describe('fetchBalances and the WASM lock', () => {
 
     expect(mockGetAccount).toHaveBeenCalledWith('my-address');
     expect(balances).toEqual([expect.objectContaining({ tokenId: 'miden-faucet-id', balance: 0 })]);
+    expect(getStorageHealth().status).toBe('healthy');
   });
 
   it('still skips a held lock when not asked to wait', async () => {
@@ -88,7 +94,7 @@ describe('fetchBalances and the WASM lock', () => {
     const order: string[] = [];
     mockGetAccount.mockImplementation(async () => {
       order.push('balance-read');
-      return null;
+      return emptyAccount;
     });
 
     const read = fetchBalances('my-address', {}, { waitForLock: true });
@@ -101,5 +107,6 @@ describe('fetchBalances and the WASM lock', () => {
     await Promise.all([read, sync]);
 
     expect(order).toEqual(['balance-read', 'sync']);
+    expect(getStorageHealth().status).toBe('healthy');
   });
 });
