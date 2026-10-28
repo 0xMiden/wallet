@@ -221,6 +221,7 @@
   "changelogTitle": "Ekmek güncellendi",
   "update": "Güncelleme",
   "originLabel": "Kaynak:",
+  "originator": "İşlem Başlatıcı",
   "networkLabel": "Ağ:",
   "pkhLabel": "Hesap:",
   "analytics": "Analitik",

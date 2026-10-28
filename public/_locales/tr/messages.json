@@ -1181,8 +1181,8 @@
     "englishSource": "Origin:"
   },
   "originator": {
-    "message": "Originator",
-    "englishSource": "Origin:"
+    "message": "İşlem Başlatıcı",
+    "englishSource": "Originator"
   },
   "networkLabel": {
     "message": "Ağ:",

@@ -1181,8 +1181,8 @@
     "englishSource": "Origin:"
   },
   "originator": {
-    "message": "Originator",
-    "englishSource": "Origin:"
+    "message": "Auftraggeber",
+    "englishSource": "Originator"
   },
   "networkLabel": {
     "message": "Netzwerk:",

@@ -221,6 +221,7 @@
   "changelogTitle": "パンの情報を更新しました",
   "update": "更新",
   "originLabel": "出典：",
+  "originator": "発信者",
   "networkLabel": "ネットワーク：",
   "pkhLabel": "アカウント：",
   "analytics": "アナリティクス",

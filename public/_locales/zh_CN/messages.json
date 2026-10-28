@@ -1181,8 +1181,8 @@
     "englishSource": "Origin:"
   },
   "originator": {
-    "message": "Originator",
-    "englishSource": "Origin:"
+    "message": "发起人",
+    "englishSource": "Originator"
   },
   "networkLabel": {
     "message": "网络：",
