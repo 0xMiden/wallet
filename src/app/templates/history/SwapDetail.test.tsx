@@ -818,6 +818,10 @@ const LiveStuckPayback = ({
       isRetryingPayback={actions.isRetryingPayback}
       paybackRetryError={actions.paybackRetryError}
       paybackRetryErrorId={actions.paybackRetryErrorId}
+      {...{
+        paybackRetryErrorDiagnostics: (actions as typeof actions & { paybackRetryErrorDiagnostics?: unknown })
+          .paybackRetryErrorDiagnostics
+      }}
       onRetryPayback={actions.onRetryPayback}
     />
   );
@@ -903,6 +907,34 @@ describe('SwapDetail stuck payout claim (#1644)', () => {
     expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
     expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-1');
+  });
+
+  it('reports the payout retry reason on the visible notice', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    try {
+      const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+        'lib/telemetry/ui-producer-diagnostics'
+      );
+      const failure = new Error('private payout retry failure');
+      annotatePendingRetry(failure, 'guardian_hold');
+      mockRequeueFailedTransaction.mockRejectedValueOnce(failure);
+      render(<LiveStuckPayback />);
+      fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+      await settle();
+      expect(screen.getByRole('alert')).toHaveTextContent('private payout retry failure');
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(mockReportUserVisibleError).toHaveBeenCalledWith('raw_history_retry_failed', 'notice', {
+        kind: 'history_payback_retry',
+        retryNoticeOrigin: 'history_payback',
+        pendingRetryReason: 'guardian_hold'
+      });
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
+      expect(mockNavigate).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows a fee refusal of the retry', async () => {
