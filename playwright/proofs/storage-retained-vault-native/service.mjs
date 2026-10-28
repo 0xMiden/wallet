@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
 
-const binaryHash = '5e1c774ff287212325b666b27a3b4cffcb427f07b296e5965eebacbbf99da703';
+const binaryHash = 'daf0390d4b68213fe21e8a620d879b12f8eea0a1362966cb1974eb4aa42bfb96';
 const hash = value => createHash('sha256').update(value).digest('hex');
 function frame(body, type = 0) {
   const header = Buffer.alloc(5);
@@ -54,7 +54,7 @@ export async function createRecoveryService(buildRoot, binary) {
   let pending;
   let sealed = false;
   const images = new Map();
-  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
+  const counts = { guardianReads: 0, accountReads: 0, headerReads: 0, refusedRequests: 0, signedGuardianRequests: 0, limitsReads: 0, unknownRpc: 0, unknownNullifiers: 0, unknownLimits: 0, unknownOther: 0, learningMethod: 0, closedRoute: 0, otherRefusal: 0 };
   const output = join(directory, 'generated');
   const server = createServer(async (request, response) => {
     try {
@@ -151,7 +151,9 @@ export async function createRecoveryService(buildRoot, binary) {
         const body = await readBody(request, 64 * 1024);
         const identity = hash(Buffer.concat([Buffer.from(url.pathname), Buffer.from([0]), body]));
         let image;
-        if (!sealed && pending) {
+        if (sealed && url.pathname.endsWith('/GetLimits')) {
+          image = { kind: 'limits', bytes: await readFile(join(output, 'limits.pb')) };
+        } else if (!sealed && pending) {
           const expectedMethod = pending.kind === 'header' ? '/GetBlockHeaderByNumber' : '/GetAccount';
           if (!url.pathname.endsWith(expectedMethod)) {
             image = images.get(identity);
@@ -171,7 +173,8 @@ export async function createRecoveryService(buildRoot, binary) {
           else counts.unknownOther++;
           throw new Error('unknown-rpc-request');
         }
-        if (sealed) counts[image.kind === 'account' ? 'accountReads' : 'headerReads']++;
+        if (sealed && image.kind !== 'limits') counts[image.kind === 'account' ? 'accountReads' : 'headerReads']++;
+        if (sealed && image.kind === 'limits') counts.limitsReads++;
         response.setHeader('Content-Type', 'application/grpc-web+proto');
         response.setHeader('grpc-status', '0');
         response.end(Buffer.concat([frame(image.bytes), frame(Buffer.from('grpc-status: 0\r\n'), 128)]));
