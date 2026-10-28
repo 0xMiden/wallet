@@ -1,0 +1,37 @@
+name: Terminal submit context expected red
+on:
+  push:
+    branches: ['ci/terminal-submit-red']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source
+        run: test "$(git rev-parse HEAD^)" = 2811cf352ce511b8a289f172c349700245ec2037
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Run expected regression and controls
+        run: |
+          mkdir -p proof
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/transaction/failure-identity.integration.test.ts --testNamePattern='retains the matching submit context|on mobile, says the app was' --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Report executed tests
+        if: always()
+        run: |
+          test -f proof/results.json
+          node -e "const x=require('./proof/results.json');console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,runtime:x.numRuntimeErrorTestSuites}));for(const s of x.testResults)for(const t of s.assertionResults)if(t.status!=='pending')console.log(t.status+': '+t.fullName)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-submit-expected-red
+          path: proof/
