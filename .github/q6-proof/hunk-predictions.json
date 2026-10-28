@@ -1,0 +1,37 @@
+[
+  {
+    "hunk": 1,
+    "test": "returns false for operational mirrors when the provider throws",
+    "expected": "Structural parameter linkage: reverting only signature leaves invalidValue unbound and assertion receives rejected ReferenceError. This is not a policy-boolean pin; do not label it functional false/true evidence."
+  },
+  {
+    "hunk": 2,
+    "test": "isAutoConsumeEnabledAsync defaults ON when the mirror is absent; isDelegateProofEnabledAsync defaults to the delegate default when the mirror is absent",
+    "expected": "Expected true, received false on successful absent-key mirror read."
+  },
+  {
+    "hunk": 3,
+    "test": "returns false for a malformed mirrored operational preference",
+    "expected": "Expected false, received true for stored nonboolean mirror."
+  },
+  {
+    "hunk": 4,
+    "test": "returns false when a mirrored operational read is rejected after the marker; returns false for operational mirrors when the provider throws",
+    "expected": "Expected false, received true after rejected get/provider throw."
+  },
+  {
+    "hunk": 5,
+    "test": "returns false for operational mirrors when the provider throws; returns false when a mirrored operational read is rejected after the marker",
+    "expected": "Auto-consume assertion remains false, delegated-proving assertion expects false but receives true."
+  },
+  {
+    "hunk": 6,
+    "test": "returns false when a mirrored operational read is rejected after the marker",
+    "expected": "Auto-consume assertion expects false but receives true."
+  },
+  {
+    "hunk": 7,
+    "test": "leaves the mirror marker false when the preference batch is rejected; clears a trusted marker when the preference batch is rejected; does not copy preferences when clearing the mirror marker is rejected; keeps a false choice made while the mirror marker clear is pending; does not copy preferences when a local read fails after the marker clear",
+    "expected": "Old independent writes produce true marker instead of false; first payload contains auto_consume_setting rather than false marker."
+  }
+]
