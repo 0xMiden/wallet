@@ -64,7 +64,6 @@ import {
   captureStorageRecoveryGuard,
   getStorageHealth,
   initializeStorageHealth,
-  markStorageUnavailable,
   StorageUnavailableError,
   type StorageAvailability
 } from 'lib/miden/storage-health';
@@ -199,17 +198,7 @@ export async function init() {
     )
   });
   const vault = await getVault(); // wait for vault initialization
-  const check = captureStorageRecoveryGuard();
-  const exists = await vault.isExist();
-  let vaultExist: boolean;
-  if (exists) {
-    vaultExist = await keepsSetupPendingAdmission();
-  } else {
-    const retainedCustody = await vault.hasRetainedCustody();
-    check();
-    if (retainedCustody) markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
-    vaultExist = retainedCustody;
-  }
+  const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
