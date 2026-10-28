@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { TxStory } from 'components/tx-stage/TxStory';
+import { storyFromNoteFlow, sumAssets, type StoryAsset, type StoryHop } from 'components/tx-stage/tx-story';
 import { Card } from 'components/ui/Card';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -80,12 +83,13 @@ const NoteAsset: React.FC<{ asset: AssetAmount }> = ({ asset }) => {
   );
 };
 
-const NoteItem: React.FC<{ note: NoteDetail; index: number }> = ({ note, index }) => {
+const NoteItem: React.FC<{ note: NoteDetail; index: number; side: 'in' | 'out' }> = ({ note, index, side }) => {
   const { t } = useTranslation();
   const kindKey = dedicatedNoteKindKeys[note.kind];
+  const tone = note.kind === 'fee' || note.kind === 'TX_FEE' ? 'fee' : side === 'in' ? 'sent' : 'note';
   return (
     <Card asChild padding="tile" className="min-w-0">
-      <li data-testid="tx-note-item">
+      <li data-testid="tx-note-item" data-tone={tone} className="tx-stage-note">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
           <span className="font-semibold text-ink">
             {kindKey ? t(kindKey) : t('standardNoteLabel', { name: standardNotePhrase(note.kind) })}
@@ -127,18 +131,112 @@ const NoteItem: React.FC<{ note: NoteDetail; index: number }> = ({ note, index }
   );
 };
 
+async function assetLabel(assets: StoryAsset[]): Promise<string> {
+  const parts = await Promise.all(
+    sumAssets(assets).map(async asset => {
+      try {
+        const metadata = await loadConfirmationTokenMetadata(asset.faucetId);
+        if (!hasKnownScale(metadata)) return '';
+        return `${formatAmount(asset.amount, metadata.decimals)} ${metadata.symbol || truncateAddress(asset.faucetId)}`;
+      } catch {
+        return '';
+      }
+    })
+  );
+  return parts.filter(Boolean).join(', ');
+}
+
 export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }> = ({ flow, account }) => {
   const { t } = useTranslation();
+  const baseHops = useMemo(() => storyFromNoteFlow(flow, account), [flow, account]);
+  const [resolved, setResolved] = useState<{ hops: StoryHop[]; received: string; sent: string; fee: string }>();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const receivedAssets = baseHops.filter(hop => hop.to.role === 'you').flatMap(hop => hop.assets ?? []);
+      const sentAssets = baseHops
+        .filter(hop => hop.from.role === 'you' && hop.to.role !== 'network')
+        .flatMap(hop => hop.assets ?? []);
+      const feeAssets = baseHops.filter(hop => hop.to.role === 'network').flatMap(hop => hop.assets ?? []);
+      // Start every lookup before awaiting, so they share one in-flight metadata read per faucet.
+      const amountsPromise = Promise.all(baseHops.map(hop => assetLabel(hop.assets ?? [])));
+      const receivedPromise = assetLabel(receivedAssets);
+      const sentPromise = assetLabel(sentAssets);
+      const feePromise = assetLabel(feeAssets);
+      const [amounts, received, sent, fee] = await Promise.all([
+        amountsPromise,
+        receivedPromise,
+        sentPromise,
+        feePromise
+      ]);
+      if (cancelled) return;
+      setResolved({
+        hops: baseHops.map((hop, index) => ({ ...hop, amount: amounts[index] || hop.amount })),
+        received,
+        sent,
+        fee
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseHops]);
+
+  const hops = resolved?.hops ?? baseHops;
+  const [notesOpen, setNotesOpen] = useState(false);
+  const notesPanelRef = useRef<HTMLDivElement>(null);
+  const toggledRef = useRef(false);
+  useLayoutEffect(() => {
+    const panel = notesPanelRef.current;
+    if (!panel) return;
+    panel.style.maxHeight = notesOpen ? `${panel.scrollHeight}px` : '0px';
+  }, [notesOpen, resolved, hops]);
+  const toggleNotes = () => {
+    toggledRef.current = true;
+    setNotesOpen(open => !open);
+  };
+  useEffect(() => {
+    if (!toggledRef.current) return;
+    let cancelled = false;
+    (async () => {
+      const { isExtension } = await import('lib/platform');
+      if (!isExtension() || cancelled) return;
+      const browser = (await import('webextension-polyfill')).default;
+      const current = await browser.windows.getCurrent();
+      if (current.id == null || cancelled) return;
+      const base = 760;
+      const grown = Math.min(
+        Math.max(document.documentElement.scrollHeight + 28, base),
+        (window.screen?.availHeight || base) - 20
+      );
+      await browser.windows.update(current.id, { height: notesOpen ? grown : base });
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [notesOpen]);
   return (
     <section className="w-full mb-4" aria-label={t('transactionNoteFlow')} data-testid="tx-note-flow">
-      <h3 className="mb-2 font-semibold text-ink">{t('transactionNoteFlow')}</h3>
+      <h3 className="tx-stage-rise mb-2 font-semibold text-ink">{t('transactionNoteFlow')}</h3>
+      <TxStory hops={hops} summary={{ received: resolved?.received, sent: resolved?.sent, fee: resolved?.fee }} />
+      <button type="button" className="tx-notes-toggle" aria-expanded={notesOpen} onClick={toggleNotes}>
+        {notesOpen ? t('hideNotes', { defaultValue: 'Hide notes' }) : t('showNotes', { defaultValue: 'Show notes' })}
+        <span className={classNames('tx-notes-chevron', notesOpen && 'is-open')} aria-hidden="true" />
+      </button>
+      <div
+        ref={notesPanelRef}
+        className="tx-notes-disclosure"
+        aria-hidden={notesOpen ? undefined : true}
+      >
+        <div className="tx-notes-disclosure-inner">
       <div className="text-sm text-muted mb-2">
         {t('inputNotesConsumed')}: {flow.inputCount}
       </div>
       {flow.inputs.length ? (
-        <ol className="flex flex-col gap-2" data-testid="tx-note-inputs">
+        <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-inputs">
           {flow.inputs.map((note, index) => (
-            <NoteItem key={`${note.id ?? 'input'}-${index}`} note={note} index={index} />
+            <NoteItem key={`${note.id ?? 'input'}-${index}`} note={note} index={index} side="in" />
           ))}
         </ol>
       ) : (
@@ -151,13 +249,18 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
       {flow.inputCount > flow.inputs.length && flow.inputs.length > 0 && (
         <p className="mt-2 text-xs text-muted">{t('additionalInputDetailsUnavailable')}</p>
       )}
-      <div className="mx-5 h-5 border-l border-hairline" aria-hidden="true" />
-      <Card padding="tile" className="font-semibold text-ink" data-testid="tx-note-account" aria-label={t('account')}>
+      <div className="tx-stage-link" aria-hidden="true" />
+      <Card
+        padding="tile"
+        className="tx-stage-account font-semibold text-ink"
+        data-testid="tx-note-account"
+        aria-label={t('account')}
+      >
         <span title={account}>
           {t('account')}: {account ? truncateAddress(account) : t('unknown')}
         </span>
       </Card>
-      <div className="mx-5 h-5 border-l border-hairline" aria-hidden="true" />
+      <div className="tx-stage-link" aria-hidden="true" />
       <div className="text-sm text-muted mb-2">
         {t(
           flow.outputs.some(note => note.kind === 'fee' || note.kind === 'TX_FEE')
@@ -167,9 +270,9 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
         : {flow.outputs.length}
       </div>
       {flow.outputs.length ? (
-        <ol className="flex flex-col gap-2" data-testid="tx-note-outputs">
+        <ol className="tx-stage-list flex flex-col gap-2" data-testid="tx-note-outputs">
           {flow.outputs.map((note, index) => (
-            <NoteItem key={`${note.id ?? 'output'}-${index}`} note={note} index={index} />
+            <NoteItem key={`${note.id ?? 'output'}-${index}`} note={note} index={index} side="out" />
           ))}
         </ol>
       ) : (
@@ -205,6 +308,8 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
           </ol>
         )}
       </section>
+        </div>
+      </div>
     </section>
   );
 };

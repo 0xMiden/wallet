@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
@@ -17,6 +17,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: ()
 jest.mock('lib/miden/metadata/scale', () => ({ hasKnownScale: () => true }));
 jest.mock('lib/shared/format', () => ({ formatAmount: (amount: bigint) => amount.toString() }));
 
+function openNotes() {
+  fireEvent.click(screen.getByRole('button', { name: 'showNotes' }));
+}
+
 it('shows a zero-input flow into the account and exact output note labels', () => {
   render(
     <TransactionNoteFlow
@@ -32,6 +36,7 @@ it('shows a zero-input flow into the account and exact output note labels', () =
       }}
     />
   );
+  openNotes();
 
   expect(screen.getByText('noInputNotes')).toBeInTheDocument();
   expect(screen.getByTestId('tx-note-account')).toHaveTextContent('short:accou');
@@ -57,6 +62,7 @@ it('names a standard note from StandardNote and calls a tx fee note the transact
       }}
     />
   );
+  openNotes();
   expect(screen.getByText('standardNoteLabel:Fee sponsorship')).toBeInTheDocument();
   expect(screen.getByText('transactionFeeNote')).toBeInTheDocument();
   expect(screen.getByText('standardNoteLabel:SWAP')).toBeInTheDocument();
@@ -76,6 +82,7 @@ it('shows multiple inputs, unknown scripts and unlisted input details without cl
       }}
     />
   );
+  openNotes();
   expect(within(screen.getByTestId('tx-note-inputs')).getAllByRole('listitem')).toHaveLength(2);
   expect(screen.getByText('otherNoteScript')).toBeInTheDocument();
   expect(screen.getByText('additionalInputDetailsUnavailable')).toBeInTheDocument();
@@ -91,6 +98,7 @@ it('keeps a long note identifier readable without clipping its value', () => {
       flow={{ inputCount: 0, inputs: [], outputs: [{ id, kind: 'unknown', visibility: 'unknown' }] }}
     />
   );
+  openNotes();
   const identifier = screen.getByTitle(id);
   expect(identifier).toHaveTextContent(id);
   expect(identifier).toHaveClass('break-all');
@@ -110,6 +118,7 @@ it('shows named storage operations and entry counts without raw values', () => {
       }}
     />
   );
+  openNotes();
   const storage = screen.getByTestId('tx-storage-details');
   expect(storage).toHaveTextContent('counter');
   expect(storage).toHaveTextContent('balances');
@@ -133,6 +142,7 @@ it('does not show an old asset label while a different note asset resolves', asy
     ]
   });
   const { rerender } = render(<TransactionNoteFlow account="account" flow={flow(1n)} />);
+  openNotes();
   await waitFor(() => expect(screen.getByText('1 FIRST')).toBeInTheDocument());
   rerender(<TransactionNoteFlow account="account" flow={flow(2n)} />);
   expect(screen.queryByText('1 FIRST')).not.toBeInTheDocument();

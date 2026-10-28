@@ -1180,6 +1180,10 @@
     "message": "Источник:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Originator",
+    "englishSource": "Origin:"
+  },
   "networkLabel": {
     "message": "Сеть:",
     "englishSource": "Network:"

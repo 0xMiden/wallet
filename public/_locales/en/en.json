@@ -221,6 +221,7 @@
   "changelogTitle": "Bread updated",
   "update": "Update",
   "originLabel": "Origin:",
+  "originator": "Originator",
   "networkLabel": "Network:",
   "pkhLabel": "Account:",
   "analytics": "Analytics",

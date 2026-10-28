@@ -106,7 +106,7 @@ export function TransactionFixture({ surface, variant }: { surface: 'modal' | 'a
     return <DappConfirmationModal request={request} accountId={account} onResolve={() => undefined} />;
   }
   return (
-    <main className="mx-auto flex h-full w-full max-w-[380px] flex-col bg-surface-solid text-ink" data-testid="tx-asset-fixture">
+    <main className="mx-auto flex h-full w-full max-w-[440px] flex-col bg-surface-solid text-ink" data-testid="tx-asset-fixture">
       <header className="shrink-0 border-b border-border-light px-5 py-4 text-lg font-semibold">Transaction review</header>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="tx-asset-scroll">
         <TransactionAssetView

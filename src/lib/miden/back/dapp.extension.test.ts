@@ -658,7 +658,7 @@ describe('requestConfirm placement Chrome refuses', () => {
     const answer = await withoutWindowGeometry(declineSign);
 
     const options = create.mock.calls[0]?.[0];
-    expect(options).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(options).toEqual(expect.objectContaining({ type: 'popup', width: 440, height: 760 }));
     expect(options).not.toHaveProperty('left');
     expect(options).not.toHaveProperty('top');
     expect(update).not.toHaveBeenCalled();
@@ -676,7 +676,7 @@ describe('requestConfirm placement Chrome refuses', () => {
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ left: 322, top: 46 }));
     const retry = create.mock.calls[1]?.[0];
-    expect(retry).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(retry).toEqual(expect.objectContaining({ type: 'popup', width: 440, height: 760 }));
     expect(retry).not.toHaveProperty('left');
     expect(retry).not.toHaveProperty('top');
     expect(update).not.toHaveBeenCalled();

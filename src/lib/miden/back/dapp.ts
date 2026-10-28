@@ -289,9 +289,9 @@ async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-const CONFIRM_WINDOW_WIDTH = 380;
-// 632 plus the 44px network banner (#875) that tops the confirm window.
-const CONFIRM_WINDOW_HEIGHT = 676;
+const CONFIRM_WINDOW_WIDTH = 440;
+// 716 plus the 44px network banner (#875) that tops the confirm window.
+const CONFIRM_WINDOW_HEIGHT = 760;
 const AUTODECLINE_AFTER = 120_000;
 // How long a confirm popup may hold the dApp queue through an unlock, its build and a full review.
 const LOCKED_PROMPT_CAP_MS = 2 * AUTODECLINE_AFTER;

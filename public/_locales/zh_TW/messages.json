@@ -1180,6 +1180,10 @@
     "message": "來源：",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "Originator",
+    "englishSource": "Origin:"
+  },
   "networkLabel": {
     "message": "網路：",
     "englishSource": "Network:"
