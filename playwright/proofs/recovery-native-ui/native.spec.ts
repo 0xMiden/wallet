@@ -60,6 +60,15 @@ test('synthetic recovery controls respond to native taps in both themes', async 
       await tap('Check storage');
       await expect.poll(() => session.eval<boolean>("return document.body.textContent.includes('The check could not finish. Wallet actions remain paused.');"), { timeout: 30_000 }).toBe(true);
       await screenshot('error');
+      if (!ios) {
+        const { stdout } = await exec('adb', ['-s', device, 'shell', 'wm', 'size'], { timeout: 30_000 });
+        const size = stdout.match(/(\d+)x(\d+)/);
+        if (!size) throw new Error('Missing emulator screen size');
+        const width = Number(size[1]);
+        const height = Number(size[2]);
+        await exec('adb', ['-s', device, 'shell', 'input', 'swipe', String(Math.round(width / 2)), String(Math.round(height * 0.8)), String(Math.round(width / 2)), String(Math.round(height * 0.35)), '500'], { timeout: 30_000 });
+        await screenshot('scrolled');
+      }
       await tap('Export recovery data');
       await expect.poll(() => session.eval<boolean>("return !!document.querySelector('[data-testid=export-file-password]');"), { timeout: 30_000 }).toBe(true);
       await screenshot('export');
