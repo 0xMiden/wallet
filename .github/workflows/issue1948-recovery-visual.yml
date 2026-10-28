@@ -1,0 +1,70 @@
+name: Issue1948 recovery visual proof
+on:
+  push:
+    branches: ['ci/1948-recovery-visual-*']
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      RECOVERY_VISUAL_RESULTS: ${{ github.workspace }}/proof/results.json
+      RECOVERY_VISUAL_OUTPUT: ${{ github.workspace }}/proof/test-results
+      RECOVERY_VISUAL_SCREENSHOTS: ${{ github.workspace }}/proof/screenshots
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 90bdf081c5f55cb11e6e53bc76b54a9ea440e4a7
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bind source
+        working-directory: wallet
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 90bdf081c5f55cb11e6e53bc76b54a9ea440e4a7
+          test "$(git rev-parse HEAD^{tree})" = fb8c7d83583b58ddc2db2ce7718c925830a506d3
+          mkdir -p "$GITHUB_WORKSPACE/proof"
+          git show -s --format='%H %T' HEAD > "$GITHUB_WORKSPACE/proof/source.txt"
+      - name: Frozen dependency installation
+        working-directory: wallet
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$GITHUB_WORKSPACE/proof/install.log"
+      - name: Install Chromium
+        working-directory: wallet
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          yarn playwright install --with-deps chromium 2>&1 | tee "$GITHUB_WORKSPACE/proof/browser-install.log"
+      - name: Build fixture
+        working-directory: wallet
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          yarn vite build --config playwright/proofs/storage-recovery-visual/vite.config.mts 2>&1 | tee "$GITHUB_WORKSPACE/proof/build.log"
+          test -f playwright/proofs/storage-recovery-visual/dist/index.html
+      - name: Capture
+        working-directory: wallet
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          yarn playwright test --config playwright/proofs/storage-recovery-visual/playwright.config.ts 2>&1 | tee "$GITHUB_WORKSPACE/proof/test.log"
+      - name: Verify capture inventory
+        run: |
+          set -euo pipefail
+          python3 .github/ci/issue1948-recovery-visual-verify.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-visual-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/
+          if-no-files-found: error
