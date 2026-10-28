@@ -1835,7 +1835,7 @@ export class Vault {
         })
       );
       check();
-      if (getStorageHealth().status === 'healthy' && (result.changed || !result.primaryVerified)) {
+      if (getStorageHealth().status === 'healthy' && result.changed) {
         markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
         return {
           imported: true,
