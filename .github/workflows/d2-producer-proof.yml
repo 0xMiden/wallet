@@ -1,0 +1,49 @@
+name: Bridge balance producer stage red proof
+on:
+  push:
+    branches: [ci/d2-producer-red-proof-v3]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d2-producer-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/d2-producer-evidence/workflow-sha.txt"
+          git merge-base --is-ancestor 668d52037345c7797689d2085a57c4545bb76d7a HEAD
+          cp -R .github/d2-producer-proof "$RUNNER_TEMP/d2-producer-packet"
+          git checkout --detach 668d52037345c7797689d2085a57c4545bb76d7a
+          test "$(git rev-parse HEAD^{tree})" = 10b25032ab0bc99e7f9a262f0c9bafdfe259d853
+          cp "$RUNNER_TEMP/d2-producer-packet/source.json" "$RUNNER_TEMP/d2-producer-evidence/"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/d2-producer-evidence/install.log"
+      - name: Full type check
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit -p . 2>&1 | tee "$RUNNER_TEMP/d2-producer-evidence/types.log"
+      - name: Strict named test lint
+        run: |
+          set -euo pipefail
+          yarn eslint src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/d2-producer-evidence/lint.log"
+      - name: Verify fourteen intended producer evidence failures
+        run: python3 "$RUNNER_TEMP/d2-producer-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d2-producer-red-proof
+          path: ${{ runner.temp }}/d2-producer-evidence
+          if-no-files-found: error
