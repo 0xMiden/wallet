@@ -1889,8 +1889,13 @@ describe('useWalletStore', () => {
       try {
         useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true });
         const pending = {
-          status: WalletStatus.Idle, accounts: [], currentAccount: null, networks: [], settings: null,
-          ownMnemonic: null, backendInitialized: false
+          status: WalletStatus.Idle,
+          accounts: [],
+          currentAccount: null,
+          networks: [],
+          settings: null,
+          ownMnemonic: null,
+          backendInitialized: false
         };
         const ready = { ...pending, status: WalletStatus.Locked, backendInitialized: true };
         mockRequest
@@ -1898,9 +1903,13 @@ describe('useWalletStore', () => {
           .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: pending })
           .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: ready });
         let settled = false;
-        const operation = (action === 'createAccount'
-          ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
-          : useWalletStore.getState().removeSeedPhrase('password')).then(() => { settled = true; });
+        const operation = (
+          action === 'createAccount'
+            ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
+            : useWalletStore.getState().removeSeedPhrase('password')
+        ).then(() => {
+          settled = true;
+        });
         for (let i = 0; i < 10; i++) await Promise.resolve();
         expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
         expect(settled).toBe(false);
@@ -1921,13 +1930,18 @@ describe('useWalletStore', () => {
       ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, true],
       ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, undefined]
     ] as const)('%s accepts initialized Idle with marker %s', async (action, responseType, marker) => {
-      mockRequest
-        .mockResolvedValueOnce({ type: responseType })
-        .mockResolvedValueOnce({
-          type: WalletMessageType.GetStateResponse,
-          state: { status: WalletStatus.Idle, accounts: [], currentAccount: null, networks: [], settings: null,
-            ownMnemonic: null, backendInitialized: marker }
-        });
+      mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: {
+          status: WalletStatus.Idle,
+          accounts: [],
+          currentAccount: null,
+          networks: [],
+          settings: null,
+          ownMnemonic: null,
+          backendInitialized: marker
+        }
+      });
       if (action === 'createAccount') await useWalletStore.getState().createAccount(WalletType.OnChain, 'New');
       else await useWalletStore.getState().removeSeedPhrase('password');
       expect(useWalletStore.getState().status).toBe(WalletStatus.Idle);
@@ -1940,9 +1954,10 @@ describe('useWalletStore', () => {
       ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse]
     ] as const)('%s propagates a refresh error without repeating the mutation', async (action, responseType) => {
       mockRequest.mockResolvedValueOnce({ type: responseType }).mockRejectedValueOnce(new Error('refresh failed'));
-      const operation = action === 'createAccount'
-        ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New')
-        : useWalletStore.getState().removeSeedPhrase('password');
+      const operation =
+        action === 'createAccount'
+          ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New')
+          : useWalletStore.getState().removeSeedPhrase('password');
       await expect(operation).rejects.toThrow('refresh failed');
       expect(mockRequest).toHaveBeenCalledTimes(2);
     });
