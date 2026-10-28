@@ -329,8 +329,43 @@ async function recover(password) {
       }
     });
   }
+  if (recovered) await control('post-recovery', { journalDigest: await digest(new TextEncoder().encode(JSON.stringify(after))) });
   const noteStages = ['Entered', 'Deserialized', 'ExistingRead', 'AcquireEntered', 'AcquireReturned', 'ReadbackReturned', 'PreparedEntered', 'GenerationRead', 'PreparedReady', 'ImportEntered', 'NativeCallback', 'CandidateCopied', 'ReceiptCallback', 'ReceiptMatched', 'ReceiptReturned', 'CallbackReturned', 'ImportResolved', 'ImportRejected', 'ErrorString', 'ErrorObject', 'Errorstorage', 'Errornetwork', 'Errornote', 'Errordatabase', 'Errortransaction', 'Errordeserialize', 'Errorblock', 'Errorheader', 'Errorinvalid', 'Errorproof', 'ErrorRootMismatch', 'ErrorAcceptHeader']
     .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
   return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }
-window.__retainedProof = { prepare, recover };
+async function shutdown() {
+  await withWasmClientLock(async () => {
+    const wallet = await getMidenClient();
+    await wallet.client.waitForIdle();
+  });
+  await resetMidenClient();
+  vault.retire();
+  vault = undefined;
+}
+async function restart(password) {
+  guard();
+  progress('second-vault-restart');
+  await ensureSdkWasmReady();
+  const state = await control('read-state', {});
+  await endpoints(state.feeFaucetId);
+  await initializeStorageHealth();
+  vault = await Vault.setup(password);
+  const journal = await vault.readRecoveryJournal();
+  check('secondRestartJournalRetained', state.recoveredJournalDigest === await digest(new TextEncoder().encode(JSON.stringify(journal))));
+  check('secondRestartContinuity', await vault.verifyStorageContinuity(false));
+  check('secondRestartHealthy', getStorageHealth().status === 'healthy');
+  await withWasmClientLock(async () => {
+    const wallet = await getMidenClient();
+    const account = await wallet.getAccount(state.accountId);
+    check('secondRestartAccount', account !== null && account !== undefined);
+    account?.free();
+    if (state.includePrivate) {
+      const note = await wallet.getInputNote('0x' + state.noteId);
+      check('secondRestartAuthenticatedPrivate', note?.isAuthenticated() === true);
+      note?.free();
+    }
+  });
+  return { phase, checks: { ...checks } };
+}
+window.__retainedProof = { prepare, recover, shutdown, restart };

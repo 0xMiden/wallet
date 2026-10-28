@@ -41,7 +41,8 @@ const phases = new Set([
   'disposable-sdk-store-loss',
   'restart-real-vault',
   'detect-sdk-loss',
-  'actual-missing-account-recovery'
+  'actual-missing-account-recovery',
+  'second-vault-restart'
 ]);
 const checkNames = new Set([
   'endpointBound',
@@ -71,7 +72,12 @@ const checkNames = new Set([
   'recovered',
   'healthyAfterRecovery',
   'rebuiltNativeAccount',
-  'rebuiltAuthenticatedPrivate'
+  'rebuiltAuthenticatedPrivate',
+  'secondRestartJournalRetained',
+  'secondRestartContinuity',
+  'secondRestartHealthy',
+  'secondRestartAccount',
+  'secondRestartAuthenticatedPrivate'
 ]);
 function safeReport(value) {
   if (
@@ -233,6 +239,21 @@ for (const includePrivate of [false, true]) {
       expect(report.recover.checks.healthyAfterRecovery).toBe(true);
       expect(report.recover.checks.rebuiltNativeAccount).toBe(true);
       if (includePrivate) expect(report.recover.checks.rebuiltAuthenticatedPrivate).toBe(true);
+      await page.evaluate(() => window.__retainedProof.shutdown());
+      await page.reload();
+      await page.waitForFunction(() => typeof window.__retainedProof?.restart === 'function');
+      const restarted = await page.evaluate(async password => {
+        try { return { ok: true, value: await window.__retainedProof.restart(password) }; }
+        catch { return { ok: false, phase: window.__retainedPhase || 'initial' }; }
+      }, password);
+      report.phase = restarted.ok ? restarted.value.phase : restarted.phase;
+      expect(restarted.ok, `restart:${report.phase}`).toBe(true);
+      Object.assign(report.recover.checks, safeReport(restarted.value).checks);
+      expect(report.recover.checks.secondRestartJournalRetained).toBe(true);
+      expect(report.recover.checks.secondRestartContinuity).toBe(true);
+      expect(report.recover.checks.secondRestartHealthy).toBe(true);
+      expect(report.recover.checks.secondRestartAccount).toBe(true);
+      if (includePrivate) expect(report.recover.checks.secondRestartAuthenticatedPrivate).toBe(true);
       expect(report.outsideRequests).toBe(0);
       report.stage = 'complete';
     } finally {

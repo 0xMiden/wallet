@@ -136,6 +136,13 @@ export async function createRecoveryService(buildRoot, binary) {
           send({ retained: true });
           return;
         }
+        if (action === 'post-recovery') {
+          if (!state || typeof data.journalDigest !== 'string' || !/^[0-9a-f]{64}$/.test(data.journalDigest))
+            throw new Error('post-recovery-bound');
+          state.recoveredJournalDigest = data.journalDigest;
+          send({ retained: true });
+          return;
+        }
         if (action === 'read-state') {
           if (!state) throw new Error('state-missing');
           send(state);
