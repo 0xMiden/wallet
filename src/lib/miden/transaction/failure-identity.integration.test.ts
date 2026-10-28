@@ -163,6 +163,47 @@ describe('the never-committed verdicts', () => {
     __resetBackgroundTimeForTest();
   });
 
+  it('retains submit context after a user cancellation', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.Failed,
+      error: 'User cancelled',
+      attemptId: 'a1',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await cancelTransactionAfterPipelineStopped(row, new Error(
+      `submission of transaction ${TRANSACTION} came back without a definite outcome: ` +
+        'grpc request failed for submit_proven_transaction: Miden node is unavailable'
+    ));
+    await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
+    expect(captured()[0]?.message).toContain('app hidden during submit no; submit leg under_9s');
+    expect((await Repo.transactions.get('tx-1'))?.rawError).toBe('User cancelled');
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
+  it('retains measured context for an indefinite outcome without gRPC details', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(row, new Error(
+      `submission of transaction ${TRANSACTION} came back without a definite outcome`
+    ));
+    await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
+    expect(captured()[1]?.message).toContain('endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s');
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
   it('does not attach submit context to a different current attempt', async () => {
     const row: ITransaction = {
       ...claim(evidence({ attemptId: 'a2', expirationBlock: 700 })),
