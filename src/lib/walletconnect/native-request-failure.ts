@@ -44,6 +44,15 @@ const IOS_CALL_ORIGINS = [
   'request_construction_error',
   'request_call_error'
 ] as const;
+const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
+  'argument_validation',
+  'unconfigured',
+  'publish_error',
+  'wallet_error',
+  'request_expired',
+  'session_deleted',
+  'other'
+]);
 
 export function isReownIOSCallFailure(failure: ReownNativeFailure): boolean {
   return (
@@ -104,7 +113,8 @@ export function decodeReownNativeFailureCode(code: unknown): ReownNativeFailure 
   if (typeof code !== 'string' || !code.startsWith(REOWN_NATIVE_FAILURE_PREFIX)) return undefined;
   try {
     const value: unknown = JSON.parse(code.slice(REOWN_NATIVE_FAILURE_PREFIX.length));
-    return validateReownNativeFailure(value);
+    const failure = validateReownNativeFailure(value);
+    return failure !== undefined && ANDROID_WIRE_ORIGINS.has(failure.nativeOrigin) ? failure : undefined;
   } catch {
     return undefined;
   }

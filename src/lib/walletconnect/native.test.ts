@@ -1472,8 +1472,10 @@ it.each(['request_construction_error', 'request_call_error'])(
   async nativeOrigin => {
     jest.mocked(isAndroid).mockReturnValue(true);
     jest.mocked(isIOS).mockReturnValue(false);
+    const code =
+      'REOWN_NATIVE_REQUEST_FAILURE:' + JSON.stringify({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' });
     const original = Object.assign(new Error('wallet wording'), {
-      code: `REOWN_NATIVE_REQUEST_FAILURE:${JSON.stringify({ nativeOrigin, requestAge: 'unknown', published: 'unobserved' })}`
+      code
     });
     rawNativeSend.mockRejectedValueOnce(original);
     const { error } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
