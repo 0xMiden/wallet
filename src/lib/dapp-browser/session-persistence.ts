@@ -57,7 +57,7 @@ function boundSessions(sessions: PersistedSession[]): PersistedSession[] {
       encoded = encoder.encode(JSON.stringify(next)).byteLength;
     }
     const total = bytes + encoded + (retained.length > 0 ? 1 : 0);
-    if (encoded > MAX_PERSISTED_SESSION_BYTES || total > MAX_PERSISTED_SESSIONS_BYTES) continue;
+    if (encoded > MAX_PERSISTED_SESSION_BYTES * 2 || total > MAX_PERSISTED_SESSIONS_BYTES) continue;
     retained.push(next);
     bytes = total;
     if (retained.length === MAX_PERSISTED_SESSIONS) break;
