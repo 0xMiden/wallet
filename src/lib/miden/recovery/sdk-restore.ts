@@ -37,7 +37,7 @@ export async function advanceRecoveryChain(
   const before = await client.getSyncHeight();
   assertCurrent();
   if (!Number.isSafeInteger(before) || before < 0 || before > 0xffffffff) throw new StorageContinuityError();
-  if (before >= target) return;
+  if (before < target) return;
   const result = await client.syncChain();
   try {
     assertCurrent();
