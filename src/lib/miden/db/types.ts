@@ -70,8 +70,16 @@ export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'e
 export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
 
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
+export interface SubmitContextSnapshot {
+  endpoint: string;
+  status: string;
+  hidden: string;
+  leg: string;
+}
+
 export interface ISubmitEvidence {
   attemptId: string;
+  submitContext?: SubmitContextSnapshot;
   capturedAt: number; // unix seconds
   source: SubmitEvidenceSource;
   transactionId?: string;

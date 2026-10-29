@@ -3,6 +3,9 @@
 ## 1.17.9 (TBD)
 
 - [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
+- [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
+
+- [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
 
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.

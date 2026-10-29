@@ -90,7 +90,6 @@ import {
   cancelTransactionAfterPipelineStopped,
   endAttemptInThisRealm,
   markStartedInThisRealm,
-  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -1575,7 +1574,8 @@ const generateTransactionWithProvider = async (
             transaction,
             transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
               ? reconcileError
-              : error
+              : error,
+            transaction.attemptId
           );
         }
         return;
@@ -1612,7 +1612,7 @@ const generateTransactionWithProvider = async (
         );
         await recordBridgeNoteLanded(transaction.id);
         await recordLandedTransactionId(transaction.id, error);
-        await cancelTransactionAfterPipelineStopped(transaction, error);
+        await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
         return;
       }
       // `bridged-send` is in this list too, and by the ordering above it can only
@@ -1950,7 +1950,7 @@ const generateTransactionWithProvider = async (
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only — send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransactionAfterPipelineStopped(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
     return;
   }
@@ -4931,7 +4931,7 @@ export const generateTransactionsLoop = async (
         await recordBridgeNoteLanded(tx.id);
         if (!hasLeftQueue(tx)) {
           await recordLandedTransactionId(tx.id, e);
-          await cancelTransactionAfterPipelineStopped(tx, e);
+          await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
         }
         return false;
       }
@@ -4988,11 +4988,11 @@ export const generateTransactionsLoop = async (
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && !hasLeftQueue(tx)) {
-      await cancelTransactionAfterPipelineStopped(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
       // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
       // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
-      await markTransactionUnconfirmed(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     }
     return false;
   } finally {

@@ -117,6 +117,17 @@ private enum ReownCryptoError: Error {
     case publicKeyRecoveryUnsupported
 }
 
+private enum ReownCallFailureOrigin: String {
+    case unconfigured
+    case argumentValidation = "argument_validation"
+    case requestConstructionError = "request_construction_error"
+    case requestCallError = "request_call_error"
+}
+
+private func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
+    call.reject(message, "REOWN_IOS_REQUEST_FAILURE:\(origin.rawValue)")
+}
+
 private struct ReownCryptoProvider: CryptoProvider {
     func recoverPubKey(signature: EthereumSignature, message: Data) throws -> Data {
         throw ReownCryptoError.publicKeyRecoveryUnsupported
@@ -355,11 +366,11 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func request(_ call: CAPPluginCall) {
-        guardConfigured(call) {
+        guardConfigured(call, requestDiagnostic: true) {
             guard let method = call.getString("method"),
                   let chainId = call.getInt("chainId"),
                   let blockchain = Blockchain("eip155:\(chainId)") else {
-                call.reject("Missing method or chainId")
+                rejectReownCall(call, message: "Missing method or chainId", origin: .argumentValidation)
                 return
             }
 
@@ -369,7 +380,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
             }
 
             guard let params = call.getValue("params") else {
-                call.reject("Missing params")
+                rejectReownCall(call, message: "Missing params", origin: .argumentValidation)
                 return
             }
 
@@ -385,15 +396,15 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func sendTransaction(_ call: CAPPluginCall) {
-        guardConfigured(call) {
+        guardConfigured(call, requestDiagnostic: true) {
             guard let chainId = call.getInt("chainId"),
                   let blockchain = Blockchain("eip155:\(chainId)") else {
-                call.reject("Missing or invalid chainId")
+                rejectReownCall(call, message: "Missing or invalid chainId", origin: .argumentValidation)
                 return
             }
 
             guard let to = call.getString("to") else {
-                call.reject("Missing transaction recipient")
+                rejectReownCall(call, message: "Missing transaction recipient", origin: .argumentValidation)
                 return
             }
 
@@ -487,9 +498,13 @@ private extension ReownPlugin {
         ]
     }
 
-    func guardConfigured(_ call: CAPPluginCall, run: () -> Void) {
+    func guardConfigured(_ call: CAPPluginCall, requestDiagnostic: Bool = false, run: () -> Void) {
         guard isConfigured else {
-            call.reject("Native Reown is not configured")
+            if requestDiagnostic {
+                rejectReownCall(call, message: "Native Reown is not configured", origin: .unconfigured)
+            } else {
+                call.reject("Native Reown is not configured")
+            }
             return
         }
         run()
@@ -548,7 +563,7 @@ private extension ReownPlugin {
                 ttl: 300
             )
         } catch {
-            call.reject(error.localizedDescription)
+            rejectReownCall(call, message: error.localizedDescription, origin: .requestConstructionError)
             return
         }
 
@@ -561,7 +576,7 @@ private extension ReownPlugin {
                 }
             } catch {
                 await MainActor.run {
-                    call.reject(error.localizedDescription)
+                    rejectReownCall(call, message: error.localizedDescription, origin: .requestCallError)
                 }
             }
         }
