@@ -3,6 +3,7 @@ import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
+import { annotatePendingRetry, type PendingRetryReason } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import {
@@ -348,13 +349,13 @@ const planRequeue = async (
 ): Promise<RequeuePlan | undefined> => {
   // Pass the WHOLE row: the gate reads the bridge provider off `extraInputs`.
   if (!isRequeueableTransaction({ ...tx, bridgeProvider: bridgeProviderOf(tx) })) {
-    throw new Error(`Transaction ${tx.id} (${tx.type}) is not retryable`);
+    throw retryRefusal(new Error(`Transaction ${tx.id} (${tx.type}) is not retryable`), 'not_retryable');
   }
   const nowSec = nowSeconds();
   // The next proposal would meet the kept candidate: the 409 arm for most types, an outright failure for a
   // bridged-send. Proven or not, and acknowledged or not, the row waits for the Guardian's own discard.
   const holdUntil = keptCandidateHoldUntil(tx, nowSec);
-  if (holdUntil !== undefined) throw new Error(guardianHoldRetryMessage(holdUntil));
+  if (holdUntil !== undefined) throw retryRefusal(new Error(guardianHoldRetryMessage(holdUntil)), 'guardian_hold');
   let proven = tx.neverCommittedAt !== undefined;
   let baseline = evidenceKey(tx.submitEvidence);
   let checked = false;
@@ -364,7 +365,8 @@ const planRequeue = async (
     if (check.kind === 'landed') return undefined;
     // The row may already have landed, and a candidate note can still prove to be a sibling's: it must not reach the
     // acknowledgeable refusal below, where a plain send could pay twice.
-    if (check.kind === 'landing-pending') throw new Error(TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    if (check.kind === 'landing-pending')
+      throw retryRefusal(new Error(TRANSACTION_LANDING_PENDING_RETRY_ERROR), 'landing_pending');
     proven = check.kind === 'proven';
     baseline = check.baseline;
   }
@@ -407,7 +409,7 @@ const planRequeue = async (
     // below deliberately does not: an id proves the submit call was reached, so
     // there is nothing for the user to rule out from their balance.
     if (REBUILT_REQUEST_TYPES.includes(tx.type) && tx.transactionId !== undefined && isSubmitOutcomeUnknown(tx)) {
-      throw new Error(TRANSACTION_RETRY_UNSAFE_ERROR);
+      throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
     }
   }
 
@@ -489,6 +491,12 @@ const requeueRow = (live: ITransaction, plan: RequeuePlan, initiatedAt: number, 
   // attempts had doubled (#1223).
   dbTx.requeueStreak = undefined;
   dbTx.lastDeferral = undefined;
+  dbTx.queueSighting = undefined;
+  dbTx.queueSightingAt = undefined;
+  dbTx.queueSightingSeq = undefined;
+  dbTx.preflightSync = undefined;
+  dbTx.preflightSyncAt = undefined;
+  dbTx.preflightSyncSeq = undefined;
   // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
   dbTx.guardianBusy = undefined;
   dbTx.error = undefined;
@@ -665,7 +673,7 @@ const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promi
   let acknowledged = options.acknowledged;
   for (let judging = 0; judging < 2; judging += 1) {
     const tx = await Repo.transactions.where({ id: txId }).first();
-    if (!tx) throw new Error(`Transaction ${txId} not found`);
+    if (!tx) throw retryRefusal(new Error(`Transaction ${txId} not found`), 'row_missing');
     const plan = await planRequeue(tx, acknowledged);
     if (plan === undefined) return;
     const feeContext = tx.type === 'consume' ? await readClaimFeeContext(tx.accountId) : undefined;
@@ -673,7 +681,7 @@ const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promi
     // The evidence the user answered for has changed: judge the fresh row once more, without their word.
     acknowledged = undefined;
   }
-  throw new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+  throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
 };
 
 /**
@@ -688,7 +696,7 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
   const turn = await inVerdictTurn(txId, () => retryUnderVerdictLock(txId, options), {
     waitMs: RETRY_VERDICT_WAIT_MS
   });
-  if (!turn.ran) throw new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+  if (!turn.ran) throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
 };
 
 // NOTE: a failed `consume` of a bridged-in (EVM → Miden) note IS retryable via
@@ -723,3 +731,8 @@ export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   assertStorageHealthy();
   await retryEarnWithdrawal(txId);
 };
+
+function retryRefusal(error: Error, reason: PendingRetryReason): Error {
+  annotatePendingRetry(error, reason);
+  return error;
+}

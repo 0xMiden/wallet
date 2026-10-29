@@ -1,6 +1,6 @@
 import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
-import { readPswapOrderLineage, readPswapOrderNote } from './pswap-order-note';
+import { readPublicPswapNote, readPswapOrderLineage, readPswapOrderNote } from './pswap-order-note';
 
 const mockGetNotesById = jest.fn();
 const mockGetNullifierCommitHeight = jest.fn();
@@ -719,6 +719,108 @@ describe('readPswapOrderLineage', () => {
       await expect(readPswapOrderLineage('other-order-note', '50', 'creator')).resolves.toEqual(
         expect.objectContaining({ kind: 'open', noteId: 'other-order-note' })
       );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('overlapping public sale note reads', () => {
+  it('lets a quote and request build share the same pending note read', async () => {
+    const note = pswapNote({ id: 'concurrent-sale' });
+    let release!: (value: unknown[]) => void;
+    mockGetNotesById.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const quote = readPublicPswapNote('concurrent-sale');
+    const build = readPublicPswapNote('concurrent-sale');
+    const together = Promise.all([quote, build]);
+    void together.catch(() => undefined);
+    await Promise.resolve();
+    release([
+      {
+        noteId: { toString: () => 'concurrent-sale' },
+        note,
+        inclusionProof: { location: () => ({ blockNum: () => 120 }) }
+      }
+    ]);
+    await expect(together).resolves.toEqual([
+      expect.objectContaining({ kind: 'open', note }),
+      expect.objectContaining({ kind: 'open', note })
+    ]);
+    expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares the logical read while its nullifier step is pending', async () => {
+    const note = pswapNote({ id: 'pending-nullifier-sale' });
+    commit(note, 120);
+    let release!: (value: undefined) => void;
+    let started!: () => void;
+    const nullifierStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockGetNullifierCommitHeight.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+          started();
+        })
+    );
+    const quote = readPublicPswapNote('pending-nullifier-sale');
+    await nullifierStarted;
+    const build = readPublicPswapNote('pending-nullifier-sale');
+    release(undefined);
+
+    await expect(Promise.all([quote, build])).resolves.toEqual([
+      expect.objectContaining({ kind: 'open', note }),
+      expect.objectContaining({ kind: 'open', note })
+    ]);
+    expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes a fresh read after the previous logical read fulfilled', async () => {
+    const note = pswapNote({ id: 'settled-public-sale' });
+    commit(note, 120);
+    await expect(readPublicPswapNote('settled-public-sale')).resolves.toMatchObject({ kind: 'open', note });
+    spentAt.set('settled-public-sale', 125);
+
+    await expect(readPublicPswapNote('settled-public-sale')).resolves.toEqual({ kind: 'spent' });
+    expect(mockGetNotesById).toHaveBeenCalledTimes(2);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes a fresh read after the previous logical read rejected', async () => {
+    const note = pswapNote({ id: 'failed-public-sale' });
+    commit(note, 120);
+    mockGetNotesById.mockRejectedValueOnce(new Error('node unreachable'));
+    const quote = readPublicPswapNote('failed-public-sale');
+    const build = readPublicPswapNote('failed-public-sale');
+    await expect(Promise.all([quote, build])).rejects.toThrow('node unreachable');
+
+    await expect(readPublicPswapNote('failed-public-sale')).resolves.toMatchObject({ kind: 'open', note });
+    expect(mockGetNotesById).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a timed-out underlying RPC bounded and permits a changed node', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetNotesById.mockImplementationOnce(() => new Promise(() => undefined));
+      const parked = readPublicPswapNote('hung-public-sale').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(await parked).toBeInstanceOf(Error);
+      await expect(readPublicPswapNote('hung-public-sale')).rejects.toThrow('previous node read has not settled');
+      expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+      expect(RpcClient).toHaveBeenCalledTimes(1);
+      mockRpcUrl = 'https://node-b';
+      const note = pswapNote({ id: 'hung-public-sale' });
+      commit(note, 120);
+      await expect(readPublicPswapNote('hung-public-sale')).resolves.toMatchObject({ kind: 'open', note });
+      expect(RpcClient).toHaveBeenLastCalledWith('https://node-b');
     } finally {
       jest.useRealTimers();
     }

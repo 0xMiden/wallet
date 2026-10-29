@@ -1,6 +1,7 @@
 // Real Dexie, real judgement and writes; external reads and bridge adoption are faked.
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { ClaimFeeContext, getClaimFeeAhead } from './claim-fee';
 import {
@@ -414,6 +415,7 @@ describe('the tap-time proof (#1081)', () => {
     await Repo.transactions.put(unconfirmedSend());
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
@@ -426,6 +428,7 @@ describe('the tap-time proof (#1081)', () => {
     );
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
   });
 
@@ -525,6 +528,7 @@ describe('an unproven execute is acknowledgeable (#1081)', () => {
     );
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
@@ -700,6 +704,7 @@ describe('the requeue write and evidence that moves under Retry (#1081)', () => 
     });
     const error = await refusal();
     expect(error).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('verdict_busy');
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
   });
 
@@ -753,7 +758,9 @@ describe('the verdict lock (#1081)', () => {
       );
       const pending = refusal();
       await jest.advanceTimersByTimeAsync(10_001);
-      expect(await pending).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+      const error = await pending;
+      expect(error).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+      expect(snapshotPendingRetry(error)).toBe('verdict_busy');
     } finally {
       // Released here, so tx-1's verdict lock is free for every later test.
       release();
@@ -801,6 +808,7 @@ describe('the Guardian hold (#1081)', () => {
   it('refuses while a kept candidate is under 1080 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
     const expected = guardianHoldRetryMessage(NOW + 980);
+    expect(snapshotPendingRetry(await refusal())).toBe('guardian_hold');
     expect(await refusal()).toHaveProperty('message', expected);
     expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty('message', expected);
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);

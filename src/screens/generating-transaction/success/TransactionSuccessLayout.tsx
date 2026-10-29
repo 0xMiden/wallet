@@ -171,7 +171,7 @@ export const ReceiptRows: FC<{
     <DetailCard
       surface={surface}
       face={face}
-      className={classNames('w-full', surface === 'outline' && 'face-heading', className)}
+      className={classNames('tx-stage-list w-full', surface === 'outline' && 'face-heading', className)}
     >
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
@@ -287,7 +287,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
           </div>
         }
       >
-        <section className="flex w-full flex-col items-center pt-6">
+        <section className="tx-stage-rise flex w-full flex-col items-center pt-6">
           {/* The moment's heading and the focus target on the view change, so the outcome is
               announced. `tabIndex={-1}` makes it focusable without joining the tab order. */}
           <Hero visual={hero ?? <SuccessHero />} name={title} nameRef={titleRef} nameProps={{ tabIndex: -1 }} />

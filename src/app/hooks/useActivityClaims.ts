@@ -28,6 +28,7 @@ import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { submissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 type FeeSnapshot = {
   notesKey: string;
@@ -523,7 +524,20 @@ export function useActivityClaims() {
             ? error.message
             : String(error);
       const id = error instanceof ClaimFeeRefusedError ? 'insufficientFeeAsset' : 'raw_pending_activity_retry_failed';
-      setRetryErrors(previous => new Map(previous).set(txId, { message, id }));
+      setRetryErrors(previous =>
+        new Map(previous).set(txId, {
+          message,
+          id,
+          ...(id === 'raw_pending_activity_retry_failed'
+            ? {
+                diagnostics: {
+                  kind: 'pending_retry' as const,
+                  pendingRetryReason: snapshotPendingRetry(error) ?? 'unexpected'
+                }
+              }
+            : {})
+        })
+      );
       return;
     } finally {
       retrying.delete(txId);

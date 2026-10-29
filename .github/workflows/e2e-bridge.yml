@@ -47,6 +47,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 100 || 70 }}
     env:
       E2E_NETWORK: testnet
+      E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
       # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read
       # doesn't hit a 429 from the shared runner IP. Falls back to the public node
       # in playwright/e2e/helpers/sepolia.ts when this secret is unset.

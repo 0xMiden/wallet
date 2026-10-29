@@ -61,6 +61,21 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
+  it.each<Partial<SelectRecipientProps> & { isValidAddress: boolean }>([
+    { address: '', isValidAddress: false, chain: 'miden' },
+    { address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' },
+    { address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' }
+  ])('labels the recipient step Continue for $chain ($isValidAddress)', overrides => {
+    const props = renderRecipient(overrides);
+    const button = screen.getByRole('button', { name: 'continue' });
+
+    expect(button).toBe(screen.getByTestId('send-recipient-confirm'));
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+    expect(button.hasAttribute('disabled')).toBe(!overrides.isValidAddress);
+    fireEvent.click(button);
+    expect(props.onConfirm).toHaveBeenCalledTimes(overrides.isValidAddress ? 1 : 0);
+  });
+
   it('titles the step as the tab, with the entry below it over pills that wrap rather than scroll', () => {
     renderRecipient({ onScan: jest.fn() });
     const title = screen.getByRole('heading', { level: 1 });
@@ -424,6 +439,44 @@ describe('SelectRecipient user-visible errors', () => {
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
   };
+
+  it('forwards only the current invalid recipient stage after the existing dwell', async () => {
+    const view = render(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'prefix_rejected' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    view.rerender(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'decoder_throw' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('invalidMidenAccountId', 'inline', {
+      kind: 'recipient_validation',
+      recipientValidationStage: 'decoder_throw'
+    });
+  });
 
   it.each(['invalidEthereumAddress', 'cannotSendToSelf', 'midenAddressWrongNetwork', 'invalidMidenAccountId'])(
     'reports the visible %s recipient refusal without the address',

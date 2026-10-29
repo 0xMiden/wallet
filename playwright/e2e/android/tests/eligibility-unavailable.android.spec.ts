@@ -25,7 +25,7 @@ test('opens the wallet with Earn and Swap unavailable when the eligibility looku
   await steps.step(
     'wallet_opens_without_access_gate',
     async () => {
-      await walletA.waitFor('#unlock-password', { timeoutMs: 30_000 });
+      await walletA.waitFor('[data-testid="unlock-passcode"]', { timeoutMs: 30_000 });
       expect(await walletA.evaluate(() => document.querySelector('[data-testid="wallet-access-gate"]') === null)).toBe(
         true
       );

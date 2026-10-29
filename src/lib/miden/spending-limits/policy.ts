@@ -22,6 +22,9 @@ const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set([
   // approval-time valuation same as every other outgoing type.
   'execute'
 ]);
+const isOutgoingSpend = (row: ITransaction): boolean =>
+  OUTGOING_TYPES.has(row.type) || (row.type === 'consume' && row.extraInputs?.gcPurchase !== undefined);
+
 // Failed rows stay reserved because a local failure can happen after submission;
 // reconciliation, not optimistic exclusion, is the safe authority on whether value moved.
 // An Unconfirmed row stays reserved for the same reason, and a proven-safe one like every Failed row (#1081).
@@ -81,7 +84,7 @@ const matchingSpendEntries = (
   const entries: SpendEntry[] = [];
   for (const row of rows) {
     if (!sameSpendingLimitIdentity(row.accountId, config.accountId)) continue;
-    if (!OUTGOING_TYPES.has(row.type) || row.restoredFromBackup === true) continue;
+    if (!isOutgoingSpend(row) || row.restoredFromBackup === true) continue;
     const spend = rowSpendUsd(row);
     if (spend === undefined) continue;
     // A row that cannot be placed in time cannot be judged in or out of the window, so it stays

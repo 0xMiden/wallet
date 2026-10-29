@@ -48,6 +48,12 @@ const OWNERSHIP_GATES = Object.freeze([
   'observability_logs',
   'observability_invocations',
   'observability_traces',
+  'script_observability',
+  'script_observability_logs',
+  'script_observability_invocations',
+  'script_observability_traces',
+  'script_logpush',
+  'script_tail_consumers',
   'tail_consumers',
   'assets',
   'migration_tag',
@@ -418,18 +424,23 @@ export function createProbeController(effects) {
     if ((settings.compatibility_flags?.length || 0) !== 0)
       mismatch('compatibility_flags', () => ownershipData(settings, 'compatibility_flags'), []);
     if (settings.logpush !== false) mismatch('logpush', () => ownershipData(settings, 'logpush'), false);
-    if (settings.observability?.enabled !== false)
-      mismatch('observability', () => ownershipData(settings, 'observability', 'enabled'), false);
-    if (settings.observability?.logs?.enabled !== false)
-      mismatch('observability_logs', () => ownershipData(settings, 'observability', 'logs', 'enabled'), false);
-    if (settings.observability?.logs?.invocation_logs !== false)
-      mismatch(
-        'observability_invocations',
-        () => ownershipData(settings, 'observability', 'logs', 'invocation_logs'),
-        false
-      );
-    if (settings.observability?.traces?.enabled !== false)
-      mismatch('observability_traces', () => ownershipData(settings, 'observability', 'traces', 'enabled'), false);
+    const observationSwitches = [
+      ['observability', ['observability', 'enabled']],
+      ['observability_logs', ['observability', 'logs', 'enabled']],
+      ['observability_invocations', ['observability', 'logs', 'invocation_logs']],
+      ['observability_traces', ['observability', 'traces', 'enabled']]
+    ];
+    const checkSwitch = (source, path, gate, required) => {
+      let value = source;
+      for (const key of path) {
+        if (value === undefined && !required) return;
+        if (value === null || typeof value !== 'object' || Array.isArray(value))
+          mismatch(gate, () => value, value === undefined || value === null ? false : {});
+        value = ownershipData(value, key);
+      }
+      if (value !== false && (required || value !== undefined)) mismatch(gate, () => value, false);
+    };
+    for (const [gate, path] of observationSwitches) checkSwitch(settings, path, gate, false);
     if ((settings.tail_consumers?.length || 0) !== 0)
       mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
     if (settings.assets) mismatch('assets', () => ownershipData(settings, 'assets'));
@@ -483,6 +494,15 @@ export function createProbeController(effects) {
       ])
     )
       mismatch('binding_names');
+    const scriptSettings = (await api(`${prefix}/script-settings`)).result;
+    for (const [gate, path] of observationSwitches) checkSwitch(scriptSettings, path, `script_${gate}`, true);
+    if (scriptSettings.logpush !== undefined && scriptSettings.logpush !== false)
+      mismatch('script_logpush', () => ownershipData(scriptSettings, 'logpush'), false);
+    if (
+      scriptSettings.tail_consumers !== undefined &&
+      (!Array.isArray(scriptSettings.tail_consumers) || scriptSettings.tail_consumers.length !== 0)
+    )
+      mismatch('script_tail_consumers', () => ownershipData(scriptSettings, 'tail_consumers'), []);
     const subdomain = (await api(`${prefix}/subdomain`)).result;
     if (subdomain?.enabled !== true) mismatch('subdomain_enabled', () => ownershipData(subdomain, 'enabled'), true);
     if (subdomain.previews_enabled !== false)
@@ -750,7 +770,24 @@ export function createProbeController(effects) {
     }
     return result;
   };
-  return { run, cleanup };
+  const inspect = async manifest => {
+    let ownershipCheck;
+    try {
+      await validManifest(manifest);
+      await authenticate();
+      const present = await owned(manifest, check => {
+        ownershipCheck = check;
+      });
+      return { inspection: present ? 'verified' : 'absent', reason: 'complete' };
+    } catch (error) {
+      return {
+        inspection: 'blocked',
+        reason: reasonOf(error),
+        ...(ownershipCheck ? { ownershipCheck } : {})
+      };
+    }
+  };
+  return { run, cleanup, inspect };
 }
 
 export function createLocalProbeEffects(env) {
@@ -794,7 +831,7 @@ export function createLocalProbeEffects(env) {
         method === 'GET' &&
         (path === '/workers/subdomain' ||
           /^\/workers\/scripts\?page=[1-9][0-9]*&per_page=100$/.test(path) ||
-          /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}\/(settings|subdomain|content\/v2)$/.test(path));
+          /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}\/(settings|script-settings|subdomain|content\/v2)$/.test(path));
       const remove = method === 'DELETE' && /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}$/.test(path);
       if (!account && !read && !remove) fail('auth');
       const endpoint = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${account ? '' : path}`;

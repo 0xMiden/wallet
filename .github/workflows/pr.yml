@@ -256,6 +256,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build chrome
         uses: borales/actions-yarn@v4
@@ -263,6 +265,7 @@ jobs:
           cmd: build:chrome
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
 
       - name: Verify the built extension manifest
         run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
@@ -297,6 +300,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Run Arcade sheet layout regression
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.arcade-visual.config.ts
+
+      - name: Upload Arcade sheet layout regression
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arcade-sheet-layout
+          path: test-results/arcade-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Run 1Click visual acceptance
         timeout-minutes: 5
         run: yarn playwright test --config playwright.one-click-visual.config.ts
@@ -310,12 +326,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  native-toolbar:
+    needs: translations
+    uses: ./.github/workflows/native-toolbar.yml
+    secrets: inherit
+
   # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
   # one job (~42m sequential). They now run in parallel; this gate keeps the
-  # required name and fails if either side failed or was skipped.
+  # required name and fails if any job failed or was skipped.
   ci:
     name: Test
-    needs: [unit, mock-e2e]
+    needs: [unit, mock-e2e, native-toolbar]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
@@ -324,7 +345,9 @@ jobs:
             echo "unit ${{ needs.unit.result }}"; exit 1; fi
           if [ "${{ needs.mock-e2e.result }}" != "success" ]; then
             echo "mock-e2e ${{ needs.mock-e2e.result }}"; exit 1; fi
-          echo "unit and mock-e2e ok"
+          if [ "${{ needs.native-toolbar.result }}" != "success" ]; then
+            echo "native-toolbar ${{ needs.native-toolbar.result }}"; exit 1; fi
+          echo "unit, mock-e2e and native-toolbar ok"
 
   # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
   # one ubuntu-latest). Three shards keep billed minutes about the same and cut

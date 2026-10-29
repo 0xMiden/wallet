@@ -1,4 +1,5 @@
 export const REOWN_NATIVE_FAILURE_PREFIX = 'REOWN_NATIVE_REQUEST_FAILURE:';
+export const REOWN_IOS_FAILURE_PREFIX = 'REOWN_IOS_REQUEST_FAILURE:';
 
 function closedValues<const Values extends readonly string[]>(...values: Values): Readonly<Values> {
   return Object.freeze(values);
@@ -7,13 +8,29 @@ function closedValues<const Values extends readonly string[]>(...values: Values)
 export const REOWN_NATIVE_ORIGINS = closedValues(
   'argument_validation',
   'unconfigured',
+  'request_construction_error',
+  'request_call_error',
   'publish_error',
   'wallet_error',
   'request_expired',
   'session_deleted',
   'other'
 );
-export const REOWN_WALLET_RESPONSE_CODES = closedValues('user_rejected', 'invalid_params', 'internal_error', 'other');
+export const REOWN_WALLET_RESPONSE_CODES = closedValues(
+  'user_rejected',
+  'invalid_params',
+  'internal_error',
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited',
+  'other'
+);
 export const REOWN_REQUEST_AGES = closedValues('under_30s', '30_to_120s', '120_to_300s', 'over_300s', 'unknown');
 export const REOWN_PUBLICATIONS = closedValues('confirmed', 'unobserved');
 export const REOWN_BACKGROUND_ANSWERS = closedValues('yes', 'no');
@@ -34,6 +51,38 @@ export type ReownNativeFailure = Readonly<
     | { nativeOrigin: Exclude<ReownNativeOrigin, 'wallet_error'>; walletResponseCode?: never }
   )
 >;
+
+const IOS_CALL_ORIGINS = [
+  'unconfigured',
+  'argument_validation',
+  'request_construction_error',
+  'request_call_error'
+] as const;
+const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
+  'argument_validation',
+  'unconfigured',
+  'publish_error',
+  'wallet_error',
+  'request_expired',
+  'session_deleted',
+  'other'
+]);
+
+export function isReownIOSCallFailure(failure: ReownNativeFailure): boolean {
+  return (
+    IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin) &&
+    failure.requestAge === 'unknown' &&
+    failure.published === 'unobserved' &&
+    failure.backgrounded === undefined &&
+    failure.walletResponseCode === undefined
+  );
+}
+
+export function decodeReownIOSFailureCode(code: unknown): ReownNativeFailure | undefined {
+  if (typeof code !== 'string') return undefined;
+  const nativeOrigin = IOS_CALL_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
+  return nativeOrigin === undefined ? undefined : { nativeOrigin, requestAge: 'unknown', published: 'unobserved' };
+}
 
 // Keyed by identity, so a frozen rejection can be marked and no field of the rejection ever carries the mark.
 const NATIVE_FAILURES = new WeakMap<object, ReownNativeFailure>();
@@ -78,7 +127,8 @@ export function decodeReownNativeFailureCode(code: unknown): ReownNativeFailure 
   if (typeof code !== 'string' || !code.startsWith(REOWN_NATIVE_FAILURE_PREFIX)) return undefined;
   try {
     const value: unknown = JSON.parse(code.slice(REOWN_NATIVE_FAILURE_PREFIX.length));
-    return validateReownNativeFailure(value);
+    const failure = validateReownNativeFailure(value);
+    return failure !== undefined && ANDROID_WIRE_ORIGINS.has(failure.nativeOrigin) ? failure : undefined;
   } catch {
     return undefined;
   }

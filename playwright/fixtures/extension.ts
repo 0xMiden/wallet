@@ -8,6 +8,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { installMockEpochCatalogue } from '../e2e/helpers/mock-epoch-catalogue';
+
 type Fixtures = {
   extensionPath: string;
   extensionId: string;
@@ -53,6 +55,7 @@ export const test = base.extend<Fixtures>({
         ignoreDefaultArgs: ['--disable-extensions']
       });
 
+      await installMockEpochCatalogue(context);
       await use(context);
 
       await context.close();

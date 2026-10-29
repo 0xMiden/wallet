@@ -717,8 +717,9 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
       reconcile(await inventoryScreenshots(client, options));
       await save();
     };
-    const mutate = async (pending, method, path, request) => {
+    const mutate = async (pending, method, path, request, verifyMutation) => {
       await refresh();
+      verifyMutation?.();
       journal.pending = pending;
       await save();
       let result;
@@ -760,6 +761,30 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
         let existing = group.images.find(item => !ordered.includes(item.assetId) && sameImage(item, image));
         if (!existing) {
           let owned = group.owned.find(item => item.imageIndex === imageIndex && !ordered.includes(item.assetId));
+          let reserved;
+          const fileName = `bread-${options.sourceSha}-${image.sha256}-${imageIndex}.png`;
+          const checkReservation = resource => {
+            const current = journal.groups[index];
+            const recorded = current.images.find(item => item.assetId === owned?.assetId);
+            if (
+              !owned ||
+              resource?.type !== 'appScreenshots' ||
+              resource.id !== owned.assetId ||
+              !current.owned.some(item => item.assetId === owned.assetId && item.imageIndex === imageIndex) ||
+              current.original.some(item => item.assetId === owned.assetId)
+            )
+              throw new ScreenshotError('Screenshot reservation ownership or identity changed');
+            const actual = appleImage(resource);
+            if (
+              !recorded ||
+              actual.fileName !== fileName ||
+              actual.fileSize !== image.bytes.length ||
+              actual.fileName !== recorded.fileName ||
+              actual.fileSize !== recorded.fileSize
+            )
+              throw new ScreenshotError('Screenshot reservation file metadata drift');
+            return actual;
+          };
           if (owned && group.images.find(item => item.assetId === owned.assetId)?.state === 'FAILED') {
             await mutate(
               { kind: 'delete', group: index, assetId: owned.assetId },
@@ -767,6 +792,32 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
               `/v1/appScreenshots/${owned.assetId}`
             );
             owned = undefined;
+          }
+          if (owned) {
+            reserved = (await client.request('GET', `/v1/appScreenshots/${owned.assetId}`)).data;
+            const actual = checkReservation(reserved);
+            const operations = reserved.attributes?.uploadOperations;
+            if (
+              actual.state === 'AWAITING_UPLOAD' &&
+              (operations == null || (Array.isArray(operations) && operations.length === 0))
+            ) {
+              await mutate(
+                { kind: 'delete', group: index, assetId: owned.assetId },
+                'DELETE',
+                `/v1/appScreenshots/${owned.assetId}`,
+                undefined,
+                () => {
+                  checkReservation(reserved);
+                  if (
+                    journal.groups[index].images.find(item => item.assetId === owned.assetId)?.state !==
+                    'AWAITING_UPLOAD'
+                  )
+                    throw new ScreenshotError('Owned screenshot is no longer awaiting upload');
+                }
+              );
+              owned = undefined;
+              reserved = undefined;
+            }
           }
           if (!owned) {
             group = journal.groups[index];
@@ -784,8 +835,7 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
                 `/v1/appScreenshots/${obsolete.assetId}`
               );
             }
-            const fileName = `bread-${options.sourceSha}-${image.sha256}-${imageIndex}.png`;
-            await mutate(
+            const response = await mutate(
               { kind: 'reserve', group: index, imageIndex, fileName, fileSize: image.bytes.length },
               'POST',
               '/v1/appScreenshots',
@@ -802,10 +852,9 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
               }
             );
             owned = journal.groups[index].owned.find(item => item.imageIndex === imageIndex);
+            reserved = response?.data;
           }
-          const { data: reserved } = await client.request('GET', `/v1/appScreenshots/${owned.assetId}`);
-          if (reserved?.id !== owned.assetId)
-            throw new ScreenshotError('Screenshot reservation returned another identity');
+          checkReservation(reserved);
           existing = await uploadApple(
             client,
             {

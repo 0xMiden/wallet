@@ -254,3 +254,38 @@ describe('assessSpendingLimit', () => {
     );
   });
 });
+
+describe('GC purchase spending history', () => {
+  it('ignores an ordinary consume even when it carries a stray spend stamp', () => {
+    const assessment = assessSpendingLimit(config(50_000_000n), [row({ type: 'consume', spentUsd: 40_000_000n })], {
+      accountId: ACCOUNT,
+      usdAmount: 20_000_000n,
+      now: NOW
+    });
+    expect(assessment.breach).toBeUndefined();
+  });
+
+  it('counts the outgoing pay leg of a purchase consume toward the next spend', () => {
+    const assessment = assessSpendingLimit(
+      config(50_000_000n),
+      [
+        row({
+          type: 'consume',
+          spentUsd: 40_000_000n,
+          extraInputs: {
+            gcPurchase: {
+              saleNoteId: 'sale',
+              sellerAccountId: 'seller',
+              payFaucetId: 'usdcx',
+              fillAmount: '40000000',
+              gcFaucetId: 'gc',
+              expectedAmount: '40000000000'
+            }
+          }
+        })
+      ],
+      { accountId: ACCOUNT, usdAmount: 20_000_000n, now: NOW }
+    );
+    expect(assessment.breach).toMatchObject({ spent: 40_000_000n, proposedTotal: 60_000_000n });
+  });
+});

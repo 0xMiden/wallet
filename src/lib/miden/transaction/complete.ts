@@ -356,16 +356,24 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const resultBytes = await withCompletionStep('result_serialize', async () => result.serialize());
+  // A GC purchase consumed the whole sale note, but received only what its fill bought; the rest went back out as
+  // the remainder note. The row keeps the amount the fill was quoted at, which the PSWAP script's arithmetic fixes.
+  const gcPurchase = dbTransaction?.type === 'consume' ? dbTransaction.extraInputs?.gcPurchase : undefined;
+  const received = gcPurchase
+    ? {
+        faucetId: gcPurchase.gcFaucetId,
+        amount: BigInt(gcPurchase.expectedAmount),
+        assetTotals: [{ faucetId: gcPurchase.gcFaucetId, amount: BigInt(gcPurchase.expectedAmount) }],
+        secondaryAccountId: gcPurchase.sellerAccountId
+      }
+    : { faucetId, amount, assetTotals, secondaryAccountId };
 
   await withCompletionStep('status_write', () =>
     updateTransactionStatus(id, ITransactionStatus.Completed, {
       ...fees,
       displayMessage,
       transactionId,
-      secondaryAccountId,
-      faucetId,
-      amount,
-      assetTotals,
+      ...received,
       noteType: uniformNoteType,
       completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
       resultBytes

@@ -2,6 +2,7 @@ import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
 
 import { captureCrash } from './crash';
 import { annotateCrash } from './crash-diagnostics';
+import { annotateUiProducer, validateUiEvidence, type UiEvidenceInput } from './ui-producer-diagnostics';
 import {
   USER_ERROR_IDS,
   USER_ERROR_SURFACES,
@@ -36,7 +37,7 @@ function isUserErrorSurface(value: unknown): value is UserErrorSurface {
 export function reportUserVisibleError(
   id: UserErrorId,
   surface: UserErrorSurface,
-  diagnostics?: StartupEligibilityDiagnostics
+  diagnostics?: StartupEligibilityDiagnostics | UiEvidenceInput
 ): void {
   try {
     if (!isUserErrorId(id) || !isUserErrorSurface(surface)) return;
@@ -56,6 +57,8 @@ export function reportUserVisibleError(
       userErrorId: id,
       userErrorSurface: surface
     });
+    const evidence = validateUiEvidence(id, surface, diagnostics);
+    if (evidence) annotateUiProducer(report, id, surface, evidence);
     lastSentByPair.set(pair, now);
     sentAt.push(now);
     captureCrash(report, 'manual', { initializeIfNeeded: true, level: 'warning', closedNames: CLOSED_NAMES });

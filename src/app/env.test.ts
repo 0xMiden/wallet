@@ -25,7 +25,7 @@ const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
 // Mock lib/woozie
 jest.mock('lib/woozie', () => ({
-  createUrl: jest.fn((base, search, hash) => `${base}${search}${hash}`)
+  createUrl: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').createUrl
 }));
 
 // Mock webextension-polyfill
@@ -248,6 +248,70 @@ describe('env', () => {
   describe('OpenInFullPage', () => {
     const wrapper = ({ children }: { children: React.ReactNode }) =>
       React.createElement(AppEnvProvider, { windowType: WindowType.Popup }, children);
+
+    describe.each([
+      { surface: 'popup', windowType: WindowType.Popup },
+      { surface: 'sidebar', windowType: WindowType.SidePanel }
+    ])('$surface onboarding handoff', ({ windowType }) => {
+      const compactWrapper = ({ children }: { children: React.ReactNode }) =>
+        React.createElement(AppEnvProvider, { windowType }, children);
+
+      it.each([
+        { flow: 'Guardian', hash: 'guardian-intro' },
+        { flow: 'Guardian', hash: 'meet-guardian' },
+        { flow: 'Guardian', hash: 'choose-guardian' },
+        { flow: 'Guardian', hash: 'reused-phrase' },
+        { flow: 'import', hash: 'select-import-type' },
+        { flow: 'import', hash: 'import-from-seed' },
+        { flow: 'import', hash: 'import-from-key' },
+        { flow: 'import', hash: 'import-from-file' },
+        { flow: 'import', hash: 'import-select-recovery-method' },
+        { flow: 'setup', hash: 'mainnet-access' },
+        { flow: 'setup', hash: 'network-notice' },
+        { flow: 'setup', hash: 'choose-protection' },
+        { flow: 'setup', hash: 'setup-biometric' },
+        { flow: 'setup', hash: 'setup-passcode' },
+        { flow: 'setup', hash: 'select-wallet-type' }
+      ])('reuses $flow onboarding without navigation ($hash)', async ({ hash }) => {
+        mockTabsQuery.mockResolvedValueOnce([
+          { id: 7, url: 'chrome-extension://test/fullpage.html#/history' },
+          { id: 42, url: `chrome-extension://test/fullpage.html#/#${hash}` }
+        ]);
+        const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+          render(React.createElement(OpenInFullPage), { wrapper: compactWrapper });
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(mockTabsUpdate).toHaveBeenCalledWith(42, { active: true });
+          expect(mockTabsUpdate).toHaveBeenCalledTimes(1);
+          expect(mockTabsCreate).not.toHaveBeenCalled();
+          expect(closeSpy).toHaveBeenCalledTimes(1);
+        } finally {
+          closeSpy.mockRestore();
+        }
+      });
+
+      it.each([
+        'chrome-extension://test/fullpage.html#/history',
+        'chrome-extension://test/confirm.html#?id=request',
+        'chrome-extension://other/fullpage.html#/#guardian-intro',
+        'https://example.com/fullpage.html#/#guardian-intro',
+        'chrome-extension://test/popup.html#/#guardian-intro'
+      ])('does not reuse unrelated wallet or approval tabs (%s)', async url => {
+        mockTabsQuery.mockResolvedValueOnce([{ id: 42, url }]);
+        const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+          render(React.createElement(OpenInFullPage), { wrapper: compactWrapper });
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(mockTabsUpdate).not.toHaveBeenCalled();
+          expect(mockTabsCreate).toHaveBeenCalledTimes(1);
+          expect(closeSpy).toHaveBeenCalledTimes(1);
+        } finally {
+          closeSpy.mockRestore();
+        }
+      });
+    });
 
     it('focuses an existing onboarding tab when one exists', async () => {
       mockTabsQuery.mockResolvedValueOnce([{ id: 42, url: 'chrome-extension://test/fullpage.html' }]);

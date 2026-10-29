@@ -74,6 +74,7 @@ import {
   type DiagnosticStep,
   type DiagnosticStepOutcome
 } from 'lib/telemetry/diagnostic-log';
+import { annotateGuardianProving, type GuardianProvingSubstep } from 'lib/telemetry/guardian-proving-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
 import {
   annotateTransactionExecution,
@@ -90,7 +91,6 @@ import {
   cancelTransactionAfterPipelineStopped,
   endAttemptInThisRealm,
   markStartedInThisRealm,
-  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -134,6 +134,15 @@ import {
   stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
+import {
+  noteQueueSighting,
+  pruneQueueAdmission,
+  recordQueueAdmission,
+  retainQueueSightings,
+  upgradedQueueSighting,
+  type QueueAdmissionMember,
+  type QueueSighting
+} from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
@@ -150,6 +159,7 @@ import {
   EarnDepositTransaction,
   hasLeftQueue,
   IBridgeProvider,
+  IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
   ITransaction,
@@ -188,7 +198,7 @@ import {
   withWasmClientLock,
   withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
+import { getRealmReaderClient, proveDelegated, type PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   carriesIndefiniteSubmitOutcome,
@@ -299,6 +309,24 @@ const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | unde
   transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
     ? transaction.requestBytes
     : undefined;
+
+/**
+ * An Arcade GC purchase is a consume row too (`initiateGcPurchaseTransaction`), but its note is the seller's public
+ * PSWAP sale note, which this client never tracked, so the ordinary consume builder cannot resolve it. Its fee-aware
+ * fill request is built on the node's copy of the note: in the proposal's hold for a Guardian account, right before
+ * execution for a basic one, and persisted on the row either way.
+ */
+const gcPurchaseOf = (transaction: ITransaction): PswapConsumeRequestInputs | undefined => {
+  const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined =
+    transaction.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
+  return purchase
+    ? {
+        noteId: purchase.saleNoteId,
+        fillAmount: BigInt(purchase.fillAmount),
+        creatorAccountId: purchase.sellerAccountId
+      }
+    : undefined;
+};
 
 /**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
@@ -658,6 +686,59 @@ const requeueWakeDelayMs = (
  * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
  */
 const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
+ * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
+ * an equal or stronger bound look for this incarnation. A captured incarnation cannot write onto its replacement;
+ * a failed write leaves the in-memory look in place.
+ */
+const persistQueueSighting = (
+  row: QueueAdmissionMember & {
+    queueSighting?: QueueSighting;
+    queueSightingAt?: number;
+    queueSightingSeq?: number | null;
+  },
+  observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
+): void => {
+  const current =
+    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
+      ? row.queueSighting
+      : undefined;
+  if (!row.id || !upgradedQueueSighting(current, observation)) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  void Repo.transactions
+    .where({ id: row.id })
+    .modify(stored => {
+      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
+      const current =
+        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
+          ? stored.queueSighting
+          : undefined;
+      const next = upgradedQueueSighting(current, observation);
+      if (!next) return false;
+      stored.queueSighting = next;
+      stored.queueSightingAt = initiatedAt;
+      stored.queueSightingSeq = queuedSeq;
+      return undefined;
+    })
+    .catch(() => undefined);
+};
+
+/** Latest pre-send sync step for this queued incarnation. A failed write does not stop the sync. */
+const rememberPreflightSync = async (
+  row: Pick<ITransaction, 'id' | 'initiatedAt' | 'queuedSeq'>,
+  step: 'entered' | 'returned' | 'threw'
+): Promise<void> => {
+  if (!row.id) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  await Repo.transactions.where({ id: row.id }).modify(stored => {
+    stored.preflightSync = step;
+    stored.preflightSyncAt = initiatedAt;
+    stored.preflightSyncSeq = queuedSeq;
+  });
+};
 
 /**
  * What one pass of the transaction loop did. `processed`: it ran a row that left the queue (Completed or Failed) or
@@ -1446,7 +1527,14 @@ const generateTransactionWithProvider = async (
   // Errors propagate to the loop, which requeues ordinary transient failures
   // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
-  await syncUnderBoundedLock();
+  await rememberPreflightSync(transaction, 'entered').catch(() => undefined);
+  try {
+    await syncUnderBoundedLock();
+  } catch (error) {
+    await rememberPreflightSync(transaction, 'threw').catch(() => undefined);
+    throw error;
+  }
+  await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
@@ -1501,7 +1589,8 @@ const generateTransactionWithProvider = async (
             transaction,
             transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
               ? reconcileError
-              : error
+              : error,
+            transaction.attemptId
           );
         }
         return;
@@ -1538,7 +1627,7 @@ const generateTransactionWithProvider = async (
         );
         await recordBridgeNoteLanded(transaction.id);
         await recordLandedTransactionId(transaction.id, error);
-        await cancelTransactionAfterPipelineStopped(transaction, error);
+        await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
         return;
       }
       // `bridged-send` is in this list too, and by the ordering above it can only
@@ -1876,7 +1965,7 @@ const generateTransactionWithProvider = async (
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only — send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransactionAfterPipelineStopped(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
     return;
   }
@@ -1914,12 +2003,23 @@ const generateTransactionWithProvider = async (
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
       const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-      const reclaimBytes = preparedPswapReclaimBytes(transaction);
+      const gcPurchase = gcPurchaseOf(transaction);
+      // A GC purchase's request is built right before it runs, so it binds a height the node still serves and the
+      // sale note the lineage holds now; a row that failed keeps the bytes of its last attempt until this rebuild.
+      const preparedBytes = gcPurchase
+        ? await midenClientProxy.buildPswapConsumeRequest(transaction.accountId, gcPurchase)
+        : preparedPswapReclaimBytes(transaction);
+      if (gcPurchase && preparedBytes) {
+        transaction.requestBytes = preparedBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = preparedBytes;
+        });
+      }
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        reclaimBytes
+        preparedBytes
           ? midenClientProxy.newTransaction(
               transaction.accountId,
-              reclaimBytes,
+              preparedBytes,
               transaction.delegateTransaction,
               signCallback,
               stageStampFor(transaction.id, attempt)
@@ -2402,6 +2502,11 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   let execution = unobservedTransactionExecution('guardian_signed_request');
+  let escaped: { error: unknown; step: GuardianProvingSubstep } | undefined;
+  const observe = (error: unknown, step: GuardianProvingSubstep) => {
+    escaped = { error, step };
+    annotateGuardianProving(error, { guardianProvingSubstep: step });
+  };
   const runPipeline = async (hold: WasmLockHold) => {
     const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
@@ -2440,20 +2545,31 @@ const runGuardianPipeline = async (
       // prover on mobile (off the main thread via @miden/native-prover),
       // exactly like `proveWithFallback`'s localProverFactory and the
       // delegated fallback below; WASM local prover elsewhere.
-      const localProver = isMobile()
-        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-        : TransactionProver.newLocalProver();
+      let localProver: ReturnType<typeof TransactionProver.newLocalProver>;
+      try {
+        localProver = isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver();
+      } catch (error) {
+        observe(error, 'local_prover_build');
+        throw error;
+      }
       // Reported like every other prove. This is the one that runs on mobile,
       // where there is no offscreen document and no delegation, so leaving it out
       // would make mobile the platform whose proves are invisible.
       // Local proving is deliberately unbounded — pause the lock watchdog for
       // its duration, exactly like proveWithFallback's local attempts (#775).
       const localStartedAt = performance.now();
+      let provePending = true;
       try {
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+        provePending = false;
         reportProve({ startedAt: localStartedAt, step: 'prove_local' });
       } catch (proveError) {
+        escaped = undefined;
+        annotateGuardianProving(proveError, undefined);
         reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        if (provePending) observe(proveError, 'prove_local');
         throw proveError;
       }
     } else {
@@ -2478,6 +2594,7 @@ const runGuardianPipeline = async (
       // health — and this fallback exists precisely BECAUSE delegated proving was
       // failing under load, so it is the last path that should be silent about it.
       const proveStartedAt = performance.now();
+      let delegatedPending = true;
       try {
         // Safe to bound here in the strongest sense available: this pipeline drives
         // execute/prove/submit itself, so the deadline provably expires BEFORE any
@@ -2492,8 +2609,11 @@ const runGuardianPipeline = async (
           'Delegated guardian prove',
           () => assertStillHoldingLock(hold, 'before the remote re-prove')
         );
+        delegatedPending = false;
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
+        escaped = undefined;
+        annotateGuardianProving(proveError, undefined);
         // The delegated prove was the longest parking await in this hold, and the
         // fallback below is a WASM call on `executedTx` — an object borrowed from
         // the client's RefCell. If the watchdog evicted us while the delegated
@@ -2503,20 +2623,34 @@ const runGuardianPipeline = async (
         // checked before the fallback rather than only after it. Still pre-submit.
         assertStillHoldingLock(hold, 'before the local prove fallback');
         // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
-        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
+        if (proveError instanceof WebAssembly.RuntimeError) {
+          if (delegatedPending) observe(proveError, 'prove_delegate');
+          throw proveError;
+        }
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         // The outage the fallback is covering for. `proveWithFallback` marks this
         // too, and without it a prover failing only on guardian operations would
         // raise no banner and produce no `service_prover` event.
         if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-        const fallbackProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
+        let fallbackProver: ReturnType<typeof TransactionProver.newLocalProver>;
+        try {
+          fallbackProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+        } catch (error) {
+          observe(error, 'fallback_prover_build');
+          throw error;
+        }
+        let fallbackPending = true;
         try {
           provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+          fallbackPending = false;
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
+          escaped = undefined;
+          annotateGuardianProving(fallbackError, undefined);
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          if (fallbackPending) observe(fallbackError, 'prove_fallback');
           throw fallbackError;
         }
       }
@@ -2531,10 +2665,23 @@ const runGuardianPipeline = async (
     //
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
-    await setStage('submitting', {
-      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold),
-      recovery: captureRecoveryNotes(executedTx.result, tr.serialize(), () => getCurrentWasmLockHold() === hold)
-    });
+    let evidence: ReturnType<typeof readSubmitEvidence>;
+    try {
+      evidence = readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold);
+    } catch (error) {
+      observe(error, 'proof_evidence');
+      throw error;
+    }
+    try {
+      await setStage('submitting', {
+        evidence,
+        recovery: captureRecoveryNotes(executedTx.result, tr.serialize(), () => getCurrentWasmLockHold() === hold)
+      });
+    } catch (error) {
+      observe(error, 'submitting_stage_write');
+      throw error;
+    }
+    escaped = undefined;
     assertStillHoldingLock(hold, 'before submit');
     if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
     onSubmitCallReached?.();
@@ -2553,6 +2700,10 @@ const runGuardianPipeline = async (
   try {
     return await withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
   } catch (error) {
+    annotateGuardianProving(
+      error,
+      escaped !== undefined && escaped.error === error ? { guardianProvingSubstep: escaped.step } : undefined
+    );
     annotateTransactionExecution(error, execution);
     throw error;
   }
@@ -3504,7 +3655,21 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      if (preparedPswapReclaimBytes(transaction)) {
+      const gcPurchase = gcPurchaseOf(transaction);
+      if (gcPurchase) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // The sale note is the seller's, read on the node inside the proposal's hold, and the request is rebuilt
+        // there on every attempt, never rebased (that rebuild drops the note it consumes). A late approval is
+        // harmless: once another buyer spends the note, the fill fails execution and nothing is paid.
+        proposalResult = await service.createPswapConsumeProposal(gcPurchase, async requestBytes => {
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        });
+      } else if (preparedPswapReclaimBytes(transaction)) {
         service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
@@ -4575,7 +4740,11 @@ export const generateTransactionsLoop = async (
   assertStorageHealthy();
   const loopHealthEpoch = getStorageHealth().epoch;
   await cancelStuckTransactions();
-  await cancelStaleQueuedTransactions();
+  let admissionMembers: readonly QueueAdmissionMember[] = [];
+  await cancelStaleQueuedTransactions(rows => {
+    admissionMembers = rows;
+    pruneQueueAdmission(rows);
+  });
 
   // Import any notes needed for queued transactions.
   //
@@ -4610,6 +4779,11 @@ export const generateTransactionsLoop = async (
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();
   if (inProgressTransactions.length > 0) {
+    for (const member of admissionMembers) {
+      recordQueueAdmission(member, 'in_progress_gate');
+      persistQueueSighting(member, 'in_progress_gate');
+    }
+    retainQueueSightings(admissionMembers);
     return;
   }
 
@@ -4626,6 +4800,7 @@ export const generateTransactionsLoop = async (
     (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
   );
   if (queuedTransactions.length === 0) {
+    pruneQueueAdmission([]);
     return;
   }
 
@@ -4636,7 +4811,22 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
+  const examined: QueueAdmissionMember[] = [];
+  const nextTransaction = queuedTransactions.find(tx => {
+    const ready = isQueuedRowReady(tx, now);
+    examined.push(tx);
+    const observation = ready ? 'selected' : 'row_ineligible';
+    recordQueueAdmission(tx, observation);
+    persistQueueSighting(tx, observation);
+    return ready;
+  });
+  pruneQueueAdmission(examined);
+  for (const tx of queuedTransactions) {
+    if (examined.includes(tx)) continue;
+    noteQueueSighting(tx, 'not_reached');
+    persistQueueSighting(tx, 'not_reached');
+  }
+  retainQueueSightings(queuedTransactions);
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
@@ -4771,7 +4961,7 @@ export const generateTransactionsLoop = async (
         await recordBridgeNoteLanded(tx.id);
         if (!hasLeftQueue(tx)) {
           await recordLandedTransactionId(tx.id, e);
-          await cancelTransactionAfterPipelineStopped(tx, e);
+          await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
         }
         return false;
       }
@@ -4828,11 +5018,11 @@ export const generateTransactionsLoop = async (
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && !hasLeftQueue(tx)) {
-      await cancelTransactionAfterPipelineStopped(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
       // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
       // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
-      await markTransactionUnconfirmed(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     }
     return false;
   } finally {

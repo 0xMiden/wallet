@@ -59,6 +59,7 @@ import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
   popup: boolean;
+  sidePanel: boolean;
   fullPage: boolean;
   ready: boolean;
   locked: boolean;
@@ -160,7 +161,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <RootSuspenseFallback />;
 
         case 'welcome':
-          return <Welcome />;
+          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
 
         default:
           return Woozie.Router.SKIP;
@@ -186,7 +187,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <RootSuspenseFallback />;
 
         default:
-          return <Welcome />;
+          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
       }
     }
   ],
@@ -499,6 +500,7 @@ const PageRouter: FC = () => {
   const ctx = useMemo<RouteContext>(
     () => ({
       popup: appEnv.popup,
+      sidePanel: appEnv.sidePanel,
       fullPage: appEnv.fullPage,
       ready: miden.ready,
       locked: miden.locked,
@@ -506,7 +508,7 @@ const PageRouter: FC = () => {
       finishingOnboarding,
       settingsScrollTop
     }),
-    [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
+    [appEnv.popup, appEnv.sidePanel, appEnv.fullPage, miden, finishingOnboarding]
   );
   // Once the hold is on screen its safety clock must run, however long the holder's registration still takes.
   useEffect(() => {

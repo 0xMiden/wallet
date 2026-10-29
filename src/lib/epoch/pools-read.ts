@@ -5,6 +5,8 @@ import type { EarnMarket } from 'lib/remote-config/values';
 import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
+import { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
+
 /**
  * The raw reader of the Earn vault catalogue. The catalogue is the `/pools` route of Epoch's positions service:
  * every market of the route's USDC on one chain. The bridge-config document's `earn.vaults` list decides which of
@@ -356,6 +358,9 @@ async function readPositionsFallbackCatalog(
   listing: RouteListing,
   timeoutMs: number
 ): Promise<EarnVaultsRead> {
+  while (!notePositionsRequests(1)) {
+    await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+  }
   const body = await fetchBoundedJson(
     fetchFn,
     `${route.positionsUrl}/positions?account=${ZERO_ACCOUNT}&chains=${route.chainId}`,

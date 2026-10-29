@@ -111,6 +111,10 @@ jest.mock('./simulate-custom-tx', () => ({
  * reaches the user, so the view is supplied directly.
  */
 const mockSummaryBytesToView = jest.fn();
+const mockNoteFlowFromBytes = jest.fn();
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: (...args: unknown[]) => mockNoteFlowFromBytes(...args)
+}));
 jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
   return {
@@ -193,11 +197,20 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
   mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
+  mockNoteFlowFromBytes.mockReturnValue({ inputCount: 0, inputs: [], outputs: [] });
   mockSummaryBytesToView.mockReturnValue(emptyView);
   mockRequestCustomTransaction.mockResolvedValue('tx-id-1' as never);
 });
 
 describe('the mobile/desktop custom-transaction sheet states the simulated effects', () => {
+  it('carries the verified note flow from the same dry run into the approval request', async () => {
+    await raiseSheet(false);
+    expect(mockNoteFlowFromBytes).toHaveBeenCalledWith({ summaryBytes: 'sumB64' });
+    expect(mockRequestConfirmation.mock.calls[0]![0]).toMatchObject({
+      noteFlow: { inputCount: 0, inputs: [], outputs: [] }
+    });
+  });
+
   it('dry-runs the request the user is being asked about, on the bound account', async () => {
     await raiseSheet(false);
 

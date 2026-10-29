@@ -181,7 +181,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const expiredOneClick = isRecoverableExpiredOneClick(active, status);
   useUserVisibleError(
     submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
-    'status_screen'
+    'status_screen',
+    undefined,
+    submissionMessage?.submissionFeedbackBranch === undefined
+      ? undefined
+      : {
+          kind: 'submission_feedback',
+          submissionFeedbackBranch: submissionMessage.submissionFeedbackBranch
+        }
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
   // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
@@ -621,7 +628,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         }
       >
         <section className="flex w-full flex-col items-center pt-6">
-          <TransactionHeroIcon state={heroState} accent={accent} />
+          <div className="tx-stage-hero">
+            <TransactionHeroIcon state={heroState} accent={accent} />
+          </div>
 
           <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-ink">
             {visibleTitle}
@@ -634,7 +643,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           {/* Earn's steps sit on the outline surface, in Nunito throughout, like the rest of its flow. */}
           <div
             className={classNames(
-              'mt-6 w-full overflow-hidden rounded-2xl',
+              'tx-stage-list mt-6 w-full overflow-hidden rounded-2xl',
               accent === 'earn' ? classNames(outlineSurfaceClassName, 'face-heading') : 'bg-fill'
             )}
           >

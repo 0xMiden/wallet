@@ -26,7 +26,8 @@ import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
-  isDelegateProofEnabledAsync
+  isDelegateProofEnabledAsync,
+  readMirroredDelegateProof
 } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
@@ -829,12 +830,20 @@ async function runSync(force: boolean): Promise<void> {
           // The user's CURRENT delegated-proving choice, read from the mirrored setting as the native enqueue
           // below reads it, not the choice frozen on the swap row when the order was placed (#1644): a
           // settlement claim proved on the device because the order predates the toggle is what overran the
-          // write deadline. Only once the popup has mirrored the settings, as the native pass also requires:
-          // a read miss answers the delegated default, so until then the order's own choice stands.
+          // write deadline. A published mirror uses that read, including its absent-key default. While the
+          // marker is false, a missing delegate key leaves the order's choice, and any present or unusable
+          // delegate mirror selects local proving.
+          let settlementDelegate: boolean | undefined;
+          if (await areBackgroundSettingsMirrored()) {
+            settlementDelegate = await isDelegateProofEnabledAsync();
+          } else {
+            const present = await readMirroredDelegateProof();
+            settlementDelegate = present === undefined ? undefined : false;
+          }
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
             managedNotes,
-            (await areBackgroundSettingsMirrored()) ? await isDelegateProofEnabledAsync() : undefined,
+            settlementDelegate,
             settlementNowSeconds,
             swapOrderRows,
             zeroFillReclaims,

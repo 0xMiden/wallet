@@ -3057,7 +3057,11 @@ describe('MultisigService', () => {
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       await expect(service.createConsumeNotesProposal([accountId])).rejects.toBe(error);
       const snapshot = snapshotCrashDiagnostics(error);
-      expect(snapshot).toEqual({ proposalStep: 'proposal_create' });
+      expect(snapshot).toEqual({
+        proposalStep: 'proposal_create',
+        proposalCreateApi: 'consume_notes',
+        proposalCreateFamily: 'unmatched'
+      });
       expect(snapshot).not.toHaveProperty('securityChange');
       const reported = JSON.stringify(snapshot);
       expect(reported).not.toContain(accountId);

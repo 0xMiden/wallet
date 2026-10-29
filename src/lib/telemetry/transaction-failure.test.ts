@@ -40,7 +40,10 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  PREFLIGHT_SYNC_REPORTS,
   QUEUE_AGE_BUCKETS,
+  QUEUE_HIDDEN_BUCKETS,
+  QUEUE_SIGHTINGS,
   SUBMIT_CROSSINGS,
   OFFSCREEN_DEADLINE_KILLERS,
   OFFSCREEN_DEADLINE_OWNERS,
@@ -201,6 +204,9 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     STARTUP_SELECTIONS,
     STORED_STAGE_AGES,
     QUEUE_AGE_BUCKETS,
+    QUEUE_SIGHTINGS,
+    PREFLIGHT_SYNC_REPORTS,
+    QUEUE_HIDDEN_BUCKETS,
     SUBMIT_CROSSINGS,
     SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
@@ -431,7 +437,29 @@ it('names an unlisted non-consume deferral as other', async () => {
   const failure: TransactionFailure = { type: 'send', reason: 'queued_expired' };
   Reflect.set(failure, 'lastDeferral', 'nonsense');
   reportTransactionFailure(failure);
-  expect(await reportedMessage()).toContain('; last deferral other; point pipeline;');
+  expect(await reportedMessage()).toContain(
+    '; last deferral other; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline;'
+  );
+});
+
+it('names the queue facts of an expired row whose error carries ids, hex and amounts', async () => {
+  const accountId = '0x7bfb0f38b0fafa103f86a80559417021';
+  reportTransactionFailure({
+    type: 'consume',
+    reason: 'queued_expired',
+    queueAge: '30m_to_1h',
+    queueSighting: 'selected',
+    preflightSync: 'entered',
+    queueHidden: 'half_or_more',
+    error: new Error(
+      `claim ${AMOUNT} for ${accountId} note ${NOTE_ID} op ${OP_ID} failed: Load failed https://rpc.example/secret`
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; queue age 30m_to_1h; queue sighting selected; sync attempt entered; queue hidden half_or_more; point pipeline; queued_expired.'
+  );
+  expectNoTransactionData(message);
 });
 
 it('sends only the fixed deferral of an expired send whose error carries ids, hex and amounts', async () => {
@@ -444,7 +472,9 @@ it('sends only the fixed deferral of an expired send whose error carries ids, he
     error: new Error(`send of 1250000 to ${accountId} with note ${noteId} expired after 42 attempts`)
   });
   const message = await reportedMessage();
-  expect(message).toContain('; last deferral guardian_backpressure; point pipeline; queued_expired.');
+  expect(message).toContain(
+    '; last deferral guardian_backpressure; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline; queued_expired.'
+  );
   for (const leaked of [accountId, noteId, '1250000', '42 attempts', 'ab12']) expect(message).not.toContain(leaked);
 });
 
@@ -457,7 +487,7 @@ it('places claim segments after platform and before the failure point in the fir
     reason: 'queued_expired'
   });
   expect(await reportedMessage()).toMatch(
-    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; point pipeline; queued_expired\. authentication/
+    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; queue sighting never; sync attempt not_entered; queue hidden unavailable; point pipeline; queued_expired\. authentication/
   );
 });
 
@@ -1135,6 +1165,22 @@ describe('an unknown submit outcome', () => {
       `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
     );
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
+    expectNoTransactionData(message);
+  });
+
+  it('reports a bare indefinite submit as unavailable and keeps its measured visibility', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      submitLegMs: 5000,
+      error: new Error(`submission of transaction ${TX_ID} came back without a definite outcome`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; submit_outcome_unknown; endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s. '
+    );
     expectNoTransactionData(message);
   });
 });
@@ -1828,6 +1874,31 @@ describe('the never-committed verdict', () => {
     expectNoTransactionData(message);
   });
 
+  it('rejects unlisted prior submit context without leaking private values', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'consume',
+      stage: 'submitting',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      priorError: new Error(
+        `failed to submit proven transaction: submission of transaction ${ACCOUNT_HEX} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      ),
+      priorSubmitContext: {
+        endpoint: 'submit_proven_transaction',
+        status: 'unavailable',
+        hidden: ACCOUNT_HEX,
+        leg: 'under_9s'
+      }
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('app hidden during submit unavailable; submit leg unavailable');
+    expectNoTransactionData(message);
+  });
+
   it('omits prior failure identity for non-expired never-committed verdicts', async () => {
     reportTransactionFailure({
       point: 'node_verdict',
@@ -1992,6 +2063,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
   ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
   ['queue age bucket', () => QUEUE_AGE_BUCKETS, () => policyText('The age of a queued row that expired')],
+  ['queue sighting', () => QUEUE_SIGHTINGS, () => policyText('The queue sighting')],
+  ['preflight sync', () => PREFLIGHT_SYNC_REPORTS, () => policyText('The preflight sync')],
+  ['queue hidden', () => QUEUE_HIDDEN_BUCKETS, () => policyText('Hidden time while a queued row waited')],
   ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
   ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
@@ -2267,4 +2341,52 @@ it('nativeDimensionsDoNotChangeTitleSeverityOrFingerprint', () => {
   expect(capturedMessage(snapshots.length)).toBe(
     firstReport.message.replace('evm error other', 'evm error invalid_permissions')
   );
+});
+
+it('refines the exact PartialBlockchain producer context without exporting the private suffix', async () => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'executing',
+    error: new Error(
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data store: error creating PartialBlockchain from internal data: private-chain-canary'
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('cause partial_blockchain_build');
+  expect(message).not.toContain('private-chain-canary');
+});
+
+it.each([
+  'error creating partialBlockchain from internal data: private',
+  'error creating PartialBlockchain from internal databases: private',
+  'prefix error creating PartialBlockchain from internal data: private',
+  'error creating PartialBlockchain from internal data private'
+])('does not broaden PartialBlockchain context %s', async context => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'executing',
+    error: new Error(
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data store: ' +
+        context
+    )
+  });
+  expect(await reportedMessage()).toContain('cause fetch_inputs');
+});
+
+it('carriesIOSPerCallBridgeDiagnosticWithoutPrivateFields', () => {
+  jest.mocked(resolveTelemetryContext).mockReturnValue({ platform: 'ios', network: 'testnet', appVersion: '1.17.8' });
+  jest.mocked(isDesktop).mockReturnValue(false);
+  const cause = new Error('private-topic 0x1234567890 9.84');
+  markReownNativeFailure(cause, { nativeOrigin: 'unconfigured', requestAge: 'unknown', published: 'unobserved' });
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause }
+  });
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect(snapshotCrashDiagnostics(report)).toEqual({
+    reownNativeOrigin: 'unconfigured',
+    reownRequestAge: 'unknown',
+    reownPublished: 'unobserved'
+  });
+  expect(JSON.stringify(snapshotCrashDiagnostics(report))).not.toContain('private-topic');
 });

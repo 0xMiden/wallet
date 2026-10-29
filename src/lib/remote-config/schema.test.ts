@@ -160,6 +160,42 @@ it('parses the testnet document and normalizes addresses', () => {
   expect(parsed?.swap).toEqual({});
 });
 
+describe('features.arcadeGcPurchase and arcade.sale', () => {
+  const seller = '0xA6BE5C4D8FDC03415BDE66453D5F91';
+
+  it('is left out when absent, and the sale exists exactly when the switch is on', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed?.features.arcadeGcPurchase).toBeUndefined();
+    expect(parsed?.arcade).toBeUndefined();
+    const on = parseBridgeConfig(
+      doc({ features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: { seller } } }),
+      'testnet'
+    );
+    expect(on?.features.arcadeGcPurchase).toBe(true);
+    expect(on?.arcade).toEqual({ sale: { seller: seller.toLowerCase() } });
+    expect(
+      parseBridgeConfig(doc({ features: { earn: true, arcadeGcPurchase: false } }), 'testnet')?.features
+        .arcadeGcPurchase
+    ).toBe(false);
+  });
+
+  it.each([
+    ['the switch on without a sale', { features: { earn: true, arcadeGcPurchase: true } }],
+    ['a sale while the switch is off', { features: { earn: true }, arcade: { sale: { seller } } }],
+    ['a sale with no seller', { features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: {} } }],
+    [
+      'a bech32 seller',
+      {
+        features: { earn: true, arcadeGcPurchase: true },
+        arcade: { sale: { seller: 'mm1azntuhzd3lwqxs2mmeny202ljy3fxnpm' } }
+      }
+    ],
+    ['a nonboolean switch', { features: { earn: true, arcadeGcPurchase: 'true' } }]
+  ])('rejects %s', (_name, overrides) => {
+    expect(parseBridgeConfig(doc(overrides), 'testnet')).toBeNull();
+  });
+});
+
 describe('features.nearIntents', () => {
   it('defaults to false when absent and accepts an explicit true', () => {
     expect(parseBridgeConfig(doc(), 'testnet')?.features.nearIntents).toBe(false);

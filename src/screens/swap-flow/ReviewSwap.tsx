@@ -9,6 +9,7 @@ import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -311,7 +312,24 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
       {requestEdited && <p className="mt-5 text-body-sm text-muted">{t('swapReceiveTargetNote')}</p>}
-      <DetailCard surface="outline" face="heading" className="mt-8">
+      <TxStory
+        className="mt-6"
+        hops={[
+          {
+            from: { role: 'you', name: '' },
+            to: { role: 'recipient', name: '' },
+            amount: `${offerAmount} ${offerToken.symbol}`.trim(),
+            via: t('youSend')
+          },
+          {
+            from: { role: 'sender', name: '' },
+            to: { role: 'you', name: '' },
+            amount: `${requestAmount} ${requestToken.symbol}`.trim(),
+            via: t('youReceive')
+          }
+        ]}
+      />
+      <DetailCard surface="outline" face="heading" className="tx-stage-list mt-8">
         {/* The slippage and fee explain the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
         <DetailRow

@@ -6,14 +6,19 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
+import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
 import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagnostic-log';
+import { classifyReapStartRelation } from 'lib/telemetry/reap-start-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
+  captureSubmitContext,
   reportTransactionFailure,
+  type PreflightSyncReport,
   type QueueAgeBucket,
+  type QueueHiddenBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -50,6 +55,7 @@ import {
   recordOutOfBandEnd,
   updateTransactionStatus
 } from './helper';
+import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
@@ -170,6 +176,27 @@ const describeFailure = (
  * turning a settled send into a reported failure. That direction needs no opt-in
  * — no caller has a reason to fail a row that finished.
  */
+interface ReapSelection {
+  id: unknown;
+  start: unknown;
+  valid: boolean;
+}
+function reapSelectionFor(row: unknown): ReapSelection {
+  try {
+    const id = ownDiagnosticData(row, 'id'),
+      start = ownDiagnosticData(row, 'processingStartedAt');
+    if (typeof id !== 'string' || !id || (start !== undefined && typeof start !== 'number'))
+      return { id: undefined, start: undefined, valid: false };
+    return { id, start, valid: true };
+  } catch {
+    return { id: undefined, start: undefined, valid: false };
+  }
+}
+function matchesReapSelection(row: unknown, selection: ReapSelection): boolean {
+  const current = reapSelectionFor(row);
+  return selection.valid && current.valid && current.id === selection.id && current.start === selection.start;
+}
+
 export const cancelTransaction = async (
   transaction: Transaction,
   error: any,
@@ -180,7 +207,8 @@ export const cancelTransaction = async (
   reportedReason?: TransactionFailureReason,
   reap?: ReapSnapshot,
   startup?: StartupSnapshot,
-  onlyIfRow?: (row: ITransaction) => boolean
+  onlyIfRow?: (row: ITransaction) => boolean,
+  reapSelection?: ReapSelection
 ) => {
   const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
@@ -259,6 +287,7 @@ export const cancelTransaction = async (
     return false;
   }
 
+  const queueAdmissionObservation = committed === undefined ? undefined : consumeQueueAdmission(committed);
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd(
       'swap',
@@ -278,9 +307,23 @@ export const cancelTransaction = async (
       lastDeferral: committed.lastDeferral,
       feeAdmission: committed.feeAdmission,
       reason: failureReason,
-      ...(failureReason === 'queued_expired' ? { queueAge: queueAgeBucket(committed, returnedAtMs) } : {}),
+      ...(failureReason === 'queued_expired'
+        ? {
+            queueAge: queueAgeBucket(committed, returnedAtMs),
+            queueAdmissionObservation,
+            queueSighting: queueSightingFor(committed),
+            preflightSync: reportedPreflightSync(committed),
+            queueHidden: queueHiddenBucket(committed, returnedAtMs)
+          }
+        : {}),
       submitCrossing: attemptSubmitCrossing(committed),
-      reap,
+      reap:
+        reapSelection === undefined
+          ? reap
+          : {
+              ...reap!,
+              startRelation: matchesReapSelection(committed, reapSelection) ? reap?.startRelation : 'unavailable'
+            },
       startup,
       error,
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
@@ -387,6 +430,30 @@ const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h
   [86_400_000, '6h_to_24h']
 ];
 
+const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
+  const step = row.preflightSync;
+  if (
+    row.preflightSyncAt === row.initiatedAt &&
+    row.preflightSyncSeq === (row.queuedSeq ?? null) &&
+    (step === 'entered' || step === 'returned' || step === 'threw')
+  )
+    return step;
+  return 'not_entered';
+};
+
+/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
+  if (!isMobile()) return 'not_measured';
+  if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageSec = nowMs / 1000 - row.initiatedAt;
+  if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  const hidden = hiddenSecondsSince(row.initiatedAt, nowMs);
+  if (!Number.isFinite(hidden) || hidden < 0) return 'unavailable';
+  if (hidden === 0) return 'none';
+  return hidden * 2 >= ageSec ? 'half_or_more' : 'under_half';
+};
+
 const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageMs = nowMs - row.initiatedAt * 1000;
@@ -423,7 +490,11 @@ const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | '
  * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
  * write does for an unconfirmed row today.
  */
-export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+export const markTransactionUnconfirmed = async (
+  tx: ITransaction,
+  error: unknown,
+  originAttemptId?: string
+): Promise<number> => {
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
@@ -451,7 +522,45 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     // window left open would refuse its Retry as possibly still running.
     row.cancelledInFlightAt = undefined;
     if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      if (
+        row.status === ITransactionStatus.Failed &&
+        originAttemptId !== undefined &&
+        row.attemptId === originAttemptId
+      ) {
+        const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
+        const entry = matching.length === 1 ? matching[0] : undefined;
+        if (
+          entry &&
+          entry.submitContext === undefined &&
+          (transactionId === undefined || entry.transactionId === transactionId)
+        ) {
+          const context = captureSubmitContext(
+            error,
+            hiddenDuringSubmit(row, returnedAtMs),
+            submitLegMs(row, returnedAtMs)
+          );
+          if (context) entry.submitContext = context;
+        }
+      }
       return attemptId === undefined && !windowOpen ? false : undefined;
+    }
+    if (tx.attemptId !== undefined && row.attemptId === tx.attemptId) {
+      const entries = row.submitEvidence ?? [];
+      const matching = entries.filter(entry => entry.attemptId === tx.attemptId);
+      const context = captureSubmitContext(
+        error,
+        hiddenDuringSubmit(row, returnedAtMs),
+        submitLegMs(row, returnedAtMs)
+      );
+      if (
+        matching.length === 1 &&
+        context &&
+        matching[0] !== undefined &&
+        matching[0].submitContext === undefined &&
+        (transactionId === undefined || matching[0].transactionId === transactionId)
+      ) {
+        matching[0].submitContext = context;
+      }
     }
     row.status = ITransactionStatus.Unconfirmed;
     row.completedAt = nowSec;
@@ -462,7 +571,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     committed = { ...row };
     return undefined;
   });
-  if (!entered) return;
+  if (!entered) return returnedAtMs;
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
@@ -490,6 +599,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     errorKind: classifyError(rawError),
     step: stepOfStage(existing?.stage)
   });
+  return returnedAtMs;
 };
 
 /**
@@ -523,7 +633,12 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
  * asymmetry is what still lets a genuine execute or prove failure rebuild its
  * request — the rebuild this guard exists to gate, not to prevent.
  */
-const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?: ReapSnapshot) => {
+const cancelWhilePipelineMayStillRun = async (
+  tx: Transaction,
+  error: any,
+  reap?: ReapSnapshot,
+  selection?: ReapSelection
+) => {
   // Before the cancel, while the row is still in flight: liveness reads this end, never the source (#1081).
   await recordOutOfBandEnd(tx.id);
   // Only a `send` reaches the retry path this protects. The in-flight half of the
@@ -535,7 +650,7 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?
     // Before the cancel: if that throws, the row is still guarded.
     await markCancelledInFlight(tx.id);
   }
-  await cancelTransaction(tx, error, undefined, undefined, undefined, reap);
+  await cancelTransaction(tx, error, undefined, undefined, undefined, reap, undefined, undefined, selection);
 };
 
 /**
@@ -588,11 +703,11 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
-export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any, originAttemptId?: string) => {
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
-    await markTransactionUnconfirmed(tx, error);
+    await markTransactionUnconfirmed(tx, error, originAttemptId);
     return;
   }
   // A lock-recovery eviction (issue #775) is treated like an offscreen
@@ -771,11 +886,13 @@ export const cancelStuckTransactions = async () => {
     // something to protect: Retry waits out the window instead of being refused for
     // good. The attempt's out-of-band end is recorded before it (#1081).
     .map(async tx => {
+      const selection = reapSelectionFor(tx);
       const reap: ReapSnapshot = {
+        startRelation: classifyReapStartRelation(selection.start, SESSION_STARTED_AT),
         age: tx.processingStartedAt ? 'past_limit' : 'missing_start',
         attempt: startedInThisRealm.has(tx.id) ? 'started_here' : 'not_started_here'
       };
-      await cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR, reap);
+      await cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR, reap, selection);
     });
 
   await Promise.all(cancelTransactionUpdates);
@@ -784,12 +901,18 @@ export const cancelStuckTransactions = async () => {
 /**
  * Cancel queued transactions that have been waiting too long (TTL expired)
  */
-export const cancelStaleQueuedTransactions = async () => {
+export const cancelStaleQueuedTransactions = async (
+  onQueuedSnapshot?: (rows: readonly QueueAdmissionMember[]) => void
+): Promise<void> => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
   const stale = queued.filter(
     tx => !tx.awaitingRecoverySeed && Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE
   );
   await Promise.all(stale.map(tx => cancelTransaction(tx, TRANSACTION_EXPIRED_ERROR)));
+  try {
+    const expired = new Set(stale);
+    onQueuedSnapshot?.(queued.filter(tx => !expired.has(tx)));
+  } catch {}
 };
 
 /**

@@ -15,7 +15,15 @@ describe('iOS FakeEpochAllocator', () => {
     await expect(res.json()).resolves.toMatchObject({
       status: 'healthy',
       allocatorAddresses: { '11155111': expect.any(String), '999999999': expect.any(String) },
-      chainConfig: { supportedChains: expect.any(Array) }
+      arbiterAddresses: { '11155111': expect.any(String), '999999999': expect.any(String) },
+      compactAddresses: { '11155111': expect.any(String), '999999999': expect.any(String) },
+      compactLockResetPeriod: 4,
+      compactLockScope: 0,
+      compactExpirySeconds: 600,
+      compactExpiryBufferSeconds: 60,
+      midenRecallBufferBlocks: 1000,
+      midenVirtualChainId: 999999999,
+      supportedChains: expect.any(Array)
     });
   });
 

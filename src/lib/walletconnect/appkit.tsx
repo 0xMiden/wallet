@@ -90,7 +90,7 @@ export const modal = createAppKit({
   networks,
   defaultNetwork: networks[0],
   projectId: WC_PROJECT_ID,
-  metadata: APP_METADATA,
+  metadata: { ...APP_METADATA, icons: [...APP_METADATA.icons] },
   themeMode: getInitialAppKitThemeMode(),
   themeVariables: appKitThemeVariables,
   featuredWalletIds: [

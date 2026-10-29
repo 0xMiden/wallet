@@ -262,8 +262,21 @@ export async function getEVMToMidenQuote(
   return { taskTypeString, intentData, quoteResult, params };
 }
 
+/** `solveResult.intentRequestData.compact.expires`, when that path is present. */
+function solvedCompactExpires(solveResult: unknown): string | undefined {
+  if (typeof solveResult !== 'object' || solveResult === null) return undefined;
+  const intentRequestData: unknown = Reflect.get(solveResult, 'intentRequestData');
+  if (typeof intentRequestData !== 'object' || intentRequestData === null) return undefined;
+  const compact: unknown = Reflect.get(intentRequestData, 'compact');
+  if (typeof compact !== 'object' || compact === null) return undefined;
+  const expires: unknown = Reflect.get(compact, 'expires');
+  if (typeof expires === 'string') return expires;
+  if (typeof expires === 'bigint') return expires.toString();
+  return undefined;
+}
+
 export async function buildEVMToMidenIntent(
-  sdk: EpochIntentSDK,
+  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'>,
   params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote; recovery?: EpochReceiptHooks }
 ): Promise<IntentResult> {
   let taskTypeString: string;
@@ -290,10 +303,12 @@ export async function buildEVMToMidenIntent(
       ? await executeRetainedEpochIntent(sdk, solveParams, params.recovery)
       : await sdk.solveIntent(solveParams);
 
+    const compactExpires = solvedCompactExpires(solveResult);
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      solveResult
+      solveResult,
+      ...(compactExpires !== undefined ? { compactExpires } : {})
     };
   } catch (err) {
     console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);

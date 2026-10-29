@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "У вашому гаманці Ethereum",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "У подальших запитах WalletConnect може показувати ідентифікатор розширення Bread для Chrome замість його назви:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "У разі потреби затвердіть $amount$ $token$ для The Compact. Для деяких токенів спочатку потрібно скинути дозвіл до нуля.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "Внесіть $amount$ $token$ у The Compact для переходу до Miden у мережі $network$ (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "Цей міст використовує заставу, яку вже внесено в The Compact. Перегляньте кожну ціль транзакції гаманця, зазначену нижче. Ваш гаманець може поєднувати їх.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "Ця цитата стосується застави, яка вже є в «The Compact», і не вимагає жодної нової транзакції з гаманця.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "Транзакція $number$ на ланцюгу $chainId$ має за ціль:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "Власна вартість (базові одиниці):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "Селектор виклику:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "За потреби надайте дозвіл мосту AggLayer витратити саме $amount$ $token$.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "Перенести $amount$ $token$ до Miden через AggLayer у мережі $network$ (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "У разі потреби надайте дозвіл Circle xReserve витратити саме $amount$ $token$.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "Внесіть $amount$ $token$ на рахунок Miden через Circle xReserve у мережі $network$ (depositToRemote).",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "За потреби затвердьте операцію «Circle TokenMessengerWithFees» на суму $amount$ $token$ плюс резерв на комісію. Точний ліміт відображається у вашому гаманці.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "Спалити $amount$ $token$ плюс поточну комісію Circle за депозит USDCx на Miden у мережі $network$ (depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "Адресат транзакції (особа, що витрачає кошти, якщо потрібне затвердження токена):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "Ваш гаманець Ethereum самостійно обирає формулювання підказки та може поєднувати дії. Перед підтвердженням перевірте мережу, ліміт затвердження та деталі транзакції.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "Загальний баланс",
     "englishSource": "Total balance"
@@ -1027,6 +1179,18 @@
   "originLabel": {
     "message": "Походження:",
     "englishSource": "Origin:"
+  },
+  "originator": {
+    "message": "Ініціатор",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "Показати notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Приховати notes",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "Мережа:",
@@ -4250,6 +4414,141 @@
   "outputNotesCreated": {
     "message": "Створено вихідний файл «notes»",
     "englishSource": "Output notes created"
+  },
+  "transactionNoteFlow": {
+    "message": "Потік Note",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Вихідні notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Вихідні notes, включаючи комісію",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Немає вхідних notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Відсутність вихідних notes",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Деталі вхідної note недоступні",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Деякі деталі вхідної note недоступні",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note щодо комісії за транзакцію",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note щодо P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "otherNoteScript": {
+    "message": "Інший скрипт note",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Скрипт «Note» недоступний",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Зміст Note недоступний",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Створено",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Корінь скрипту",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Активи не вказані",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Масштаб суми невідомий",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "базові одиниці",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Необроблені дані транзакцій",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Деталі про слот зберігання недоступні",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Жодних змін щодо зберігання",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Слот карти",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Поле значення",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Створено",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Оновлено",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Вилучено",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Операція недоступна",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Змінені записи",
+    "englishSource": "Entries changed"
   },
   "storageChanged": {
     "message": "Змінено місце зберігання",
@@ -8139,12 +8438,83 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "1 000 GC за 1 USDCx плюс мережеві комісії.",
-    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+    "message": "Купуйте будь-яку суму GC за USDCx, плюс мережеві комісії.",
+    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseAmountLabel": {
+    "message": "GC для купівлі",
+    "englishSource": "GC to buy"
+  },
+  "arcadeGcPurchaseNoQuote": {
+    "message": "—",
+    "englishSource": "—"
+  },
+  "arcadeGcPurchasePrice": {
+    "message": "$price$ USDCx за GC під час прямого продажу.",
+    "englishSource": "$price$ USDCx per GC at the live sale.",
+    "placeholders": {
+      "price": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseAboveInventory": {
+    "message": "У продажу залишилися лише GC на суму $available$.",
+    "englishSource": "Only $available$ GC are left in the sale.",
+    "placeholders": {
+      "available": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseBelowMinimum": {
+    "message": "Продаж не передбачає купівлі такого невеликого обсягу.",
+    "englishSource": "The sale does not take a purchase this small."
   },
   "arcadeGcPurchaseUnavailable": {
-    "message": "Купівля GC поки недоступна в Bread.",
-    "englishSource": "Buying GC is not available in Bread yet."
+    "message": "Наразі купівля GC у цій мережі недоступна.",
+    "englishSource": "Buying GC is not available on this network right now."
+  },
+  "arcadeGcPurchaseChecking": {
+    "message": "Перевірка продажу GC…",
+    "englishSource": "Checking the GC sale…"
+  },
+  "arcadeGcPurchaseReady": {
+    "message": "Продаж GC вже розпочався. Мережеві комісії сплачуються з ваших коштів у USDCx.",
+    "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
+  },
+  "arcadeGcPurchaseReviewBody": {
+    "message": "Введіть кількість GC, яку потрібно купити. Ця покупка заповнює публічну записку про продаж GC (note) у ланцюгу.",
+    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+  },
+  "arcadeGcPurchaseYouPay": {
+    "message": "Ви платите",
+    "englishSource": "You pay"
+  },
+  "arcadeGcPurchaseYouReceive": {
+    "message": "Ви отримуєте",
+    "englishSource": "You receive"
+  },
+  "arcadeGcPurchaseUsdcx": {
+    "message": "$amount$ USDCx",
+    "englishSource": "$amount$ USDCx",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseFeeSeparate": {
+    "message": "Оплата здійснюється окремо в USDCx",
+    "englishSource": "Paid separately in USDCx"
+  },
+  "arcadeGcPurchaseInsufficient": {
+    "message": "Ваш баланс USDCx не покриває цей пакет.",
+    "englishSource": "Your USDCx balance does not cover this package."
+  },
+  "arcadeGcPurchaseConfirm": {
+    "message": "Підтвердити покупку",
+    "englishSource": "Confirm purchase"
   },
   "arcadeBuyMoreGc": {
     "message": "Купити більше GC",

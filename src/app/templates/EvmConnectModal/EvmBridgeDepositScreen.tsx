@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { COMPACT_ADDRESS } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitProvider } from '@reown/appkit/react';
 import PQueue from 'p-queue';
 import { useTranslation } from 'react-i18next';
@@ -90,6 +91,7 @@ import {
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
+import { chromeExtensionWalletConnectId } from 'lib/walletconnect/identity';
 import {
   isNativeReownAvailable,
   NativeReown,
@@ -410,6 +412,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const epochFlow = useEpochStore(s => s.flow);
   const epochQuote = useEpochStore(s => s.quote);
   const epochError = useEpochStore(s => s.error);
+  const compactWatchClosed = useEpochStore(s => s.compactWatchClosed);
   const quoteEVMToMiden = useEpochStore(s => s.quoteEVMToMiden);
   const executeEVMToMiden = useEpochStore(s => s.executeEVMToMiden);
   const poll = useEpochStore(s => s.poll);
@@ -869,12 +872,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
-    if (epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
+    if (compactWatchClosed || epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
     const id = setInterval(() => {
       poll().catch(err => console.error('[EvmBridgeDepositScreen] poll failed', err));
     }, 3000);
     return () => clearInterval(id);
-  }, [epochFlow, epochStatus, poll]);
+  }, [compactWatchClosed, epochFlow, epochStatus, poll]);
 
   const handleAmountChange = useCallback((value?: string) => {
     if (confirming.current) return;
@@ -2023,6 +2026,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               networkId={bridgeNetwork?.id}
               destinationName={midenAccount.name}
               sourceChainId={sourceChainId}
+              extensionId={typeof window !== 'undefined' ? chromeExtensionWalletConnectId(window.location) : undefined}
+              promptAmount={depositAmount.trim()}
+              nativeSource={route === 'agglayer' && token === 'ETH'}
+              epochResourceLockRequired={epochQuote?.quoteResult.resourceLockRequired}
+              epochQuoteTransactions={epochQuote?.quoteResult.transactions}
+              promptContract={
+                route === 'epoch'
+                  ? COMPACT_ADDRESS[sourceChainId]
+                  : route === 'agglayer'
+                    ? agglayerRecovery?.contractAddress
+                    : usdcxSource?.route === 'xreserve'
+                      ? usdcxSource.xReserve
+                      : usdcxSource?.tokenMessengerWithFees
+              }
+              usdcxExecutor={usdcxSource?.route === 'cctp-executor'}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
@@ -2067,7 +2085,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
+              fastFeature="fastBridgeIn"
               fastAvailability={fastAvailability}
+              slowFeature="bridgeIn"
               slowAvailability={slowAvailability}
             />
           );
@@ -2116,6 +2136,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmUsdc,
       token,
       bridgeConfig,
+      agglayerRecovery?.contractAddress,
+      depositAmount,
+      epochQuote?.quoteResult.resourceLockRequired,
+      epochQuote?.quoteResult.transactions,
       awaitingNextConfirmation,
       balanceHoldNotice,
       capHoldNotice,

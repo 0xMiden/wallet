@@ -1,6 +1,26 @@
 import { deriveBridgeConfig, type DeriveDeps } from './derive';
 import { testBridgeSnapshot } from './testing/fixture';
 
+const ALLOCATOR_ADDRESS = '0xa46827635A7d329608085401a3b2Bf14a8a2bDF9';
+const ARBITER_ADDRESS = '0x2F5eA866716A04e91a55099620F2e1B423eC7011';
+const COMPACT_ADDRESS = '0x00000000000000171ede64904551eeDF3C6C9788';
+const serviceAddresses = (address: string) => ({ '11155111': address, '999999999': address });
+// The `/health` body epoch-intents-sdk 2.0.1 admits for Sepolia and the Miden destination chain.
+const ALLOCATOR_HEALTH = {
+  status: 'healthy',
+  allocatorAddresses: serviceAddresses(ALLOCATOR_ADDRESS),
+  arbiterAddresses: serviceAddresses(ARBITER_ADDRESS),
+  compactAddresses: serviceAddresses(COMPACT_ADDRESS),
+  compactLockResetPeriod: 4,
+  compactLockScope: 0,
+  compactExpirySeconds: 600,
+  compactExpiryBufferSeconds: 60,
+  midenRecallBufferBlocks: 1000,
+  midenVirtualChainId: 999999999,
+  midenTestnetVirtualChainId: 999999999,
+  midenMainnetVirtualChainId: 123456789
+};
+
 function dependencies(): Partial<DeriveDeps> {
   return {
     now: () => 100,
@@ -44,7 +64,7 @@ function dependencies(): Partial<DeriveDeps> {
                     ]
                   }
                 };
-              return url.endsWith('/healthz') ? { status: 'SERVING' } : { status: 'healthy' };
+              return url.endsWith('/healthz') ? { status: 'SERVING' } : ALLOCATOR_HEALTH;
             }
           }
   };

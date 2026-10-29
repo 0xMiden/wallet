@@ -816,6 +816,20 @@ const DISPATCH: Record<string, DispatchFn> = {
       { allowNodeNote: allowNodeNote === true }
     ),
 
+  // Fee-aware fill of a public PSWAP sale note (an Arcade GC purchase). The note is read on the
+  // node inside the build; the fill crosses as a decimal string, since a bigint cannot.
+  buildPswapConsumeRequest: async (
+    context,
+    client,
+    accountId: string,
+    noteId: string,
+    fillAmount: string,
+    creatorAccountId: string
+  ) =>
+    client.buildPswapConsumeRequest(accountId, { noteId, fillAmount: BigInt(fillAmount), creatorAccountId }, step =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapConsumeRequest', step)
+    ),
+
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
   // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
   // the SW client is dormant and these formerly read stale data off it. The results
@@ -921,6 +935,10 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   decodeGuardianHistory: async (context, client, encoded: string) => {
     return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
+  },
+  importGuardianHistoryP2ideNotes: async (context, client, encoded: string, accountId: string, noteId: string) => {
+    await client.importGuardianHistoryP2ideNotes(encoded, accountId, noteId, context.hold);
+    return null;
   },
   getGuardianResultCommitment: async (context, client, encoded: string) => {
     return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));

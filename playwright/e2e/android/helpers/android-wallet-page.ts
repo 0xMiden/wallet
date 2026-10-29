@@ -14,7 +14,7 @@ import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
-const DEFAULT_PASSWORD = 'Password123!';
+const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
 const POLL_INTERVAL_MS = 500;
 
@@ -379,10 +379,17 @@ export class AndroidWalletPage implements WalletPage {
 
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
     await this.navigateHome();
-    await this.pollForSelector('input[type="password"], input', 15_000);
-    await this.fillInputAny(['input[type="password"]', 'input'], password);
-    await this.clickByText('button', /unlock|continue|submit/i);
-    await sleep(3_000);
+    await this.pollForSelector('[data-testid="unlock-passcode"]', 15_000);
+    for (const digit of password) {
+      await this.click(`[data-testid="numpad-${digit}"]`);
+      await sleep(150);
+    }
+    await this.pollForCondition(
+      `if (document.querySelector('[data-testid="unlock-passcode"]')) return false; ` +
+        `var state = window.__TEST_STORE__?.getState(); ` +
+        `return !!state && (state.status === 2 || state.status === 'Ready') && !!state.currentAccount;`,
+      30_000
+    );
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {
@@ -476,16 +483,6 @@ export class AndroidWalletPage implements WalletPage {
     }
   }
 
-  private async clickByText(tag: string, pattern: RegExp): Promise<void> {
-    const ok = await this.cdp.eval<boolean>(
-      `var els = Array.from(document.querySelectorAll(${JSON.stringify(tag)})); ` +
-        `var re = ${pattern.toString()}; ` +
-        `var target = els.find(function(el) { return re.test(el.textContent || ''); }); ` +
-        `if (!target) return false; target.click(); return true;`
-    );
-    if (!ok) throw new Error(`clickByText: no <${tag}> matched ${pattern}`);
-  }
-
   private async clickWhenEnabled(selector: string, timeoutMs: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -511,19 +508,6 @@ export class AndroidWalletPage implements WalletPage {
         `el.dispatchEvent(new Event('change', { bubbles: true })); ` +
         `return true;`
     );
-  }
-
-  private async fillInputAny(selectors: string[], value: string): Promise<void> {
-    for (const sel of selectors) {
-      const ok = await this.cdp
-        .eval<boolean>(`return !!document.querySelector(${JSON.stringify(sel)});`)
-        .catch(() => false);
-      if (ok) {
-        await this.fillInput(sel, value);
-        return;
-      }
-    }
-    throw new Error(`fillInputAny: none of the selectors matched: ${selectors.join(', ')}`);
   }
 }
 

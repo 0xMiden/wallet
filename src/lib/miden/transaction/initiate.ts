@@ -54,8 +54,14 @@ import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
-import { SpendingLimitAuthorization } from '../spending-limits/types';
+import {
+  admitOutgoingTransaction,
+  hasSpendingLimits,
+  queueOutgoingTransaction,
+  resolveOutgoingSpendUsd,
+  spendsOf
+} from '../spending-limits/queue';
+import { SpendingLimitAuthorization, SpendingLimitPriceUnavailableError } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import {
   ClaimFeeContext,
@@ -345,6 +351,75 @@ export const initiatePswapReclaimTransaction = async (
     )
   ).committedId;
 
+/** The sale a GC purchase fills, as `findLiveGcSale` (`lib/miden/arcade/gc-sale.ts`) quotes it. */
+export interface GcPurchaseQuote {
+  saleNoteId: string;
+  sellerAccountId: string;
+  /** The pay faucet (USDCx) and the fill, in base units. */
+  payFaucetId: string;
+  fillAmount: bigint;
+  /** The GC faucet and what the fill buys, in base units. */
+  gcFaucetId: string;
+  expectedAmount: bigint;
+}
+
+/**
+ * Queue an Arcade GC purchase: a consume row on the seller's public PSWAP sale note, with the fill and the GC it
+ * buys recorded on the row. The row carries no request yet: the fee-aware fill request is built from the node's
+ * copy of the note right before it runs (`gcPurchaseOf` in `lib/miden/transaction`), so nothing here needs the
+ * WASM client and the extension popup can queue it. Dedup is per sale note, like every claim: a purchase that is
+ * live or completed on this note blocks another, which is right, since the note is spent once it completes and
+ * the next purchase fills the remainder under a new id. A deliberate tap retries a failed note at once.
+ */
+export const initiateGcPurchaseTransaction = async (
+  accountId: string,
+  quote: GcPurchaseQuote,
+  delegateTransaction?: boolean,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
+): Promise<string> =>
+  (
+    await queueConsumeRows(
+      accountId,
+      [
+        {
+          id: quote.saleNoteId,
+          faucetId: quote.gcFaucetId,
+          amount: quote.expectedAmount.toString(),
+          senderAddress: quote.sellerAccountId,
+          isBeingClaimed: false,
+          type: NoteTypeEnum.Public,
+          carriesMoreAssets: false
+        }
+      ],
+      delegateTransaction,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      row => {
+        row.extraInputs = {
+          gcPurchase: {
+            saleNoteId: quote.saleNoteId,
+            sellerAccountId: quote.sellerAccountId,
+            payFaucetId: quote.payFaucetId,
+            fillAmount: quote.fillAmount.toString(),
+            gcFaucetId: quote.gcFaucetId,
+            expectedAmount: quote.expectedAmount.toString()
+          }
+        };
+      },
+      'arcade_gc_purchase',
+      undefined,
+      undefined,
+      undefined,
+      {
+        spends: [{ faucetId: quote.payFaucetId, amount: quote.fillAmount }],
+        authorization: spendingLimitAuthorization
+      }
+    )
+  ).committedId;
+
 /** Options for {@link initiateRotationFundingClaim}; each has the meaning of its `initiateConsumeNotesTransaction` twin. */
 export interface RotationFundingClaimOptions {
   delegate?: boolean;
@@ -552,7 +627,8 @@ const queueConsumeRows = async (
   // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
   canSign?: () => boolean,
   feeContext?: ClaimFeeContext,
-  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>,
+  outgoing?: { spends: readonly IConsumedAssetTotal[]; authorization?: SpendingLimitAuthorization }
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -574,7 +650,12 @@ const queueConsumeRows = async (
       ? await readClaimFeeContext(accountId)
       : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
-  return await Repo.db.transaction('rw', Repo.transactions, async () => {
+  let outgoingPrice: bigint | SpendingLimitPriceUnavailableError | undefined;
+  if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
+    outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
+  }
+  const tables = outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions] : [Repo.transactions];
+  const insertRows = async (): Promise<ConsumeNotesQueueResult | undefined> => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
@@ -693,6 +774,12 @@ const queueConsumeRows = async (
       return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
     }
 
+    // A cap created after the price probe needs a value before admission. Leave the lock and
+    // resolve it, then run dedup again in the new write transaction before admitting any row.
+    if (outgoing !== undefined && outgoingPrice === undefined && (await hasSpendingLimits(accountId))) {
+      return undefined;
+    }
+
     const ahead = await getClaimFeeAhead(accountId);
     const feeRefusedNoteIds: string[] = [];
     const createdIds: string[] = [];
@@ -713,7 +800,11 @@ const queueConsumeRows = async (
       const row = newRow(rowNotes);
       row.feeAdmission = decision?.admission;
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
-      await Repo.transactions.add(row);
+      const admitted =
+        outgoing === undefined
+          ? row
+          : await admitOutgoingTransaction(row, outgoing.spends, outgoingPrice, outgoing.authorization, nowSec);
+      await Repo.transactions.add(admitted);
       createdIds.push(row.id);
       for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
       // Keep the original facts: no earlier row's fee is charged against a later row.
@@ -741,7 +832,11 @@ const queueConsumeRows = async (
     const committedId = createdIds[0] ?? blockingId;
     if (committedId === null) throw new ClaimFeeRefusedError();
     return { committedId, coveringTxIdByNoteId, feeRefusedNoteIds };
-  });
+  };
+  const result = await Repo.db.transaction('rw', tables, insertRows);
+  if (result !== undefined) return result;
+  outgoingPrice = await resolveOutgoingSpendUsd(outgoing!.spends);
+  return (await Repo.db.transaction('rw', tables, insertRows))!;
 };
 
 /** {@link queueConsumeNotes}, for the callers that need only the committed row id. */

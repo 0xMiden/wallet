@@ -71,8 +71,16 @@ export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'e
 export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
 
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
+export interface SubmitContextSnapshot {
+  endpoint: string;
+  status: string;
+  hidden: string;
+  leg: string;
+}
+
 export interface ISubmitEvidence {
   attemptId: string;
+  submitContext?: SubmitContextSnapshot;
   capturedAt: number; // unix seconds
   source: SubmitEvidenceSource;
   transactionId?: string;
@@ -681,7 +689,30 @@ export interface IConsumeSwapSettleExtraInputs {
   swapSettlePartial?: boolean;
 }
 
-export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
+/**
+ * `extraInputs` shape for a `consume` row that fills a public GC sale note (an Arcade purchase,
+ * `initiateGcPurchaseTransaction`). The row's note is the seller's PSWAP note as the node holds it, never an input
+ * note this client tracks, so its fee-aware request is built in the proposal's hold and persisted as `requestBytes`,
+ * like a recovered order's reclaim. Amounts are decimal base-unit strings, since `extraInputs` is stored as JSON.
+ */
+export interface IConsumeGcPurchaseExtraInputs {
+  gcPurchase: {
+    /** The sale note the purchase fills, the live tip of the seller's PSWAP lineage when it was queued. */
+    saleNoteId: string;
+    /** The seller account the note's storage names as creator. */
+    sellerAccountId: string;
+    /** The pay asset's faucet (USDCx) and the fill paid into the note, in base units. */
+    payFaucetId: string;
+    fillAmount: string;
+    /** The GC faucet and the GC the fill buys by the PSWAP script's arithmetic, in base units. */
+    gcFaucetId: string;
+    expectedAmount: string;
+  };
+}
+
+export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
+  Partial<IConsumeSwapSettleExtraInputs> &
+  Partial<IConsumeGcPurchaseExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -828,6 +859,24 @@ export interface ITransaction {
   consumeEntryPoint?: ConsumeEntryPoint;
   /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
   lastDeferral?: ConsumeDeferralCause;
+  /**
+   * Strongest way the processing loop has looked at this queued incarnation. Survives a restart.
+   * Bound to `queueSightingAt` / `queueSightingSeq`, which are not reported. Not indexed.
+   */
+  queueSighting?: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected';
+  /** `initiatedAt` the sighting was recorded for. Not reported. */
+  queueSightingAt?: number;
+  /** `queuedSeq` the sighting was recorded for, or null when the row had none. Not reported. */
+  queueSightingSeq?: number | null;
+  /**
+   * Latest pre-send sync step for this queued incarnation. Bound to `preflightSyncAt` / `preflightSyncSeq`,
+   * which are not reported. Not indexed.
+   */
+  preflightSync?: 'entered' | 'returned' | 'threw';
+  /** `initiatedAt` the sync step was recorded for. Not reported. */
+  preflightSyncAt?: number;
+  /** `queuedSeq` the sync step was recorded for, or null when the row had none. Not reported. */
+  preflightSyncSeq?: number | null;
   /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
   feeAdmission?: ClaimFeeAdmission;
   /**

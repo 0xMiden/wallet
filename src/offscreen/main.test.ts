@@ -512,6 +512,7 @@ function resetControl() {
     })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
+    clientImportGuardianHistoryP2ideNotes: jest.fn(async () => undefined),
     clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
       accountId: 'account',
       inputNotes: [],
@@ -634,6 +635,7 @@ function resetControl() {
         getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
         importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
         drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+        importGuardianHistoryP2ideNotes: G.__off.clientImportGuardianHistoryP2ideNotes,
         decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
         recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
@@ -1489,6 +1491,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("call 'getAccount' failed"), expect.any(Error));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp).toEqual({ ok: false, op_id: 'op-abc', error: 'store read boom' });
+  });
+
+  it('imports a recovered P2IDE output under the offscreen WASM lock', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'importGuardianHistoryP2ideNotes',
+        argsB64: ['summary', 'account', 'note'].map(encodeArg)
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(G.__off.clientImportGuardianHistoryP2ideNotes).toHaveBeenCalledWith(
+      'summary',
+      'account',
+      'note',
+      expect.anything()
+    );
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, resultB64: null });
   });
 
   it('names a history data error on the ok:false reply, so the SW rebuilds its class', async () => {

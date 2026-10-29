@@ -40,13 +40,15 @@ export type PswapOrderLineageRead =
   | { kind: 'absent' };
 
 /** The PSWAP fields a remainder carries over from its parent, as `PswapNote::remainder_note` builds it. */
-interface PswapFields {
+export interface PswapFields {
   /** [s0, order id, s2, round]: a remainder bumps only the last. */
   serial: bigint[];
   /** [requested faucet suffix, prefix, requested amount, min fill step, payback type, creator suffix, prefix] */
   storage: bigint[];
   offeredFaucet: string;
   offeredAmount: bigint;
+  /** The faucet its storage asks for (items 1 and 0). */
+  requestedFaucet: string;
   /** The account its storage names as creator (items 6 and 5). */
   creator: string;
 }
@@ -89,19 +91,22 @@ function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>
 }
 
 /** The PSWAP fields of `note`, a PSWAP note under `noteId` of the script's shape; undefined for any other note. */
-function pswapFieldsOf(note: Note, noteId: string): PswapFields | undefined {
+export function pswapFieldsOf(note: Note, noteId: string): PswapFields | undefined {
   if (note.id().toString() !== noteId) return undefined;
   if (note.script().root().toHex() !== NoteScript.pswap().root().toHex()) return undefined;
   const items = note.recipient().storage().items();
   const serial = note.recipient().serialNum().toFelts();
   const [asset, ...otherAssets] = note.assets().fungibleAssets();
+  const [requestedSuffix, requestedPrefix] = [items[0], items[1]];
   const [creatorSuffix, creatorPrefix] = [items[5], items[6]];
   if (items.length !== 7 || serial.length !== 4 || !asset || otherAssets.length > 0) return undefined;
-  if (!creatorSuffix || !creatorPrefix) return undefined;
+  if (!creatorSuffix || !creatorPrefix || !requestedSuffix || !requestedPrefix) return undefined;
   const storage = items.map(item => item.asInt());
   let creator: string;
+  let requestedFaucet: string;
   try {
     creator = AccountId.fromPrefixSuffix(creatorPrefix, creatorSuffix).toString();
+    requestedFaucet = AccountId.fromPrefixSuffix(requestedPrefix, requestedSuffix).toString();
   } catch {
     return undefined;
   }
@@ -110,6 +115,7 @@ function pswapFieldsOf(note: Note, noteId: string): PswapFields | undefined {
     storage,
     offeredFaucet: asset.faucetId().toString(),
     offeredAmount: asset.amount(),
+    requestedFaucet,
     creator
   };
 }
@@ -147,6 +153,100 @@ export async function readPswapOrderNote(noteId: string, creatorAccountId: strin
   if (!entry || !note || !ownPswapFields(note, noteId, creatorAccountId)) return { kind: 'absent' };
   const spentAt = await spendOf(key, note, entry.inclusionProof.location().blockNum(), 'PSWAP order note nullifier');
   return spentAt === undefined ? { kind: 'open', note } : { kind: 'spent' };
+}
+
+export type PublicPswapNoteRead =
+  | { kind: 'open'; note: Note; fields: PswapFields; block: number }
+  | { kind: 'spent' }
+  | { kind: 'absent' };
+
+// Share the whole body-and-nullifier read; the two steps use the same guarded key for different operations.
+const publicPswapNoteReads = new Map<string, Promise<PublicPswapNoteRead>>();
+
+/**
+ * What the node says about a public PSWAP note of any creator: `open`, with the full note and its decoded fields,
+ * `spent`, or `absent`, which also covers a note under that id that is not a PSWAP note. A failed read rejects. Like
+ * `readPswapOrderNote`, it reads on RpcClients of its own and takes no WASM client lock: the note is somebody else's
+ * sale, which this client never tracked.
+ */
+export function readPublicPswapNote(noteId: string): Promise<PublicPswapNoteRead> {
+  const slot = `${getEffectiveRpcUrl()} ${noteId}`;
+  const existing = publicPswapNoteReads.get(slot);
+  if (existing) return existing;
+  const pending = (async (): Promise<PublicPswapNoteRead> => {
+    const key = `note:${noteId}`;
+    const fetched = await read(key, 'public PSWAP note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
+    const entry = fetchedEntry(fetched, noteId);
+    const note = entry?.note;
+    const fields = entry && note ? pswapFieldsOf(note, noteId) : undefined;
+    if (!entry || !note || !fields) return { kind: 'absent' };
+    const block = entry.inclusionProof.location().blockNum();
+    const spentAt = await spendOf(key, note, block, 'public PSWAP note nullifier');
+    return spentAt === undefined ? { kind: 'open', note, fields, block } : { kind: 'spent' };
+  })();
+  publicPswapNoteReads.set(slot, pending);
+  const settled = () => {
+    publicPswapNoteReads.delete(slot);
+  };
+  void pending.then(settled, settled);
+  return pending;
+}
+
+// `NoteType::Public as u8` in miden-protocol, the two top bits of a public note's tag.
+const PUBLIC_NOTE_TYPE_BITS = 1;
+
+/**
+ * The tag of a public PSWAP note offering `offeredFaucet` for `requestedFaucet`, as miden-standards 0.17.1
+ * `PswapNote::create_tag` builds it: the note type in the top two bits, the 14 most significant bits of the PSWAP
+ * script root, then the top byte of the offered faucet's prefix and the top byte of the requested one's. A remainder
+ * keeps its parent's tag, so one tag lists a whole sale lineage. This is not `buildSwapTag`, the SWAP script's.
+ */
+export function pswapNoteTag(offeredFaucet: AccountId, requestedFaucet: AccountId): number {
+  const root = NoteScript.pswap().root().toHex().slice(2);
+  const [first, second] = [parseInt(root.slice(0, 2), 16), parseInt(root.slice(2, 4), 16)];
+  const useCase = ((first << 6) | (second >> 2)) & 0x3fff;
+  const topByte = (id: AccountId) => Number((id.prefix().asInt() >> 56n) & 0xffn);
+  return (
+    ((PUBLIC_NOTE_TYPE_BITS << 30) | (useCase << 16) | (topByte(offeredFaucet) << 8) | topByte(requestedFaucet)) >>> 0
+  );
+}
+
+/** The node's current block height, on an RpcClient of its own. */
+export function readChainTip(): Promise<number> {
+  return read('chain-tip', 'chain tip', async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum());
+}
+
+// Note-sync calls one tag listing makes before it gives up: the node answers a sync one block of matches at a time.
+const MAX_TAG_SYNC_CALLS = 64;
+
+/**
+ * The ids of committed notes under `tag` in the inclusive block range, newest first. The SDK paginates
+ * syncNotes internally; the outer loop handles any remaining range and refuses an incomplete listing.
+ */
+export async function listCommittedNoteIdsByTag(
+  tag: number,
+  fromBlock: number,
+  toBlock: number
+): Promise<{ noteId: string; block: number }[]> {
+  const found: { noteId: string; block: number }[] = [];
+  let from = fromBlock;
+  for (let call = 0; call < MAX_TAG_SYNC_CALLS; call++) {
+    const start = from;
+    const synced = await read(`tag:${tag}:${start}`, 'PSWAP tag sync', rpc =>
+      rpc.syncNotes(start, toBlock, [new NoteTag(tag)])
+    );
+    const notes = synced.notes();
+    if (notes.length === 0) return found.sort((a, b) => b.block - a.block);
+    let lastBlock = from;
+    for (const committed of notes) {
+      const block = committed.inclusionProof().location().blockNum();
+      lastBlock = Math.max(lastBlock, block);
+      found.push({ noteId: committed.noteId().toString(), block });
+    }
+    if (lastBlock >= toBlock) return found.sort((a, b) => b.block - a.block);
+    from = lastBlock + 1;
+  }
+  throw new Error(`PSWAP tag sync: more than ${MAX_TAG_SYNC_CALLS} blocks of notes under tag ${tag}`);
 }
 
 // Every note of an order keeps the order note's serial but for the round (`create_remainder_note` adds 1 to its last

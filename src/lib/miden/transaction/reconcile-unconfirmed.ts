@@ -10,7 +10,11 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
-import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import {
+  annotateProofWaitAvailability,
+  type ProofWaitAvailability
+} from 'lib/telemetry/proof-wait-availability-diagnostics';
+import { reportTransactionFailure, type TransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import {
@@ -253,30 +257,43 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
   });
   if (failed !== undefined && !failed.restoredFromBackup) {
     const failedAttemptId = judgement.neverCommittedBy === 'expired' ? failed.attemptId : undefined;
+    let timingAvailability: ProofWaitAvailability | undefined = 'current_attempt_missing';
     const expiredEntry =
       failedAttemptId === undefined
         ? undefined
-        : failed.submitEvidence?.find(entry => entry.attemptId === failedAttemptId);
+        : ((timingAvailability = 'current_entry_missing'),
+          failed.submitEvidence?.find(entry => entry.attemptId === failedAttemptId));
     const executing = failed.stageTimestamps?.executing;
     const submitting = failed.stageTimestamps?.submitting;
-    const proofWaitBlocks =
-      expiredEntry !== undefined &&
-      typeof executing === 'number' &&
-      Number.isFinite(executing) &&
-      typeof submitting === 'number' &&
-      Number.isFinite(submitting) &&
-      submitting >= executing
-        ? Math.floor((submitting - executing) / ESTIMATED_MS_PER_BLOCK)
-        : undefined;
-    const expiryWindowBlocks =
-      expiredEntry?.refBlock !== undefined &&
-      expiredEntry.expirationBlock !== undefined &&
-      Number.isFinite(expiredEntry.refBlock) &&
-      Number.isFinite(expiredEntry.expirationBlock) &&
-      expiredEntry.expirationBlock > expiredEntry.refBlock
-        ? expiredEntry.expirationBlock - expiredEntry.refBlock
-        : undefined;
-    reportTransactionFailure({
+    let proofWaitBlocks: number | undefined;
+    if (expiredEntry !== undefined) {
+      if (typeof executing !== 'number' || !Number.isFinite(executing)) timingAvailability = 'execution_time_invalid';
+      else if (typeof submitting !== 'number' || !Number.isFinite(submitting))
+        timingAvailability = 'submit_time_invalid';
+      else if (!(submitting >= executing)) timingAvailability = 'time_order_invalid';
+      else {
+        proofWaitBlocks = Math.floor((submitting - executing) / ESTIMATED_MS_PER_BLOCK);
+        timingAvailability = undefined;
+      }
+    }
+    let windowAvailability: ProofWaitAvailability | undefined;
+    let expiryWindowBlocks: number | undefined;
+    if (expiredEntry?.refBlock === undefined) windowAvailability = 'reference_block_missing';
+    else if (expiredEntry.expirationBlock === undefined) windowAvailability = 'expiration_block_missing';
+    else if (!Number.isFinite(expiredEntry.refBlock)) windowAvailability = 'reference_block_invalid';
+    else if (!Number.isFinite(expiredEntry.expirationBlock)) windowAvailability = 'expiration_block_invalid';
+    else if (!(expiredEntry.expirationBlock > expiredEntry.refBlock)) windowAvailability = 'expiry_order_invalid';
+    else expiryWindowBlocks = expiredEntry.expirationBlock - expiredEntry.refBlock;
+    let availability = timingAvailability ?? windowAvailability;
+    if (availability === undefined && proofWaitBlocks !== undefined && expiryWindowBlocks !== undefined) {
+      availability =
+        !Number.isFinite(proofWaitBlocks) || proofWaitBlocks < 0
+          ? 'derived_wait_invalid'
+          : !Number.isFinite(expiryWindowBlocks) || expiryWindowBlocks <= 0
+            ? 'derived_window_invalid'
+            : 'available';
+    }
+    const failure: TransactionFailure = {
       point: 'node_verdict',
       type: failed.type,
       stage: failed.stage,
@@ -291,10 +308,19 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       ...(judgement.neverCommittedBy !== 'expired' || failed.rawError === undefined
         ? {}
         : { priorError: failed.rawError }),
+      ...(failed.attemptId !== undefined &&
+      failed.submitEvidence?.length === 1 &&
+      failed.submitEvidence[0] !== undefined &&
+      failed.submitEvidence[0].attemptId === failed.attemptId &&
+      failed.submitEvidence[0].submitContext !== undefined
+        ? { priorSubmitContext: failed.submitEvidence[0].submitContext }
+        : {}),
       ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
       ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
-    });
+    };
+    if (judgement.neverCommittedBy === 'expired') annotateProofWaitAvailability(failure, availability);
+    reportTransactionFailure(failure);
   }
   return wrote;
 }

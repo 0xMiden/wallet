@@ -2,6 +2,7 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
@@ -29,6 +30,7 @@ export interface NoticeProps {
   errorId?: UserErrorId | null;
   /** Stable identity for one failure; a new object restarts the same error's visible dwell. */
   errorOccurrence?: object;
+  errorDiagnostics?: UiEvidenceInput;
   /**
    * The body copy: one or two short lines. Optional, so a notice whose whole message is its
    * `title` — an explanation with nothing subordinate under it — renders as that one line rather
@@ -122,6 +124,7 @@ export const Notice: React.FC<NoticeProps> = ({
   tone = 'neutral',
   errorId,
   errorOccurrence,
+  errorDiagnostics,
   variant = 'block',
   role = 'note',
   className,
@@ -129,7 +132,7 @@ export const Notice: React.FC<NoticeProps> = ({
   'data-testid': dataTestId,
   'data-reason': dataReason
 }) => {
-  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence);
+  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence, errorDiagnostics);
   return (
     <div
       id={id}

@@ -29,3 +29,21 @@ export const ENDPOINT_OVERRIDE_STORAGE_KEY = 'endpoint_overrides';
 export const hapticLight = () => undefined;
 export const hapticSuccess = async (): Promise<void> => undefined;
 export const hapticSelection = () => undefined;
+export const hapticError = async (): Promise<void> => undefined;
+
+export const NetworkNamedByShell = () => null;
+export const hapticMedium = async (): Promise<void> => undefined;
+export const hasDeveloperNetworkChoice = (): boolean => false;
+export const isFaucetConfigured = (): boolean => false;
+export const getEffectiveAllowNoGuardian = (): boolean => false;
+export const getEffectiveFaucetUrl = (): string | undefined => undefined;
+export const isEndpointOverrideActive = async (): Promise<boolean> => false;
+const unsupportedEndpointMutation = (): never => {
+  throw new Error('Endpoint mutation is outside the confirmation visual fixture');
+};
+export const adoptEndpointState = unsupportedEndpointMutation;
+export const sameEndpointState = unsupportedEndpointMutation;
+export const applyEndpointOverride = unsupportedEndpointMutation;
+export const buildDefaultOverrideFor = unsupportedEndpointMutation;
+export const buildNetworkChoiceOverride = unsupportedEndpointMutation;
+export const forgetDeveloperNetworkChoice = unsupportedEndpointMutation;

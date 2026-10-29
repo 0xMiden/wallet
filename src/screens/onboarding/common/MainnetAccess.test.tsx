@@ -9,6 +9,11 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
+let mockMobile = false;
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockMobile
+}));
 
 const mockCheck = jest.fn<Promise<'granted' | 'rejected'>, [string]>();
 const mockRead = jest.fn<Promise<{ value: string; type: string }>, []>();
@@ -32,6 +37,7 @@ const submit = async () => {
 
 describe('MainnetAccessScreen', () => {
   beforeEach(() => {
+    mockMobile = false;
     mockCheck.mockReset();
     mockRead.mockReset().mockResolvedValue({ value: '8gKI-gL0O 6HcUextra', type: 'text/plain' });
     mockReadCarried.mockReset().mockResolvedValue(undefined);
@@ -66,7 +72,8 @@ describe('MainnetAccessScreen', () => {
     expect(submitButton()).toBeEnabled();
   });
 
-  it('pastes a code with its letter case, removes separators, and does not submit', async () => {
+  it('pastes on mobile with letter case preserved, removes separators, and does not submit', async () => {
+    mockMobile = true;
     render(<MainnetAccessScreen />);
     const paste = screen.getByTestId('onboarding-mainnet-access-paste');
     expect(paste).toBeEnabled();
@@ -79,6 +86,7 @@ describe('MainnetAccessScreen', () => {
   });
 
   it('keeps the entered code when clipboard access fails', async () => {
+    mockMobile = true;
     mockRead.mockRejectedValueOnce(new Error('Clipboard denied'));
     render(<MainnetAccessScreen />);
     type('47291835');
@@ -90,6 +98,7 @@ describe('MainnetAccessScreen', () => {
   });
 
   it('keeps the entered code when the clipboard is empty', async () => {
+    mockMobile = true;
     mockRead.mockResolvedValueOnce({ value: '', type: 'text/plain' });
     render(<MainnetAccessScreen />);
     type('47291835');

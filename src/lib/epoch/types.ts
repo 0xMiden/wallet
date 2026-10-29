@@ -87,4 +87,6 @@ export interface IntentResult {
   intentNonce?: string;
   /** Chain id the compact deposit landed on (= source EVM chain). */
   depositChainId?: number;
+  /** Solved compact expiry (`intentRequestData.compact.expires`), when the solve included one. */
+  compactExpires?: string;
 }

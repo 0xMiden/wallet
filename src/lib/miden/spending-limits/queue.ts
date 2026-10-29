@@ -146,14 +146,71 @@ const authorizationMatches = async (
   return uses === 0;
 };
 
+/** Resolves outside the write lock; a missing price can be authorized during admission. */
+export const resolveOutgoingSpendUsd = async (
+  spends: readonly IConsumedAssetTotal[],
+  now: number = Math.floor(Date.now() / 1000)
+): Promise<bigint | SpendingLimitPriceUnavailableError> => {
+  try {
+    return await resolveSpendsUsd(spends, now);
+  } catch (error) {
+    if (!(error instanceof SpendingLimitPriceUnavailableError)) throw error;
+    return error;
+  }
+};
+
 /**
- * Rechecks policy, values the spend, assesses, and inserts under one Dexie write lock.
- * Splitting any of those steps lets concurrent callers overspend the same remaining allowance or
- * replay one credential challenge.
- *
- * `spends` is what the row moves, per faucet. Ordinary outgoing transactions name one asset and
- * pass a single entry; a dApp custom request states its value only through the approval-time dry
- * run and can name several, so the list is the general shape and one entry is the common case.
+ * Rechecks policy, assesses, and stamps a row inside the caller's existing rw transaction over
+ * Repo.spendingLimits and Repo.transactions. The caller adds the returned row in that same scope,
+ * keeping admission atomic with any note dedup and preventing concurrent overspend or credential replay.
+ * An undefined price is allowed only while the locked policy read confirms no cap exists.
+ */
+export const admitOutgoingTransaction = async <T extends ITransaction>(
+  transaction: T,
+  spends: readonly IConsumedAssetTotal[],
+  price: bigint | SpendingLimitPriceUnavailableError | undefined,
+  authorization?: SpendingLimitAuthorization,
+  now: number = Math.floor(Date.now() / 1000)
+): Promise<T> => {
+  const persisted = await readPolicy(transaction.accountId);
+  if (persisted === undefined) return transaction;
+  const config = parsePersistedSpendingLimit(persisted);
+  if (price === undefined) throw unavailable('spend price was not resolved before admission');
+
+  if (price instanceof SpendingLimitPriceUnavailableError) {
+    const matches = await authorizationMatches(
+      authorization,
+      { accountId: transaction.accountId, spendsDigest: spendsDigest(spends), kind: 'unpriced' },
+      config.revision,
+      now
+    );
+    if (!matches) throw price;
+    // No `spentUsd` here: the wallet does not know what this row was worth, and inventing a
+    // figure to stamp would be worse than leaving it uncounted by every future assessment.
+    return { ...transaction, spendingLimitAuthorizationId: authorization!.id };
+  }
+
+  const assessment = assessSpendingLimit(config, await readHistory(now), {
+    accountId: transaction.accountId,
+    usdAmount: price,
+    now
+  });
+  const stamped = { ...transaction, spentUsd: price };
+  if (assessment.breach === undefined) return stamped;
+  const matches = await authorizationMatches(
+    authorization,
+    { accountId: transaction.accountId, spendsDigest: spendsDigest(spends), kind: 'usd' },
+    config.revision,
+    now
+  );
+  if (!matches) throw new SpendingLimitAuthorizationRequiredError(assessment);
+  return { ...stamped, spendingLimitAuthorizationId: authorization!.id };
+};
+
+/**
+ * Values the spend before locking, then rechecks policy, assesses, and inserts under one Dexie
+ * write lock. `spends` is what the row moves, per faucet: one for ordinary outgoing transactions,
+ * or several from a dApp custom request's approval-time dry run.
  */
 const prepareOutgoingTransaction = async (
   transaction: ITransaction,
@@ -184,59 +241,10 @@ const prepareOutgoingTransaction = async (
     // resolves the price outside the lock and assesses under it.
   }
 
-  // Outside the lock on purpose: resolution can reach the network, and a Dexie write transaction
-  // that awaits a fetch is a write lock held across an unbounded wait.
-  let spentUsd: bigint | undefined;
-  let priceFailure: SpendingLimitPriceUnavailableError | undefined;
-  try {
-    spentUsd = await resolveSpendsUsd(spends, now);
-  } catch (error) {
-    if (!(error instanceof SpendingLimitPriceUnavailableError)) throw error;
-    priceFailure = error;
-  }
-
+  const price = await resolveOutgoingSpendUsd(spends, now);
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, Repo.recoveryDebits, async () => {
     await beforeInsert?.();
-    const persisted = await readPolicy(transaction.accountId);
-    if (persisted === undefined) {
-      await insert(transaction);
-      return;
-    }
-    const config = parsePersistedSpendingLimit(persisted);
-
-    if (priceFailure !== undefined) {
-      const digest = spendsDigest(spends);
-      const matches = await authorizationMatches(
-        authorization,
-        { accountId: transaction.accountId, spendsDigest: digest, kind: 'unpriced' },
-        config.revision,
-        now
-      );
-      if (!matches) throw priceFailure;
-      // No `spentUsd` here: the wallet does not know what this row was worth, and inventing a
-      // figure to stamp would be worse than leaving it uncounted by every future assessment.
-      await insert({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
-      return;
-    }
-
-    const assessment = assessSpendingLimit(config, await readHistory(now), {
-      accountId: transaction.accountId,
-      usdAmount: spentUsd!,
-      now
-    });
-    const stamped = { ...transaction, spentUsd: spentUsd! };
-    if (assessment.breach === undefined) {
-      await insert(stamped);
-      return;
-    }
-    const matches = await authorizationMatches(
-      authorization,
-      { accountId: transaction.accountId, spendsDigest: spendsDigest(spends), kind: 'usd' },
-      config.revision,
-      now
-    );
-    if (!matches) throw new SpendingLimitAuthorizationRequiredError(assessment);
-    await insert({ ...stamped, spendingLimitAuthorizationId: authorization!.id });
+    await insert(await admitOutgoingTransaction(transaction, spends, price, authorization, now));
   });
 };
 

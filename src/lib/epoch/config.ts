@@ -1,4 +1,4 @@
-import { MIDEN_VIRTUAL_CHAIN_ID } from '@epoch-protocol/epoch-intents-sdk';
+import { MIDEN_VIRTUAL_CHAIN_ID } from '@epoch-protocol/epoch-intents-sdk/dist/constants.js';
 
 /**
  * Virtual chain id the Epoch SDK uses when an intent's origin / destination

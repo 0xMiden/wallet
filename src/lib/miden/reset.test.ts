@@ -870,9 +870,9 @@ describe('the bridge config version floor', () => {
 describe('the bridge config documents', () => {
   const DOCUMENTS = [
     'bridge_config_v1:testnet',
-    'bridge_config_derived_v1:testnet',
+    'bridge_config_derived_v2:testnet',
     'bridge_config_v1:devnet',
-    'bridge_config_derived_v1:devnet'
+    'bridge_config_derived_v2:devnet'
   ];
   const onExtension = () => {
     jest.mocked(isExtension).mockReturnValue(true);

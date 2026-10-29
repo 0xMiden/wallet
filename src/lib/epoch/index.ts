@@ -30,7 +30,13 @@ export {
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
-export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
+export {
+  carryForward,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses,
+  positionsBudgetDelayMs,
+  notePositionsRequests
+} from './positions';
 export type { EarnPosition, EarnPositionsResult, FetchEarnPositionsArgs } from './positions';
 export { EARN_LENDER_FAMILY_NAMES, earnLenderFamily, earnMarketForVault, earnVaultTakesDeposits } from './pools';
 export type { EarnLenderFamily, EarnVaultInfo } from './pools';

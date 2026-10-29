@@ -241,7 +241,10 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
-jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
+jest.mock('lib/telemetry/transaction-failure', () => ({
+  reportTransactionFailure: jest.fn(),
+  captureSubmitContext: jest.fn(() => undefined)
+}));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();

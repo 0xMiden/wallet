@@ -186,3 +186,63 @@ test('startup warning retains closed attempt diagnostics without attaching them 
   const other = jest.mocked(captureCrash).mock.calls[1]?.[0];
   expect(snapshotCrashDiagnostics(other)).not.toHaveProperty('startupEligibilityStage');
 });
+
+const uiCases = [
+  [
+    'bridgeFeatureUnavailableBody',
+    'notice',
+    { kind: 'feature_unavailable', featureUnavailableFeature: 'earnDeposit', featureUnavailableReason: 'service-down' }
+  ],
+  ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown' }],
+  ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
+  ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' }
+  ]
+] as const;
+it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {
+  Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
+  const root = jest.mocked(captureCrash).mock.calls[0]?.[0];
+  const { kind: _kind, ...fields } = evidence;
+  expect(snapshotCrashDiagnostics(root)).toMatchObject({ userErrorId: id, userErrorSurface: surface, ...fields });
+  expect(root).toBeInstanceOf(Error);
+  expect((root as Error).message).toBe(`User-visible error: ${id}; surface ${surface}`);
+});
+
+it.each(uiCases)(
+  'rejects UI evidence on another pair without changing the report identity for %s',
+  (_id, _surface, evidence) => {
+    Reflect.apply(reportUserVisibleError, undefined, ['invalidAmount', 'field', evidence]);
+    expect(captureCrash).toHaveBeenCalledTimes(1);
+    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+      userErrorId: 'invalidAmount',
+      userErrorSurface: 'field'
+    });
+  }
+);
+it('rejects partial or unknown feature evidence and never reads getters', () => {
+  const getter = jest.fn(() => 'earnDeposit');
+  for (const value of [
+    { kind: 'feature_unavailable', featureUnavailableFeature: 'earnDeposit' },
+    { kind: 'feature_unavailable', featureUnavailableFeature: 'private', featureUnavailableReason: 'off' },
+    Object.defineProperty(
+      { kind: 'feature_unavailable', featureUnavailableReason: 'off' },
+      'featureUnavailableFeature',
+      { get: getter }
+    )
+  ]) {
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['bridgeFeatureUnavailableBody', 'notice', value]);
+    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).not.toHaveProperty(
+      'featureUnavailableFeature'
+    );
+  }
+  expect(getter).not.toHaveBeenCalled();
+});

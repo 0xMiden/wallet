@@ -40,6 +40,33 @@ const MIDEN_RECIPIENT = '0x0123456789abcdef0123456789abcd';
 const MIDEN_FAUCET = '0x123456789abcdef0123456789abcde';
 const API_BASE = 'https://allocator.invalid';
 const API_ORIGIN = new URL(API_BASE).origin;
+const ALLOCATOR_ADDRESS = '0xa46827635A7d329608085401a3b2Bf14a8a2bDF9';
+const ARBITER_ADDRESS = '0x2F5eA866716A04e91a55099620F2e1B423eC7011';
+const COMPACT_ADDRESS = '0x00000000000000171ede64904551eeDF3C6C9788';
+
+/**
+ * The `/health` body the SDK reads its service configuration from before each compact
+ * build (epoch-intents-sdk 2.0): the values the SDK compiled in before 2.0.
+ */
+function healthResponse() {
+  return {
+    status: 'healthy',
+    allocatorAddresses: { [sepolia.id]: ALLOCATOR_ADDRESS, [MIDEN_VIRTUAL_CHAIN_ID]: ALLOCATOR_ADDRESS },
+    arbiterAddresses: { [sepolia.id]: ARBITER_ADDRESS, [MIDEN_VIRTUAL_CHAIN_ID]: ARBITER_ADDRESS },
+    compactAddresses: { [sepolia.id]: COMPACT_ADDRESS, [MIDEN_VIRTUAL_CHAIN_ID]: COMPACT_ADDRESS },
+    midenVirtualChainId: MIDEN_VIRTUAL_CHAIN_ID,
+    midenTestnetVirtualChainId: MIDEN_VIRTUAL_CHAIN_ID,
+    midenMainnetVirtualChainId: 123456789,
+    compactLockResetPeriod: 4,
+    compactLockScope: 0,
+    compactExpirySeconds: 600,
+    compactExpiryBufferSeconds: 60,
+    midenRecallBufferBlocks: 1000,
+    signingAddress: OWNER,
+    timestamp: new Date(0).toISOString(),
+    supportedChains: []
+  };
+}
 const TEST_CHAIN = {
   ...sepolia,
   rpcUrls: { ...sepolia.rpcUrls, default: { http: ['https://rpc.invalid'] } }
@@ -101,6 +128,7 @@ function installAllocator(events: string[], options: AllocatorOptions = {}) {
     if (requestUrl.origin !== API_ORIGIN) throw new Error(`Unhandled fetch URL: ${url}`);
     const path = requestUrl.pathname;
     events.push(`fetch:${path}`);
+    if (path === '/health') return jsonResponse(healthResponse());
     if (path === '/checkIfDepositNeeded' && init?.method === 'POST') {
       quoteCount += 1;
       const resourceLockRequired = resourceLocks.shift();

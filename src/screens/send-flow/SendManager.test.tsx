@@ -176,6 +176,7 @@ jest.mock('./SelectRecipient', () => ({
       <span data-testid="sr-address">{props.address}</span>
       <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
+      <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
@@ -828,6 +829,18 @@ describe('adding an unknown recipient to contacts', () => {
 // Recipient address entry + validation.
 // ---------------------------------------------------------------------------
 describe('recipient address entry', () => {
+  it('binds unexpected validation to the current form error and clears it for an empty recipient', () => {
+    renderFlow();
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
+    expect(JSON.parse(screen.getByTestId('sr-evidence').textContent!)).toEqual({
+      kind: 'recipient_validation',
+      recipientValidationStage: 'validator_exception'
+    });
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
+    expect(screen.getByTestId('sr-evidence')).toHaveTextContent('null');
+    expect(screen.getByTestId('sr-error')).toBeEmptyDOMElement();
+  });
+
   it('sets and clears the recipient error as the address becomes invalid/valid', () => {
     renderFlow();
     // Invalid address -> manual error, isValidAddress false.

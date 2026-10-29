@@ -24,11 +24,30 @@ import {
   type BridgeSourceRoute
 } from './bridge-receive-failure';
 import {
+  annotateGuardianProving,
+  snapshotGuardianProving,
+  type GuardianProvingDiagnostics
+} from './guardian-proving-diagnostics';
+import { snapshotOffscreenDeadlineForCrash, type OffscreenDeadlineDiagnostics } from './offscreen-deadline-diagnostics';
+import { snapshotProofWaitAvailability, type ProofWaitAvailability } from './proof-wait-availability-diagnostics';
+import {
+  clearProposalCreateDiagnostics,
+  snapshotProposalCreateDiagnostics,
+  type ProposalCreateDiagnostics
+} from './proposal-create-diagnostics';
+import { snapshotTerminalReport, type TerminalReportDiagnostics } from './terminal-report-diagnostics';
+import {
   annotateTransactionExecution,
   snapshotTransactionExecution,
   EXECUTION_DIAGNOSTIC_KEYS,
   type TransactionExecutionDiagnostics
 } from './transaction-execution-diagnostics';
+import {
+  annotateUiProducer,
+  snapshotUiProducer,
+  UI_PRODUCER_KEYS,
+  type UiProducerDiagnostics
+} from './ui-producer-diagnostics';
 import {
   USER_ERROR_SURFACES,
   isUserErrorId,
@@ -90,6 +109,8 @@ export const PROPOSAL_STEPS = [
   'chain_sync',
   'reclaim_build',
   'reclaim_persist',
+  'purchase_build',
+  'purchase_persist',
   'swap_request_build',
   'swap_request_persist',
   'rebase_build',
@@ -154,7 +175,14 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
 ];
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
-export type CrashDiagnostics = Partial<TransactionExecutionDiagnostics> &
+export type CrashDiagnostics = Partial<
+  ProposalCreateDiagnostics &
+    GuardianProvingDiagnostics &
+    OffscreenDeadlineDiagnostics &
+    TerminalReportDiagnostics & { proofWaitAvailability: ProofWaitAvailability }
+> &
+  Partial<TransactionExecutionDiagnostics> &
+  UiProducerDiagnostics &
   WasmStartupEvidence &
   Partial<StartupEligibilityDiagnostics> & {
     operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
@@ -270,6 +298,15 @@ const requestTypes = [
 ];
 
 export function annotateCrash(error: unknown, diagnostics: Record<string, unknown>): void {
+  annotateCrashAtBoundary(error, diagnostics);
+}
+
+function annotateCrashAtBoundary(
+  error: unknown,
+  diagnostics: Record<string, unknown>,
+  preserveInner = false,
+  refreshProposal = false
+): void {
   try {
     if (!(error instanceof Error)) return;
     const safe: CrashDiagnostics = {};
@@ -302,6 +339,15 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       guardianSigningKey: suppliedSigningKey,
       hotKeyRotationPending: suppliedRotationPending
     } = diagnostics;
+    if (!preserveInner && (suppliedStep !== undefined || suppliedCompletionStep !== undefined))
+      annotateGuardianProving(error, undefined);
+    if (
+      !preserveInner &&
+      (refreshProposal ||
+        (suppliedStep !== undefined && suppliedStep !== 'proposal_create') ||
+        suppliedCompletionStep !== undefined)
+    )
+      clearProposalCreateDiagnostics(error);
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
     }
@@ -321,12 +367,19 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const consumeVerdict = CONSUME_VERDICTS.find(value => value === suppliedConsumeVerdict);
     if (consumeVerdict !== undefined) safe.consumeVerdict = consumeVerdict;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
+    if (userErrorId !== undefined || suppliedSurface !== undefined)
+      annotateUiProducer(error, undefined, undefined, undefined);
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
     const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
     const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };
+    if (refreshProposal) {
+      delete previous.proposalStep;
+      delete previous.proposalGuard;
+      delete previous.securityChange;
+    }
     if (
       storageOwner !== undefined &&
       storageOperation !== undefined &&
@@ -399,11 +452,35 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: () => Promise<T>): Promise<T> {
+let proposalInvocation = 0n;
+const proposalInvocationByError = new WeakMap<Error, bigint>();
+
+async function annotatingRejection<T>(
+  diagnostics: CrashDiagnostics,
+  operation: () => Promise<T>,
+  onReject?: (error: unknown) => void,
+  invocation?: bigint
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    annotateCrash(error, diagnostics);
+    let preserveInner = false;
+    let refreshProposal = false;
+    try {
+      if (invocation !== undefined && error instanceof Error) {
+        const previousInvocation = proposalInvocationByError.get(error);
+        // An enclosing invocation starts earlier than the leaf that already observed this rejection.
+        preserveInner = previousInvocation !== undefined && previousInvocation > invocation;
+        if (!preserveInner) {
+          proposalInvocationByError.set(error, invocation);
+          refreshProposal = onReject !== undefined || snapshotProposalCreateDiagnostics(error) !== undefined;
+        }
+      }
+    } catch {}
+    annotateCrashAtBoundary(error, diagnostics, preserveInner, refreshProposal);
+    try {
+      if (!preserveInner) onReject?.(error);
+    } catch {}
     throw error;
   }
 }
@@ -415,11 +492,14 @@ async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: 
 export function withProposalStep<T>(
   step: ProposalStep,
   operation: () => Promise<T>,
-  securityChange?: SecurityChangeAction
+  securityChange?: SecurityChangeAction,
+  onReject?: (error: unknown) => void
 ): Promise<T> {
   return annotatingRejection(
     securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
-    operation
+    operation,
+    onReject,
+    ++proposalInvocation
   );
 }
 
@@ -541,6 +621,29 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
+  for (const key of [
+    'proofWaitAvailability',
+    'proposalCreateApi',
+    'proposalCreateFamily',
+    'guardianProvingSubstep',
+    'offscreenDeadlineMethod',
+    'offscreenDeadlineStage',
+    'queueAdmissionObservation',
+    'queueSighting',
+    'preflightSync',
+    'queueHidden',
+    'reapStartRelation'
+  ] as const)
+    delete snapshot[key];
+  if (snapshot.proposalStep === 'proposal_create') Object.assign(snapshot, snapshotProposalCreateDiagnostics(error));
+  Object.assign(snapshot, snapshotGuardianProving(error));
+  Object.assign(snapshot, snapshotOffscreenDeadlineForCrash(error));
+  Object.assign(snapshot, snapshotTerminalReport(error));
+  for (const key of UI_PRODUCER_KEYS) delete snapshot[key];
+  const own = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
+  Object.assign(snapshot, snapshotUiProducer(error, own?.userErrorId, own?.userErrorSurface));
+  const proofWaitAvailability = snapshotProofWaitAvailability(error);
+  if (proofWaitAvailability !== undefined) snapshot.proofWaitAvailability = proofWaitAvailability;
   return snapshot;
 }
 

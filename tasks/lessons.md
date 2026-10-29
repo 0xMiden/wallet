@@ -99,3 +99,9 @@ When a browser debugging connection is unavailable, inspect the requested browse
 ## Swap amount locators during loading
 
 Quote loading removes the derived amount input while keeping the opposite input mounted. A global first/nth locator can then edit the wrong side. Scope each amount locator to the existing pay/receive container and cover the missing-input state in its behavioral regression.
+
+- For #1945 and #1949, the user stopped Council and plan gates. Complete remaining fixes directly, self-review, and preserve ordinary automated CI acceptance without restarting panels.
+
+- A live gh watcher only collects status. Treat a CI failure as immediate work in the active orchestration turn; never equate a surviving watcher process with active failure recovery.
+
+- Release1.17.8 validation runs RC CI and the release E2E/Mainnet batch in parallel, per explicit user correction. Do not serialize their setup behind RC CI.

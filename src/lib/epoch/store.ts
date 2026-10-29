@@ -42,8 +42,13 @@ interface EpochState {
    * only handle for tagging the resulting consume row as a bridge-in.
    */
   midenNoteId: string | null;
-  /** Wall-clock ms when polling began (status → 'pending'); bounds the poll loop. */
+  /** Wall-clock ms when status became pending. */
   pollStartedAt: number | null;
+  /**
+   * The deposit screen stops its status interval once a solved compact expiry is known and already past
+   * while the legs are still not terminal. Elapsed time does not fail the deposit or offer reclaim.
+   */
+  compactWatchClosed: boolean;
   error: string | null;
   bridgeReceiveTxId: string | null;
   /** The allocator the current intent was submitted to; its status is read from there, not the document's current one. */
@@ -76,6 +81,7 @@ const INITIAL_STATE: EpochState = {
   pollResults: null,
   midenNoteId: null,
   pollStartedAt: null,
+  compactWatchClosed: false,
   error: null,
   bridgeReceiveTxId: null,
   allocatorUrl: null
@@ -116,10 +122,6 @@ function isIntentDone(results: IntentTransactionStatus[], flow: EpochFlow | null
 
 const EPOCH_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
 
-/** Give up polling a `pending` intent after this long, so a solver that never
- *  reports a terminal status doesn't leave the deposit screen spinning forever. */
-const MAX_POLL_MS = 15 * 60 * 1000;
-
 function isLegFailed(result: IntentTransactionStatus): boolean {
   return EPOCH_FAILED_STATUSES.has(String(result.status ?? '').toLowerCase());
 }
@@ -139,6 +141,16 @@ function isIntentFailed(results: IntentTransactionStatus[], flow: EpochFlow | nu
     return midenLeg ? isLegFailed(midenLeg) : false;
   }
   return results.some(isLegFailed);
+}
+
+/** A decimal-integer compact expiry, in unix seconds, that is already past. Missing or unparseable values are not. */
+function compactExpiryElapsed(expires: unknown, nowMs: number): boolean {
+  if (typeof expires !== 'string' || !/^[0-9]+$/.test(expires)) return false;
+  const seconds = Number(expires);
+  if (!Number.isSafeInteger(seconds)) return false;
+  const expiryMs = seconds * 1000;
+  if (!Number.isSafeInteger(expiryMs)) return false;
+  return expiryMs <= nowMs;
 }
 
 function errorMessage(err: unknown): string {
@@ -170,8 +182,6 @@ let latestRequest = 0;
 // and a read that a reset replaced must not hold up the next request's.
 let pollInFlight: number | undefined;
 
-const POLL_TIMEOUT_ERROR = 'Timed out waiting for the bridge to settle. Your deposit can be reclaimed.';
-
 export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
@@ -185,7 +195,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       pollResults: null,
       midenNoteId: null,
       bridgeReceiveTxId: null,
-      allocatorUrl: null
+      allocatorUrl: null,
+      compactWatchClosed: false
     });
     try {
       const sdk = await getEpochSdk({ chainId: params.sourceChainId });
@@ -213,7 +224,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       throw new Error('executeEVMToMiden requires a quoted EVM→Miden flow');
     }
     const sourceChainId = quote.params.sourceChainId;
-    set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null });
+    set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null, compactWatchClosed: false });
     try {
       const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
@@ -319,7 +330,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       intent: null,
       pollResults: null,
       midenNoteId: null,
-      allocatorUrl: null
+      allocatorUrl: null,
+      compactWatchClosed: false
     });
     try {
       const sdk = await getEpochSdk({ forMidenFlow: true });
@@ -342,7 +354,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     if (flow !== 'miden-to-evm' || status !== 'quoted' || !quote) {
       throw new Error('executeMidenToEVM requires a quoted Miden→EVM flow');
     }
-    set({ status: 'signing', error: null });
+    set({ status: 'signing', error: null, compactWatchClosed: false });
     try {
       if (!opts?.recovery) throw new Error('Miden execution requires a retained collateral owner');
       const allocatorUrl = getEpochAllocatorUrl();
@@ -371,8 +383,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   async poll() {
     const request = latestRequest;
     if (pollInFlight === request) return;
-    const { intent, flow, pollStartedAt, allocatorUrl } = get();
-    const pastPollLimit = () => pollStartedAt != null && Date.now() - pollStartedAt > MAX_POLL_MS;
+    const { intent, flow, allocatorUrl } = get();
     const { address } = await getEvmConnection();
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
@@ -400,16 +411,15 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }
         if (request !== latestRequest) return;
         const failed = !allDone && isIntentFailed(results, flow);
-        const timedOut = !allDone && !failed && pastPollLimit();
+        // A known compact expiry that is already past stops the screen's watch. It does not fail the deposit
+        // or offer reclaim; a destination-chain failure still does, even while the compact can still settle.
+        const compactWatchClosed = !allDone && !failed && compactExpiryElapsed(intent?.compactExpires, Date.now());
         set({
           pollResults: results,
           midenNoteId: discoveredNoteId ?? get().midenNoteId,
-          status: allDone ? 'done' : failed || timedOut ? 'failed' : 'pending',
-          error: failed
-            ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.'
-            : timedOut
-              ? POLL_TIMEOUT_ERROR
-              : get().error
+          status: allDone ? 'done' : failed ? 'failed' : 'pending',
+          error: failed ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.' : null,
+          compactWatchClosed
         });
       } finally {
         if (pollInFlight === request) pollInFlight = undefined;

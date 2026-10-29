@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily } from 'lib/epoch/pools';
+import { GC_DECIMALS } from 'lib/miden/arcade/gc-sale';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -18,6 +19,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { selectEarnVault, selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
+import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
 import { truncateAddress } from 'utils/string';
 
 export interface TransactionSummaryBadgeProps {
@@ -255,6 +257,17 @@ export const consumeAssetBreakdown = (
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
 ): ConsumeAssetPart[] => {
+  // An Arcade GC purchase knows its scale from the sale (6 decimals) and its quantity from the quote the row
+  // carries, so it is never Unknown for want of metadata the wallet gets only once it holds the token.
+  const gcPurchase = transaction.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
+  if (gcPurchase) {
+    return [
+      {
+        faucetId: gcPurchase.gcFaucetId,
+        label: `${formatAmount(BigInt(gcPurchase.expectedAmount), GC_DECIMALS)} GC`
+      }
+    ];
+  }
   const totals =
     transaction.assetTotals && transaction.assetTotals.length > 0
       ? transaction.assetTotals
@@ -349,6 +362,17 @@ export const useTransactionSummaryBadgeContent = (
   const { t } = useTranslation();
 
   return useMemo(() => {
+    // An Arcade GC purchase carries both sides on the row, at scales the sale fixes (6 decimals each), so it never
+    // waits on asset metadata: a wallet buying its first GC has none for the GC faucet and read "Unknown".
+    const gcPurchase = transaction?.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
+    if (gcPurchase) {
+      return {
+        lhs: t('arcadeGcPurchaseUsdcx', { amount: formatAmount(BigInt(gcPurchase.fillAmount), USDCX_DECIMALS) }),
+        rhs: t('arcadeBalance', { balance: formatAmount(BigInt(gcPurchase.expectedAmount), GC_DECIMALS) }),
+        fillForArrow: 'var(--action-swap)'
+      };
+    }
+
     if (transaction?.type === 'consume') {
       const parts = formatConsumeAssetParts(bridgeConfig, transaction, assetsMetadata, nativeFaucetId);
 

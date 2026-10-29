@@ -398,6 +398,10 @@ async function snapshot(page) {
 
 async function reachHome(page) {
   page.setDefaultTimeout(180_000);
+  // Import the public mock fixture: a carousel measurement does not create a mainnet account.
+  await page.addInitScript(() => {
+    globalThis.__TEST_IMPORT_SEED__ = 'abandon '.repeat(11) + 'about';
+  });
   await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded', timeout: 180_000 });
   const deadline = Date.now() + 240_000;
   let bypassed = false;

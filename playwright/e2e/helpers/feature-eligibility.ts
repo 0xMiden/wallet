@@ -35,6 +35,6 @@ export async function setEligibilityFixtureConfig<T extends {
 /** A new page then fetches the replacement fixture policy instead of hydrating the previous test's derivation. */
 export async function forgetFixtureConfig(page: Page, network: string): Promise<void> {
   await page.evaluate(async networkName => {
-    await chrome.storage.local.remove([`bridge_config_v1:${networkName}`, `bridge_config_derived_v1:${networkName}`]);
+    await chrome.storage.local.remove([`bridge_config_v1:${networkName}`, `bridge_config_derived_v2:${networkName}`]);
   }, network);
 }

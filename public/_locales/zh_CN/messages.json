@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "在您的以太坊钱包中",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "在后续提示中，WalletConnect 可能会显示 Bread 的 Chrome 扩展程序 ID 而不是其名称：",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "如有需要，请批准向 The Compact 转账 $amount$ $token$。部分代币需要先将额度重置为零。",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "向 The Compact 存入 $amount$ $token$，以桥接至 $network$ 上的 Miden（depositERC20AndRegister）。",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "此桥使用已存入 The Compact 的抵押品。请仔细核对下方列出的每个钱包交易目标。您的钱包可能会将它们合并显示。",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "此引文所涉及的抵押品已存于《契约》中，无需进行新的钱包交易。",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "链$chainId$上的交易$number$的目标为：",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "原生价值（基本单位）：",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "调用选择器：",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "如有需要，请授权 AggLayer 桥接服务精确支出 $amount$ $token$。",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "通过$network$上的AggLayer将$amount$的$token$桥接至Miden（bridgeAsset）。",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "如有需要，请授权 Circle xReserve 支出确切的 $amount$ $token$。",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "通过 Circle xReserve 在 $network$ 上向 Miden 存入 $amount$ $token$（depositToRemote）。",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "如有需要，请批准 Circle TokenMessengerWithFees 交易，金额为 $amount$ $token$ 加上手续费预留额度。确切限额显示在您的钱包中。",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "将$amount$的$token$代币（外加当前Circle手续费）烧毁，并存入Miden的USDCx账户（$network$网络）（depositForBurnWithHookAndFees）。",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "交易目标（若需代币授权，则为授权支出方）：",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "您的以太坊钱包会选择提示语的措辞，并可能将多种操作合并显示。确认前请检查其网络、授权限额及交易详情。",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "总余额",
     "englishSource": "Total balance"
@@ -1027,6 +1179,18 @@
   "originLabel": {
     "message": "来源：",
     "englishSource": "Origin:"
+  },
+  "originator": {
+    "message": "发起人",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "显示notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "隐藏notes",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "网络：",
@@ -4250,6 +4414,139 @@
   "outputNotesCreated": {
     "message": "输出：已创建notes",
     "englishSource": "Output notes created"
+  },
+  "transactionNoteFlow": {
+    "message": "Note流",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "输出notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "输出notes，包括手续费",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "无输入notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "无输出notes",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "无法获取输入note的详细信息",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "部分输入note的详细信息不可用",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "交易费note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID 注note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "otherNoteScript": {
+    "message": "其他note脚本",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note脚本不可用",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note内容不可用",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "创建者：",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "脚本根",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "无资产列出",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "金额单位未知",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "基本单位",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "原始交易数据",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "此笔交易不提供单笔note的详细信息。",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "单条note的详细信息未经核实。该网站提供了请求预览。",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "存储槽位详情不可用",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "无存储变更",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "映射槽",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "数值字段",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "创建",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "已更新",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "已删除",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "操作不可用",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "已修改的条目",
+    "englishSource": "Entries changed"
   },
   "storageChanged": {
     "message": "存储方式已更改",
@@ -8139,12 +8436,83 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "1 USDCx 购买 1,000 GC，另加网络手续费。",
-    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+    "message": "使用 USDCx 购买任意数量的 GC，另加网络手续费。",
+    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseAmountLabel": {
+    "message": "GC 买入",
+    "englishSource": "GC to buy"
+  },
+  "arcadeGcPurchaseNoQuote": {
+    "message": "—",
+    "englishSource": "—"
+  },
+  "arcadeGcPurchasePrice": {
+    "message": "实时销售中，每枚 GC 的价格为 $price$ USDCx。",
+    "englishSource": "$price$ USDCx per GC at the live sale.",
+    "placeholders": {
+      "price": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseAboveInventory": {
+    "message": "此次销售中仅剩$available$的GC。",
+    "englishSource": "Only $available$ GC are left in the sale.",
+    "placeholders": {
+      "available": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseBelowMinimum": {
+    "message": "该交易平台不接受如此小额的买入订单。",
+    "englishSource": "The sale does not take a purchase this small."
   },
   "arcadeGcPurchaseUnavailable": {
-    "message": "Bread 暂不支持购买 GC。",
-    "englishSource": "Buying GC is not available in Bread yet."
+    "message": "目前该网络暂不支持购买 GC。",
+    "englishSource": "Buying GC is not available on this network right now."
+  },
+  "arcadeGcPurchaseChecking": {
+    "message": "正在核查 GC 销售情况……",
+    "englishSource": "Checking the GC sale…"
+  },
+  "arcadeGcPurchaseReady": {
+    "message": "GC 销售已正式开始。网络手续费将从您的 USDCx 中扣除。",
+    "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
+  },
+  "arcadeGcPurchaseReviewBody": {
+    "message": "输入要购买的 GC 数量。该购买操作将填满链上公开的 GC 销售note。",
+    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+  },
+  "arcadeGcPurchaseYouPay": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "arcadeGcPurchaseYouReceive": {
+    "message": "您将收到",
+    "englishSource": "You receive"
+  },
+  "arcadeGcPurchaseUsdcx": {
+    "message": "$amount$ USDCx",
+    "englishSource": "$amount$ USDCx",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseFeeSeparate": {
+    "message": "以USDCx单独支付",
+    "englishSource": "Paid separately in USDCx"
+  },
+  "arcadeGcPurchaseInsufficient": {
+    "message": "您的 USDCx 余额不包含此套餐。",
+    "englishSource": "Your USDCx balance does not cover this package."
+  },
+  "arcadeGcPurchaseConfirm": {
+    "message": "确认购买",
+    "englishSource": "Confirm purchase"
   },
   "arcadeBuyMoreGc": {
     "message": "购买更多 GC",

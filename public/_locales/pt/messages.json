@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "Na sua carteira Ethereum",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "O WalletConnect pode exibir o ID da extensão do Bread para o Chrome em vez de seu nome em solicitações posteriores:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "Se necessário, aprove $amount$ $token$ para o The Compact. Alguns tokens exigem, inicialmente, uma redefinição da cota para zero.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "Deposite $amount$ $token$ no The Compact para fazer a ponte com o Miden na $network$ (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "Esta ponte usa garantias já depositadas no The Compact. Revise cada alvo de transação de carteira listado abaixo. Sua carteira pode combiná-los.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "Esta cotação utiliza garantias já presentes no The Compact e não requer nenhuma nova transação de carteira.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "A transação $number$ na cadeia $chainId$ tem como alvo:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "Valor nativo (unidades básicas):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "Seletor de chamadas:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "Se necessário, aprove a ponte AggLayer para gastar exatamente $amount$ em $token$.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "Transfira $amount$ $token$ para Miden por meio do AggLayer na $network$ (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "Se necessário, autorize a Circle xReserve a gastar exatamente $amount$ em $token$.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "Deposite $amount$ $token$ na Miden por meio do Circle xReserve na $network$ (depositToRemote).",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "Se necessário, aprove o Circle TokenMessengerWithFees para $amount$ $token$ mais margem para taxas. O limite exato aparece na sua carteira.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "Queimar $amount$ $token$ mais a taxa atual da Circle para um depósito de USDCx na Miden na $network$ (depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "Destino da transação (autorizador, caso seja necessária a aprovação do token):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "Sua carteira Ethereum escolhe o texto do prompt e pode combinar ações. Verifique a rede, o limite de aprovação e os detalhes da transação antes de confirmar.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "Saldo total",
     "englishSource": "Total balance"
@@ -1027,6 +1179,18 @@
   "originLabel": {
     "message": "Origem:",
     "englishSource": "Origin:"
+  },
+  "originator": {
+    "message": "Originador",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "Mostrar notes",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "Ocultar notes",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "Rede:",
@@ -4250,6 +4414,144 @@
   "outputNotesCreated": {
     "message": "Saída: notes criado",
     "englishSource": "Output notes created"
+  },
+  "transactionNoteFlow": {
+    "message": "Fluxo de Notes",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "notes de saída",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "notes de saída, incluindo taxa",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Sem notes de entrada",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Sem notes de saída",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Input note details unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Some input note details are unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note sobre taxa de transação",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note sobre P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note do P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "otherNoteScript": {
+    "message": "Outras notes de roteiro",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Script de Notes indisponível",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note contents unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Criado por",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Raiz do script",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Nenhum ativo listado",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Escala de valores desconhecida",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "unidades básicas",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Dados brutos da transação",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Detalhes do espaço de armazenamento indisponíveis",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Nenhuma alteração no armazenamento",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Slot do mapa",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Campo de valor",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Criado",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Atualizado",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Removido",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Operação indisponível",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Entradas alteradas",
+    "englishSource": "Entries changed"
   },
   "storageChanged": {
     "message": "Alteração no armazenamento",
@@ -8139,12 +8441,83 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "1.000 GC por 1 USDCx, mais taxas de rede.",
-    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+    "message": "Compre qualquer quantidade de GC com USDCx, mais as taxas de rede.",
+    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseAmountLabel": {
+    "message": "GC para comprar",
+    "englishSource": "GC to buy"
+  },
+  "arcadeGcPurchaseNoQuote": {
+    "message": "—",
+    "englishSource": "—"
+  },
+  "arcadeGcPurchasePrice": {
+    "message": "$price$ USDCx por GC na venda ao vivo.",
+    "englishSource": "$price$ USDCx per GC at the live sale.",
+    "placeholders": {
+      "price": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseAboveInventory": {
+    "message": "Restam apenas GC no valor de $available$ para venda.",
+    "englishSource": "Only $available$ GC are left in the sale.",
+    "placeholders": {
+      "available": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseBelowMinimum": {
+    "message": "A venda não aceita compras tão pequenas assim.",
+    "englishSource": "The sale does not take a purchase this small."
   },
   "arcadeGcPurchaseUnavailable": {
-    "message": "A compra de GC ainda não está disponível no Bread.",
-    "englishSource": "Buying GC is not available in Bread yet."
+    "message": "A compra de GC não está disponível nesta rede no momento.",
+    "englishSource": "Buying GC is not available on this network right now."
+  },
+  "arcadeGcPurchaseChecking": {
+    "message": "Verificando a venda do GC…",
+    "englishSource": "Checking the GC sale…"
+  },
+  "arcadeGcPurchaseReady": {
+    "message": "A venda do GC já está no ar. As taxas de rede são pagas com seu USDCx.",
+    "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
+  },
+  "arcadeGcPurchaseReviewBody": {
+    "message": "Insira a quantidade de GC a ser comprada. A compra preenche a note de venda pública de GC na cadeia.",
+    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+  },
+  "arcadeGcPurchaseYouPay": {
+    "message": "Você paga",
+    "englishSource": "You pay"
+  },
+  "arcadeGcPurchaseYouReceive": {
+    "message": "Você recebe",
+    "englishSource": "You receive"
+  },
+  "arcadeGcPurchaseUsdcx": {
+    "message": "$amount$ USDCx",
+    "englishSource": "$amount$ USDCx",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseFeeSeparate": {
+    "message": "Pago separadamente em USDCx",
+    "englishSource": "Paid separately in USDCx"
+  },
+  "arcadeGcPurchaseInsufficient": {
+    "message": "Seu saldo em USDCx não cobre este pacote.",
+    "englishSource": "Your USDCx balance does not cover this package."
+  },
+  "arcadeGcPurchaseConfirm": {
+    "message": "Confirmar compra",
+    "englishSource": "Confirm purchase"
   },
   "arcadeBuyMoreGc": {
     "message": "Comprar mais GC",

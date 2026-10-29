@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "이더리움 지갑에서",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "WalletConnect는 이후 안내 창에서 Bread의 이름 대신 Chrome 확장 프로그램 ID를 표시할 수 있습니다:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "필요한 경우, The Compact를 위해 $amount$ $token$을 승인하십시오. 일부 토큰의 경우 먼저 허용 한도를 0으로 재설정해야 합니다.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "$amount$ $token$을 The Compact에 예치하여 $network$상의 Miden으로 연결하십시오 (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "이 브리지는 이미 The Compact에 예치된 담보를 사용합니다. 아래에 표시된 각 지갑 거래 대상을 검토하십시오. 귀하의 지갑에서는 이들이 결합되어 있을 수 있습니다.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "이 인용문은 이미 ‘The Compact’에 있는 담보를 사용하며, 새로운 지갑 거래를 요구하지 않습니다.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "체인 $chainId$상의 트랜잭션 $number$은 다음을 대상으로 합니다:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "기본 가치(기본 단위):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "콜 선택기:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "필요한 경우, AggLayer 브리지가 정확히 $amount$ $token$를 지출할 수 있도록 승인하십시오.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "$network$상의 AggLayer를 통해 $amount$ $token$를 Miden으로 브리지합니다 (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "필요한 경우, Circle xReserve가 정확히 $amount$ 상당의 $token$을 지출할 수 있도록 승인하십시오.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "$network$ 네트워크(depositToRemote)를 통해 Circle xReserve를 이용하여 Miden에 $amount$ $token$을 입금하십시오.",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "필요한 경우, $amount$ $token$에 수수료 여유분을 더한 금액에 대해 Circle TokenMessengerWithFees를 승인하십시오. 정확한 한도는 지갑에 표시됩니다.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "$amount$ $token$ 및 현재 Circle 수수료를 합산하여 $network$상의 Miden에 USDCx를 입금하기 위해 소각(depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "거래 대상(토큰 승인이 필요한 경우 승인 지출자):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "이더리움 지갑은 프롬프트 문구를 선택하며, 여러 작업을 결합할 수 있습니다. 확인하기 전에 네트워크, 승인 한도 및 거래 세부 정보를 확인하십시오.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "총 잔액",
     "englishSource": "Total balance"
@@ -1027,6 +1179,18 @@
   "originLabel": {
     "message": "출처:",
     "englishSource": "Origin:"
+  },
+  "originator": {
+    "message": "발신자",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notes 보기",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "notes 숨기기",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "네트워크:",
@@ -4250,6 +4414,139 @@
   "outputNotesCreated": {
     "message": "notes 파일이 생성되었습니다.",
     "englishSource": "Output notes created"
+  },
+  "transactionNoteFlow": {
+    "message": "Note 흐름",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "출력notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "수수료를 포함한 출력 내역notes",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "입력 notes 없음",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "출력notes 없음",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "입력 note 세부 정보를 확인할 수 없음",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "일부 입력 note 세부 정보는 확인할 수 없습니다",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "거래 수수료 관련 note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "otherNoteScript": {
+    "message": "기타 note 스크립트",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note 스크립트 사용 불가",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note의 내용을 확인할 수 없음",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "작성자:",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "스크립트 루트",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "나열된 자산 없음",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "금액 단위 미상",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "기본 단위",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "원시 거래 데이터",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "이 거래에 대한 개별 note 세부 정보는 확인할 수 없습니다.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "개별 note의 세부 내용은 확인되지 않았습니다. 해당 사이트에서 요청 미리보기를 제공했습니다.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "저장 슬롯 세부 정보를 확인할 수 없음",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "저장 관련 변경 사항 없음",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "맵 슬롯",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "값 입력란",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "생성됨",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "업데이트됨",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "삭제됨",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "사용할 수 없는 작업",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "수정된 항목",
+    "englishSource": "Entries changed"
   },
   "storageChanged": {
     "message": "저장소가 변경되었습니다",
@@ -8139,12 +8436,83 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "1,000 GC에 1 USDCx, 네트워크 수수료 별도.",
-    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+    "message": "USDCx로 네트워크 수수료를 포함하여 원하는 금액의 GC를 구매하세요.",
+    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseAmountLabel": {
+    "message": "GC 매수",
+    "englishSource": "GC to buy"
+  },
+  "arcadeGcPurchaseNoQuote": {
+    "message": "—",
+    "englishSource": "—"
+  },
+  "arcadeGcPurchasePrice": {
+    "message": "실시간 판매 시 GC당 $price$의 USDCx.",
+    "englishSource": "$price$ USDCx per GC at the live sale.",
+    "placeholders": {
+      "price": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseAboveInventory": {
+    "message": "판매에는 $available$ 상당의 GC만 남아 있습니다.",
+    "englishSource": "Only $available$ GC are left in the sale.",
+    "placeholders": {
+      "available": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseBelowMinimum": {
+    "message": "이 판매처는 이 정도로 소액의 구매는 받지 않습니다.",
+    "englishSource": "The sale does not take a purchase this small."
   },
   "arcadeGcPurchaseUnavailable": {
-    "message": "Bread에서는 아직 GC를 구매할 수 없습니다.",
-    "englishSource": "Buying GC is not available in Bread yet."
+    "message": "현재 이 네트워크에서는 GC를 구매할 수 없습니다.",
+    "englishSource": "Buying GC is not available on this network right now."
+  },
+  "arcadeGcPurchaseChecking": {
+    "message": "GC 매도 주문 확인 중…",
+    "englishSource": "Checking the GC sale…"
+  },
+  "arcadeGcPurchaseReady": {
+    "message": "GC 판매가 시작되었습니다. 네트워크 수수료는 귀하의 USDCx에서 지불됩니다.",
+    "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
+  },
+  "arcadeGcPurchaseReviewBody": {
+    "message": "구매할 GC 수량을 입력하십시오. 이 구매는 온체인에 게시된 공개 GC 판매 공note를 채웁니다.",
+    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+  },
+  "arcadeGcPurchaseYouPay": {
+    "message": "결제",
+    "englishSource": "You pay"
+  },
+  "arcadeGcPurchaseYouReceive": {
+    "message": "귀하는",
+    "englishSource": "You receive"
+  },
+  "arcadeGcPurchaseUsdcx": {
+    "message": "$amount$ USDCx",
+    "englishSource": "$amount$ USDCx",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseFeeSeparate": {
+    "message": "USDCx로 별도로 지급됨",
+    "englishSource": "Paid separately in USDCx"
+  },
+  "arcadeGcPurchaseInsufficient": {
+    "message": "귀하의 USDCx 잔액은 이 패키지를 포함하지 않습니다.",
+    "englishSource": "Your USDCx balance does not cover this package."
+  },
+  "arcadeGcPurchaseConfirm": {
+    "message": "구매 확인",
+    "englishSource": "Confirm purchase"
   },
   "arcadeBuyMoreGc": {
     "message": "GC 추가 구매",

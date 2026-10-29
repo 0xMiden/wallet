@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "Ethereum cüzdanınızda",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "WalletConnect, sonraki istemlerde Bread'in adı yerine Chrome uzantı kimliğini gösterebilir:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "Gerekirse, The Compact için $amount$ $token$ tutarını onaylayın. Bazı tokenlar için önce sıfır izin sınırına sıfırlama yapılması gerekir.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "$amount$ tutarındaki $token$'i The Compact'a yatırarak $network$ üzerindeki Miden'e köprü kurun (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "Bu köprü, halihazırda The Compact'ta bulunan teminatları kullanır. Aşağıda listelenen her bir cüzdan işlem hedefini gözden geçirin. Cüzdanınız bunları birleştirebilir.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "Bu alıntı, halihazırda The Compact’ta bulunan teminatı kullanır ve yeni bir cüzdan işlemi gerektirmez.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "$number$ numaralı işlem, $chainId$ numaralı zincirde şunları hedefler:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "Yerel değer (temel birimler):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "Çağrı seçici:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "Gerekirse, AggLayer köprüsünün tam olarak $amount$ $token$ harcamasına izin verin.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "$amount$ tutarındaki $token$'i $network$ üzerindeki AggLayer aracılığıyla Miden'e aktarın (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "Gerekirse, Circle xReserve’in tam olarak $amount$ tutarında $token$ harcaması için onay verin.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "$network$ ağında Circle xReserve aracılığıyla Miden'e $amount$ tutarında $token$ yatırın (depositToRemote).",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "Gerekirse, $amount$ $token$ artı ücret marjı tutarında Circle TokenMessengerWithFees'i onaylayın. Kesin limit cüzdanınızda görünür.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "$amount$ tutarındaki $token$'i, $network$ ağındaki Miden'e USDCx yatırımı için geçerli Circle ücretini de ekleyerek yak (depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "İşlem hedefi (token onayı gerekiyorsa, onayı veren kişi):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "Ethereum cüzdanınız komut metnini seçer ve eylemleri birleştirebilir. Onaylamadan önce ağını, onay limitini ve işlem ayrıntılarını kontrol edin.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "Toplam Bakiye",
     "englishSource": "Total balance"
@@ -1027,6 +1179,18 @@
   "originLabel": {
     "message": "Kaynak:",
     "englishSource": "Origin:"
+  },
+  "originator": {
+    "message": "İşlem Başlatıcı",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notes'u göster",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "notes'u gizle",
+    "englishSource": "Hide notes"
   },
   "networkLabel": {
     "message": "Ağ:",
@@ -4250,6 +4414,140 @@
   "outputNotesCreated": {
     "message": "Çıktı note'ları oluşturuldu",
     "englishSource": "Output notes created"
+  },
+  "transactionNoteFlow": {
+    "message": "Note akışı",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Çıktı notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Output notes, including fee",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Giriş notes yok",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Çıktı notes yok",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Giriş note'sinin ayrıntıları mevcut değil",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Bazı giriş note'sindeki ayrıntılar mevcut değildir",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "İşlem ücreti note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "otherNoteScript": {
+    "message": "Diğer note metni",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note komut dosyası kullanılamıyor",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note'un içeriği mevcut değil",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Oluşturuldu:",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Script kökü",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Listelenen varlık yok",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Miktar ölçeği bilinmiyor",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "temel birimler",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Ham işlem verileri",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Bu işlem için bireysel note ayrıntıları mevcut değildir.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "note'un ayrıntıları doğrulanmamıştır. Talep önizlemesi site tarafından sağlanmıştır.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Depolama yuvası ayrıntıları mevcut değil",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Depolama değişiklikleri yok",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Harita yuvası",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Değer alanı",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Oluşturuldu",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Güncellendi",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Kaldırıldı",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "İşlem kullanılamıyor",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Değiştirilen girişler",
+    "englishSource": "Entries changed"
   },
   "storageChanged": {
     "message": "Depolama alanı değiştirildi",
@@ -8139,12 +8437,84 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "1 USDCx karşılığında 1.000 GC, ağ ücretleri hariç.",
-    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+    "message": "USDCx ile herhangi bir miktarda GC satın alın; buna ağ ücretleri de eklenir.",
+    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseAmountLabel": {
+    "message": "GC satın alacak",
+    "englishSource": "GC to buy"
+  },
+  "arcadeGcPurchaseNoQuote": {
+    "message": "—",
+    "englishSource": "—"
+  },
+  "arcadeGcPurchasePrice": {
+    "message": "Canlı satışta GC başına $price$ USDCx.",
+    "englishSource": "$price$ USDCx per GC at the live sale.",
+    "placeholders": {
+      "price": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseAboveInventory": {
+    "message": "Satışta sadece $available$ değerinde GC kalmıştır.",
+    "englishSource": "Only $available$ GC are left in the sale.",
+    "placeholders": {
+      "available": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseBelowMinimum": {
+    "message": "Satış, bu kadar küçük bir alım işlemini kabul etmez.",
+    "englishSource": "The sale does not take a purchase this small."
   },
   "arcadeGcPurchaseUnavailable": {
-    "message": "Bread’de GC satın alma henüz kullanılamıyor.",
-    "englishSource": "Buying GC is not available in Bread yet."
+    "message": "Şu anda bu ağda GC satın alma işlemi yapılamamaktadır.",
+    "englishSource": "Buying GC is not available on this network right now."
+  },
+  "arcadeGcPurchaseChecking": {
+    "message": "GC satışını kontrol etmek…",
+    "englishSource": "Checking the GC sale…"
+  },
+  "arcadeGcPurchaseReady": {
+    "message": "GC satışı başladı. Ağ ücretleri, USDCx'inizden ödenir.",
+    "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
+  },
+  "arcadeGcPurchaseReviewBody": {
+    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+  },
+  "arcadeGcPurchaseYouPay": {
+    "message": "Ödeme yaparsınız",
+    "englishSource": "You pay"
+  },
+  "arcadeGcPurchaseYouReceive": {
+    "message": "Şunları alırsınız",
+    "englishSource": "You receive"
+  },
+  "arcadeGcPurchaseUsdcx": {
+    "message": "$amount$ USDCx",
+    "englishSource": "$amount$ USDCx",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGcPurchaseFeeSeparate": {
+    "message": "USDCx cinsinden ayrı olarak ödenir",
+    "englishSource": "Paid separately in USDCx"
+  },
+  "arcadeGcPurchaseInsufficient": {
+    "message": "USDCx bakiyeniz bu paketi kapsamamaktadır.",
+    "englishSource": "Your USDCx balance does not cover this package."
+  },
+  "arcadeGcPurchaseConfirm": {
+    "message": "Satın almayı onayla",
+    "englishSource": "Confirm purchase"
   },
   "arcadeBuyMoreGc": {
     "message": "Daha fazla GC satın al",

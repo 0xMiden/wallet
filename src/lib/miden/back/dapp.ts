@@ -29,6 +29,7 @@ import {
   type AssetAmount,
   type TxAssetView
 } from 'app/confirm/decode';
+import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -288,9 +289,9 @@ async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-const CONFIRM_WINDOW_WIDTH = 380;
-// 632 plus the 44px network banner (#875) that tops the confirm window.
-const CONFIRM_WINDOW_HEIGHT = 676;
+const CONFIRM_WINDOW_WIDTH = 440;
+// 716 plus the 44px network banner (#875) that tops the confirm window.
+const CONFIRM_WINDOW_HEIGHT = 760;
 const AUTODECLINE_AFTER = 120_000;
 // How long a confirm popup may hold the dApp queue through an unlock, its build and a full review.
 const LOCKED_PROMPT_CAP_MS = 2 * AUTODECLINE_AFTER;
@@ -2390,7 +2391,13 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit } = sheetData;
+    const { transactionMessages, customLimit, simulated } = sheetData;
+    let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
+    try {
+      noteFlow = noteFlowFromSimulatedBytes(simulated);
+    } catch (error) {
+      console.error('Custom transaction note details unavailable:', error);
+    }
 
     const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
@@ -2404,6 +2411,7 @@ const generatePromisifyTransaction = async (
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
       transactionMessages,
+      noteFlow: noteFlow ?? null,
       ...(customLimit.details !== undefined && {
         spendingLimitAssessment: customLimit.details.assessment
       }),

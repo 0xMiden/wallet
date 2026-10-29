@@ -280,6 +280,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:
@@ -470,6 +472,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:

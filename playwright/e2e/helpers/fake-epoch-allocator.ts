@@ -21,7 +21,7 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
  *
  *   Withdraw (gasless redeem + bridge back — Sepolia→Miden, phase 2):
  *     GET  /gasless-status                       → relayer address (see caveat below)
- *     GET  /health                               → HealthCheckResponse (availability + relayer fallback)
+ *     GET  /health                               → HealthCheckResponse (service configuration, availability, relayer fallback)
  *     POST /relay-enable-delegation              → { ok }
  *     POST /relay-execute                        → { nonce } (programmable)
  *
@@ -37,35 +37,60 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 const SEPOLIA_CHAIN_ID = 11155111;
 /** Epoch's virtual Miden chain id (the withdraw/bridge leg). */
 const MIDEN_DESTINATION_CHAIN_ID = 999999999;
+/** Epoch's virtual Miden mainnet chain id, which `/health` names beside the testnet one. */
+const MIDEN_MAINNET_VIRTUAL_CHAIN_ID = 123456789;
 /** An allocator address `/health` advertises per chain, as testnet-dev does. */
 const FAKE_ALLOCATOR_ADDRESS = '0x00000000000000000000000000000000000a110c';
 /** The relay signer the gasless withdraw resolves from `/gasless-status` or `/health`. */
 const RELAYER_ADDRESS = '0x0000000000000000000000000000000000000001';
 
+/** The Compact's address on every network, where the harness installs its MockCompact. */
+const COMPACT_ADDRESS = '0x00000000000000171ede64904551eeDF3C6C9788';
+/** The Epoch arbiter the SDK's commons table names for Sepolia and the virtual Miden chain. */
+const ARBITER_ADDRESS: Record<number, string> = {
+  [SEPOLIA_CHAIN_ID]: '0x2F5eA866716A04e91a55099620F2e1B423eC7011',
+  [MIDEN_DESTINATION_CHAIN_ID]: '0xff065285a18c4608901004788540bb83a2e29ad8'
+};
+
 /**
- * `/health` in the SDK's `HealthCheckResponse` shape, plus the `supportedChains` list
- * testnet-dev also sends. The wallet's availability check reads it, and the SDK reads
+ * `/health` in the SDK's `HealthCheckResponse` shape. Since epoch-intents-sdk 2.0 the SDK
+ * reads its whole service configuration here before every compact build, deposit and
+ * withdraw: the allocator, arbiter and Compact address per chain, the lock tag, the
+ * compact expiry and the Miden recall buffer. The values mirror the constants the SDK
+ * compiled in before 2.0 (lock tag 4/0, 600 s expiry plus 60 s buffer, 1000 recall
+ * blocks). The wallet's availability check reads `status`, and the SDK reads
  * `signingAddress` as the gasless relayer when `/gasless-status` is unavailable.
  */
-export function allocatorHealthResponse(
-  signingAddress: string = RELAYER_ADDRESS
-): HealthCheckResponse & { supportedChains: string[] } {
+export function allocatorHealthResponse(signingAddress: string = RELAYER_ADDRESS): HealthCheckResponse {
   return {
     status: 'healthy',
     allocatorAddresses: {
       [SEPOLIA_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS,
       [MIDEN_DESTINATION_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS
     },
+    arbiterAddresses: ARBITER_ADDRESS,
+    compactAddresses: {
+      [SEPOLIA_CHAIN_ID]: COMPACT_ADDRESS,
+      [MIDEN_DESTINATION_CHAIN_ID]: COMPACT_ADDRESS
+    },
+    midenVirtualChainId: MIDEN_DESTINATION_CHAIN_ID,
+    midenTestnetVirtualChainId: MIDEN_DESTINATION_CHAIN_ID,
+    midenMainnetVirtualChainId: MIDEN_MAINNET_VIRTUAL_CHAIN_ID,
+    compactLockResetPeriod: 4,
+    compactLockScope: 0,
+    compactExpirySeconds: 600,
+    compactExpiryBufferSeconds: 60,
+    midenRecallBufferBlocks: 1000,
     signingAddress,
     timestamp: new Date().toISOString(),
-    chainConfig: {
-      defaultFinalizationThresholdSeconds: 0,
-      supportedChains: [
-        { chainId: String(SEPOLIA_CHAIN_ID), finalizationThresholdSeconds: 0 },
-        { chainId: String(MIDEN_DESTINATION_CHAIN_ID), finalizationThresholdSeconds: 0 }
-      ]
-    },
-    supportedChains: []
+    supportedChains: [
+      { chainId: String(SEPOLIA_CHAIN_ID), allocatorId: FAKE_ALLOCATOR_ADDRESS, finalizationThresholdSeconds: 0 },
+      {
+        chainId: String(MIDEN_DESTINATION_CHAIN_ID),
+        allocatorId: FAKE_ALLOCATOR_ADDRESS,
+        finalizationThresholdSeconds: 0
+      }
+    ]
   };
 }
 
