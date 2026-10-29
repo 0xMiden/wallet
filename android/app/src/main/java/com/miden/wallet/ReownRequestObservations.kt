@@ -14,6 +14,15 @@ enum class ReownWalletResponseCode(val wire: String) {
     USER_REJECTED("user_rejected"),
     INVALID_PARAMS("invalid_params"),
     INTERNAL_ERROR("internal_error"),
+    PROVIDER_UNAUTHORIZED("provider_unauthorized"),
+    METHOD_UNSUPPORTED("method_unsupported"),
+    PROVIDER_DISCONNECTED("provider_disconnected"),
+    CHAIN_DISCONNECTED("chain_disconnected"),
+    CHAIN_SWITCH_FAILED("chain_switch_failed"),
+    REQUEST_INVALID("request_invalid"),
+    RPC_UNAVAILABLE("rpc_unavailable"),
+    TRANSACTION_REJECTED("transaction_rejected"),
+    RPC_LIMITED("rpc_limited"),
     OTHER("other")
 }
 
@@ -39,6 +48,15 @@ fun walletResponseCategory(code: Int?): ReownWalletResponseCode = when (code) {
     4001 -> ReownWalletResponseCode.USER_REJECTED
     -32602 -> ReownWalletResponseCode.INVALID_PARAMS
     -32603 -> ReownWalletResponseCode.INTERNAL_ERROR
+    4100 -> ReownWalletResponseCode.PROVIDER_UNAUTHORIZED
+    4200, -32601, -32004 -> ReownWalletResponseCode.METHOD_UNSUPPORTED
+    4900 -> ReownWalletResponseCode.PROVIDER_DISCONNECTED
+    4901 -> ReownWalletResponseCode.CHAIN_DISCONNECTED
+    4902 -> ReownWalletResponseCode.CHAIN_SWITCH_FAILED
+    -32700, -32600 -> ReownWalletResponseCode.REQUEST_INVALID
+    -32001, -32002 -> ReownWalletResponseCode.RPC_UNAVAILABLE
+    -32003 -> ReownWalletResponseCode.TRANSACTION_REJECTED
+    -32005 -> ReownWalletResponseCode.RPC_LIMITED
     else -> ReownWalletResponseCode.OTHER
 }
 
