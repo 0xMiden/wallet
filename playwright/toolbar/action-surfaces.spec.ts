@@ -16,6 +16,8 @@ for (const theme of ['light', 'dark'] as const) {
     const manifestPath = join(extension, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.action.default_popup).toBeUndefined();
+    manifest.host_permissions.push('https://origin-test.invalid/*');
+    writeFileSync(manifestPath, JSON.stringify(manifest));
     const profile = join(root, 'profile');
     const launch = () =>
       chromium.launchPersistentContext(profile, {
@@ -26,6 +28,9 @@ for (const theme of ['light', 'dark'] as const) {
           `--disable-extensions-except=${extension}`,
           `--load-extension=${extension}`,
           '--window-size=1400,1000',
+          '--host-resolver-rules=MAP origin-test.invalid 127.0.0.1',
+          '--ignore-certificate-errors',
+          '--no-proxy-server',
           '--force-renderer-accessibility',
           '--remote-debugging-port=0'
         ],
@@ -233,9 +238,12 @@ for (const theme of ['light', 'dark'] as const) {
       await page.reload();
       await page.waitForSelector('[data-testid="onboarding-welcome"]');
       await page.bringToFront();
-      const { createServer } = await import('node:http');
+      const { createServer } = await import('node:https');
+      const keyPath = join(root, 'origin-key.pem');
+      const certPath = join(root, 'origin-cert.pem');
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyPath, '-out', certPath, '-subj', '/CN=origin-test.invalid', '-days', '1'], { stdio: 'ignore' });
       const origins: string[] = [];
-      const originProbe = createServer((req, res) => {
+      const originProbe = createServer({ key: readFileSync(keyPath), cert: readFileSync(certPath) }, (req, res) => {
         const value = req.headers.origin;
         origins.push(value === undefined ? 'missing' : value === 'null' ? 'null' : value.startsWith('chrome-extension://') ? 'chrome-extension' : 'other');
         res.writeHead(200, { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin', 'content-type': 'application/json' });
@@ -245,12 +253,12 @@ for (const theme of ['light', 'dark'] as const) {
       try {
         const address = originProbe.address();
         if (!address || typeof address === 'string') throw new Error('Origin probe address unavailable');
-        const probeUrl = `http://127.0.0.1:${address.port}/v1/eligibility?network=testnet`;
+        const probeUrl = `https://origin-test.invalid:${address.port}/v1/eligibility?network=testnet`;
         await page.evaluate(async url => {
           const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer' });
           if (!response.ok) throw new Error('Origin probe failed');
         }, probeUrl);
-        await persistDiagnostic('chrome-loopback-origin', { surface: 'extension-fullpage', transport: 'http-loopback', origin: origins[0] ?? 'unobserved' });
+        await persistDiagnostic('chrome-https-origin', { surface: 'extension-fullpage', transport: 'https-loopback-host-permission', origin: origins[0] ?? 'unobserved' });
         expect(origins).toHaveLength(1);
       } finally {
         await new Promise<void>((resolveProbe, reject) => originProbe.close(error => error ? reject(error) : resolveProbe()));
