@@ -44,3 +44,11 @@ it('bounds an oversized dApp result without marking the accepted transaction fai
   expect(rows[0]?.transactionId).toBe('accepted');
   expect(rows[0]?.status).toBe(ITransactionStatus.Completed);
 });
+
+it('does not impose the dApp limit on other transaction types', async () => {
+  rows[0]!.type = 'send';
+  const resultBytes = new Uint8Array(limit + 1);
+  await updateTransactionStatus('tx', ITransactionStatus.Completed, { transactionId: 'accepted', resultBytes } as never);
+  expect(rows[0]?.resultBytes).toBe(resultBytes);
+  expect(rows[0]?.resultTooLarge).toBeUndefined();
+});
