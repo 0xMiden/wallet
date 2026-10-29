@@ -1,6 +1,7 @@
 name: Toolbar locator proof
 on:
-  workflow_dispatch:
+  push:
+    branches: [ci/toolbar-locator-proof-1962]
 permissions:
   contents: read
 jobs:

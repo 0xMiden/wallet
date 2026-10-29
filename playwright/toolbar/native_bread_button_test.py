@@ -23,7 +23,32 @@ class NativeBreadButtonTest(unittest.TestCase):
             (root / 'import').write_text('#!/bin/sh\ncp "$PROBE_SCREEN" "$3"\n')
             for name in ('xdotool', 'import'):
                 (root / name).chmod(0o755)
-            env = {**os.environ, 'PATH': f'{root}:{os.environ["PATH"]}', 'PROBE_SCREEN': str(root / 'screen.png')}
+            shim = '''
+import json, os
+STATE_SHOWING = 1
+DESKTOP_COORDS = 0
+class State:
+    def contains(self, state): return True
+class Rect:
+    def __init__(self, x, y): self.x, self.y, self.width, self.height = x - 17, y - 17, 34, 34
+class Node:
+    def __init__(self, role, name='', point=None, children=()): self.role, self.name, self.point, self.children = role, name, point, children
+    def getRoleName(self): return self.role
+    def getState(self): return State()
+    def queryComponent(self): return self
+    def getExtents(self, coords): return Rect(*self.point)
+    def __iter__(self): return iter(self.children)
+points = json.loads(os.environ['PROBE_POINTS'])
+toolbar = [Node('push button', 'Bread\\nWants access to this site', point) for point in points if point[1] < 95]
+page = [Node('push button', 'Bread\\nWants access to this site', point) for point in points if point[1] >= 95]
+desktop = Node('application', children=[Node('frame', children=[Node('tool bar', children=toolbar), Node('document web', children=page)])])
+class Registry:
+    @staticmethod
+    def getDesktop(index): return desktop
+'''
+            (root / 'pyatspi.py').write_text(shim)
+            env = {**os.environ, 'PATH': f'{root}:{os.environ["PATH"]}', 'PROBE_SCREEN': str(root / 'screen.png'),
+                   'PYTHONPATH': str(root), 'PROBE_POINTS': json.dumps(points)}
             return subprocess.run(['/usr/bin/python3', str(SCRIPT)], capture_output=True, text=True, env=env)
 
     def test_page_decoy_is_not_a_toolbar_candidate(self):

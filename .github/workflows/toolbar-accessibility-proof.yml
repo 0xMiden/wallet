@@ -83,7 +83,7 @@ jobs:
           const mainnet = await fetch('http://127.0.0.1:8551/mainnet.json');
           if (!mainnet.ok || (await mainnet.json()).network !== 'mainnet') throw new Error('Toolbar Mainnet policy unavailable');
           JS
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar playwright/toolbar/accessibility-probe.spec.ts'
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar'
 
       - name: Upload native toolbar evidence
         if: always()
