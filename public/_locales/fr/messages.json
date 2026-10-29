@@ -5820,6 +5820,10 @@
     "message": "Échec du dépôt via le pont",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Votre portefeuille connecté ne contient aucun jeton présentant un solde positif sur ce réseau.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",

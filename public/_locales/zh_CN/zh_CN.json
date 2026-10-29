@@ -1292,6 +1292,7 @@
   "bridgeDepositProcessing": "确认桥接存款",
   "bridgeDepositProcessingDescription": "请在您的钱包中批准这些请求——系统可能会多次提示——并在源网络确认这些请求期间保持此屏幕打开。",
   "bridgeDepositFailed": "桥接存款失败",
+  "bridgeDepositNoTokenBalance": "您已连接的钱包在此网络上没有余额为正的代币。",
   "bridgeDepositBalanceTooLow": "您已连接的钱包在$network$上持有$balance$的$token$，该金额低于本次存款所需。未发送任何资金。",
   "bridgeDepositBalanceReadFailed": "无法在$network$上查询您的$token$余额。未发送任何内容。",
   "bridgeDepositBalanceCapExceeded": "该账户最多可持有$cap$美元。当前持有$held$美元，本次存款将增加$deposit$美元。请输入较小的金额。",

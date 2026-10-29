@@ -1292,6 +1292,7 @@
   "bridgeDepositProcessing": "ブリッジへの預入確認",
   "bridgeDepositProcessingDescription": "ウォレット内のリクエストを承認してください（複数回求められる場合があります）。送信元ネットワークによる確認が完了するまで、この画面を開いたままにしておいてください。",
   "bridgeDepositFailed": "ブリッジへの入金が失敗しました",
+  "bridgeDepositNoTokenBalance": "接続されているウォレットには、このネットワーク上で残高がプラスのトークンは存在しません。",
   "bridgeDepositBalanceTooLow": "接続されたウォレットには、$network$上の$balance$分の$token$が保管されていますが、この入金額には不足しています。何も送信されませんでした。",
   "bridgeDepositBalanceReadFailed": "$network$上の$token$残高を確認できませんでした。何も送信されませんでした。",
   "bridgeDepositBalanceCapExceeded": "このアカウントの最大保有額は$cap$米ドルです。現在$held$米ドルが保有されており、この入金により$deposit$米ドルが追加されます。これより少ない金額を入力してください。",

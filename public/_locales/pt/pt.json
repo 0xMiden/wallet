@@ -1287,6 +1287,7 @@
   "bridgeDepositProcessing": "Confirmando o depósito na ponte",
   "bridgeDepositProcessingDescription": "Aprove as solicitações na sua carteira — pode ser que seja solicitado mais de uma vez — e mantenha esta tela aberta enquanto a rede de origem as confirma.",
   "bridgeDepositFailed": "Falha no depósito da ponte",
+  "bridgeDepositNoTokenBalance": "Sua carteira conectada não possui tokens com saldo positivo nesta rede.",
   "bridgeDepositBalanceTooLow": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",
   "bridgeDepositBalanceReadFailed": "Não foi possível verificar seu saldo de $token$ na $network$. Nada foi enviado.",
   "bridgeDepositBalanceCapExceeded": "Esta conta pode conter, no máximo, $cap$ em dólares americanos. Ela contém $held$ em dólares americanos e este depósito acrescenta $deposit$ em dólares americanos. Insira um valor menor.",

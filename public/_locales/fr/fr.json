@@ -1289,6 +1289,7 @@
   "bridgeDepositProcessing": "Confirmation d’un dépôt via un pont",
   "bridgeDepositProcessingDescription": "Validez les demandes dans votre portefeuille — il se peut qu’il vous le demande plusieurs fois — et laissez cet écran ouvert pendant que le réseau source les confirme.",
   "bridgeDepositFailed": "Échec du dépôt via le pont",
+  "bridgeDepositNoTokenBalance": "Votre portefeuille connecté ne contient aucun jeton présentant un solde positif sur ce réseau.",
   "bridgeDepositBalanceTooLow": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
   "bridgeDepositBalanceReadFailed": "Impossible de vérifier le solde de votre $token$ sur $network$. Rien n’a été envoyé.",
   "bridgeDepositBalanceCapExceeded": "Ce compte peut contenir au maximum $cap$ USD. Il contient $held$ USD et ce dépôt ajoute $deposit$ USD. Saisissez un montant inférieur.",

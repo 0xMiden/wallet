@@ -1290,6 +1290,7 @@
   "bridgeDepositProcessing": "Potwierdzanie wpłaty na most",
   "bridgeDepositProcessingDescription": "Zatwierdź żądania w swoim portfelu — może pojawić się prośba więcej niż raz — i pozostaw ten ekran otwarty, dopóki sieć źródłowa ich nie potwierdzi.",
   "bridgeDepositFailed": "Niepowodzenie wpłaty na most",
+  "bridgeDepositNoTokenBalance": "Twój podłączony portfel nie posiada tokenów z dodatnim saldem w tej sieci.",
   "bridgeDepositBalanceTooLow": "Twój podłączony portfel zawiera $balance$ $token$ w sieci $network$, co stanowi kwotę mniejszą niż wymagana do dokonania wpłaty. Nic nie zostało wysłane.",
   "bridgeDepositBalanceReadFailed": "Nie udało się sprawdzić salda $token$ w sieci $network$. Nic nie zostało wysłane.",
   "bridgeDepositBalanceCapExceeded": "Na tym koncie można przechowywać maksymalnie $cap$ USD. Znajduje się na nim $held$ USD, a ta wpłata dodaje $deposit$ USD. Wprowadź mniejszą kwotę.",

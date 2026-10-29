@@ -5817,6 +5817,10 @@
     "message": "Bridge deposit failed",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Your connected wallet has no tokens with a positive balance on this network.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
