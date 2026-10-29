@@ -1,0 +1,27 @@
+name: Storage recovery stale initial state red proof
+on:
+  push:
+    branches: [ci/1948-stale-epoch-red3]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check frozen source
+        run: |
+          git checkout --detach 1bd34429da376052811fd7ce89cb3d5ebe5dd6fb
+          test "$(git rev-parse HEAD)" = 1bd34429da376052811fd7ce89cb3d5ebe5dd6fb
+      - uses: ./.github/actions/yarn-install
+      - name: Stale epoch tests (expected red)
+        run: >-
+          yarn test --runInBand --runTestsByPath
+          src/lib/store/hooks/useIntercomSync.test.ts
+          --testNamePattern='older initial response after a newer broadcast'
