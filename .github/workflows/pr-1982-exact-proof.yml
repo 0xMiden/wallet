@@ -1,0 +1,320 @@
+name: PR 1982 exact-source PR and coverage proof
+'on':
+  push:
+    branches:
+    - ci/1982-exact-pr-proof
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check Out Code
+      uses: actions/checkout@v4
+      with:
+        repository: 0xMiden/wallet
+        ref: 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Verify exact PR source
+      run: test "$(git rev-parse HEAD)" = 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Use Node 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Inject linked web-sdk PR
+      uses: ./.github/actions/inject-linked-web-sdk-pr
+    - name: Inject linked guardian PR
+      uses: ./.github/actions/inject-linked-guardian-pr
+    - name: Run Install
+      uses: ./.github/actions/yarn-install
+    - name: Run ESLint
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: lint
+    - name: Run TypeScript Check
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: ts
+    - name: Run 1Click service unit tests
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: test:oneclick-service
+    - name: Run Unit Tests
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: test
+    - name: Validate update manifest
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: check:update-manifest
+  mock-e2e:
+    name: mock-e2e
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check Out Code
+      uses: actions/checkout@v4
+      with:
+        repository: 0xMiden/wallet
+        ref: 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Verify exact PR source
+      run: test "$(git rev-parse HEAD)" = 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Use Node 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Inject linked web-sdk PR
+      uses: ./.github/actions/inject-linked-web-sdk-pr
+      with:
+        build-node-module: 'true'
+    - name: Inject linked guardian PR
+      uses: ./.github/actions/inject-linked-guardian-pr
+    - name: Run Install
+      uses: ./.github/actions/yarn-install
+    - name: Check the consume request equivalence
+      timeout-minutes: 5
+      run: node scripts/consume-request-equivalence.mjs
+    - name: Run guarded custom request regressions
+      timeout-minutes: 5
+      run: yarn test:custom-request
+    - name: Install Chrome
+      uses: browser-actions/setup-chrome@v1
+    - name: Start wallet eligibility fixture
+      uses: ./.github/actions/start-eligibility-fixture
+      env:
+        E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+    - name: Build chrome
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: build:chrome
+      env:
+        MIDEN_USE_MOCK_CLIENT: 'true'
+        MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+    - name: Verify the built extension manifest
+      run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path,
+        'utf8'));"
+    - name: Drop apt repositories this repo never installs from
+      uses: ./.github/actions/apt-drop-unused-repos
+    - name: Install Playwright Browsers
+      timeout-minutes: 12
+      run: npx playwright install --with-deps chromium
+    - name: Run Playwright E2E
+      run: xvfb-run -a yarn test:e2e
+    - name: Upload wallet access screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: wallet-access-screenshots
+        path: test-results/**/wallet-access-*.png
+        retention-days: 7
+        if-no-files-found: warn
+    - name: Upload wallet picker screenshots
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: appkit-picker-screenshots
+        path: test-results/**/appkit-picker-*.png
+        if-no-files-found: ignore
+        retention-days: 7
+    - name: Run Arcade sheet layout regression
+      timeout-minutes: 5
+      run: yarn playwright test --config playwright.arcade-visual.config.ts
+    - name: Upload Arcade sheet layout regression
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: arcade-sheet-layout
+        path: test-results/arcade-visual/
+        if-no-files-found: warn
+        retention-days: 7
+    - name: Run 1Click visual acceptance
+      timeout-minutes: 5
+      run: yarn playwright test --config playwright.one-click-visual.config.ts
+    - name: Upload 1Click visual acceptance
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: one-click-visual
+        path: test-results/one-click-visual/
+        if-no-files-found: warn
+        retention-days: 7
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/${{ strategy.job-total }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+        - 1
+        - 2
+        - 3
+    runs-on: ubuntu-latest
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+    - name: Check Out Code
+      uses: actions/checkout@v4
+      with:
+        repository: 0xMiden/wallet
+        ref: 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Verify exact PR source
+      run: test "$(git rev-parse HEAD)" = 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Use Node 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Inject linked web-sdk PR
+      uses: ./.github/actions/inject-linked-web-sdk-pr
+    - name: Inject linked guardian PR
+      uses: ./.github/actions/inject-linked-guardian-pr
+    - name: Run Install
+      uses: ./.github/actions/yarn-install
+    - name: Run Coverage shard
+      env:
+        SHARD: ${{ matrix.shard }}
+        SHARDS: ${{ strategy.job-total }}
+      run: 'set -euo pipefail
+
+        yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+
+        '
+    - name: Count shard tests
+      continue-on-error: true
+      run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
+    - uses: actions/upload-artifact@v4
+      with:
+        name: coverage-shard-${{ matrix.shard }}
+        path: 'coverage/coverage-final.json
+
+          coverage/test-count.json
+
+          '
+        if-no-files-found: error
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    env:
+      COVERAGE_SHARDS: 3
+    steps:
+    - name: Check shards
+      env:
+        SHARDS_RESULT: ${{ needs.coverage.result }}
+      run: "if [ \"$SHARDS_RESULT\" != \"success\" ]; then\n  echo \"coverage shards $SHARDS_RESULT\"; exit 1; fi\n"
+    - uses: actions/checkout@v4
+      with:
+        repository: 0xMiden/wallet
+        ref: 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Verify exact PR source
+      run: test "$(git rev-parse HEAD)" = 9e55263db46ea229b03f41f97e04559ed457113a
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Install coverage reporters
+      run: 'mkdir -p "$RUNNER_TEMP/covtools"
+
+        cd "$RUNNER_TEMP/covtools"
+
+        npm init -y
+
+        npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+
+        '
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: coverage-shard-*
+        path: coverage-shards
+    - name: Merge shards and enforce 95%
+      env:
+        NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+      run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+    - name: Record badge data
+      id: badge-data
+      continue-on-error: true
+      run: node scripts/badge-data.mjs record "$COVERAGE_SHARDS" coverage/coverage-summary.json coverage-shards "$RUNNER_TEMP/badge-data.json"
+    - name: Upload badge data
+      if: steps.badge-data.outcome == 'success'
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-badge-data
+        path: ${{ runner.temp }}/badge-data.json
+        if-no-files-found: error
+  ci:
+    name: Test
+    needs:
+    - unit
+    - mock-e2e
+    - native-toolbar
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+    - run: "if [ \"${{ needs.unit.result }}\" != \"success\" ]; then\n  echo \"unit ${{ needs.unit.result }}\"; exit 1; fi\nif [ \"${{ needs.mock-e2e.result }}\"\
+        \ != \"success\" ]; then\n  echo \"mock-e2e ${{ needs.mock-e2e.result }}\"; exit 1; fi\nif [ \"${{ needs.native-toolbar.result }}\" != \"success\" ]; then\n\
+        \  echo \"native-toolbar ${{ needs.native-toolbar.result }}\"; exit 1; fi\necho \"unit, mock-e2e and native-toolbar ok\"\n"
+  native-toolbar:
+    name: Native toolbar
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+    - name: Check Out Code
+      uses: actions/checkout@v4
+      with:
+        repository: 0xMiden/wallet
+        ref: 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Verify exact PR source
+      run: test "$(git rev-parse HEAD)" = 9e55263db46ea229b03f41f97e04559ed457113a
+    - name: Use Node 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Inject linked web-sdk PR
+      uses: ./.github/actions/inject-linked-web-sdk-pr
+    - name: Inject linked guardian PR
+      uses: ./.github/actions/inject-linked-guardian-pr
+    - name: Run Install
+      uses: ./.github/actions/yarn-install
+    - name: Install Chrome
+      uses: browser-actions/setup-chrome@v1
+    - name: Start ordinary wallet eligibility fixture
+      uses: ./.github/actions/start-eligibility-fixture
+      env:
+        E2E_FIXTURE_NETWORKS: testnet,mainnet
+        E2E_FIXTURE_PRELAUNCH_TESTNET: 'false'
+    - name: Build chrome
+      uses: borales/actions-yarn@v4
+      with:
+        cmd: build:chrome
+      env:
+        MIDEN_USE_MOCK_CLIENT: 'true'
+        MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+    - name: Verify the built extension manifest
+      run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path,
+        'utf8'));"
+    - name: Drop apt repositories this repo never installs from
+      uses: ./.github/actions/apt-drop-unused-repos
+    - name: Install native action and screenshot tools
+      run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
+    - name: Install Playwright Browsers
+      timeout-minutes: 12
+      run: npx playwright install --with-deps chromium
+    - name: Run native toolbar regressions
+      run: "curl --fail --silent --show-error http://127.0.0.1:8551/testnet.json > \"$RUNNER_TEMP/toolbar-fixture-config.json\"\ntrap 'curl --fail --silent --show-error\
+        \ -X POST -H \"Content-Type: application/json\" --data-binary @\"$RUNNER_TEMP/toolbar-fixture-config.json\" http://127.0.0.1:8551/_fixture/config' EXIT\n\
+        node --input-type=module <<'JS'\nconst response = await fetch('http://127.0.0.1:8551/testnet.json');\nif (!response.ok) throw new Error('Fixture config unavailable');\n\
+        const document = await response.json();\ndocument.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };\nconst saved = await fetch('http://127.0.0.1:8551/_fixture/config',\
+        \ {\n  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)\n});\nif (!saved.ok) throw new Error('Fixture config\
+        \ refused');\nconst active = await fetch('http://127.0.0.1:8551/testnet.json');\nif (!active.ok) throw new Error('Toolbar fixture config unavailable');\n\
+        const policy = await active.json();\nif (policy.mainnetCountdown?.enabled !== true || policy.mainnetCountdown.launchAt !== document.mainnetCountdown.launchAt)\
+        \ {\n  throw new Error('Toolbar fixture must retain the enabled future countdown');\n}\nconst mainnet = await fetch('http://127.0.0.1:8551/mainnet.json');\n\
+        if (!mainnet.ok || (await mainnet.json()).network !== 'mainnet') throw new Error('Toolbar Mainnet policy unavailable');\nJS\ndbus-run-session -- xvfb-run\
+        \ -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn\
+        \ test:e2e:toolbar'\n"
+    - name: Upload native toolbar evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-toolbar-evidence
+        path: test-results/
+        retention-days: 7
+        if-no-files-found: warn
