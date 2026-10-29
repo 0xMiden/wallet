@@ -34,8 +34,33 @@ function scriptSettingsMetadata(body) {
   if (tails !== undefined && (!Array.isArray(tails) || tails.length)) return null;
   const result = {};
   if (logpush !== undefined) result.logpush = logpush;
-  if (observability !== undefined)
-    result.observability = observability === null ? null : { enabled: observability.enabled };
+  if (observability !== undefined) {
+    if (observability === null) result.observability = null;
+    else {
+      const clean = { enabled: observability.enabled };
+      for (const [group, keys] of [
+        ['logs', ['enabled', 'invocation_logs', 'persist']],
+        ['traces', ['enabled', 'persist']],
+        ['issues', ['enabled']]
+      ]) {
+        const value = observability[group];
+        if (value === undefined) continue;
+        if (value === null) {
+          clean[group] = null;
+          continue;
+        }
+        if (typeof value !== 'object' || Array.isArray(value)) return null;
+        const switches = {};
+        for (const key of keys) {
+          if (value[key] === undefined) continue;
+          if (typeof value[key] !== 'boolean') return null;
+          switches[key] = value[key];
+        }
+        clean[group] = switches;
+      }
+      result.observability = clean;
+    }
+  }
   if (tails !== undefined) result.tail_consumers = [];
   return { success: true, errors: [], result };
 }
