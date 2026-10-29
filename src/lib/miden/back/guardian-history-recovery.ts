@@ -458,6 +458,12 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               answer.delta,
               summary
             );
+            // Import one output per call so each operation releases the WASM lock.
+            for (const note of summary.outputNotes) {
+              await check();
+              await midenClientProxy.importGuardianHistoryP2ideNotes(encoded, account.publicKey, note.id);
+              await check();
+            }
             records.push(record);
           }
           // Decode local results outside the database transaction and between yield checks, only for a page that has
