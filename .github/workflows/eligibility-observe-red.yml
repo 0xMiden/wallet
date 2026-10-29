@@ -1,0 +1,34 @@
+name: Eligibility topology observation expected red
+on:
+  push:
+    branches: [ci/1894-observe-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 9ca33c5ebd0f9bef51dac3456d58c9a5041f659e
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-observe.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - topology observation accepts stable isolated relationship evidence' result.log || exit 1
+          grep -F 'ok 2 - topology observation rejects external references and missing settings' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collect-red
+          path: result.log
