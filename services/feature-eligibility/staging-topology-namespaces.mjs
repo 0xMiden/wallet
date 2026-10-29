@@ -186,3 +186,31 @@ export async function collectTopologyScriptInventory(api) {
     return null;
   }
 }
+
+export async function collectTopologyNamespaces(api, expected) {
+  try {
+    const scan = async () => {
+      const pages = [];
+      let totalPages = 1;
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        const response = await api(`/workers/durable_objects/namespaces?page=${pageNumber}&per_page=1000`);
+        if (pageNumber === 1) {
+          totalPages = response?.result_info?.total_pages;
+          if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > 100) return null;
+        }
+        pages.push(response);
+      }
+      if (!validateTopologyNamespaces(pages, expected)) return null;
+      return pages.flatMap(page =>
+        page.result.map(({ id, class: className, script, use_sqlite }) => ({ id, className, script, use_sqlite }))
+      );
+    };
+    const first = await scan();
+    if (first === null) return null;
+    const second = await scan();
+    if (second === null || JSON.stringify(first) !== JSON.stringify(second)) return null;
+    return first.filter(entry => entry.script === expected.script).map(entry => entry.id);
+  } catch {
+    return null;
+  }
+}
