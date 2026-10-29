@@ -1684,6 +1684,30 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('preserves a fixed failed-measurement reason across intercom', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'dry_run_failed',
+        message: 'private-account amount=123'
+      });
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'failed',
+        failure: 'dry_run_failed'
+      });
+    });
+
+    it('drops unknown failed-measurement metadata from intercom', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'private-account amount=123'
+      });
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'failed'
+      });
+    });
+
     it.each<'busy' | 'failed'>(['busy', 'failed'])('decodes %s as itself, with no reserve', async outcome => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome });
 

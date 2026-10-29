@@ -6179,8 +6179,8 @@ describe('actual execution producer through offscreen encoder, proxy, cancellati
         const envelope = bodies.find(body => body.includes('WalletTransactionFailure'));
         expect(envelope).toBeDefined();
         expect(envelope).toContain('"executionRoute":"' + route + '"');
-        expect(envelope).toContain('"authObservation":"observed"');
-        expect(envelope).toContain('"authArgPresence":"absent"');
+        expect(envelope).toContain('"executionObservation":"observed"');
+        expect(envelope).toContain('"executionArguments":"absent"');
         expect(envelope).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
         for (const sentinel of ['0xabcdef', '987654321', 'private.example', 'private-account', 'private-execution-row'])
           expect(envelope).not.toContain(sentinel);

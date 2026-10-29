@@ -227,6 +227,7 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
       <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
+      <span data-testid="sa-diagnostics">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
       <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
       <span data-testid="sa-network">{props.network ?? ''}</span>
@@ -2449,6 +2450,19 @@ describe('USDCx burn fee reserve', () => {
     expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^true$/);
     expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
     expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes only closed failure evidence alongside the unavailable fee warning', async () => {
+    const failed: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+    mockEstimateUsdcxBurnFee.mockResolvedValue(
+      Object.assign(failed, { failure: 'dry_run_failed', message: 'private-account amount=123' })
+    );
+    openBurn(SendFlowStep.SelectAmount);
+    await waitFor(() => expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeUnavailable$/));
+    expect(screen.getByTestId('sa-diagnostics')).toHaveTextContent(
+      JSON.stringify({ kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' })
+    );
+    expect(screen.getByTestId('sa-diagnostics')).not.toHaveTextContent('private-account');
   });
 
   it('caps the amount at the measured reserve once it lands', async () => {

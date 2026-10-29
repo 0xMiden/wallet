@@ -475,7 +475,13 @@ describe('PendingActivityCard live failure reporting', () => {
     advance(999);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ]
+    ]);
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
@@ -515,7 +521,13 @@ describe('PendingActivityCard live failure reporting', () => {
     advance(999);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ]
+    ]);
   });
 
   it('does not restart the same failure dwell when the same note receives refreshed details', () => {
@@ -528,7 +540,13 @@ describe('PendingActivityCard live failure reporting', () => {
     advance(499);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ]
+    ]);
     rerender(card({ note: { ...note, receivedAt: 456 }, status: 'failed' }));
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
@@ -564,7 +582,13 @@ describe('PendingActivityCard live failure reporting', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     rerender(card({ note: other, status: 'failed' }));
     advance(1000);
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ]
+    ]);
   });
 
   it('starts another live episode after a displayed failure recovers', () => {
@@ -577,8 +601,16 @@ describe('PendingActivityCard live failure reporting', () => {
     rerender(card({ note, status: 'failed' }));
     advance(1000);
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
-      ['noteClaimFailedRetry', 'notice'],
-      ['noteClaimFailedRetry', 'notice']
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ],
+      [
+        'noteClaimFailedRetry',
+        'notice',
+        { kind: 'note_claim', noteClaimFailureOrigin: 'transaction_row', uiFailureKind: 'unavailable' }
+      ]
     ]);
   });
 });
