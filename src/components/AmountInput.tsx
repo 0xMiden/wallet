@@ -69,7 +69,10 @@ export function normalizeDecimalInput(rawValue: string): string {
 }
 
 export function normalizeLeadingZeroes(value: string): string {
-  return value.replace(/^(-?)0+(?=\d)/, '$1').replace(/^(-?)0+(?=\.|$)/, '$10');
+  return value
+    .replace(/^(-?)\.(?=\d)/, '$10.')
+    .replace(/^(-?)0+(?=\d)/, '$1')
+    .replace(/^(-?)0+(?=\.|$)/, '$10');
 }
 
 export interface AmountInputProps {

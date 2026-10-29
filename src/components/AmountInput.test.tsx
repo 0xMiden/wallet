@@ -385,6 +385,7 @@ describe('AmountInput', () => {
   describe('interaction', () => {
     it.each([
       ['00.15', '0.15'],
+      ['.15', '0.15'],
       ['00012.34', '12.34'],
       ['0.', '0.'],
       ['', ''],
@@ -433,6 +434,29 @@ describe('AmountInput', () => {
       fireEvent.change(getInput(), { target: { value: '-00090071992547409931234567890.0000' } });
       expect(getInput()).toHaveValue('-90071992547409931234567890.0000');
       expect(onValueChange).toHaveBeenLastCalledWith('-90071992547409931234567890.0000');
+    });
+
+    it('adds the zero before a negative fractional amount', () => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            allowNegativeValue
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: '-.15' } });
+      expect(getInput()).toHaveValue('-0.15');
+      expect(onValueChange).toHaveBeenLastCalledWith('-0.15');
     });
 
     it('maps a caret inside the removed integer prefix and preserves a fractional selection', async () => {
