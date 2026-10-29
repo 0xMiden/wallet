@@ -1,7 +1,7 @@
 name: Issue 1948 integrated SDK proof
 on:
   push:
-    branches: [ci/1948-debit-seam-red-v2]
+    branches: [ci/1948-debit-seam-green]
 permissions:
   contents: read
   actions: read
@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 646bb0685c7523117aac0e6776b30ee4f270dd7b
+          ref: ff35b1235ecb1b40f33f8dd441590a5fdb669d84
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = 646bb0685c7523117aac0e6776b30ee4f270dd7b
+        run: test "$(git rev-parse HEAD)" = ff35b1235ecb1b40f33f8dd441590a5fdb669d84
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
@@ -39,7 +39,7 @@ jobs:
       - name: Full TypeScript check
         run: yarn tsc --noEmit
       - name: Diagnose retained acknowledgement
-        run: yarn jest --runTestsByPath src/lib/miden/transaction/initiate.held-claims.test.ts --runInBand --no-coverage -t 'counts retained recovery debits' --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+        run: yarn jest --runTestsByPath src/lib/miden/transaction/initiate.held-claims.test.ts --runInBand --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,7 +1,7 @@
 name: Issue 1948 main integration proof
 on:
   push:
-    branches: [ci/1948-main-integration-proof]
+    branches: [ci/1948-main-integration-proof-v2]
 permissions:
   contents: read
   actions: read
@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a1a231822a09524e9a93374164e798aae2d29d43
+          ref: ff35b1235ecb1b40f33f8dd441590a5fdb669d84
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = a1a231822a09524e9a93374164e798aae2d29d43
+        run: test "$(git rev-parse HEAD)" = ff35b1235ecb1b40f33f8dd441590a5fdb669d84
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
@@ -41,7 +41,7 @@ jobs:
       - name: Recovery and state integration tests
         run: |
           mapfile -t tests < <(find src/lib/miden/recovery src/screens/storage-recovery src/lib/store -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
-          tests+=(src/lib/miden/back/main.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts src/app/StorageRecoveryPage.test.tsx src/app/PageRouter.test.tsx src/lib/epoch/bridge.test.ts src/lib/miden/spending-limits/queue.test.ts src/lib/miden/spending-limits/queue.recovery.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/lib/miden/transaction/retry.landed.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/screens/earn-flow/useEarnPositions.test.ts)
+          tests+=(src/lib/miden/back/main.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts src/app/StorageRecoveryPage.test.tsx src/app/PageRouter.test.tsx src/lib/epoch/bridge.test.ts src/lib/miden/spending-limits/queue.test.ts src/lib/miden/spending-limits/queue.recovery.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/lib/miden/transaction/retry.landed.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/screens/earn-flow/useEarnPositions.test.ts src/lib/epoch/receipt-execution.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts)
           printf 'Selected %s suites\n' "${#tests[@]}"
           test "${#tests[@]}" -gt 6
           yarn jest --runTestsByPath "${tests[@]}" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
