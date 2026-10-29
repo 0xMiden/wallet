@@ -35,9 +35,9 @@ jobs:
           set -euo pipefail
           test "$(git -C wallet rev-parse HEAD)" = fcf3df17346cb2c87c64a28f2b454c41667e332f
           cp -R fixture/playwright/proofs/storage-retained-vault-native wallet/playwright/proofs/
-      - uses: ./wallet/.github/actions/yarn-install
-        with:
-          working-directory: wallet
+      - name: Install frozen dependencies
+        working-directory: wallet
+        run: yarn install --frozen-lockfile --network-timeout 600000
       - uses: actions/download-artifact@v4
         with:
           name: sdk505-40842248402
