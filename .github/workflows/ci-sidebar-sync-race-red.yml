@@ -1,0 +1,35 @@
+name: Sidebar startup ordering expected red
+on:
+  push:
+    branches: [ci/sidebar-sync-race-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: test "$(git rev-parse HEAD^)" = 8a280469ee41527ab99e968cd494a4cb90b7c7b3
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - name: Verify the initial response ordering regression
+        shell: bash
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/store/hooks/useIntercomSync.test.ts --testNamePattern='does not overwrite a newer lock notification with an older initial response' --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+          status=${PIPESTATUS[0]}
+          test "$status" -ne 0 || exit 1
+          node -e "const x=require('./proof/results.json');const a=x.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status!=='pending');if(a.length!==1 || a[0].status!=='failed' || !a[0].failureMessages.join(' ').includes('toHaveBeenLastCalledWith')) {console.error(JSON.stringify(a));process.exit(1)} console.log('Expected red: stale initial response overwrites the newer lock')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sidebar-sync-race-red
+          path: proof/
