@@ -129,3 +129,7 @@ export async function runCacheScenario({ service, counters }) {
     return 'failed';
   }
 }
+
+export async function runColoScenario() {
+  return 'failed';
+}
