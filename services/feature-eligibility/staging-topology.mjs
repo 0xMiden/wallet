@@ -3,6 +3,7 @@ const SCENARIOS = new Set([
   'colo_isolation',
   'shared_budget',
   'rate_refusal',
+  'native_rate',
   'failure_behavior',
   'restart_day'
 ]);
@@ -239,6 +240,25 @@ export async function runBudgetScenario({ budget, counters, now = Date.now }) {
     if (count !== 16) return 'failed';
     const denied = await send('reserve', {});
     return !denied.ok && (await readCount()) === 16 ? 'passed' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function runNativeRateScenario({ caller, colo, nonce }) {
+  try {
+    if (!/^[a-f0-9]{32}$/.test(nonce) || typeof caller?.limit !== 'function' || typeof colo?.limit !== 'function')
+      return 'failed';
+    for (const [name, binding] of [
+      ['caller', caller],
+      ['colo', colo]
+    ]) {
+      for (let index = 0; index < 5; index++) {
+        const result = await binding.limit({ key: `topology:${nonce}:${name}` });
+        if (result?.success !== index < 4) return 'failed';
+      }
+    }
+    return 'passed';
   } catch {
     return 'failed';
   }

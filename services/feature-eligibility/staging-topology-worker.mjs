@@ -5,6 +5,7 @@ import topology, {
   runCacheScenario,
   runColoScenario,
   runFailureScenario,
+  runNativeRateScenario,
   runRateScenario,
   runRestartScenario
 } from './staging-topology.mjs';
@@ -208,6 +209,13 @@ export class TopologyControl {
           }
         };
         return runFailureScenario({ service: adapter, counters: async () => ({ attempts }) });
+      }
+      if (name === 'native_rate') {
+        return runNativeRateScenario({
+          caller: env.TOPOLOGY_CALLER_RATE,
+          colo: env.TOPOLOGY_COLO_RATE,
+          nonce: crypto.randomUUID().replaceAll('-', '')
+        });
       }
       if (name === 'rate_refusal') {
         let objects = 0;
