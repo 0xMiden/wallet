@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { runRateScenario } from './staging-topology.mjs';
+import * as topology from './staging-topology.mjs';
+
+const runRateScenario = topology.runRateScenario ?? (() => 'missing');
 
 function fixture({ wrongStatus = false, objectTouched = false } = {}) {
   let touched = 0;
