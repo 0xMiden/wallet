@@ -15,6 +15,7 @@
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
+- [CHANGE][all] Activity history explains saved incoming-note import warnings with fixed reason categories while keeping note contents in storage.
 - [FIX][all] Token price history shows an unavailable state when no market samples are available instead of a fabricated flat line.
 - [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
 - [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.

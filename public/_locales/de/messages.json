@@ -4859,6 +4859,31 @@
     "message": "1 Überweisung konnte nicht automatisch importiert werden.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "Import abgebrochen wegen: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Verbindungsproblem",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Unlesbare Notiz",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Vom Knoten abgelehnt",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Grund nicht verfügbar",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Morgen",
     "englishSource": "Tomorrow"
