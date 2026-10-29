@@ -76,6 +76,7 @@ async function endpoints(feeFaucetId) {
 }
 async function prepare(password, includePrivate) {
   guard();
+  window.__proofDbName = Repo.db.name;
   progress('wasm-ready');
   await ensureSdkWasmReady();
   progress('genuine-chain-bootstrap');
@@ -258,6 +259,7 @@ let crossRealmState;
 let crossRealmWallet;
 async function attach(password) {
   guard();
+  window.__proofDbName = Repo.db.name;
   progress('second-realm-setup');
   await loadEndpointOverrides();
   check('secondRealmLocalEndpoint', getEffectiveRpcUrl() === location.origin);
@@ -285,34 +287,25 @@ async function attach(password) {
 async function injectedWalletWrite(name) {
   guard();
   if (name !== 'AbortError' && name !== 'QuotaExceededError') throw new Error('fixture-error-type');
-  const original = IDBDatabase.prototype.transaction;
-  let injected = 0;
-  IDBDatabase.prototype.transaction = function (...args) {
-    if (this.name === Repo.db.name && args[1] === 'readwrite' && injected === 0) {
-      injected++;
-      throw new DOMException('disposable-injected-failure', name);
-    }
-    return Reflect.apply(original, this, args);
-  };
+  window.__proofFault = name;
+  window.__proofFaultCount = 0;
   let rejected = false;
   try {
     await Repo.metadata.put({ id: 'cross-realm-proof-control', generation: 'disposable', origin: 'fresh' });
   } catch { rejected = true; }
-  finally { IDBDatabase.prototype.transaction = original; }
+  finally { window.__proofFault = null; }
+  const injected = window.__proofFaultCount;
   return { injected: injected === 1, rejected, healthy: getStorageHealth().status === 'healthy', unavailable: getStorageHealth().status === 'unavailable' };
 }
 async function blockedWrites() {
   guard();
-  const originalTransaction = IDBDatabase.prototype.transaction;
-  let nativeWrites = 0;
-  IDBDatabase.prototype.transaction = function (...args) {
-    if (this.name === Repo.db.name && args[1] === 'readwrite') nativeWrites++;
-    return Reflect.apply(originalTransaction, this, args);
-  };
+  window.__proofTrackWalletWrites = true;
+  window.__proofWalletWrites = 0;
   let walletRefused = false;
   try { await Repo.metadata.put({ id: 'cross-realm-proof-blocked', generation: 'disposable', origin: 'fresh' }); }
   catch (error) { walletRefused = error instanceof Error && error.name === 'StorageUnavailableError'; }
-  finally { IDBDatabase.prototype.transaction = originalTransaction; }
+  finally { window.__proofTrackWalletWrites = false; }
+  const nativeWrites = window.__proofWalletWrites;
   let sdkCalls = 0;
   let sdkRefused = false;
   await withWasmClientLock(async hold => {

@@ -16,6 +16,18 @@ test('st/main/cross-realm-storage-stop', async ({ browser }, testInfo) => {
   const checks = {};
   async function pageReady() {
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      const original = IDBDatabase.prototype.transaction;
+      IDBDatabase.prototype.transaction = function (...args) {
+        const target = this.name === window.__proofDbName && args[1] === 'readwrite';
+        if (target && window.__proofTrackWalletWrites) window.__proofWalletWrites++;
+        if (target && window.__proofFault && window.__proofFaultCount === 0) {
+          window.__proofFaultCount++;
+          throw new DOMException('disposable-injected-failure', window.__proofFault);
+        }
+        return Reflect.apply(original, this, args);
+      };
+    });
     await page.exposeBinding('__retainedStorageEvent', () => {});
     await page.exposeBinding('__retainedReportPhase', (_source, value) => { if (!phases.has(value)) throw new Error('closed-phase'); report.phase = value; });
     await page.goto(`${service.origin}/st/`);
