@@ -1,0 +1,48 @@
+name: Issue 1948 integrated SDK proof
+on:
+  push:
+    branches: [ci/1948-main1982-proof]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  wallet:
+    runs-on: warp-ubuntu-latest-x64-8x
+    timeout-minutes: 90
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e853c96ed00e5af5cc63226eaa3cd80d4a8e0027
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify wallet identity
+        run: test "$(git rev-parse HEAD)" = e853c96ed00e5af5cc63226eaa3cd80d4a8e0027
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK package
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - name: Full TypeScript check
+        run: yarn tsc --noEmit
+      - name: Diagnose retained acknowledgement
+        run: yarn jest --runTestsByPath src/app/pages/Browser/DappLauncher/DappLauncher.test.tsx src/app/pages/TabRootHeaderParity.test.tsx src/components/ui/TabRootHeader.test.tsx src/app/PageRouter.test.tsx src/app/StorageRecoveryPage.test.tsx src/screens/storage-recovery/RecoveryDataFlow.test.tsx --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wallet1948-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue1948-results.json
+          if-no-files-found: warn
