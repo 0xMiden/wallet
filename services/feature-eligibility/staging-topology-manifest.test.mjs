@@ -67,3 +67,19 @@ test('topology manifest embeds its ownership markers in the deployed configurati
   assert.equal(value?.config.vars.TOPOLOGY_OWNER, value?.ownerMarker);
   assert.equal(value?.config.vars.TOPOLOGY_CONFIG_SHA, value?.configSha256);
 });
+
+test('topology manifest allocates distinct bounded rate bindings for native staging checks', () => {
+  const value = build(options());
+  const limits = value?.config?.ratelimits;
+  assert.deepEqual(
+    limits?.map(item => [item.name, item.simple]),
+    [
+      ['TOPOLOGY_CALLER_RATE', { limit: 4, period: 60 }],
+      ['TOPOLOGY_COLO_RATE', { limit: 4, period: 10 }]
+    ]
+  );
+  assert.equal(new Set(limits.map(item => item.namespace_id)).size, 2);
+  assert.ok(
+    limits.every(item => /^[1-9][0-9]*$/.test(item.namespace_id) && !['189401', '189402'].includes(item.namespace_id))
+  );
+});
