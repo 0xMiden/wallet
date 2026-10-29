@@ -184,11 +184,13 @@ const mockStorageSet = jest.fn();
 const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
 const mockIsDelegateProofAsync = jest.fn(async (): Promise<boolean> => true);
 const mockAreBgMirrored = jest.fn(async (): Promise<boolean> => true);
+const mockReadMirroredDelegateProof = jest.fn(async (): Promise<boolean | undefined> => undefined);
 jest.mock('lib/settings/helpers', () => ({
   ...jest.requireActual('lib/settings/helpers'),
   isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync(),
   isDelegateProofEnabledAsync: () => mockIsDelegateProofAsync(),
-  areBackgroundSettingsMirrored: () => mockAreBgMirrored()
+  areBackgroundSettingsMirrored: () => mockAreBgMirrored(),
+  readMirroredDelegateProof: () => mockReadMirroredDelegateProof()
 }));
 
 let mockBaseFee: number | null = 0;
@@ -374,6 +376,7 @@ beforeEach(() => {
   // NOT mockResolvedValue impls, so a per-test override (e.g. areBgMirrored=false) would
   // otherwise leak and silently gate off later tests' native path.
   mockAreBgMirrored.mockResolvedValue(true);
+  mockReadMirroredDelegateProof.mockResolvedValue(undefined);
   mockIsAutoConsumeAsync.mockResolvedValue(false);
   mockIsDelegateProofAsync.mockResolvedValue(true);
   mockGetFaucetIdSetting.mockResolvedValue(null);
@@ -2068,6 +2071,47 @@ describe('doSync - zero-fill swap reclaim', () => {
     }
   });
 
+  it.each([
+    { mirror: false, order: true },
+    { mirror: true, order: false }
+  ])('uses local reclaim proving with an unpublished present mirror $mirror and saved choice $order', async choice => {
+    mockAreBgMirrored.mockResolvedValue(false);
+    mockReadMirroredDelegateProof.mockResolvedValue(choice.mirror);
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest: jest.fn(async () => reclaimBytes)
+    }));
+    await Repo.transactions.put({ ...zeroFillOrderRow, delegateTransaction: choice.order });
+    try {
+      await doSync();
+      expect(mockInitiatePswapReclaim.mock.calls[0]?.[4]).toBe(false);
+      expect(mockInitiatePswapReclaim).toHaveBeenCalledTimes(1);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('keeps the saved remote reclaim choice when the unpublished delegate key is absent', async () => {
+    mockAreBgMirrored.mockResolvedValue(false);
+    mockSettlementSeen.reconcile.length = 0;
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest: jest.fn(async () => reclaimBytes)
+    }));
+    await Repo.transactions.put({ ...zeroFillOrderRow, delegateTransaction: true });
+    try {
+      await doSync();
+      expect(mockSettlementSeen.reconcile[0]?.[2]).toBeUndefined();
+      expect(mockInitiatePswapReclaim.mock.calls[0]?.[4]).toBe(true);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
   it('builds and queues no reclaim while the vault is locked, and the first lap after unlock does', async () => {
     const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
     mockGetMidenClient.mockImplementation(async () => ({
@@ -2396,6 +2440,28 @@ describe('doSync - expired swap order settlement', () => {
     ]);
     await Repo.transactions.put(partFilledOrderRow);
   };
+
+  it.each([
+    { mirror: false, order: true },
+    { mirror: true, order: false }
+  ])('uses local payback proving with an unpublished present mirror $mirror and saved choice $order', async choice => {
+    mockAreBgMirrored.mockResolvedValue(false);
+    mockReadMirroredDelegateProof.mockResolvedValue(choice.mirror);
+    await seedPartFilledOrder();
+    await Repo.transactions.update(partFilledOrderRow.id, { delegateTransaction: choice.order });
+    try {
+      await doSync();
+      expect(mockInitiateConsumeBatch.mock.calls[0]?.[2]).toBe(false);
+      expect(mockInitiateConsumeBatch.mock.calls[1]?.[2]).toBe(false);
+      expect(mockInitiateConsumeBatch.mock.calls.map(call => call[1])).toEqual([
+        [expect.objectContaining({ id: 'payback' })],
+        [expect.objectContaining({ id: 'remainder-tip' })]
+      ]);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
 
   it('worker settlement refuses token-only payback and remainder and still settles a funded order', async () => {
     const undoRealQueue = useRealClaimQueue();
