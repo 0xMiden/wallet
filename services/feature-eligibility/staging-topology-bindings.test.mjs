@@ -38,3 +38,12 @@ test('binding inventory rejects ambiguous durable-object bindings', () => {
   values[1].bindings.push({ name: 'AMBIGUOUS', type: 'durable_object_namespace', class_name: 'Other' });
   assert.equal(validate(values, expected), false);
 });
+
+test('binding inventory rejects unexpected or duplicated target-worker namespaces', () => {
+  const extra = scripts();
+  extra[0].bindings.push({ ...binding, name: 'EXTRA', namespace_id: '00000000000000000000000000000002' });
+  assert.equal(validate(extra, expected), false);
+  const duplicate = scripts();
+  duplicate[0].bindings.push({ ...binding, name: 'DUPLICATE' });
+  assert.equal(validate(duplicate, expected), false);
+});
