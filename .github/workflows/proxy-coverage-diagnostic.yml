@@ -14,9 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 0
       - name: Verify source identity
-        run: test "$(git rev-parse HEAD~2)" = ec8d99b9b5f25f1d6d0d157fa00644be9512f047
+        run: |
+          git merge-base --is-ancestor ec8d99b9b5f25f1d6d0d157fa00644be9512f047 HEAD
+          git diff --exit-code ec8d99b9b5f25f1d6d0d157fa00644be9512f047 HEAD -- . ":(exclude).github/workflows/proxy-coverage-diagnostic.yml"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
