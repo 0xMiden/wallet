@@ -201,6 +201,17 @@ const uiCases = [
   ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown' }],
   ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
   ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
+  ['usdcxBurnFeeUnavailable', 'field', { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }],
+  [
+    'mainnetAccessCheckFailed',
+    'inline',
+    { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' }
+  ],
+  [
+    'noteClaimFailedRetry',
+    'notice',
+    { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }
+  ],
   [
     'raw_bridge_balance_failed',
     'field',
@@ -285,6 +296,24 @@ it('rejects incomplete arbitrary inherited and accessor Earn observations withou
   expect(getter).not.toHaveBeenCalled();
 });
 
+it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating getters', () => {
+  const getter = jest.fn(() => 'dry_run_failed');
+  const values = [
+    { kind: 'burn_fee', burnFeeFailure: 'private-account amount=123' },
+    Object.defineProperty({ kind: 'burn_fee' }, 'burnFeeFailure', { get: getter })
+  ];
+  for (const value of values) {
+    jest.mocked(captureCrash).mockClear();
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['usdcxBurnFeeUnavailable', 'field', value]);
+    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+      userErrorId: 'usdcxBurnFeeUnavailable',
+      userErrorSurface: 'field'
+    });
+  }
+  expect(getter).not.toHaveBeenCalled();
+});
+
 it.each([
   ['earnPositionsLoadError', 'inline'],
   ['earnVaultLoadError', 'notice']
@@ -302,3 +331,29 @@ it.each([
   expect(fields).not.toHaveProperty('earnPositionsLoadStage');
   expect(fields).not.toHaveProperty('earnPositionsLoadOutcome');
 });
+
+it.each([
+  ['mainnetAccessCheckFailed', 'inline', 'mainnet_access_check', 'mainnetAccessCheckFailure', 'invitation_check'],
+  ['noteClaimFailedRetry', 'notice', 'note_claim', 'noteClaimFailureOrigin', 'queue_single']
+])(
+  'rejects incomplete or arbitrary caller facts for %s without invoking accessors',
+  (id, surface, kind, field, valid) => {
+    const getter = jest.fn(() => valid);
+    const values = [
+      { kind, [field]: valid },
+      { kind, [field]: 'private-account amount=123', uiFailureKind: 'network' },
+      { kind, [field]: valid, uiFailureKind: 'private-account amount=123' },
+      Object.defineProperty({ kind, uiFailureKind: 'network' }, field, { get: getter })
+    ];
+    for (const value of values) {
+      jest.mocked(captureCrash).mockClear();
+      _resetUserVisibleErrorLimitsForTest();
+      Reflect.apply(reportUserVisibleError, undefined, [id, surface, value]);
+      expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+        userErrorId: id,
+        userErrorSurface: surface
+      });
+    }
+    expect(getter).not.toHaveBeenCalled();
+  }
+);

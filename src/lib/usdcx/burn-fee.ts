@@ -8,6 +8,7 @@ import { initBridgeConfig } from 'lib/remote-config/runtime';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 
 import { buildUsdcxBurnRequest } from './burn';
+import type { BurnFeeFailure } from './burn-fee-failure';
 import { getUsdcxDestination } from './constant';
 
 /**
@@ -40,7 +41,6 @@ export const USDCX_BURN_FEE_LOCK_WAIT_MS = 30_000;
 const USDCX_BURN_FEE_DRY_RUN_DEADLINE_MS = 30_000;
 
 const BUSY: UsdcxBurnFeeEstimate = { outcome: 'busy' };
-const FAILED: UsdcxBurnFeeEstimate = { outcome: 'failed' };
 
 const inFlight = new Map<string, Promise<UsdcxBurnFeeEstimate>>();
 
@@ -78,25 +78,30 @@ async function measureBurnFeeReserve(
   accountPublicKey: string,
   destinationChainId: number
 ): Promise<UsdcxBurnFeeEstimate> {
+  let failure: BurnFeeFailure = 'configuration_failed';
   try {
     // This handler can run before the realm hydrated the bridge config, and the burn request reads
     // the USDCx faucet and the destination domain from it.
     await initBridgeConfig();
     const { domain } = getUsdcxDestination(destinationChainId);
+    failure = 'native_asset_failed';
     const nativeFaucetId = await getNativeAssetId();
+    failure = 'request_build_failed';
     const { requestBytes } = buildUsdcxBurnRequest(
       accountPublicKey,
       USDCX_BURN_FEE_PROBE_AMOUNT,
       USDCX_BURN_FEE_PROBE_RECIPIENT,
       domain
     );
+    failure = 'dry_run_failed';
     const result = await dryRunUnderLock(accountRefToSdk(accountPublicKey).toString(), requestBytes);
     if (result === null) {
       console.warn('[usdcx burn fee] the WASM lock stayed busy, so no dry run ran');
       return BUSY;
     }
+    failure = 'result_decode_failed';
     const view = simulatedBytesToView(result);
-    if (!view) return FAILED;
+    if (!view) return { outcome: 'failed', failure };
     const fee = view.fee?.faucetId === nativeFaucetId ? view.fee.amount : 0n;
     const outgoing = view.outgoing
       .filter(asset => asset.faucetId === nativeFaucetId)
@@ -104,13 +109,13 @@ async function measureBurnFeeReserve(
     const cost = fee + outgoing - USDCX_BURN_FEE_PROBE_AMOUNT;
     // The probe's own unit leaves as a native output, so a correct match never costs less than zero. A result that
     // shows less matched the wrong faucet: a failed measurement, not a free burn.
-    if (cost < 0n || outgoing < USDCX_BURN_FEE_PROBE_AMOUNT) return FAILED;
+    if (cost < 0n || outgoing < USDCX_BURN_FEE_PROBE_AMOUNT) return { outcome: 'failed', failure: 'probe_mismatch' };
     return { outcome: 'measured', reserve: cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n };
   } catch (err) {
     // The lock has already retired the client for a trap; reading it as "unmeasured" would hide it from every caller.
     if (typeof WebAssembly !== 'undefined' && err instanceof WebAssembly.RuntimeError) throw err;
     console.warn('[usdcx burn fee] could not estimate the burn fee', err);
-    return FAILED;
+    return { outcome: 'failed', failure };
   }
 }
 

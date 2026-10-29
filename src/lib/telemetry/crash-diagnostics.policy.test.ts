@@ -208,3 +208,30 @@ it.each([
 ])('documents the exact Earn load observations for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
 });
+
+it('documents every closed burnFeeFailure value', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'burnFeeFailure'))).toEqual(
+    new Set([
+      'configuration_failed',
+      'native_asset_failed',
+      'request_build_failed',
+      'dry_run_failed',
+      'result_decode_failed',
+      'probe_mismatch',
+      'busy_exhausted',
+      'request_failed',
+      'estimate_failed'
+    ])
+  );
+});
+
+it.each<[string, readonly string[]]>([
+  ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
+  [
+    'uiFailureKind',
+    ['network', 'rpc', 'proving', 'validation', 'storage', 'access_denied', 'timeout', 'unknown', 'unavailable']
+  ]
+])('documents exact caller categories for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});

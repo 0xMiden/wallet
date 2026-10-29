@@ -36,6 +36,7 @@ import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
+import { annotateTransactionExecution } from './transaction-execution-diagnostics';
 import { reportTransactionFailure, type TransactionFailure } from './transaction-failure';
 import {
   TelemetryErrorKind,
@@ -3014,3 +3015,89 @@ describe('consent boundary', () => {
     expect(captured).toEqual([]);
   });
 });
+
+it('keeps validated execution diagnostics private on the actual outgoing envelope', async () => {
+  consentOn();
+  const error = poisonedError('execution failed');
+  annotateTransactionExecution(error, {
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'observed',
+    authArgPresence: 'present',
+    authLayout: 'guardian',
+    commitmentMatch: 'guardian',
+    accountAuthCode: 'current_guardian'
+  });
+  reportTransactionFailure({ type: 'consume', stage: 'executing', error });
+  await flushEgress();
+  expect(captured).toHaveLength(1);
+  const executionWire = captured[0]?.body ?? '';
+  for (const entry of [
+    '"executionObservation":"observed"',
+    '"executionArguments":"present"',
+    '"executionLayout":"guardian"',
+    '"accountCodeFamily":"current_guardian"'
+  ]) {
+    expect(executionWire).toContain(entry);
+  }
+  for (const key of ['authObservation', 'authArgPresence', 'authLayout', 'accountAuthCode']) {
+    expect(executionWire).not.toContain(`"${key}":`);
+  }
+  const oldWire = executionWire
+    .replace('"executionObservation":', '"authObservation":')
+    .replace('"executionArguments":', '"authArgPresence":')
+    .replace('"executionLayout":', '"authLayout":')
+    .replace('"accountCodeFamily":', '"accountAuthCode":');
+  expect(new TextEncoder().encode(executionWire).length - new TextEncoder().encode(oldWire).length).toBeLessThanOrEqual(
+    192
+  );
+  expect(leaksIn(wireText())).toEqual([]);
+});
+
+it('keeps the current burn-fee reason private on the actual outgoing envelope', async () => {
+  consentOn();
+  Reflect.apply(reportUserVisibleError, undefined, [
+    'usdcxBurnFeeUnavailable',
+    'field',
+    { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }
+  ]);
+  await flushEgress();
+  expect(captured).toHaveLength(1);
+  const burnWire = captured[0]?.body ?? '';
+  expect(burnWire).toContain('"burnFeeFailure":"dry_run_failed"');
+  const without = burnWire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
+  expect(new TextEncoder().encode(burnWire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+  expect(leaksIn(wireText())).toEqual([]);
+});
+
+it.each([
+  {
+    id: 'mainnetAccessCheckFailed',
+    surface: 'inline',
+    evidence: { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'timeout' },
+    key: 'mainnetAccessCheckFailure',
+    value: 'invitation_check'
+  },
+  {
+    id: 'noteClaimFailedRetry',
+    surface: 'notice',
+    evidence: { kind: 'note_claim', noteClaimFailureOrigin: 'queue_batch', uiFailureKind: 'storage' },
+    key: 'noteClaimFailureOrigin',
+    value: 'queue_batch'
+  }
+])(
+  'retains only closed $id evidence on the actual outgoing envelope',
+  async ({ id, surface, evidence, key, value }) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const wire = captured[0]?.body ?? '';
+    const producerField = `,"${key}":"${value}"`;
+    const kindField = `,"uiFailureKind":"${evidence.uiFailureKind}"`;
+    expect(wire).toContain(producerField);
+    expect(wire).toContain(kindField);
+    const without = wire.replace(producerField, '').replace(kindField, '');
+    expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+    expect(leaksIn(wireText())).toEqual([]);
+  }
+);

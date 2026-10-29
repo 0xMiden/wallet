@@ -420,6 +420,18 @@ describe('SendAmount user-visible errors', () => {
     };
   }
 
+  it('forwards the visible burn failure evidence through the real denominated amount field', async () => {
+    const evidence = { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' };
+    const props = Object.assign(renderProps(), {
+      amount: '1',
+      error: 'usdcxBurnFeeUnavailable',
+      errorDiagnostics: evidence
+    });
+    render(<SendAmount {...props} />);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxBurnFeeUnavailable', 'field', evidence);
+  });
+
   it('reports the fee shortfall notice without marking the amount invalid', async () => {
     renderAmount({ error: 'insufficientFeeAsset' });
 

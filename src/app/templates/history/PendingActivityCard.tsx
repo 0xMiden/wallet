@@ -159,6 +159,16 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
     });
   }
 
+  const failureDiagnostics =
+    observedFailure.failure?.diagnostics ??
+    (observedFailure.errorId === 'noteClaimFailedRetry'
+      ? ({
+          kind: 'note_claim',
+          noteClaimFailureOrigin: 'transaction_row',
+          uiFailureKind: 'unavailable'
+        } satisfies UiEvidenceInput)
+      : undefined);
+
   // A refusal's message lives in the folded section, so it opens with it (#1081).
   useEffect(() => {
     if (item.retryError !== undefined) setExpanded(true);
@@ -269,7 +279,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                   <Notice
                     errorId={observedFailure.errorId}
                     errorOccurrence={observedFailure.failure}
-                    errorDiagnostics={observedFailure.failure?.diagnostics}
+                    errorDiagnostics={failureDiagnostics}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}

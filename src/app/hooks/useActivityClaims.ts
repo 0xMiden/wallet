@@ -28,7 +28,18 @@ import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { submissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
-import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
+import { classifyUiFailure, snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
+
+function noteClaimFailure(
+  origin: 'queue_single' | 'queue_batch' | 'transaction_row',
+  uiFailureKind: ReturnType<typeof classifyUiFailure>
+): NonNullable<PendingActivityItem['failure']> {
+  return {
+    id: 'noteClaimFailedRetry',
+    diagnostics: { kind: 'note_claim', noteClaimFailureOrigin: origin, uiFailureKind }
+  };
+}
 
 type FeeSnapshot = {
   notesKey: string;
@@ -210,6 +221,7 @@ export function useActivityClaims() {
     return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
       next: rows => {
         const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
+        const failedRows = new Map<string, (typeof rows)[number]>();
         const held = new Set<string>();
         const waiting = new Set<string>();
         const submissions = new Map<string, SubmissionFeedback>();
@@ -222,7 +234,14 @@ export function useActivityClaims() {
             settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
           } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
             if (holdsNotes(tx)) held.add(tx.id);
-            else settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt, submission: feedback });
+            else {
+              settled.set(tx.id, {
+                status: 'failed',
+                claimedAt: tx.completedAt,
+                submission: feedback
+              });
+              failedRows.set(tx.id, tx);
+            }
           }
         }
         setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
@@ -244,8 +263,18 @@ export function useActivityClaims() {
           for (const [noteId, item] of previous) {
             const outcome = item.status === 'claiming' && item.txId ? settled.get(item.txId) : undefined;
             if (!outcome) continue;
+            const failed = item.txId === undefined ? undefined : failedRows.get(item.txId);
+            let failure: PendingActivityItem['failure'];
+            if (failed !== undefined) {
+              const raw = safeOwnDiagnosticData(failed, 'rawError');
+              const error = typeof raw === 'string' && raw.length > 0 ? raw : safeOwnDiagnosticData(failed, 'error');
+              failure = noteClaimFailure(
+                'transaction_row',
+                typeof error === 'string' && error.length > 0 ? classifyUiFailure(error) : 'unavailable'
+              );
+            }
             next ??= new Map(previous);
-            next.set(noteId, { ...item, ...outcome });
+            next.set(noteId, { ...item, ...outcome, ...(failure === undefined ? {} : { failure }) });
           }
           return next ?? previous;
         });
@@ -390,7 +419,11 @@ export function useActivityClaims() {
         return;
       }
       setAttempts(previous =>
-        new Map(previous).set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } })
+        new Map(previous).set(note.id, {
+          note,
+          status: 'failed',
+          failure: noteClaimFailure('queue_single', classifyUiFailure(error))
+        })
       );
       console.error('[activity] Could not queue claim', error);
       return;
@@ -485,7 +518,11 @@ export function useActivityClaims() {
         setAttempts(previous => {
           const next = new Map(previous);
           for (const note of groupNotes) {
-            next.set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } });
+            next.set(note.id, {
+              note,
+              status: 'failed',
+              failure: noteClaimFailure('queue_batch', classifyUiFailure(error))
+            });
           }
           return next;
         });
