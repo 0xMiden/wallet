@@ -1,0 +1,34 @@
+name: Eligibility target binding expected red
+on:
+  push:
+    branches: [ci/1894-bindings-extra-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 35db008937590671d35c3cab2d5d23978f5bf9e6
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-bindings.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 6 - binding inventory rejects unexpected or duplicated target-worker namespaces' result.log || exit 1
+          grep -F 'ok 1 - binding inventory accepts complete isolated ownership' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bindings-extra-red
+          path: result.log
