@@ -1,0 +1,30 @@
+name: Featured fallback search regression
+on:
+  push:
+    branches: [ci/1982-featured-search-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - run: test "$(git rev-parse HEAD^)" = 4dfd09500038b7f7ce4dd6ec3f7ef00597ff5066
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - name: Prove missing featured search result
+        shell: bash
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/app/pages/Browser/DappLauncher/DappLauncher.test.tsx --testNamePattern='opens All on its own Featured row' --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+          status=${PIPESTATUS[0]}
+          test "$status" -ne 0 || exit 1
+          node -e "const x=require('./proof/results.json'); const a=x.testResults.flatMap(s=>s.assertionResults).filter(t=>t.status!=='pending'); if(a.length!==1 || a[0].status!=='failed' || !a[0].failureMessages.join(' ').includes('explore-section-search-results')) process.exit(1); console.log('Expected red: featured app is missing from search')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: featured-search-red, path: proof/ }
