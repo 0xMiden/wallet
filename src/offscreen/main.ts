@@ -814,6 +814,10 @@ const DISPATCH: Record<string, DispatchFn> = {
   decodeGuardianHistory: async (context, client, encoded: string) => {
     return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
   },
+  importGuardianHistoryP2ideNotes: async (context, client, encoded: string, accountId: string, noteId: string) => {
+    await client.importGuardianHistoryP2ideNotes(encoded, accountId, noteId, context.hold);
+    return null;
+  },
   getGuardianResultCommitment: async (context, client, encoded: string) => {
     return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));
   },
