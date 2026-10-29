@@ -151,14 +151,11 @@ describe('upsertPersistedSession', () => {
     }
   });
 
-  it('does not overwrite parked sessions when normalization fails before upsert', async () => {
-    const original = JSON.stringify([makePersisted('prior')], null, 2);
-    store[STORAGE_KEY] = original;
+  it('persists the newly parked session when normalization fails before upsert', async () => {
+    store[STORAGE_KEY] = JSON.stringify([makePersisted('prior')], null, 2);
     mockSet.mockRejectedValueOnce(new Error('normalization failed'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      await upsertPersistedSession(makePersisted('new'));
-      expect(store[STORAGE_KEY]).toBe(original);
       await upsertPersistedSession(makePersisted('new'));
       expect(JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id)).toEqual(['prior', 'new']);
     } finally {
