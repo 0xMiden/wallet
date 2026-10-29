@@ -1,4 +1,11 @@
-const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget', 'rate_refusal', 'failure_behavior']);
+const SCENARIOS = new Set([
+  'cache_reuse',
+  'colo_isolation',
+  'shared_budget',
+  'rate_refusal',
+  'failure_behavior',
+  'restart_day'
+]);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -286,6 +293,25 @@ export async function runFailureScenario({ service, counters }) {
       } else if (!response.ok || body?.ready !== true || current?.attempts !== initial.attempts + 3) return 'failed';
     }
     return 'passed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function runRestartScenario({ probe }) {
+  try {
+    const reserved = await probe.step('reserve');
+    if (reserved?.granted !== 4 || reserved.count !== 4) return 'failed';
+    const restarted = await probe.step('restart');
+    if (restarted?.count !== 4) return 'failed';
+    const replay = await probe.step('replay');
+    if (replay?.granted !== 4 || replay.count !== 4) return 'failed';
+    const advanced = await probe.step('advance');
+    if (advanced?.advanced !== true) return 'failed';
+    const oldDay = await probe.step('oldDay');
+    if (oldDay?.reserved !== false) return 'failed';
+    const newDay = await probe.step('newDay');
+    return newDay?.granted === 4 && newDay.count === 4 ? 'passed' : 'failed';
   } catch {
     return 'failed';
   }

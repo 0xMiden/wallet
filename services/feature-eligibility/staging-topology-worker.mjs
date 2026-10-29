@@ -5,7 +5,8 @@ import topology, {
   runCacheScenario,
   runColoScenario,
   runFailureScenario,
-  runRateScenario
+  runRateScenario,
+  runRestartScenario
 } from './staging-topology.mjs';
 
 const policy = {
@@ -123,6 +124,51 @@ export class CallerEligibilityGuard {
   }
 }
 
+export class RestartProof {
+  constructor(state, env) {
+    this.state = state;
+    this.env = syntheticEnv(env);
+    this.clock = Date.UTC(2026, 0, 1, 12);
+    this.stage = 0;
+    this.service = createService({ fetchImpl: fixedFetch(() => {}), now: () => this.clock });
+    this.delegate = new this.service.EligibilityGuard(state, this.env);
+  }
+
+  async fetch(request) {
+    const sequence = ['reserve', 'restart', 'replay', 'advance', 'oldDay', 'newDay'];
+    const step = new URL(request.url).pathname.slice(1);
+    if (request.method !== 'POST' || sequence[this.stage] !== step) return new Response(null, { status: 400 });
+    this.stage++;
+    try {
+      if (step === 'restart') {
+        this.delegate = new this.service.EligibilityGuard(this.state, this.env);
+        return Response.json({ count: (await this.state.storage.get('budget'))?.count });
+      }
+      if (step === 'advance') {
+        this.clock += 86_400_000;
+        return Response.json({ advanced: true });
+      }
+      const day = step === 'oldDay' ? '2026-01-01' : new Date(this.clock).toISOString().slice(0, 10);
+      const leaseId = '00000000-0000-4000-8000-000000000099';
+      const response = await this.delegate.fetch(
+        new Request('https://eligibility.internal/lease', {
+          method: 'POST',
+          body: JSON.stringify({ day, deadline: this.clock + 5000, leaseId, count: 4 })
+        })
+      );
+      if (step === 'oldDay') return Response.json({ reserved: response.ok });
+      const body = await response.json();
+      return Response.json({ granted: body.count, count: (await this.state.storage.get('budget'))?.count });
+    } catch {
+      return new Response(null, { status: 503 });
+    }
+  }
+
+  async alarm() {
+    return this.delegate.alarm();
+  }
+}
+
 export class TopologyControl {
   constructor(state, env) {
     const scenario = async name => {
@@ -130,6 +176,17 @@ export class TopologyControl {
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
+      if (name === 'restart_day') {
+        const target = env.RESTART_PROOF.get(env.RESTART_PROOF.idFromName('fixed'));
+        const probe = {
+          step: async name => {
+            const response = await target.fetch(`https://topology.internal/${name}`, { method: 'POST' });
+            if (!response.ok) throw new Error('Restart proof step failed');
+            return response.json();
+          }
+        };
+        return runRestartScenario({ probe });
+      }
       if (name === 'failure_behavior') {
         let attempts = 0;
         const adapter = {

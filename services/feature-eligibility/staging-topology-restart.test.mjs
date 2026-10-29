@@ -14,7 +14,15 @@ function fixture({ losesLease = false, acceptsOldDay = false, failsReset = false
     newDay: { granted: 4, count: failsReset ? 8 : 4 }
   };
   const steps = [];
-  return { probe: { step: async name => { steps.push(name); return values[name]; } }, steps };
+  return {
+    probe: {
+      step: async name => {
+        steps.push(name);
+        return values[name];
+      }
+    },
+    steps
+  };
 }
 
 test('restart scenario preserves a lease and resets the next day', async () => {
