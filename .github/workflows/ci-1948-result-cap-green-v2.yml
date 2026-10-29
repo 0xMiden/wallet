@@ -1,0 +1,20 @@
+name: Completed dApp result limit verification
+on:
+  push:
+    branches: [ci/1948-result-cap-green-v2]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - run: test "$(git rev-parse HEAD^)" = 0a2efe1e658663d1c6bc71ef404da08e39740573
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - run: yarn eslint src/lib/miden/db/types.ts src/lib/miden/transaction/helper.ts src/lib/miden/transaction/result-size-limit.test.ts src/lib/miden/transaction/transactions.branches.test.ts --max-warnings 0
+      - run: yarn jest --runTestsByPath src/lib/miden/transaction/result-size-limit.test.ts src/lib/miden/transaction/transactions.branches.test.ts src/lib/miden/transaction/trim-result-bytes.db.test.ts --maxWorkers=2
