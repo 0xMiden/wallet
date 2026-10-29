@@ -1,4 +1,10 @@
-import { buildFaviconUrl, getFaviconUrl, getFallbackColor, getFallbackLetter } from './favicon-cache';
+import {
+  __getFaviconCacheUsageForTests,
+  buildFaviconUrl,
+  getFaviconUrl,
+  getFallbackColor,
+  getFallbackLetter
+} from './favicon-cache';
 
 describe('buildFaviconUrl', () => {
   // Not S2's own address: its redirect has no Cross-Origin-Resource-Policy, which the extension's COEP refuses.
@@ -82,5 +88,21 @@ describe('getFallbackLetter', () => {
     // file: URLs have empty hostname
     const result = getFallbackLetter('file:///path');
     expect(result).toBe('?');
+  });
+});
+
+describe('Task5 cache favicon memory', () => {
+  it('bounds cached origin and URL entries while rebuilding misses without altering navigation inputs', () => {
+    for (let index = 0; index < 129; index++) getFaviconUrl(`https://favicon-${index}.invalid`);
+    expect(__getFaviconCacheUsageForTests().entries).toBeLessThanOrEqual(128);
+    const origin = 'https://favicon-0.invalid';
+    expect(getFaviconUrl(origin)).toBe(buildFaviconUrl(origin));
+  });
+
+  it('bounds full UTF-8 cache bytes without truncating the origin passed to the favicon service', () => {
+    for (let index = 0; index < 128; index++) getFaviconUrl(`https://${'界'.repeat(300)}-${index}.invalid`);
+    expect(__getFaviconCacheUsageForTests().bytes).toBeLessThanOrEqual(65_536);
+    const origin = `https://${'界'.repeat(300)}-127.invalid`;
+    expect(getFaviconUrl(origin)).toBe(buildFaviconUrl(origin));
   });
 });

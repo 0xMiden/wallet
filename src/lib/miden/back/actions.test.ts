@@ -23,6 +23,9 @@ import { WalletType } from 'screens/onboarding/types';
 import {
   DAppQueueDeadlineError,
   getFrontState,
+  exportRecoveryDataFile,
+  importRecoveryDataFile,
+  cancelRecoveryDataOperation,
   lock,
   unlock,
   provideRecoverySeed,
@@ -155,7 +158,11 @@ const mockSettingsUpdated = jest.fn();
 const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
-let mockStoreState = {
+let mockStoreState: import('lib/shared/types').WalletState & {
+  inited: boolean;
+  vault: typeof mockVault | null;
+} = {
+  vault: null,
   inited: true,
   status: WalletStatus.Ready,
   accounts: [],
@@ -205,7 +212,10 @@ const mockVaultGetKey = jest.fn();
 const mockWithAccountFileKeyReader = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
+    exportRecoveryData: jest.fn(),
+    importRecoveryData: jest.fn(),
     isExist: jest.fn(),
+    hasRetainedCustody: jest.fn(async () => false),
     spawn: jest.fn(),
     spawnFromHotKey: jest.fn(),
     setup: jest.fn(),
@@ -346,6 +356,7 @@ describe('actions', () => {
       if (callbacks.getKey === mockRealmGetKey) mockRealmGetKey = null;
     });
     mockStoreState = {
+      vault: null,
       inited: true,
       status: WalletStatus.Ready,
       accounts: [],
@@ -456,6 +467,39 @@ describe('actions', () => {
   });
 
   describe('getFrontState', () => {
+    it('Task5 availability initial backend response stays pending before health hydration', async () => {
+      mockStoreState.inited = false;
+      await jest.isolateModulesAsync(async () => {
+        const health: typeof import('lib/miden/storage-health') = jest.requireActual('lib/miden/storage-health');
+        const storage: typeof import('lib/platform/storage-adapter') =
+          jest.requireActual('lib/platform/storage-adapter');
+        let release!: (value: Record<string, unknown>) => void;
+        const retainedHealth = new Promise<Record<string, unknown>>(resolve => {
+          release = resolve;
+        });
+        const read = jest.spyOn(storage.getStorageProvider(), 'get').mockImplementationOnce(() => retainedHealth);
+        const hydration = health.initializeStorageHealth();
+        let hydrated = false;
+        void hydration.then(() => {
+          hydrated = true;
+        });
+        try {
+          const restarted: typeof import('./actions') = jest.requireActual('./actions');
+          const front = await restarted.getFrontState();
+
+          expect(read).toHaveBeenCalledWith([health.STORAGE_HEALTH_KEY]);
+          expect(hydrated).toBe(false);
+          expect(Reflect.get(front, 'storageAvailability')).toEqual({ status: 'pending' });
+        } finally {
+          release({});
+          await hydration;
+          await health.flushStorageHealth();
+          await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+          read.mockRestore();
+        }
+      });
+    });
+
     it('returns state when inited is true', async () => {
       mockStoreState.inited = true;
       mockStoreState.status = WalletStatus.Ready;
@@ -2795,6 +2839,30 @@ describe('actions', () => {
       }
     });
   });
+
+  describe('Task5 retained custody initialization', () => {
+    beforeEach(async () => {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    });
+    it('missing vault check with retained custody never publishes fresh onboarding', async () => {
+      const currentActions = jest.requireActual<typeof import('./actions')>('./actions');
+      const currentHealth = jest.requireActual<typeof import('lib/miden/storage-health')>('lib/miden/storage-health');
+      await currentHealth.resetStorageHealthForLifecycle(currentHealth.getStorageHealth().epoch);
+      const module = jest.requireMock<typeof import('lib/miden/back/vault')>('lib/miden/back/vault');
+      const mockedVault = jest.mocked(module.Vault);
+      mockedVault.isExist.mockResolvedValueOnce(false);
+      mockedVault.hasRetainedCustody.mockResolvedValueOnce(true);
+      await currentActions.init();
+      expect(mockedVault.isExist).toHaveBeenCalledTimes(1);
+      expect(mockInited).toHaveBeenCalledWith(true);
+      expect(currentHealth.getStorageHealth()).toMatchObject({
+        status: 'unavailable',
+        reason: 'continuity',
+        backend: 'independent',
+        operation: 'open'
+      });
+    });
+  });
 });
 
 jest.mock('lib/telemetry/sink', () => ({ sendEvent: jest.fn() }));
@@ -2823,4 +2891,222 @@ it('refuses a financial checkpoint captured before reset without selecting the r
     'StorageUnavailableError'
   );
   expect(mockVault.checkpointFinancialRecovery).not.toHaveBeenCalled();
+});
+
+describe('Task5 recovery file action ownership', () => {
+  const module = jest.requireMock<{
+    Vault: {
+      exportRecoveryData: jest.Mock<Promise<string>, [string, string | undefined, () => void]>;
+      importRecoveryData: jest.Mock<
+        Promise<{ imported: boolean; retainedEntries: number }>,
+        [string, string, number, string | undefined, () => void]
+      >;
+    };
+  }>('lib/miden/back/vault');
+
+  beforeEach(async () => {
+    const fixture = jest.requireMock<{ store: { getState: jest.Mock<typeof mockStoreState, []> } }>('./store');
+    fixture.store.getState.mockImplementation(() => mockStoreState);
+    module.Vault.exportRecoveryData.mockReset();
+    module.Vault.importRecoveryData.mockReset();
+    mockStoreState = { ...mockStoreState, inited: true, status: WalletStatus.Ready, vault: mockVault };
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  it('one export calls the authenticated static boundary once and returns only its encrypted content', async () => {
+    module.Vault.exportRecoveryData.mockResolvedValueOnce('encrypted-disposable-file');
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch,
+        'disposable-export',
+        'disposable-credential'
+      )
+    ).resolves.toBe('encrypted-disposable-file');
+    expect(module.Vault.exportRecoveryData).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stale incident cannot reach a protector or file action', async () => {
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch + 1,
+        'disposable-export',
+        'disposable-credential'
+      )
+    ).rejects.toThrow('StorageUnavailableError');
+    expect(module.Vault.exportRecoveryData).not.toHaveBeenCalled();
+  });
+
+  it('an invalid operation identity cannot reach a protector or file action', async () => {
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch,
+        'invalid operation',
+        'disposable-credential'
+      )
+    ).rejects.toThrow('StorageUnavailableError');
+    expect(module.Vault.exportRecoveryData).not.toHaveBeenCalled();
+  });
+
+  it('cancelling an import retires its captured backend publication guard', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.importRecoveryData.mockImplementationOnce(async (_content, _password, _epoch, _credential, check) => {
+      start();
+      await released;
+      check();
+      return { imported: true, retainedEntries: 1 };
+    });
+    const pending = importRecoveryDataFile(
+      'encrypted-disposable-file',
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-import',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await cancelRecoveryDataOperation('disposable-import');
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      finish();
+      await observed;
+    }
+  });
+
+  it('rejects a parked recovery import after its effective network changes before publication', async () => {
+    mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57291', networkName: MIDEN_NETWORK_NAME.LOCALNET };
+    const health = getStorageHealth();
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    const publish = jest.fn();
+    module.Vault.importRecoveryData.mockImplementationOnce(async (_content, _password, _epoch, _credential, check) => {
+      start();
+      await released;
+      check();
+      publish();
+      return { imported: true, retainedEntries: 1 };
+    });
+    const pending = importRecoveryDataFile(
+      'encrypted-disposable-file',
+      'disposable-file-password',
+      health.epoch,
+      'disposable-network-import',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57292', networkName: MIDEN_NETWORK_NAME.LOCALNET };
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+      expect(module.Vault.importRecoveryData).toHaveBeenCalledTimes(1);
+      expect(publish).not.toHaveBeenCalled();
+      expect(getStorageHealth()).toEqual(health);
+    } finally {
+      finish();
+      await observed;
+      mockEndpointOverride = null;
+    }
+  });
+
+  it('locking during a parked export retires the late encrypted response', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.exportRecoveryData.mockImplementationOnce(async (_password, _credential, check) => {
+      start();
+      await released;
+      check();
+      return 'encrypted-disposable-file';
+    });
+    const pending = exportRecoveryDataFile(
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-export',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      mockStoreState.status = WalletStatus.Locked;
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      finish();
+      await observed;
+    }
+  });
+
+  it('a repeated in-flight operation identity cannot start another authenticated export', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.exportRecoveryData.mockImplementationOnce(async (_password, _credential, check) => {
+      start();
+      await released;
+      check();
+      return 'encrypted-disposable-file';
+    });
+    const pending = exportRecoveryDataFile(
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-export',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await expect(
+        exportRecoveryDataFile(
+          'disposable-file-password',
+          getStorageHealth().epoch,
+          'disposable-export',
+          'disposable-credential'
+        )
+      ).rejects.toThrow('StorageUnavailableError');
+      expect(module.Vault.exportRecoveryData).toHaveBeenCalledTimes(1);
+    } finally {
+      finish();
+      await observed;
+    }
+  });
 });

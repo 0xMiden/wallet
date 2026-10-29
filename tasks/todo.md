@@ -583,3 +583,16 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Prove absent-pay-input regression red in CI (40239138581: intended wrong-field value failure, 262 other tests passed).
 - [x] Bind amount edits and assertions to their existing pay/receive side containers.
 - [ ] Verify focused green CI and hand off for normal review and full Swap integration.
+
+# Issue 1948: storage-loss recovery
+
+- [x] Inventory storage, recovery, lifecycle and submission boundaries; approve design and plan from the issue brief.
+- [x] Prove storage-loss and stop-on-failure regressions in isolated CI.
+- [x] Implement cross-realm health, retained-vault consistency and lifecycle handling.
+- [ ] Implement encrypted bounded independent journal and user-controlled external backup.
+- [ ] Coordinate prebroadcast evidence and submitted-transaction reconciliation.
+- [ ] Add strict durability, bounded reconstructible storage and SDK dependency evidence.
+- [ ] Validate focused tests, mutations, platform UI, builds and unchanged 95% coverage gates in CI.
+- [ ] Complete finished-code Council review and hand off exact source and remaining dependencies to root.
+
+Review: pending. Implementation approval comes from issue #1948 under walletissues step 4. Root retains merge and release authority.
