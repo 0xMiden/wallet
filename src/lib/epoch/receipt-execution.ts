@@ -12,7 +12,7 @@ import {
   isBatchingUnsupported,
   mapBundleReceiptsToLegs
 } from '@epoch-protocol/epoch-intents-sdk/dist/batch';
-import { ARBITER_ADDRESS, SUPPORTED_CHAINS } from '@epoch-protocol/epoch-intents-sdk/dist/constants';
+import { SUPPORTED_CHAINS } from '@epoch-protocol/epoch-intents-sdk/dist/constants';
 import { resolveWalletBatchStrategy } from '@epoch-protocol/epoch-intents-sdk/dist/gasless/capability';
 import { apiFetch } from '@epoch-protocol/epoch-intents-sdk/dist/http';
 import {
@@ -112,14 +112,12 @@ export async function executeRetainedEpochIntent(
     compactData.mandate.tokenInAmount = compactData.amount.toString();
   }
   const chainId = original.walletClient.chain?.id;
-  const arbiter = chainId && ARBITER_ADDRESS[chainId];
-  if (!chainId || !arbiter) throw new Error('Unsupported Epoch source chain');
+  if (!chainId) throw new Error('Unsupported Epoch source chain');
   const collateralType = params.collateralType ?? CollateralType.EVM;
   const request = recoveryCompactRequest.parse({
     chainId: String(chainId),
     compact: {
       ...compactData,
-      arbiter,
       nonce: String(compactData.nonce),
       expires: String(compactData.expires),
       id: String(compactData.id),
