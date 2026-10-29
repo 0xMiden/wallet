@@ -145,7 +145,6 @@ describe('MidenClientInterface', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     readerSpies.push(
       jest.spyOn(performance, 'now').mockImplementation(() => clock.now),
-      jest.spyOn(Math, 'random').mockReturnValue(0),
       warn
     );
     readerDoMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -168,6 +167,13 @@ describe('MidenClientInterface', () => {
       getEffectiveNoteTransportUrl: () => undefined,
       getEffectiveFeeFaucetId: () => getFeeFaucetId()
     }));
+    readerDoMock('lib/miden/sync-backoff', () => {
+      const actual = jest.requireActual<typeof import('lib/miden/sync-backoff')>('lib/miden/sync-backoff');
+      return {
+        ...actual,
+        computeSyncBackoffMs: (tripCount: number) => actual.computeSyncBackoffMs(tripCount, () => 0)
+      };
+    });
     readerDoMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
       clearConnectivityIssue: jest.fn()

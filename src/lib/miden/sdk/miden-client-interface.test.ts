@@ -4120,29 +4120,6 @@ describe('MidenClientInterface', () => {
       expect(importMock).not.toHaveBeenCalled();
     });
   });
-
-  // Last on purpose: it proves the reader block above left no module mock registered behind it.
-  it('leaves no reader-block module mock behind for the tests that follow', async () => {
-    // Each check tells a reader-block double from the base module this spec otherwise gets.
-    const lazy = await import('@miden-sdk/miden-sdk/lazy');
-    expect('WasmWebClient' in lazy).toBe(false); // the base is __mocks__/wasmMock.js
-    const endpoints = await import('lib/miden-chain/effective-endpoints');
-    expect('loadEndpointOverrides' in endpoints).toBe(true);
-    const connectivity = await import('lib/miden/activity/connectivity-state');
-    expect('getConnectivityState' in connectivity).toBe(true);
-    const helpers = await import('./helpers');
-    let bech32: unknown;
-    try {
-      bech32 = Reflect.apply(helpers.getBech32AddressFromAccountId, undefined, ['x']);
-    } catch {
-      bech32 = undefined;
-    }
-    expect(bech32).not.toBe('bech32(x)');
-    // And no spy the block installs outlives its test (console.log is spied file-wide, so it is not one of them).
-    expect(jest.isMockFunction(performance.now)).toBe(false);
-    expect(jest.isMockFunction(Math.random)).toBe(false);
-    expect(jest.isMockFunction(console.warn)).toBe(false);
-  });
 });
 
 // Vault arithmetic has its own SDK-read regressions; these fixtures isolate staged proof routing.
