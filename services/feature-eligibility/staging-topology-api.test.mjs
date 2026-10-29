@@ -8,7 +8,14 @@ const token = 'synthetic-token-for-test-only';
 
 test('read adapter calls only fixed account paths without returning credentials', async () => {
   const calls = [];
-  const api = create({ accountId, token, fetchImpl: async (url, init) => { calls.push({ url, method: init.method, authorization: init.headers.Authorization }); return Response.json({ success: true, errors: [], result: { id: accountId } }); } });
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method, authorization: init.headers.Authorization });
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
   const response = await api('/account');
   assert.deepEqual(response, { success: true, errors: [], result: { id: accountId } });
   assert.equal(calls[0].url, `https://api.cloudflare.com/client/v4/accounts/${accountId}`);
@@ -19,7 +26,14 @@ test('read adapter calls only fixed account paths without returning credentials'
 
 test('read adapter rejects arbitrary paths before network access', async () => {
   let calls = 0;
-  const api = create({ accountId, token, fetchImpl: async () => { calls++; return Response.json({}); } });
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({});
+    }
+  });
   assert.equal(await api('/workers/scripts/../production'), null);
   assert.equal(calls, 0);
 });
@@ -31,7 +45,11 @@ test('read adapter rejects oversized provider bodies', async () => {
 
 test('read adapter retains only a valid target-script absence receipt', async () => {
   const path = '/workers/scripts/miden-elig-topology-12345-1/settings';
-  const api = create({ accountId, token, fetchImpl: async () => Response.json({ success: false, errors: [{ code: 10007 }] }, { status: 404 }) });
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () => Response.json({ success: false, errors: [{ code: 10007 }] }, { status: 404 })
+  });
   assert.deepEqual(await api(path), { status: 404, body: { success: false, errors: [{ code: 10007 }] } });
   assert.equal(await api('/account'), null);
 });
