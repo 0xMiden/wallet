@@ -232,6 +232,8 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Storage health epoch that owned the balance read; absent on older snapshots. */
+  storageEpoch?: number;
   /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
   balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
   // When the service worker's last successful sync finished, so a reader can tell a

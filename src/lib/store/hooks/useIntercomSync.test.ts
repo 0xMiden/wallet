@@ -158,13 +158,25 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
     let finishInitial!: (value: unknown) => void;
     let listener!: (message: unknown) => void;
     intercom.request
-      .mockImplementationOnce(() => new Promise(resolve => { finishInitial = resolve; }))
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishInitial = resolve;
+          })
+      )
       .mockResolvedValueOnce({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'new' } });
-    intercom.subscribe.mockImplementation(callback => { listener = callback; return () => {}; });
+    intercom.subscribe.mockImplementation(callback => {
+      listener = callback;
+      return () => {};
+    });
     const sync = _g.__intSyncTest.walletState.syncFromBackend;
     renderHook(() => useIntercomSync());
-    await act(async () => { listener({ type: WalletMessageType.StateUpdated }); });
-    await act(async () => { finishInitial({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'old' } }); });
+    await act(async () => {
+      listener({ type: WalletMessageType.StateUpdated });
+    });
+    await act(async () => {
+      finishInitial({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'old' } });
+    });
     expect(sync).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledWith(expect.objectContaining({ revision: 'new' }));
   });

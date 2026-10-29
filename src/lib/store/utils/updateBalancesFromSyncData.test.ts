@@ -48,12 +48,27 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('updateBalancesFromSyncData', () => {
+  it('accepts a balance snapshot owned by the current recovered epoch', async () => {
+    useWalletStore.setState({ balances: {}, storageAvailability: { status: 'healthy', epoch: 10 } });
+    await updateBalancesFromSyncData(
+      'account-1',
+      [{ faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }],
+      undefined,
+      10
+    );
+    expect(useWalletStore.getState().balances['account-1']).toEqual(
+      expect.arrayContaining([expect.objectContaining({ tokenId: 'coin', balance: 100 })])
+    );
+  });
   it('does not rehydrate a cached snapshot from an older storage epoch after recovery', async () => {
     useWalletStore.setState({ balances: {}, storageAvailability: { status: 'healthy', epoch: 10 } });
     const apply = updateBalancesFromSyncData as (...args: unknown[]) => Promise<void>;
-    await apply('account-1', [
-      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
-    ], undefined, 8);
+    await apply(
+      'account-1',
+      [{ faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }],
+      undefined,
+      8
+    );
     expect(useWalletStore.getState().balances['account-1']).toBeUndefined();
   });
 
@@ -68,13 +83,25 @@ describe('updateBalancesFromSyncData', () => {
   it('does not land an old sync snapshot after storage enters a newer incident', async () => {
     useWalletStore.setState({ balances: {}, storageAvailability: { status: 'healthy', epoch: 8 } });
     let release!: (value: Record<string, never>) => void;
-    mockGetTokenMetadataOverrides.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    mockGetTokenMetadataOverrides.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
     const read = updateBalancesFromSyncData('account-1', [
       { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
     ]);
     while (!release) await Promise.resolve();
     useWalletStore.setState({
-      storageAvailability: { status: 'unavailable', epoch: 9, reason: 'continuity', backend: 'sdk', operation: 'open', time: 1000 }
+      storageAvailability: {
+        status: 'unavailable',
+        epoch: 9,
+        reason: 'continuity',
+        backend: 'sdk',
+        operation: 'open',
+        time: 1000
+      }
     });
     release({});
     await read;
@@ -101,6 +128,7 @@ describe('updateBalancesFromSyncData', () => {
   });
   beforeEach(() => {
     useWalletStore.setState({
+      storageAvailability: { status: 'healthy', epoch: 0 },
       balances: {},
       balancesLoading: {},
       balancesLastFetched: {},
