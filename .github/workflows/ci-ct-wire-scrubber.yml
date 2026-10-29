@@ -1,0 +1,34 @@
+name: Proposal category scrubber proof
+on:
+  push:
+    branches: [ci/ct-wire-scrubber]
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind source revision
+        run: test "$(git rev-parse HEAD^)" = 122e9dd421a1c8e922a9baddd3652427e2db9e67
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install hash-pinned reference engine
+        run: |
+          cat > "$RUNNER_TEMP/proof-requirements.txt" <<'REQUIREMENTS'
+          sentry-relay==0.10.1 --hash=sha256:3325ef78796553ddb921c9f392d8c5b2b48a0698e95dc2b0ef55d767c66f7160
+          cffi==2.0.0 --hash=sha256:3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba
+          pycparser==2.23 --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934
+          REQUIREMENTS
+          python -m pip install --only-binary=:all: --no-deps --require-hashes -r "$RUNNER_TEMP/proof-requirements.txt"
+      - name: Verify category values and privacy canaries offline
+        run: python .github/ci-proof/ct-wire-scrubber.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ct-wire-scrubber-proof
+          path: ct-wire-scrubber-proof.json
+          retention-days: 7
