@@ -209,6 +209,9 @@ it('requires the device replacement marker', () => {
   expect(recoveredAction({ proposalType: 'add_signer', description: 'Replace device (hot) signer' })).toBe(
     'replace-hot-key'
   );
+  expect(recoveredAction({ proposalType: 'add_signer', description: 'Add device (hot) signer' })).toBe(
+    'replace-hot-key'
+  );
   expect(recoveredAction({ proposalType: 'add_signer', description: 'Other signer' })).toBe('execute');
 });
 
@@ -646,6 +649,7 @@ it('keeps a recovered custom transaction an execute with its output when it also
 
 it.each([
   { proposalType: 'add_signer', description: 'Replace device (hot) signer' },
+  { proposalType: 'add_signer', description: 'Add device (hot) signer' },
   { proposalType: 'switch_guardian', newGuardianEndpoint: 'https://next' },
   { proposalType: 'update_procedure_threshold', targetProcedure: 'send', targetThreshold: 2 }
 ])('keeps account-management fees separate from transfer amounts: %s', proposal => {
@@ -660,6 +664,15 @@ it('labels a recovered device-key rotation', () => {
   const proposal = { proposalType: 'add_signer', description: 'Replace device (hot) signer' };
   const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta(proposal), summary);
   expect(row.displayMessage).toBe('Device key rotated');
+  expect(row.extraInputs.mode).toBe('replace');
+});
+
+it('labels a recovered device addition', () => {
+  const proposal = { proposalType: 'add_signer', description: 'Add device (hot) signer' };
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta(proposal), summary);
+  expect(row.type).toBe('replace-hot-key');
+  expect(row.displayMessage).toBe('Device added');
+  expect(row.extraInputs.mode).toBe('add');
 });
 
 it('recovers a Guardian endpoint from matching payload metadata', () => {

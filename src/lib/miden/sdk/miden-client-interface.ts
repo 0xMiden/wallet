@@ -121,7 +121,7 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, Sw
 // are statically imported and cycle-safe.
 import {
   createGuardianAccount,
-  getSignerDetailsFromAccount,
+  hasSignerCommitment,
   insertGuardianAccountMonotonically,
   type CreatedGuardianKeys,
   type GuardianCreateKey,
@@ -1062,10 +1062,14 @@ export class MidenClientInterface {
    *
    * The guardian's lookup is by key commitment over EVERY registered signer,
    * so before adopting each match the pasted key is checked against the
-   * on-chain HOT signer slot: a pasted COLD key also produces a lookup hit but
-   * an account imported on it could never sign day-to-day, and a rotated-out
-   * hot key can still be known to the guardian while the on-chain slot holds
-   * its successor. Both are refused with a pointed message.
+   * on-chain signer set: a rotated-out hot key can still be known to the
+   * guardian while no on-chain slot holds it, and it is refused with a pointed
+   * message. The check is by membership, because the set can hold more than one
+   * hot key and a membership change moves the slots.
+   *
+   * Limit: this flow holds no cold public key, and the cold key is also a member
+   * of the set, so a pasted COLD key is not refused here. Its slot is not a
+   * reliable signal after a membership change.
    */
   async recoverGuardianAccountByHotKey(
     hotSecretKeyHex: string,
@@ -1091,12 +1095,9 @@ export class MidenClientInterface {
       guardianEndpoint,
       () =>
         this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
-          const { commitment: hotCommitment } = await getSignerDetailsFromAccount(acc, false);
-          if (normalizeCommitment(hotCommitment) === pastedCommitment) return;
-          const { commitment: coldCommitment } = await getSignerDetailsFromAccount(acc, true);
-          if (normalizeCommitment(coldCommitment) === pastedCommitment) {
-            throw new Error(getMessage('importHotKeyIsRecoveryKey'));
-          }
+          // Membership, not position: the signer set can hold more than one hot key, and a
+          // membership change moves the slots. A key in no slot is rotated out.
+          if (hasSignerCommitment(acc, pastedCommitment)) return;
           throw new Error(getMessage('importHotKeyNotActive'));
         }),
       found => found.length > 0

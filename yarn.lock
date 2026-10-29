@@ -1231,6 +1231,11 @@
     react-confetti "^6.1.0"
     strip-ansi "^7.1.0"
 
+"@cloudflare/workers-types@5.20261019.1":
+  version "5.20261019.1"
+  resolved "https://registry.yarnpkg.com/@cloudflare/workers-types/-/workers-types-5.20261019.1.tgz#504a6b1ed98d29be6c76b5418a48a88717aa92b7"
+  integrity sha512-llvvy7WBVhK+OfykyBkG9A7OgsGvgwHSNyU40XGVkiy/xVFy0t/xflyhEBHT+U59yQECZQbmcZsJtqCNnLpIRg==
+
 "@coinbase/cdp-sdk@^1.0.0":
   version "1.54.0"
   resolved "https://registry.yarnpkg.com/@coinbase/cdp-sdk/-/cdp-sdk-1.54.0.tgz#ba658e037b7adddaea220488a9018ecbe15077ab"

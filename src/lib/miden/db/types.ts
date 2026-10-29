@@ -1877,9 +1877,19 @@ export class SwitchGuardianTransaction implements ITransaction {
 }
 
 /**
- * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
- * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * How a hot-key activation changes the on-chain signer set.
+ * - `replace`: the target set is `[newHot, cold]`. The old hot key and every
+ *   other device key stop working.
+ * - `add`: the target set is the current set plus `newHot`. The other device
+ *   keys continue to work.
+ */
+export type HotKeyActivationMode = 'add' | 'replace';
+
+/**
+ * Hot-key activation for a Guardian account. Cold-signed (recovery key), via
+ * `update_signers`. `extraInputs.mode` selects the target signer set (see
+ * `HotKeyActivationMode`). When it is absent, the mode is `replace`, so a row
+ * from before the field existed keeps its meaning. extraInputs.newHotPublicKey is stamped by
  * `generateGuardianTransaction` once the minted key is persisted (a later run of
  * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
  * the WalletAccount pointer.
@@ -1905,7 +1915,9 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
   // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  // `mode`: the activation mode the row was queued with. Absent means `replace`.
   extraInputs: {
+    mode?: HotKeyActivationMode;
     newHotPublicKey?: string;
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;

@@ -23,6 +23,7 @@ import { HotKeyRotatedOutGate } from 'app/templates/HotKeyRotatedOutGate';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
+import { RecoveryPhraseKeepPrompt } from 'app/templates/RecoveryPhraseKeepPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
@@ -120,6 +121,7 @@ const App: FC<AppProps> = ({ env }) => {
                               <UpdateNotificationProvider>
                                 <HotKeyRotationGate />
                                 <HotKeyRotatedOutGate />
+                                <RecoveryPhraseKeepPrompt />
                                 <GuardianRecoveryProvider />
                                 <OpenLinkPrompt />
                                 <BreadConnectPrompt />
@@ -130,6 +132,7 @@ const App: FC<AppProps> = ({ env }) => {
                             <UpdateNotificationProvider>
                               <HotKeyRotationGate />
                               <HotKeyRotatedOutGate />
+                              <RecoveryPhraseKeepPrompt />
                               <GuardianRecoveryProvider />
                               <PageRouter />
                             </UpdateNotificationProvider>

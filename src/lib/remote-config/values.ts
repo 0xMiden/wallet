@@ -147,6 +147,15 @@ export function selectGcSale(s: BridgeConfigSnapshot): { seller: string } | null
 }
 
 /**
+ * The encrypted backup service's base URL (`backup.baseUrl`, without a trailing slash). Null while no document is
+ * accepted, or while `features.encryptedBackup` is off. The document is per network, so it is also the backup's
+ * network gate. `lib/backup/api-client.ts` lets a loopback build define go first, for a local Worker.
+ */
+export function selectBackupBaseUrl(s: BridgeConfigSnapshot): string | null {
+  return s.config?.features.encryptedBackup === true ? (s.config.backup?.baseUrl ?? null) : null;
+}
+
+/**
  * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
  * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
  * never runs.
@@ -321,6 +330,14 @@ export function findEpochUsdcAddress(chainId: number): string | null {
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/**
+ * This realm's `selectBackupBaseUrl`: null, never a throw, while the backup is off. A path that runs without a user
+ * action awaits `initBridgeConfig()` first, since this realm may not have hydrated its snapshot yet.
+ */
+export function getBackupBaseUrl(): string | null {
+  return selectBackupBaseUrl(getBridgeConfigSnapshot());
 }
 
 /** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */

@@ -228,6 +228,10 @@
     "message": "Device key rotated",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "Device added",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "Account secured",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Adding this device",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "This device is getting its own everyday key so it can sync and make transactions.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Everyday key rotation failed",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Remove wallet from this device",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "How should this device join your wallet?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "This device gets its own everyday key. A small network fee is paid from the account.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "You already have $count$ devices with this wallet",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "You already have 1 device with this wallet",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Add this device",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Make this device the main one",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Every other device is removed from this wallet",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Keep the recovery phrase on this device?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Remove recovery phrase",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Keep it on this device",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Everyday key rotation not confirmed",

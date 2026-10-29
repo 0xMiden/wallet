@@ -210,6 +210,11 @@ export interface BridgeConfig {
     bridgeOut?: boolean;
     /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
     arcadeGcPurchase?: boolean;
+    /**
+     * The encrypted multi-device backup; only there when the document sets it, absent means off, and `backup` exists
+     * exactly when true.
+     */
+    encryptedBackup?: boolean;
   };
   /**
    * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
@@ -242,6 +247,16 @@ export interface BridgeConfig {
    * exactly when `features.arcadeGcPurchase` is true (`lib/miden/arcade/gc-sale.ts`).
    */
   arcade?: { sale: { seller: string } };
+  /**
+   * The encrypted backup service (`services/wallet-api`). Present exactly when `features.encryptedBackup` is true
+   * (`lib/backup/api-client.ts`).
+   */
+  backup?: BackupConfig;
+}
+
+export interface BackupConfig {
+  /** The service's base URL: absolute `https:`, without credentials, query, fragment or trailing slash. */
+  baseUrl: string;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -419,6 +434,34 @@ function readArcade(value: ConfigValue, enabled: boolean): { sale: { seller: str
     typeof candidate === 'string' && MIDEN_ACCOUNT_ID.test(candidate) ? candidate.toLowerCase() : invalid()
   );
   return seller === undefined ? invalid() : { sale: { seller } };
+}
+
+// The backup service's base URL as the config repo's validator accepts it: an absolute https URL with a host and no
+// credentials, query, fragment or trailing slash. The wallet appends its `/v1/...` routes to it.
+function backupBaseUrl(value: ConfigValue): string {
+  if (typeof value !== 'string' || value.endsWith('/') || value.includes('?') || value.includes('#')) return invalid();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return invalid();
+  }
+  if (url.protocol !== 'https:' || url.hostname === '' || url.username || url.password || url.search || url.hash) {
+    return invalid();
+  }
+  return `${url.origin}${url.pathname === '/' ? '' : url.pathname}`;
+}
+
+/**
+ * The encrypted backup service (the config repo's `readBackup`): the section exists exactly while
+ * `features.encryptedBackup` is on, so a stale URL cannot linger behind a switched-off feature, and names the
+ * service's base URL. A bad section rejects the document.
+ */
+function readBackup(value: ConfigValue, enabled: boolean): BackupConfig | undefined {
+  if (value === undefined) return enabled ? invalid() : undefined;
+  if (!enabled) return invalid();
+  const baseUrl = read(section(value), 'baseUrl', backupBaseUrl);
+  return baseUrl === undefined ? invalid() : { baseUrl };
 }
 
 function requiredBoolean(value: ConfigValue): boolean {
@@ -744,6 +787,7 @@ function readConfig(
   const earnEnabled = featureSwitch(features, 'earn');
   const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
   const arcade = readArcade(body.arcade, featureSwitch(features, 'arcadeGcPurchase'));
+  const backup = readBackup(body.backup, featureSwitch(features, 'encryptedBackup'));
   return {
     network,
     version,
@@ -765,7 +809,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'encryptedBackup']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )
@@ -779,6 +823,7 @@ function readConfig(
     ...(guardians === undefined ? {} : { guardians }),
     ...(earn === undefined ? {} : { earn }),
     ...(arcade === undefined ? {} : { arcade }),
+    ...(backup === undefined ? {} : { backup }),
     ...(geo === undefined ? {} : { geo })
   };
 }

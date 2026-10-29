@@ -4,6 +4,8 @@ import PQueue from 'p-queue';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import { installBackupSignalHandler } from 'lib/backup/adopt-signal';
+import { deleteBackupProfile, onBackupLock, runBackupRefresh } from 'lib/backup/refresh';
 import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
@@ -61,6 +63,8 @@ import {
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  BackupRefreshOutcome,
+  BackupRefreshReason,
   GuardianRecoveryAction,
   GuardianSyncStatus,
   EstimateUsdcxBurnFeeRequest,
@@ -178,6 +182,12 @@ export async function init() {
       async (publicKey, signingInputs) =>
         new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
     )
+  });
+  // The encrypted backup's keys live in this realm, so a Guardian adoption or a completed
+  // transaction seen here refreshes the history directly; a realm without this handler (the
+  // extension popup) forwards the signal here.
+  installBackupSignalHandler(reason => {
+    runBackupRefresh(reason);
   });
   const vault = await getVault(); // wait for vault initialization
   const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
@@ -503,6 +513,8 @@ export function lock() {
       const { vault } = store.getState();
       clearRecoveryAuthorizations();
       releaseGuardianRecoveriesOnLock();
+      // The backup's storage key and AES key live for one unlock only.
+      onBackupLock();
       locked();
       // Only the vault being locked gives up its insert-key sink; one an unlock in
       // flight just installed stays (#878).
@@ -708,12 +720,16 @@ export function importFundraiserAccount(_email: string, _password: string, _mnem
 
 export function importWatchOnlyAccount(_viewKey: string) {}
 
-export function updateSettings(settings: Partial<WalletSettings>) {
-  return withUnlocked(async ({ vault }) => {
+export async function updateSettings(settings: Partial<WalletSettings>) {
+  await withUnlocked(async ({ vault }) => {
     const updatedSettings = await vault.updateSettings(settings);
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+  // A changed contacts list goes to the encrypted backup at once, after the write and outside it:
+  // the refresh merges with the server copy and uploads, and it never throws. Not awaited, so the
+  // caller's response does not wait for the network.
+  if (settings.contacts !== undefined) runBackupRefresh('contacts-changed');
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
@@ -1172,11 +1188,17 @@ const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 //   } catch {}
 // }
 
+/**
+ * Removes the recovery phrase from this device. With a `password` the vault is unlocked again first, which is the
+ * Settings flow's re-authentication. Without one the unlocked session's vault does the removal: the prompt after
+ * a recovery runs minutes after the user typed the phrase and the passcode, so it asks for neither again, and a
+ * wallet behind a passcode (no hardware protector) has no credential-free unlock to fall back to.
+ */
 export function removeSeedPhrase(password?: string) {
-  return withUnlocked(() =>
+  return withUnlocked(({ vault: unlockedVault }) =>
     getAccountsWriteQueue().add(async () => {
       try {
-        const vault = await Vault.setup(password);
+        const vault = password ? await Vault.setup(password) : unlockedVault;
         await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
           if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
           try {
@@ -1190,6 +1212,19 @@ export function removeSeedPhrase(password?: string) {
       }
     })
   );
+}
+
+/**
+ * Run the encrypted-backup refresh of one event (lib/backup/refresh.ts). Never
+ * throws: the outcome says what happened, and a no-op off mainnet or while locked.
+ */
+export function refreshBackup(reason: BackupRefreshReason): Promise<BackupRefreshOutcome> {
+  return runBackupRefresh(reason);
+}
+
+/** Delete the encrypted-backup profile on the server, then the local backup records. */
+export function deleteBackup(): Promise<BackupRefreshOutcome> {
+  return deleteBackupProfile();
 }
 
 export function provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction) {

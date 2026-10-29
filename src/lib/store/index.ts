@@ -316,6 +316,15 @@ export const useWalletStore = create<WalletStore>()(
         lastSyncedAt: Date.now()
       });
 
+      // The encrypted backup reads its storage index on unlock (architecture doc 7.3). Here, after the
+      // unlock's queue task ended, never inside it: a peer's account rename waits on that same queue.
+      // A popup that opens on an unlocked service worker turns Ready too, which is its foreground.
+      if (justBecameReady) {
+        get()
+          .refreshBackup('unlock')
+          .catch(err => console.warn('[syncFromBackend] the backup refresh on unlock failed:', err));
+      }
+
       // Immediately fetch balances when wallet becomes Ready (before any React effects).
       // Through the store action: with nothing on screen it queues for the WASM lock rather
       // than skipping, and called here it holds the lock before the first sync tick can, so an
@@ -729,6 +738,18 @@ export const useWalletStore = create<WalletStore>()(
         expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
+    },
+
+    refreshBackup: async reason => {
+      const res = await request({ type: WalletMessageType.BackupRefreshRequest, reason });
+      assertResponse(res.type === WalletMessageType.BackupRefreshResponse);
+      return res.outcome;
+    },
+
+    deleteBackup: async () => {
+      const res = await request({ type: WalletMessageType.BackupDeleteProfileRequest });
+      assertResponse(res.type === WalletMessageType.BackupDeleteProfileResponse);
+      return res.outcome;
     },
 
     checkGuardianDrift: async accountPublicKey => {
@@ -1446,7 +1467,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // thresholds + the active guardian-operator commitment) for E2E assertions —
   // the harness's balance checks can't see the 3-key shape. The guardian
   // commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) is a SEPARATE storage slot
-  // from the multisig `signerCommitments` (`[hot, cold]`) — a guardian switch
+  // from the multisig `signerCommitments` (hot keys and cold, in any order) — a guardian switch
   // changes the former while the latter (and its threshold) stay put, so it's
   // the field E2E specs need to verify a switch actually landed. Dynamic
   // imports avoid a static cycle.
@@ -1553,7 +1574,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       const [
         { GuardianHttpClient },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { getSignerDetailsFromAccount },
+        { findOwnSignerCommitment },
         { isGuardianAccountReleased },
         { WalletSigner },
         { registerGuardianOrigin },
@@ -1579,7 +1600,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccount.publicKey);
           assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
           if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
-          return (await getSignerDetailsFromAccount(account)).commitment;
+          // This device's hot signer, found by membership: its slot is not fixed.
+          const own = await findOwnSignerCommitment(account, hotPublicKey);
+          if (own === undefined) throw new Error(`No on-chain signer holds the hot key of ${accountPublicKey}`);
+          return own.replace(/^0x/, '');
         },
         { label: 'e2e-guardian-operator-view' }
       );

@@ -228,6 +228,10 @@
     "message": "Chave do dispositivo atualizada",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "Dispositivo adicionado",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "Conta protegida",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "Sua chave de uso diário está sendo alternada. Isso é necessário ao configurar uma conta recuperada para que ela possa sincronizar e realizar transações.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Adicionando este dispositivo",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Este dispositivo está recebendo sua própria chave diária para que possa sincronizar e realizar transações.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Falha na rotação diária da chave",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Remova a carteira deste dispositivo",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Como esse dispositivo deve ser adicionado à sua carteira?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Este dispositivo recebe sua própria chave diária. Uma pequena taxa de rede é paga a partir da conta.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Você já possui $count$ dispositivos com esta carteira",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Você já possui 1 dispositivo com esta carteira",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Adicione este dispositivo",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Defina este dispositivo como o principal",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Todos os outros dispositivos são removidos desta carteira",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Manter a frase de recuperação neste dispositivo?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "As transações diárias funcionam sem a frase de recuperação neste dispositivo. Mudanças no “Guardian” e a substituição diária da chave exigirão que você a digite. Anote-a antes de removê-la.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Remova a frase de recuperação",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Mantenha-o neste dispositivo",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "A rotação diária da chave não foi confirmada",

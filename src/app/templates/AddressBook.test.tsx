@@ -10,6 +10,10 @@ jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => navigateMock(
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contactsMock() })
 }));
+// The page asks the backend for a backup contacts read when it opens; off here.
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ refreshBackup: () => Promise.resolve('disabled') })
+}));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },

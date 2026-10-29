@@ -3798,9 +3798,16 @@ const generateGuardianTransaction = async (
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createReplaceHotKeyProposal(sdkAccount, commitmentHex)
-      );
+      // The mode selects the target signer set. A row without a mode is from before
+      // the field existed, and it is a replace.
+      proposalResult = await withGuardianConflictRetry(() => {
+        switch (rTx.extraInputs?.mode) {
+          case 'add':
+            return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
+          default:
+            return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+        }
+      });
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {

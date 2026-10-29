@@ -26,6 +26,12 @@
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Buy GameCoin from the new sale script with an explicit USDCx payment and Guardian fee authentication; select eligible offers by price and amount, and exclude the buyer's own sales.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
+- [DOCS][backend] Define per-entry revisions, sync cursors and salt initialization in the wallet backend architecture proposal.
+
+- [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
+- [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
+
+- [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 

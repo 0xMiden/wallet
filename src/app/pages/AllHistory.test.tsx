@@ -158,6 +158,10 @@ jest.mock('app/templates/history/ArcadeActivityHistory', () => ({
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
+// The page asks the backend for a backup history read when it comes on screen; off here.
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ refreshBackup: () => Promise.resolve('disabled') })
+}));
 
 const mockEndpoint = { rpcUrl: 'https://rpc-a.example' };
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
