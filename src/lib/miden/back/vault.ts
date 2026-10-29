@@ -459,7 +459,7 @@ export class Vault {
           const context = { backend: 'independent', operation: 'mutate' } satisfies StorageFailureContext;
           if (isRecoveryJournalIntegrityFailure(error)) {
             confirmStorageFailure(error, 'journal', context, epoch);
-          } else if (!reportStorageFailure(error, context)) {
+          } else if (!reportStorageFailure(new Error('unclassified storage failure'), context)) {
             let name: unknown;
             try {
               if (typeof error === 'object' && error !== null) name = Reflect.get(error, 'name');
