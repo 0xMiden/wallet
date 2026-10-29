@@ -1,0 +1,34 @@
+name: Eligibility provider redaction expected red
+on:
+  push:
+    branches: [ci/1894-content-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = b84c9dd97126a17ff2376e0169c552e0c90d3cd2
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-api.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 9 - read adapter returns only the digest of the fixed target module content' result.log || exit 1
+          grep -F 'ok 1 - read adapter calls only fixed account paths without returning credentials' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manifest-red
+          path: result.log
