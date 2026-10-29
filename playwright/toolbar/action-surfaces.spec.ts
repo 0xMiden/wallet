@@ -233,6 +233,28 @@ for (const theme of ['light', 'dark'] as const) {
       await page.reload();
       await page.waitForSelector('[data-testid="onboarding-welcome"]');
       await page.bringToFront();
+      const { createServer } = await import('node:http');
+      const origins: string[] = [];
+      const originProbe = createServer((req, res) => {
+        const value = req.headers.origin;
+        origins.push(value === undefined ? 'missing' : value === 'null' ? 'null' : value.startsWith('chrome-extension://') ? 'chrome-extension' : 'other');
+        res.writeHead(200, { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin', 'content-type': 'application/json' });
+        res.end('{}');
+      });
+      await new Promise<void>(resolveProbe => originProbe.listen(0, '127.0.0.1', resolveProbe));
+      try {
+        const address = originProbe.address();
+        if (!address || typeof address === 'string') throw new Error('Origin probe address unavailable');
+        const probeUrl = `http://127.0.0.1:${address.port}/v1/eligibility?network=testnet`;
+        await page.evaluate(async url => {
+          const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer' });
+          if (!response.ok) throw new Error('Origin probe failed');
+        }, probeUrl);
+        await persistDiagnostic('chrome-loopback-origin', { surface: 'extension-fullpage', transport: 'http-loopback', origin: origins[0] ?? 'unobserved' });
+        expect(origins).toHaveLength(1);
+      } finally {
+        await new Promise<void>((resolveProbe, reject) => originProbe.close(error => error ? reject(error) : resolveProbe()));
+      }
       await capture('fresh-install-fullpage-onboarding');
       const extensionId = new URL(worker.url()).host;
       await context.close();

@@ -2,7 +2,7 @@ name: Sidebar warm reopen visual evidence
 
 on:
   push:
-    branches: [ci/sidebar-warm-frames]
+    branches: [ci/eligibility-chrome-origin]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = c83e3b6906e2989daecf198db65d4a191ef99e5e
+          test "$(git rev-parse HEAD^)" = bf1c97886df3d594c02b8324f7f51bdda48dba42
           git diff --name-only fc43d4b29e009b8d36e3bb5bf0443ef82141e3b9 HEAD > "$RUNNER_TEMP/changed"
           printf '%s\n' .github/workflows/sidebar-warm-frames.yml playwright/toolbar/action-surfaces.spec.ts > "$RUNNER_TEMP/expected"
           diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/changed"
