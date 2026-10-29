@@ -1,22 +1,10 @@
 const CLASSES = ['TopologyControl', 'EligibilityGuard', 'CallerEligibilityGuard', 'RestartProof'];
 
-// This only validates inventory evidence. A separate ownership and external-binding check is required before cleanup.
-export function validateTopologyNamespaces(pages, expected) {
-  if (
-    !Array.isArray(pages) ||
-    pages.length < 1 ||
-    pages.length > 100 ||
-    !expected ||
-    typeof expected.script !== 'string' ||
-    !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
-    !Array.isArray(expected.classes) ||
-    expected.classes.length !== CLASSES.length ||
-    new Set(expected.classes).size !== CLASSES.length ||
-    !CLASSES.every(name => expected.classes.includes(name))
-  )
-    return false;
+// These records are observation evidence, not deployment or cleanup authorization.
+export function readTopologyNamespaceInventory(pages) {
+  if (!Array.isArray(pages) || pages.length < 1 || pages.length > 100) return null;
   const ids = new Set();
-  const found = new Set();
+  const records = [];
   let total = 0;
   let expectedTotal;
   for (let index = 0; index < pages.length; index++) {
@@ -38,7 +26,7 @@ export function validateTopologyNamespaces(pages, expected) {
       info.count !== Math.min(1000, info.total_count - index * 1000) ||
       (expectedTotal !== undefined && expectedTotal !== info.total_count)
     )
-      return false;
+      return null;
     expectedTotal = info.total_count;
     total += page.result.length;
     for (const entry of page.result) {
@@ -48,19 +36,39 @@ export function validateTopologyNamespaces(pages, expected) {
         !/^[a-f0-9]{32}$/.test(entry.id) ||
         ids.has(entry.id) ||
         typeof entry.class !== 'string' ||
-        !entry.class ||
+        !/^[a-zA-Z_$][a-zA-Z0-9_$]{0,127}$/.test(entry.class) ||
         typeof entry.script !== 'string' ||
-        !entry.script ||
+        !/^[a-zA-Z0-9_-]{1,63}$/.test(entry.script) ||
         typeof entry.use_sqlite !== 'boolean'
       )
-        return false;
+        return null;
       ids.add(entry.id);
-      if (entry.script !== expected.script) continue;
-      if (entry.use_sqlite !== true || !CLASSES.includes(entry.class) || found.has(entry.class)) return false;
-      found.add(entry.class);
+      records.push({ id: entry.id, className: entry.class, script: entry.script, use_sqlite: entry.use_sqlite });
     }
   }
-  return total === expectedTotal && found.size === CLASSES.length;
+  return total === expectedTotal ? records : null;
+}
+
+export function validateTopologyNamespaces(pages, expected) {
+  if (
+    !expected ||
+    typeof expected.script !== 'string' ||
+    !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
+    !Array.isArray(expected.classes) ||
+    expected.classes.length !== CLASSES.length ||
+    new Set(expected.classes).size !== CLASSES.length ||
+    !CLASSES.every(name => expected.classes.includes(name))
+  )
+    return false;
+  const records = readTopologyNamespaceInventory(pages);
+  if (records === null) return false;
+  const found = new Set();
+  for (const record of records) {
+    if (record.script !== expected.script) continue;
+    if (record.use_sqlite !== true || !CLASSES.includes(record.className) || found.has(record.className)) return false;
+    found.add(record.className);
+  }
+  return found.size === CLASSES.length;
 }
 
 // The caller must independently establish the complete script list before using this evidence.
@@ -72,9 +80,13 @@ export function validateTopologyBindings(scripts, expected) {
     !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
     !Array.isArray(expected.scripts) ||
     !Array.isArray(expected.namespaceIds) ||
-    !expected.namespaceClasses || typeof expected.namespaceClasses !== 'object' || Array.isArray(expected.namespaceClasses) ||
+    !expected.namespaceClasses ||
+    typeof expected.namespaceClasses !== 'object' ||
+    Array.isArray(expected.namespaceClasses) ||
     Object.keys(expected.namespaceClasses).length !== expected.namespaceIds.length ||
-    !expected.namespaceIds.every(id => Object.hasOwn(expected.namespaceClasses, id) && CLASSES.includes(expected.namespaceClasses[id])) ||
+    !expected.namespaceIds.every(
+      id => Object.hasOwn(expected.namespaceClasses, id) && CLASSES.includes(expected.namespaceClasses[id])
+    ) ||
     new Set(Object.values(expected.namespaceClasses)).size !== expected.namespaceIds.length ||
     expected.scripts.length !== scripts.length ||
     expected.scripts.length < 1 ||
@@ -269,8 +281,12 @@ export async function collectTopologySettings(api, ids) {
           for (const field of fields) {
             if (entry[field] !== undefined) {
               if (typeof entry[field] !== 'string') return null;
-              const pattern = field === 'namespace_id' ? /^[a-f0-9]{32}$/ : field === 'class_name'
-                ? /^[a-zA-Z_$][a-zA-Z0-9_$]{0,127}$/ : /^[a-zA-Z0-9_-]{1,63}$/;
+              const pattern =
+                field === 'namespace_id'
+                  ? /^[a-f0-9]{32}$/
+                  : field === 'class_name'
+                    ? /^[a-zA-Z_$][a-zA-Z0-9_$]{0,127}$/
+                    : /^[a-zA-Z0-9_-]{1,63}$/;
               if (!pattern.test(entry[field])) return null;
               binding[field] = entry[field];
             }
@@ -301,12 +317,43 @@ export async function observeTopologyRelationships(api, expected) {
     if (settings === null) return null;
     const namespaceIds = records.map(record => record.id);
     const namespaceClasses = Object.fromEntries(records.map(record => [record.id, record.className]));
-    if (!validateTopologyBindings(settings, { script: expected.script, scripts, namespaceIds, namespaceClasses })) return null;
+    if (!validateTopologyBindings(settings, { script: expected.script, scripts, namespaceIds, namespaceClasses }))
+      return null;
     const finalRecords = await collectTopologyNamespaceRecords(api, expected);
     const finalScripts = await collectTopologyScriptInventory(api);
-    if (JSON.stringify(records) !== JSON.stringify(finalRecords) || JSON.stringify(scripts) !== JSON.stringify(finalScripts)) return null;
+    if (
+      JSON.stringify(records) !== JSON.stringify(finalRecords) ||
+      JSON.stringify(scripts) !== JSON.stringify(finalScripts)
+    )
+      return null;
     return { status: 'observed' };
   } catch {
     return null;
+  }
+}
+
+export async function observeTopologyNamespaceAbsence(api, scriptName) {
+  try {
+    if (typeof scriptName !== 'string' || !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(scriptName))
+      return false;
+    const scan = async () => {
+      const pages = [];
+      let totalPages = 1;
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        const response = await api(`/workers/durable_objects/namespaces?page=${pageNumber}&per_page=1000`);
+        if (pageNumber === 1) {
+          totalPages = response?.result_info?.total_pages;
+          if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > 100) return null;
+        }
+        pages.push(response);
+      }
+      return readTopologyNamespaceInventory(pages);
+    };
+    const first = await scan();
+    if (first === null || first.some(entry => entry.script === scriptName)) return false;
+    const second = await scan();
+    return second !== null && JSON.stringify(first) === JSON.stringify(second);
+  } catch {
+    return false;
   }
 }

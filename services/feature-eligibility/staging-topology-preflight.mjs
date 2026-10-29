@@ -1,5 +1,5 @@
 import { buildTopologyManifest } from './staging-topology-manifest.mjs';
-import { collectTopologyScriptInventory } from './staging-topology-namespaces.mjs';
+import { collectTopologyScriptInventory, observeTopologyNamespaceAbsence } from './staging-topology-namespaces.mjs';
 
 // Read-only preparation is not atomic and is never deployment or cleanup authorization.
 export async function prepareTopologyInventory({ api, accountId, identity, bundle, now, expiresAt, maxRuns } = {}) {
@@ -23,7 +23,7 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       maxRuns,
       inventory: scripts.map(id => ({ id }))
     });
-    if (manifest === null) return null;
+    if (manifest === null || !(await observeTopologyNamespaceAbsence(api, manifest.scriptName))) return null;
     return Object.freeze({ status: 'inventory_observed', manifest, deploymentAuthorized: false });
   } catch {
     return null;
