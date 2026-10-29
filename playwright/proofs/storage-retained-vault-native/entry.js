@@ -2,6 +2,7 @@ import * as sdk from '@miden-sdk/miden-sdk/lazy';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { Vault } from 'lib/miden/back/vault';
+import { isWalletAccount } from 'lib/miden/backup-file';
 import { encryptAndSaveMany, savePlain } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
@@ -146,8 +147,13 @@ async function prepare(password, includePrivate) {
     cold = fixture.custody[1];
   const hotPublic = hex(new Uint8Array(hot.publicBytes).slice(1));
   const coldPublic = hex(new Uint8Array(cold.publicBytes).slice(1));
+  const nativeAccountId = sdk.AccountId.fromHex(fixture.accountId);
+  const isPublic = nativeAccountId.isPublic();
+  nativeAccountId.free();
+  check('fixturePrivateAccount', isPublic === false);
   const account = {
     publicKey: fixture.accountId,
+    isPublic,
     name: 'Disposable recovery',
     type: WalletType.Guardian,
     hdIndex: -1,
@@ -159,6 +165,7 @@ async function prepare(password, includePrivate) {
     guardianOperatorCommitment: fixture.guardianCommitment,
     guardianEpoch: 0
   };
+  check('fixtureAccountShape', isWalletAccount(account));
   await encryptAndSaveMany(
     [
       ['vault_check', crypto.randomUUID()],
