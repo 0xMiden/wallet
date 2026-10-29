@@ -1,7 +1,14 @@
 import useSWR from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { findLiveGcSale, getGcSaleConfig, type GcSale } from 'lib/miden/arcade/gc-sale';
+import {
+  DEFAULT_GC_PURCHASE_AMOUNT,
+  findGcSales,
+  getGcSaleConfig,
+  pickGcSale,
+  type GcSale
+} from 'lib/miden/arcade/gc-sale';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -16,7 +23,11 @@ const SALE_REFRESH_MS = 30_000;
  * `state` is what the Buy more GC entry shows; a network with no sale never reads at all. The sale's seller comes
  * from the accepted config document (`getGcSaleConfig`), so the read is keyed on it and follows a document change.
  */
-export function useGcPurchaseQuote(network: MIDEN_NETWORK_NAME): {
+export function useGcPurchaseQuote(
+  network: MIDEN_NETWORK_NAME,
+  buyer: string
+): {
+  sales: GcSale[];
   sale: GcSale | null;
   state: GcPurchaseEntryState;
   refresh: () => Promise<GcSale | null | undefined>;
@@ -28,11 +39,12 @@ export function useGcPurchaseQuote(network: MIDEN_NETWORK_NAME): {
   const payFaucetId = getNativeAssetIdSync();
   const configured = seller !== undefined && payFaucetId !== null;
   const { data, error, isLoading, mutate } = useSWR(
-    configured && pageActive ? ['arcade-gc-sale', network, seller, payFaucetId] : null,
-    () => findLiveGcSale(network),
+    configured && pageActive ? ['arcade-gc-sale', network, seller, payFaucetId, buyer] : null,
+    () => findGcSales(network),
     { refreshInterval: SALE_REFRESH_MS, dedupingInterval: 5_000, revalidateOnFocus: false }
   );
-  const sale = data ?? null;
+  const sales = (data ?? []).filter(candidate => !sameWalletAccountId(candidate.sellerAccountId, buyer));
+  const sale = pickGcSale(sales, DEFAULT_GC_PURCHASE_AMOUNT, buyer) ?? sales[0] ?? null;
   const state: GcPurchaseEntryState = (() => {
     switch (true) {
       case !configured:
@@ -46,5 +58,10 @@ export function useGcPurchaseQuote(network: MIDEN_NETWORK_NAME): {
         return 'unavailable';
     }
   })();
-  return { sale, state, refresh: () => mutate() };
+  return {
+    sale,
+    sales,
+    state,
+    refresh: async () => pickGcSale((await mutate()) ?? [], DEFAULT_GC_PURCHASE_AMOUNT, buyer)
+  };
 }

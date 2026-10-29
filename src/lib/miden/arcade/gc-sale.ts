@@ -1,5 +1,6 @@
 import { getBech32AddressFromAccountId, sameWalletAccountId, walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
 import {
+  GC_SALE_SCRIPT_ROOT,
   listCommittedNoteIdsByTag,
   pswapNoteTag,
   readChainTip,
@@ -15,7 +16,7 @@ import { selectGcSale } from 'lib/remote-config/values';
 import type { GcPurchaseQuote } from '../transaction/initiate';
 
 /**
- * Where a network sells Game Coins: one public PSWAP note the seller created, offering GC against the chain's fee
+ * Where a network sells Game Coins: public sale notes offering GC against the chain's fee
  * asset (USDCx). Every fill spends the note and the PSWAP script creates a remainder under a new id with the same
  * tag, so the live note is found by the tag the script derives from the two faucets (`pswapNoteTag`), never by a
  * pinned id (`docs/arcade/gc-integration.md`).
@@ -23,7 +24,7 @@ import type { GcPurchaseQuote } from '../transaction/initiate';
 export interface GcSaleConfig {
   /** The GC faucet, hex. */
   gcFaucetId: string;
-  /** The account whose storage the sale note names as creator; a note of any other creator is not this sale. */
+  /** The configured seller. This config field also controls purchase availability. */
   sellerAccountId: string;
   /** The first block a note of the sale can be in, so the tag walk starts there. */
   fromBlock: number;
@@ -42,11 +43,13 @@ export const GC_SALES: Partial<Record<MIDEN_NETWORK_NAME, GcSaleConfig>> = {
 };
 
 export const GC_DECIMALS = 6;
+/** Maximum USDCx base units per GC. */
+export const GC_MAX_PRICE = 1_000n;
 
 /** What the purchase sheet starts at: 1 GC, in base units. */
 export const DEFAULT_GC_PURCHASE_AMOUNT = 10n ** BigInt(GC_DECIMALS);
 
-/** Sale notes whose bodies one `findLiveGcSale` reads before it gives up; a lineage has one live note. */
+/** Maximum new note bodies read per discovery check. Cached sales are also checked. */
 const MAX_SALE_NOTE_READS = 8;
 
 /** The live sale note as the node holds it, with the terms a quote needs. */
@@ -67,7 +70,7 @@ export interface GcSale {
 
 /**
  * The sale of `network`, or undefined where there is none. The accepted config document decides: its
- * `arcade.sale.seller` is the seller while `features.arcadeGcPurchase` is on, and a document that leaves the switch
+ * `arcade.sale.seller` remains in the config scope while `features.arcadeGcPurchase` is on. A document that leaves the switch
  * off turns the purchase off. With no accepted document for the network (a first start that cannot reach the config
  * repo, a read before the realm hydrated) the bundled sale stands in, as the bundled operator list does.
  */
@@ -98,14 +101,15 @@ export function pswapFillPayout(
 }
 
 /**
- * Whether a PSWAP note is `sale`'s: the seller created it and it offers GC against the network's fee asset. A note of
- * another creator or pair under the same tag is somebody else's sale.
+ * Whether a sale offers the configured GC for the fee asset at an accepted price.
  */
 export function isGcSaleNote(fields: PswapFields, sale: GcSaleConfig, payFaucetId: string): boolean {
   return (
-    sameWalletAccountId(fields.creator, sale.sellerAccountId) &&
     sameWalletAccountId(fields.offeredFaucet, sale.gcFaucetId) &&
-    sameWalletAccountId(fields.requestedFaucet, payFaucetId)
+    sameWalletAccountId(fields.requestedFaucet, payFaucetId) &&
+    fields.offeredAmount > 0n &&
+    (fields.storage[2] ?? 0n) > 0n &&
+    (fields.storage[2] ?? 0n) * 10n ** BigInt(GC_DECIMALS) <= GC_MAX_PRICE * fields.offeredAmount
   );
 }
 
@@ -142,11 +146,21 @@ export function quoteGcPurchase(
   };
 }
 
-/**
- * The live sale note of this network, on RPC clients of its own and no WASM lock: the notes under the sale's tag
- * newest first, the first unspent one of the seller's with GC left. Null when the network has no sale, the fee asset
- * is not discovered yet, or no note is open; a failed node read rejects.
- */
+/** Select the cheapest sale that can supply the amount. Exclude the buyer's own sales. */
+export function pickGcSale(sales: GcSale[], gcAmount: bigint, buyer?: string): GcSale | null {
+  const eligible = sales.filter(sale => {
+    if (buyer && sameWalletAccountId(sale.sellerAccountId, buyer)) return false;
+    return 'quote' in quoteGcPurchase(sale, gcAmount);
+  });
+  eligible.sort((a, b) => {
+    const price = a.requestedAmount * b.offeredAmount - b.requestedAmount * a.offeredAmount;
+    if (price !== 0n) return price < 0n ? -1 : 1;
+    if (a.offeredAmount !== b.offeredAmount) return a.offeredAmount > b.offeredAmount ? -1 : 1;
+    return a.saleNoteId.localeCompare(b.saleNoteId);
+  });
+  return eligible[0] ?? null;
+}
+
 interface SaleCandidate {
   noteId: string;
   block: number;
@@ -154,14 +168,9 @@ interface SaleCandidate {
 interface SaleScan {
   key: string;
   tip: number;
-  historicalTip: number;
-  historical?: SaleCandidate;
-  watermark: number;
-  newerTip?: number;
-  newer?: SaleCandidate;
-  live?: SaleCandidate;
-  complete: boolean;
-  pending?: Promise<GcSale | null>;
+  seen: Set<string>;
+  sales: Map<string, GcSale>;
+  pending?: Promise<GcSale[]>;
 }
 let activeScan: SaleScan | undefined;
 
@@ -174,113 +183,91 @@ function scopeKey(network: MIDEN_NETWORK_NAME): string | undefined {
 }
 
 const candidateOrder = (a: SaleCandidate, b: SaleCandidate): number =>
-  b.block - a.block || (a.noteId < b.noteId ? -1 : a.noteId > b.noteId ? 1 : 0);
+  b.block - a.block || a.noteId.localeCompare(b.noteId);
 
-export function findLiveGcSale(network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()): Promise<GcSale | null> {
+/**
+ * Read sale notes from the node in bounded batches. Keep progress between checks and recheck each cached sale.
+ * A failed read leaves its candidate due for the next check. Config and endpoint changes discard the cache.
+ */
+export function findGcSales(network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()): Promise<GcSale[]> {
   const key = scopeKey(network);
   if (!key) {
     activeScan = undefined;
-    return Promise.resolve(null);
+    return Promise.resolve([]);
   }
   if (activeScan?.key === key && activeScan.pending) return activeScan.pending;
   if (activeScan?.key !== key) {
-    activeScan = { key, tip: -1, historicalTip: -1, watermark: -1, complete: false };
+    activeScan = { key, tip: -1, seen: new Set(), sales: new Map() };
   }
   const scan = activeScan!;
   const current = () => activeScan === scan && scopeKey(network) === key;
-  const work = async (): Promise<GcSale | null> => {
+  const work = async (): Promise<GcSale[]> => {
     const sale = getGcSaleConfig(network)!;
     const payFaucetId = getNativeAssetIdSync()!;
     const gcFaucet = walletAccountIdToSdk(sale.gcFaucetId);
     const tag = pswapNoteTag(gcFaucet, walletAccountIdToSdk(payFaucetId));
-    if (!current()) return null;
     const tip = await readChainTip();
-    if (!current()) return null;
-    if (scan.tip > tip || scan.complete || scan.historicalTip < 0) {
-      scan.historicalTip = tip;
-      scan.historical = undefined;
-      scan.watermark = tip;
-      scan.newerTip = undefined;
-      scan.newer = undefined;
-      scan.live = undefined;
-      scan.complete = false;
+    if (!current()) return [];
+    if (tip < scan.tip) {
+      scan.seen.clear();
+      scan.sales.clear();
     }
     scan.tip = tip;
     const committed = await listCommittedNoteIdsByTag(tag, sale.fromBlock, tip);
-    if (!current()) return null;
+    if (!current()) return [];
     const ordered = [...committed].sort(candidateOrder);
-    const reads = new Map<string, Awaited<ReturnType<typeof readPublicPswapNote>>>();
-    const readSale = async (candidate: SaleCandidate): Promise<GcSale | null> => {
-      if (!current()) return null;
-      let read = reads.get(candidate.noteId);
-      if (!read) {
-        read = await readPublicPswapNote(candidate.noteId);
-        if (!current()) return null;
-        reads.set(candidate.noteId, read);
+    const unread = ordered.filter(candidate => !scan.seen.has(candidate.noteId));
+    // Alternate new and old candidates so new traffic cannot stop historical discovery.
+    const candidates: SaleCandidate[] = [];
+    const discoveryLimit = scan.sales.size ? MAX_SALE_NOTE_READS / 2 : MAX_SALE_NOTE_READS;
+    while (unread.length && candidates.length < discoveryLimit) {
+      const candidate = candidates.length % 2 === 0 ? unread.shift() : unread.pop();
+      if (candidate) candidates.push(candidate);
+    }
+    const checked = new Set<string>();
+    const readSale = async (noteId: string) => {
+      const read = await readPublicPswapNote(noteId, GC_SALE_SCRIPT_ROOT);
+      if (!current()) return;
+      checked.add(noteId);
+      scan.seen.add(noteId);
+      if (read.kind !== 'open' || !isGcSaleNote(read.fields, sale, payFaucetId)) {
+        scan.sales.delete(noteId);
+        return;
       }
-      if (read.kind !== 'open' || !isGcSaleNote(read.fields, sale, payFaucetId)) return null;
-      const requestedAmount = read.fields.storage[2] ?? 0n;
-      if (read.fields.offeredAmount < 1n || requestedAmount < 1n) return null;
-      scan.live = candidate;
-      return {
-        saleNoteId: candidate.noteId,
-        sellerAccountId: sale.sellerAccountId,
+      scan.sales.set(noteId, {
+        saleNoteId: noteId,
+        sellerAccountId: read.fields.creator,
         payFaucetId,
         gcFaucetId: getBech32AddressFromAccountId(gcFaucet),
         offeredAmount: read.fields.offeredAmount,
-        requestedAmount,
+        requestedAmount: read.fields.storage[2] ?? 0n,
         fillFloor: read.fields.storage[3] ?? 0n
-      };
+      });
     };
-    if (scan.live) {
-      const found = await readSale(scan.live);
-      if (!current()) return null;
-      if (found) return found;
-      scan.live = undefined;
-      // A spent sale may have a successor above a previously suspended newer range.
-      scan.newerTip = tip > scan.watermark ? tip : undefined;
-      scan.newer = undefined;
+    for (const candidate of candidates) {
+      await readSale(candidate.noteId);
+      if (!current()) return [];
     }
-    if (scan.newerTip === undefined && tip > scan.watermark) scan.newerTip = tip;
-    const historical = ordered.filter(
-      c => c.block <= scan.historicalTip && (!scan.historical || candidateOrder(c, scan.historical) > 0)
-    );
-    const newer = ordered.filter(
-      c =>
-        scan.newerTip !== undefined &&
-        c.block > scan.watermark &&
-        c.block <= scan.newerTip &&
-        (!scan.newer || candidateOrder(c, scan.newer) > 0)
-    );
-    const scanRange = async (candidates: SaleCandidate[], kind: 'historical' | 'newer', limit: number) => {
-      let count = 0;
-      for (const candidate of candidates) {
-        if (!current() || reads.size >= MAX_SALE_NOTE_READS || count >= limit) break;
-        const found = await readSale(candidate);
-        if (!current()) return null;
-        scan[kind] = candidate;
-        count += 1;
-        if (found) return found;
-      }
-      return null;
-    };
-    const fresh = await scanRange(newer, 'newer', historical.length ? 4 : MAX_SALE_NOTE_READS);
-    if (!current() || fresh) return fresh;
-    const old = await scanRange(historical, 'historical', MAX_SALE_NOTE_READS);
-    if (!current() || old) return old;
-    const remainingOld = historical.some(c => !scan.historical || candidateOrder(c, scan.historical) > 0);
-    const remainingNew = newer.some(c => !scan.newer || candidateOrder(c, scan.newer) > 0);
-    if (!remainingNew && scan.newerTip !== undefined) {
-      scan.watermark = scan.newerTip;
-      scan.newerTip = undefined;
-      scan.newer = undefined;
+    // Recheck cached offers too: a different buyer may have consumed them since the last check.
+    for (const noteId of scan.sales.keys()) {
+      if (checked.has(noteId)) continue;
+      await readSale(noteId);
+      if (!current()) return [];
     }
-    scan.complete = !remainingOld && !remainingNew && scan.watermark >= tip;
-    return null;
+    return [...scan.sales.values()].filter(candidate => checked.has(candidate.saleNoteId));
   };
   const pending = work().finally(() => {
     if (scan.pending === pending) scan.pending = undefined;
   });
   scan.pending = pending;
   return pending;
+}
+
+/** The cheapest eligible sale for a purchase, after the current discovery batch. */
+export async function findLiveGcSale(
+  network: MIDEN_NETWORK_NAME = getEffectiveNetworkName(),
+  buyer?: string,
+  gcAmount: bigint = DEFAULT_GC_PURCHASE_AMOUNT
+): Promise<GcSale | null> {
+  return pickGcSale(await findGcSales(network), gcAmount, buyer);
 }

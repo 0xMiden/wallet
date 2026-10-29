@@ -8,7 +8,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { TextField } from 'components/ui/TextField';
 import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
-import { GC_DECIMALS, quoteGcPurchase, type GcSale } from 'lib/miden/arcade/gc-sale';
+import { GC_DECIMALS, pickGcSale, quoteGcPurchase, type GcSale } from 'lib/miden/arcade/gc-sale';
 import type { GcPurchaseQuote } from 'lib/miden/transaction/initiate';
 import { formatAmount } from 'lib/shared/format';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
@@ -58,18 +58,27 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sale: GcSale | null;
+  sales?: GcSale[];
   /** The wallet's USDCx, in base units; null while unread. */
   payBalance: bigint | null;
   submitting: boolean;
   error: string | null;
   onConfirm: (quote: GcPurchaseQuote) => void;
-}> = ({ open, onOpenChange, sale, payBalance, submitting, error, onConfirm }) => {
+}> = ({ open, onOpenChange, sale: initialSale, sales, payBalance, submitting, error, onConfirm }) => {
   const { t } = useTranslation();
   const [amountText, setAmountText] = useState(DEFAULT_GC_AMOUNT_TEXT);
   // Each opening starts over at the default, so a closed sheet never keeps a stale amount.
   useEffect(() => {
     if (open) setAmountText(DEFAULT_GC_AMOUNT_TEXT);
   }, [open]);
+  const sale = (() => {
+    if (!sales) return initialSale;
+    try {
+      return pickGcSale(sales, stringToBigInt(amountText, GC_DECIMALS)) ?? initialSale;
+    } catch {
+      return initialSale;
+    }
+  })();
   const reading = sale ? readAmount(sale, amountText) : null;
   const quote = reading && 'quote' in reading ? reading.quote : null;
   const amountErrorId: UserErrorId | null = reading && 'errorId' in reading ? reading.errorId : null;
