@@ -1,0 +1,31 @@
+name: Eligibility topology cache focused proof
+on:
+  push:
+    branches: [ci/1894-topology-cache-green]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 99e204eda82dd9f986ef4f998323694dac983ab7
+      - name: Exercise admission and failure boundaries
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test services/feature-eligibility/staging-topology.test.mjs services/feature-eligibility/staging-topology-run.test.mjs services/feature-eligibility/staging-topology-cache.test.mjs | tee result.log
+          grep -F '# tests 15' result.log
+          grep -F '# pass 15' result.log
+          grep -F '# fail 0' result.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topology-cache-green
+          path: result.log
