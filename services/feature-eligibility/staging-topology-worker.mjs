@@ -128,7 +128,7 @@ export class RestartProof {
   constructor(state, env) {
     this.state = state;
     this.env = syntheticEnv(env);
-    this.clock = Date.UTC(2026, 0, 1, 12);
+    this.clock = Date.UTC(2099, 0, 1, 12);
     this.stage = 0;
     this.service = createService({ fetchImpl: fixedFetch(() => {}), now: () => this.clock });
     this.delegate = new this.service.EligibilityGuard(state, this.env);
@@ -148,7 +148,7 @@ export class RestartProof {
         this.clock += 86_400_000;
         return Response.json({ advanced: true });
       }
-      const day = step === 'oldDay' ? '2026-01-01' : new Date(this.clock).toISOString().slice(0, 10);
+      const day = step === 'oldDay' ? '2099-01-01' : new Date(this.clock).toISOString().slice(0, 10);
       const leaseId = '00000000-0000-4000-8000-000000000099';
       const response = await this.delegate.fetch(
         new Request('https://eligibility.internal/lease', {
