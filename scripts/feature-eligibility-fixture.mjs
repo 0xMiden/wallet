@@ -177,6 +177,7 @@ export async function createEligibilityFixture({
       send(response, 503, { error: 'eligibility_unavailable' });
     }
   };
+  const proofOrigins = [];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     try {
@@ -202,7 +203,10 @@ export async function createEligibilityFixture({
       if (request.method === 'GET' && configNetwork && selected.has(configNetwork)) {
         return send(response, 200, await read(configNetwork));
       }
+      if (request.method === 'GET' && url.pathname === '/_fixture/proof-origins') return send(response, 200, proofOrigins);
       if (request.method === 'GET' && url.pathname === '/v1/eligibility') {
+        const origin = request.headers.origin;
+        proofOrigins.push(origin === undefined ? 'missing' : origin === 'null' ? 'null' : origin.startsWith('chrome-extension://') ? 'chrome-extension' : 'other');
         const network = url.searchParams.get('network');
         if (!selected.has(network) || [...url.searchParams.keys()].length !== 1) {
           return send(response, 400, { error: 'invalid_request' });

@@ -255,6 +255,13 @@ for (const theme of ['light', 'dark'] as const) {
       } finally {
         await new Promise<void>((resolveProbe, reject) => originProbe.close(error => error ? reject(error) : resolveProbe()));
       }
+      await expect.poll(async () => {
+        const response = await fetch('http://127.0.0.1:8551/_fixture/proof-origins');
+        const categories = await response.json();
+        return Array.isArray(categories) ? categories.length : 0;
+      }).toBeGreaterThan(0);
+      const observed = await (await fetch('http://127.0.0.1:8551/_fixture/proof-origins')).json();
+      await persistDiagnostic('actual-eligibility-origins', { surface: 'chrome-fixture', transport: 'http-loopback', categories: observed });
       await capture('fresh-install-fullpage-onboarding');
       const extensionId = new URL(worker.url()).host;
       await context.close();
