@@ -42,6 +42,7 @@ import {
 import { updateTransactionStatus } from './helper';
 import { generateTransactionsLoop } from './index';
 import { recordQueueAdmission, consumeQueueAdmission, pruneQueueAdmission } from './queue-admission-diagnostics';
+import { requeueFailedTransaction } from './retry';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
@@ -61,6 +62,23 @@ jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: () => {}
 }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
+const importQueuedNotes = () =>
+  jest.requireActual<typeof import('../activity/notes')>('../activity/notes').importAllNotes();
+const mockImportAllNotes = jest.fn(importQueuedNotes);
+jest.mock(
+  '../activity/notes',
+  () =>
+    new Proxy(
+      {},
+      {
+        get: (_target, key) => {
+          if (key === '__esModule') return true;
+          if (key === 'importAllNotes') return () => mockImportAllNotes();
+          return Reflect.get(jest.requireActual<typeof import('../activity/notes')>('../activity/notes'), key);
+        }
+      }
+    )
+);
 jest.mock('@capacitor/core', () => {
   const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
   const reown = { sendTransaction: jest.fn() };
@@ -92,6 +110,7 @@ const phased = (type: 'earn-withdraw' | 'bridged-receive', phase: string): ITran
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockImportAllNotes.mockReset().mockImplementation(importQueuedNotes);
   jest.mocked(Capacitor.getPlatform).mockImplementation(actualCapacitor.getPlatform);
   jest.mocked(rawReown.sendTransaction).mockReset();
   await Repo.transactions.clear();
@@ -1108,6 +1127,83 @@ it.each([false, true])('uses only earlier exact gate membership at committed exp
     expect(consumeQueueAdmission(changed ? { ...waiting, queuedSeq: 2 } : waiting)).toBe('unavailable');
   } finally {
     queries.mockRestore();
+  }
+});
+
+it('does not persist a gate sighting captured before cancel and Retry restamped the queue row', async () => {
+  pruneQueueAdmission([]);
+  const now = Math.floor(Date.now() / 1000);
+  const waiting = row({ id: 'retry-sighting', status: ITransactionStatus.Queued, initiatedAt: now - 1, queuedSeq: 1 });
+  await Repo.transactions.put(waiting);
+  await Repo.transactions.put(row({ id: 'active-sighting', processingStartedAt: now }));
+  mockImportAllNotes.mockImplementationOnce(async () => {
+    await cancelTransaction(waiting, USER_CANCELLED_TRANSACTION_REASON);
+    const retryClock = jest.spyOn(Date, 'now').mockReturnValue((now + 1) * 1000);
+    try {
+      await requeueFailedTransaction(waiting.id);
+    } finally {
+      retryClock.mockRestore();
+    }
+    await importQueuedNotes();
+  });
+  const guardianProvider = {
+    getAccounts: async () => [],
+    getPublicKeyForCommitment: async () => '',
+    signWord: async () => ''
+  };
+  await generateTransactionsLoop(async () => new Uint8Array(), false, guardianProvider);
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const retried = await Repo.transactions.get(waiting.id);
+  expect(retried?.queueSighting).toBeUndefined();
+  if (!retried) throw new Error('Retry did not retain the queued row');
+  expect(retried?.status).toBe(ITransactionStatus.Queued);
+  expect(retried.initiatedAt).toBe(now + 1);
+  expect(retried?.queuedSeq).not.toBe(waiting.queuedSeq);
+  report.mockClear();
+  await generateTransactionsLoop(async () => new Uint8Array(), false, guardianProvider);
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  pruneQueueAdmission([]);
+  const clock = jest.spyOn(Date, 'now').mockReturnValue((retried.initiatedAt + MAX_QUEUED_AGE + 1) * 1000);
+  try {
+    await cancelStaleQueuedTransactions();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'queued_expired', queueSighting: 'in_progress_gate' })
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it('persists an equal-rank gate sighting when the stored label belongs to another incarnation', async () => {
+  pruneQueueAdmission([]);
+  const now = Math.floor(Date.now() / 1000);
+  await Repo.transactions.put(
+    row({
+      id: 'unbound-sighting',
+      status: ITransactionStatus.Queued,
+      initiatedAt: now,
+      queuedSeq: 2,
+      queueSighting: 'in_progress_gate',
+      queueSightingAt: now - 1,
+      queueSightingSeq: 1
+    })
+  );
+  await Repo.transactions.put(row({ id: 'active-sighting', processingStartedAt: now }));
+  await generateTransactionsLoop(async () => new Uint8Array(), false, {
+    getAccounts: async () => [],
+    getPublicKeyForCommitment: async () => '',
+    signWord: async () => ''
+  });
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  pruneQueueAdmission([]);
+  const clock = jest.spyOn(Date, 'now').mockReturnValue((now + MAX_QUEUED_AGE + 1) * 1000);
+  try {
+    await cancelStaleQueuedTransactions();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'queued_expired', queueSighting: 'in_progress_gate' })
+    );
+  } finally {
+    clock.mockRestore();
   }
 });
 
