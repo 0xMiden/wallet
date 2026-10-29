@@ -180,7 +180,7 @@ for (const theme of ['light', 'dark'] as const) {
     };
     const activate = (diagnose = false) => {
       const value: unknown = JSON.parse(
-        execFileSync('/usr/bin/python3', [resolve('playwright/toolbar/native-bread-button.py')], {
+        execFileSync('/usr/bin/python3', [resolve(diagnose ? 'playwright/toolbar/native-bread-button-probe.py' : 'playwright/toolbar/native-bread-button.py'), theme], {
           timeout: 15000
         }).toString()
       );
