@@ -395,19 +395,13 @@ it('shows the invite welcome during preparation and blocks later steps until mai
 
 it('covers hash-less Welcome after preparation fails and keeps it covered through Retry', async () => {
   let finishRetry!: () => void;
-  mockApply
-    .mockRejectedValueOnce(new Error('Storage unavailable'))
-    .mockImplementationOnce(
-      () =>
-        new Promise<void>(resolve => {
-          finishRetry = resolve;
-        })
-    );
-  render(
-    <OnboardingNetwork showWhilePreparing>
-      {content}
-    </OnboardingNetwork>
+  mockApply.mockRejectedValueOnce(new Error('Storage unavailable')).mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        finishRetry = resolve;
+      })
   );
+  render(<OnboardingNetwork showWhilePreparing>{content}</OnboardingNetwork>);
 
   expect(screen.getByTestId('flow')).toHaveTextContent('true');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
