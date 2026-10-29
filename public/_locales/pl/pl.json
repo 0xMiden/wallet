@@ -1871,5 +1871,13 @@
   "arcadeBalanceUnknown": "Saldo niedostępne",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monety w grach",
-  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji."
+  "arcadePostingPolicy": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
+  "exploreFeatured": "Polecane",
+  "exploreFeaturedGeoquizzHeadline": "Znajdź dziesięć miast, pokonaj rywali",
+  "exploreFeaturedPort0Headline": "Handluj dowolnymi tokenami, prywatnie",
+  "exploreFeaturedQashHeadline": "Listy płac, których nikt inny nie może zobaczyć",
+  "exploreFinanceHeroDescription": "Handluj, płać i otrzymuj płatności za pomocą aplikacji opartych na platformie Miden.",
+  "exploreFinanceHeroEyebrow": "Finanse na Miden",
+  "exploreFinanceHeroTitle": "Twoje pieniądze są domyślnie prywatne",
+  "receiveCrossChainCaption": "Z innej sieci"
 }

@@ -1870,5 +1870,13 @@
   "arcadeBalanceUnknown": "Solde indisponible",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Pièces de jeu",
-  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction."
+  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
+  "exploreFeatured": "À la une",
+  "exploreFeaturedGeoquizzHeadline": "Trouvez dix villes, battez vos rivaux",
+  "exploreFeaturedPort0Headline": "Négociez n’importe quel token, en privé",
+  "exploreFeaturedQashHeadline": "Une paie que personne d’autre ne peut voir",
+  "exploreFinanceHeroDescription": "Négociez, payez et recevez des paiements grâce aux applications développées sur Miden.",
+  "exploreFinanceHeroEyebrow": "La finance sur Miden",
+  "exploreFinanceHeroTitle": "Votre argent, privé par défaut",
+  "receiveCrossChainCaption": "Depuis un autre réseau"
 }

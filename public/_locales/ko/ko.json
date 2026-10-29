@@ -1873,5 +1873,13 @@
   "arcadeBalanceUnknown": "잔액 조회 불가",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "게임 코인",
-  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요."
+  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
+  "exploreFeatured": "주요 내용",
+  "exploreFeaturedGeoquizzHeadline": "10개 도시를 찾아내고, 경쟁자들을 제치세요",
+  "exploreFeaturedPort0Headline": "어떤 토큰이든 비공개로 거래하세요",
+  "exploreFeaturedQashHeadline": "다른 누구도 볼 수 없는 급여 내역",
+  "exploreFinanceHeroDescription": "Miden을 기반으로 구축된 앱을 통해 거래하고, 지불하고, 대금을 수령하세요.",
+  "exploreFinanceHeroEyebrow": "Miden의 금융",
+  "exploreFinanceHeroTitle": "귀하의 자금, 기본적으로 비공개로 처리됩니다",
+  "receiveCrossChainCaption": "다른 네트워크에서"
 }

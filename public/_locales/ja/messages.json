@@ -8538,5 +8538,37 @@
   "arcadePostingPolicy": {
     "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "exploreFeatured": {
+    "message": "注目記事",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "10の都市を見つけ、ライバルたちに打ち勝て",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "あらゆるトークンを、非公開で取引する",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "他者には見えない給与明細",
+    "englishSource": "Payroll nobody else can see"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Miden上に構築されたアプリを使って、取引、支払い、入金を行ってください。",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Midenの金融",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "あなたの資金は、デフォルトで非公開です",
+    "englishSource": "Your money, private by default"
+  },
+  "receiveCrossChainCaption": {
+    "message": "別のネットワークからの情報",
+    "englishSource": "From another network"
   }
 }

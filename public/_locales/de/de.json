@@ -1864,5 +1864,13 @@
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Spielmünzen",
-  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+  "exploreFeatured": "Im Fokus",
+  "exploreFeaturedGeoquizzHeadline": "Finde zehn Städte, schlage deine Rivalen",
+  "exploreFeaturedPort0Headline": "Handeln Sie mit beliebigen Token, privat",
+  "exploreFeaturedQashHeadline": "Gehaltsabrechnung, die niemand sonst einsehen kann",
+  "exploreFinanceHeroDescription": "Handeln, bezahlen und Zahlungen erhalten – mit Apps, die auf Miden basieren.",
+  "exploreFinanceHeroEyebrow": "Finanzen auf Miden",
+  "exploreFinanceHeroTitle": "Ihr Geld – standardmäßig privat",
+  "receiveCrossChainCaption": "Aus einem anderen Netzwerk"
 }

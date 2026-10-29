@@ -1869,5 +1869,13 @@
   "arcadeBalanceUnknown": "Баланс недоступен",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Игровые монеты",
-  "arcadePostingPolicy": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции."
+  "arcadePostingPolicy": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
+  "exploreFeatured": "В центре внимания",
+  "exploreFeaturedGeoquizzHeadline": "Найдите десять городов, победите своих соперников",
+  "exploreFeaturedPort0Headline": "Торгуйте любыми токенами в частном порядке",
+  "exploreFeaturedQashHeadline": "Зарплата, которую никто другой не может увидеть",
+  "exploreFinanceHeroDescription": "Торгуйте, платите и получайте оплату с помощью приложений, созданных на базе Miden.",
+  "exploreFinanceHeroEyebrow": "Финансы на Miden",
+  "exploreFinanceHeroTitle": "Ваши деньги по умолчанию являются конфиденциальными",
+  "receiveCrossChainCaption": "Из другой сети"
 }

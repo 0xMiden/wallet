@@ -1873,5 +1873,13 @@
   "arcadeBalanceUnknown": "Balance unavailable",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Game Coins",
-  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
+  "exploreFeatured": "Featured",
+  "exploreFeaturedGeoquizzHeadline": "Find ten cities, beat your rivals",
+  "exploreFeaturedPort0Headline": "Trade any token, privately",
+  "exploreFeaturedQashHeadline": "Payroll nobody else can see",
+  "exploreFinanceHeroDescription": "Trade, pay and get paid with apps built on Miden.",
+  "exploreFinanceHeroEyebrow": "Finance on Miden",
+  "exploreFinanceHeroTitle": "Your money, private by default",
+  "receiveCrossChainCaption": "From another network"
 }

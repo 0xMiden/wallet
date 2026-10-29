@@ -8540,5 +8540,37 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "exploreFeatured": {
+    "message": "У центрі уваги",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Знайдіть десять міст, переможіть своїх суперників",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Торгуйте будь-якими токенами приватно",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Заробітна плата, яку ніхто інший не може бачити",
+    "englishSource": "Payroll nobody else can see"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Торгуйте, платіть та отримуйте оплату за допомогою додатків, створених на базі Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Фінанси на Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Ваші гроші — приватні за замовчуванням",
+    "englishSource": "Your money, private by default"
+  },
+  "receiveCrossChainCaption": {
+    "message": "З іншої мережі",
+    "englishSource": "From another network"
   }
 }

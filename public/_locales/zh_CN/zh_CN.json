@@ -1873,5 +1873,13 @@
   "arcadeBalanceUnknown": "余额不可用",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "游戏币",
-  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。"
+  "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
+  "exploreFeatured": "精选",
+  "exploreFeaturedGeoquizzHeadline": "找出十座城市，击败你的对手",
+  "exploreFeaturedPort0Headline": "私下交易任何代币",
+  "exploreFeaturedQashHeadline": "薪资记录，他人无法查看",
+  "exploreFinanceHeroDescription": "使用基于 Miden 构建的应用程序进行交易、支付和收款。",
+  "exploreFinanceHeroEyebrow": "Miden 上的金融",
+  "exploreFinanceHeroTitle": "您的资金，默认处于私有状态",
+  "receiveCrossChainCaption": "来自另一个网络"
 }

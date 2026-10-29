@@ -1871,5 +1871,13 @@
   "arcadeBalanceUnknown": "Баланс недоступний",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Ігрові монети",
-  "arcadePostingPolicy": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції."
+  "arcadePostingPolicy": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
+  "exploreFeatured": "У центрі уваги",
+  "exploreFeaturedGeoquizzHeadline": "Знайдіть десять міст, переможіть своїх суперників",
+  "exploreFeaturedPort0Headline": "Торгуйте будь-якими токенами приватно",
+  "exploreFeaturedQashHeadline": "Заробітна плата, яку ніхто інший не може бачити",
+  "exploreFinanceHeroDescription": "Торгуйте, платіть та отримуйте оплату за допомогою додатків, створених на базі Miden.",
+  "exploreFinanceHeroEyebrow": "Фінанси на Miden",
+  "exploreFinanceHeroTitle": "Ваші гроші — приватні за замовчуванням",
+  "receiveCrossChainCaption": "З іншої мережі"
 }

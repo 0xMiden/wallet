@@ -1866,5 +1866,13 @@
   "arcadeBalanceUnknown": "Saldo no disponible",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "Monedas del juego",
-  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción."
+  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
+  "exploreFeatured": "Destacado",
+  "exploreFeaturedGeoquizzHeadline": "Encuentra diez ciudades, vence a tus rivales",
+  "exploreFeaturedPort0Headline": "Opera con cualquier token, de forma privada",
+  "exploreFeaturedQashHeadline": "Nómina que nadie más puede ver",
+  "exploreFinanceHeroDescription": "Opera, paga y recibe pagos con aplicaciones desarrolladas en Miden.",
+  "exploreFinanceHeroEyebrow": "Finanzas en Miden",
+  "exploreFinanceHeroTitle": "Tu dinero, privado por defecto",
+  "receiveCrossChainCaption": "Desde otra red"
 }

@@ -8538,5 +8538,37 @@
   "arcadePostingPolicy": {
     "message": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "exploreFeatured": {
+    "message": "주요 내용",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "10개 도시를 찾아내고, 경쟁자들을 제치세요",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "어떤 토큰이든 비공개로 거래하세요",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "다른 누구도 볼 수 없는 급여 내역",
+    "englishSource": "Payroll nobody else can see"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Miden을 기반으로 구축된 앱을 통해 거래하고, 지불하고, 대금을 수령하세요.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden의 금융",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "귀하의 자금, 기본적으로 비공개로 처리됩니다",
+    "englishSource": "Your money, private by default"
+  },
+  "receiveCrossChainCaption": {
+    "message": "다른 네트워크에서",
+    "englishSource": "From another network"
   }
 }

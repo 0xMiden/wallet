@@ -1873,5 +1873,13 @@
   "arcadeBalanceUnknown": "残高利用不可",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "ゲームコイン",
-  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。"
+  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+  "exploreFeatured": "注目記事",
+  "exploreFeaturedGeoquizzHeadline": "10の都市を見つけ、ライバルたちに打ち勝て",
+  "exploreFeaturedPort0Headline": "あらゆるトークンを、非公開で取引する",
+  "exploreFeaturedQashHeadline": "他者には見えない給与明細",
+  "exploreFinanceHeroDescription": "Miden上に構築されたアプリを使って、取引、支払い、入金を行ってください。",
+  "exploreFinanceHeroEyebrow": "Midenの金融",
+  "exploreFinanceHeroTitle": "あなたの資金は、デフォルトで非公開です",
+  "receiveCrossChainCaption": "別のネットワークからの情報"
 }

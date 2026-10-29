@@ -8543,5 +8543,37 @@
   "arcadePostingPolicy": {
     "message": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "exploreFeatured": {
+    "message": "Em destaque",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Encontre dez cidades, vença seus rivais",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Negocie qualquer token, de forma privada",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Folha de pagamento que ninguém mais pode ver",
+    "englishSource": "Payroll nobody else can see"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Negocie, pague e receba pagamentos com aplicativos desenvolvidos na plataforma Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Finanças no Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Seu dinheiro, privado por padrão",
+    "englishSource": "Your money, private by default"
+  },
+  "receiveCrossChainCaption": {
+    "message": "De outra rede",
+    "englishSource": "From another network"
   }
 }
