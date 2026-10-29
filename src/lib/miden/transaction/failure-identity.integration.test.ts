@@ -14,6 +14,7 @@ import {
   MAX_QUEUED_AGE
 } from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
+import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
 import { updateTransactionStatus } from './helper';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
@@ -127,6 +128,228 @@ describe('the never-committed verdicts', () => {
       expectNoTransactionData(report?.message ?? '');
     }
   );
+
+  it('retains the matching submit context when the node later proves expiry', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const now = Date.now();
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: now - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      row,
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 750, commitment: INITIAL }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    const reports = captured();
+    expect(reports).toHaveLength(2);
+    expect(reports[1]?.message).toContain(
+      '; prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
+    expectNoTransactionData(reports[1]?.message ?? '');
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
+  const indefiniteGrpc = (transactionId: string) =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${transactionId} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+        'TypeError: Load failed'
+    );
+
+  const cancelledDuringSubmit = (submittingAtMs: number): ITransaction => ({
+    ...claim(evidence({ expirationBlock: 700 })),
+    status: ITransactionStatus.Failed,
+    error: USER_CANCELLED_TRANSACTION_REASON,
+    attemptId: 'a1',
+    cancelledInFlightAt: NOW - 5,
+    stageTimestamps: { submitting: submittingAtMs }
+  });
+
+  it('retains submit context after a user cancellation', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
+    await Repo.transactions.put(row);
+    await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+    const stored = await Repo.transactions.get('tx-1');
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(stored?.rawError).toBeUndefined();
+    expect(stored?.cancelledInFlightAt).toBeUndefined();
+    await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
+    const reports = captured();
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.message).toContain(
+      'prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
+    expectNoTransactionData(reports[0]?.message ?? '');
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
+  it('keeps the origin submit context when expiry commits on the evidence write', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
+    await Repo.transactions.put(row);
+    const originalWhere = Repo.transactions.where.bind(Repo.transactions);
+    let intercept = true;
+    const where = jest.spyOn(Repo.transactions, 'where').mockImplementation(query => {
+      const collection = originalWhere(query);
+      if (intercept && typeof collection.modify === 'function') {
+        const modify = collection.modify.bind(collection);
+        Object.defineProperty(collection, 'modify', {
+          value: async (changes: Parameters<typeof collection.modify>[0]) => {
+            const result = await Reflect.apply(modify, collection, [changes]);
+            intercept = false;
+            await judgeAndWrite('tx-1', {
+              node: reads({ blockNum: 750, commitment: INITIAL }),
+              nowSec: NOW,
+              cadenceMs: 3_000
+            });
+            return result;
+          }
+        });
+      }
+      return collection;
+    });
+    try {
+      await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+      expect(captured()[0]?.message).toContain(
+        'prior submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit no; submit leg under_9s'
+      );
+    } finally {
+      where.mockRestore();
+      jest.mocked(isMobile).mockReturnValue(false);
+      __resetBackgroundTimeForTest();
+    }
+  });
+
+  it('keeps the submit leg from the sample taken before the evidence upsert', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row = cancelledDuringSubmit(1_000_000);
+    await Repo.transactions.put(row);
+    let sampledNow = 0;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => {
+      sampledNow += 1;
+      return sampledNow === 1 ? 1_008_999 : 1_009_000;
+    });
+    try {
+      await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(TRANSACTION), row.attemptId);
+      expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0]?.submitContext?.leg).toBe('under_9s');
+      await judgeAndWrite('tx-1', {
+        node: reads({ blockNum: 750, commitment: INITIAL }),
+        nowSec: NOW,
+        cadenceMs: 3_000
+      });
+      expect(captured()[0]?.message).toContain('submit leg under_9s');
+    } finally {
+      clock.mockRestore();
+      jest.mocked(isMobile).mockReturnValue(false);
+      __resetBackgroundTimeForTest();
+    }
+  });
+
+  it('leaves submit context unset when the indefinite error names another transaction', async () => {
+    const row = cancelledDuringSubmit(Date.now() - 5_000);
+    await Repo.transactions.put(row);
+    await cancelTransactionAfterPipelineStopped(row, indefiniteGrpc(OTHER), row.attemptId);
+    const stored = await Repo.transactions.get('tx-1');
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(stored?.rawError).toBeUndefined();
+    expect(stored?.submitEvidence?.[0]?.transactionId).toBe(TRANSACTION);
+    expect(stored?.submitEvidence?.[0]?.submitContext).toBeUndefined();
+  });
+
+  it('retains measured context for an indefinite outcome without gRPC details', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      row,
+      new Error(`submission of transaction ${TRANSACTION} came back without a definite outcome`)
+    );
+    await judgeAndWrite('tx-1', { node: reads({ blockNum: 750, commitment: INITIAL }), nowSec: NOW, cadenceMs: 3_000 });
+    expect(captured()[1]?.message).toContain(
+      'endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s'
+    );
+    jest.mocked(isMobile).mockReturnValue(false);
+    __resetBackgroundTimeForTest();
+  });
+
+  it('does not attach submit context to a different current attempt', async () => {
+    const row: ITransaction = {
+      ...claim(evidence({ attemptId: 'a2', expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a2',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      { ...row, attemptId: 'a1' },
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    expect((await Repo.transactions.get('tx-1'))?.submitEvidence?.[0]?.submitContext).toBeUndefined();
+  });
+
+  it('does not attribute one attempt context to a multi-attempt expiry verdict', async () => {
+    const row: ITransaction = {
+      ...claim(evidence({ expirationBlock: 700 })),
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'a1',
+      stageTimestamps: { submitting: Date.now() - 5_000 }
+    };
+    await Repo.transactions.put(row);
+    await markTransactionUnconfirmed(
+      row,
+      new Error(
+        `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      )
+    );
+    await Repo.transactions.where({ id: 'tx-1' }).modify(fresh => {
+      fresh.submitEvidence = [...(fresh.submitEvidence ?? []), evidence({ attemptId: 'a2', expirationBlock: 700 })];
+    });
+    await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 750, commitment: INITIAL }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(captured()[1]?.message).toContain(
+      '; app hidden during submit unavailable; submit leg unavailable; proof wait'
+    );
+  });
 
   it('reports the verdict on a claim the pipeline already failed and reported at warning, so it is one error', async () => {
     const submitted: ITransaction = { ...claim(evidence()), status: ITransactionStatus.GeneratingTransaction };
