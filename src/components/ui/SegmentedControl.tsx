@@ -32,6 +32,13 @@ export type SegmentedControlSize = 'sm' | 'md';
  */
 export type SegmentedControlLayout = 'scroll' | 'fill';
 
+/**
+ * `tint`: the selected item on the accent tint with its ink label, the 4.5:1 pairing every control
+ * takes by default. `solid`: on the brand orange with a white label, for the tab roots' filter rows
+ * only; white on the accent is 3:1, so it is a design call for those bold labels, not a default.
+ */
+export type SegmentedControlBubble = 'tint' | 'solid';
+
 export interface SegmentedControlProps<T extends string = string> {
   items: readonly SegmentedControlItem<T>[];
   value: T;
@@ -39,6 +46,7 @@ export interface SegmentedControlProps<T extends string = string> {
   onChange: (id: T) => void;
   /** Optional flow tint; omitted controls keep the standard brand tint. */
   accent?: FlowAccent;
+  bubble?: SegmentedControlBubble;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
   'aria-label'?: string;
@@ -112,6 +120,7 @@ interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
   accent?: FlowAccent;
+  bubble: SegmentedControlBubble;
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
@@ -124,7 +133,17 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, accent, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
+function Segment<T extends string>({
+  item,
+  active,
+  accent,
+  bubble,
+  focusable,
+  size,
+  layout,
+  onSelect,
+  swap
+}: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active, swap);
 
@@ -143,6 +162,7 @@ function Segment<T extends string>({ item, active, accent, focusable, size, layo
         className={cn(
           segment({ size, layout, active }),
           active && accent && ACCENT_CLASSES[accent].ink,
+          active && bubble === 'solid' && 'text-accent-brand-on',
           swap && 'transition-none'
         )}
       >
@@ -178,6 +198,7 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   accent,
+  bubble = 'tint',
   size = 'md',
   layout = 'scroll',
   'aria-label': ariaLabel,
@@ -297,7 +318,11 @@ export function SegmentedControl<T extends string>({
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
-        className={cn('-inset-px', raisedBubbleClassName, accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint')}
+        className={cn(
+          '-inset-px',
+          raisedBubbleClassName,
+          bubble === 'solid' ? 'bg-accent-primary' : accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint'
+        )}
       >
         {items.map((item, index) => (
           <Segment
@@ -305,6 +330,7 @@ export function SegmentedControl<T extends string>({
             item={item}
             active={index === selectedIndex}
             accent={accent}
+            bubble={bubble}
             focusable={index === focusIndex}
             size={size}
             layout={layout}
