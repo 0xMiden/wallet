@@ -128,6 +128,24 @@ export function isDelegateProofEnabledAsync(): Promise<boolean> {
   return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF, false);
 }
 
+/**
+ * The delegated-proving mirror without the absent-key default. A missing key is
+ * `undefined`. A stored boolean is that boolean. A non-boolean or a thrown read
+ * is false, so an unusable value cannot select remote proving.
+ */
+export async function readMirroredDelegateProof(): Promise<boolean | undefined> {
+  try {
+    const key = DELEGATE_PROOF_STORAGE_KEY;
+    const items = await getStorageProvider().get([key]);
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (!Object.prototype.hasOwnProperty.call(items, key)) return undefined;
+    const value = items[key];
+    return typeof value === 'boolean' ? value : false;
+  } catch {
+    return false;
+  }
+}
+
 export function setAutoConsumeSetting(enabled: boolean) {
   setSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
@@ -291,30 +309,49 @@ function enqueueMirrorMarker(attempt: number, mirrored: boolean): Promise<void> 
 }
 
 async function copyBackgroundSettings(attempt: number): Promise<void> {
+  let complete = true;
   try {
     await enqueueMirrorMarker(attempt, false);
-    await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
-    await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
-    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
-    await enqueueMirrorMarker(attempt, true);
   } catch {
-    /* a refused clear or copy does not publish the marker */
+    complete = false;
   }
+  if (complete) {
+    try {
+      await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+    } catch {
+      complete = false;
+    }
+    try {
+      await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+    } catch {
+      complete = false;
+    }
+  }
+  try {
+    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+  } catch {
+    complete = false;
+  }
+  if (complete) await enqueueMirrorMarker(attempt, true).catch(() => undefined);
 }
 
 /**
  * Copy auto-consume, delegated proving, and telemetry from `localStorage` into the
- * platform KV mirror the service worker reads. An unreadable local store leaves an
- * established mirror unchanged. Otherwise the copy clears the marker, then writes
- * each choice from the local value at that write. Only the newest copy clears or
- * publishes the marker. Call from a frontend context (the popup) where `localStorage`
- * is available.
+ * platform KV mirror the service worker reads. Readable telemetry is repaired even
+ * when an operational read or write, or the marker clear, fails. Operational writes
+ * require a fulfilled clear, and publication requires all three choices to succeed.
+ * Each write reads the current local choice; only the newest copy changes the marker.
+ * Call from a frontend context where `localStorage` is available.
  */
 export function mirrorBackgroundSettings(): void {
   const autoConsume = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
   const delegateProof = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
   const telemetry = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
-  if (autoConsume === null || delegateProof === null || telemetry === null) return;
+  if (telemetry === null) return;
+  if (autoConsume === null || delegateProof === null) {
+    void enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY).catch(() => undefined);
+    return;
+  }
 
   // The entry reads only decide whether to start. Each write reads again in its own turn.
   const attempt = ++backgroundMirrorAttempt;
