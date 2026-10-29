@@ -13,7 +13,6 @@ on:
       - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/wallet-api.yml'
       - '.github/workflows/deploy-wallet-api.yml'
-      - '.github/workflows/release-wallet.yml'
   workflow_dispatch:
 
 permissions:

@@ -1,24 +1,17 @@
 name: Deploy Wallet API
 
 # Deploys the encrypted-backup Worker (services/wallet-api) to Cloudflare.
-# It runs from the release workflow on every published release, and by hand
-# from main. A merge into main deploys nothing.
+# A production deploy is always started by hand: this workflow has only a
+# `workflow_dispatch` trigger, and the `wallet-api-production` environment's
+# required reviewers approve each run. A published release or a merge into
+# main deploys nothing.
 #
 # The committed wrangler.jsonc holds placeholders only. This workflow renders a
 # release copy with the D1 database id, the allowed origins and the revision
-# from the `wallet-api-production` environment, applies the D1 migrations, then
-# deploys with the signing key as a server-only secret, and probes /healthz.
+# from the environment, applies the D1 migrations, then deploys with the
+# signing key as a server-only secret, and probes /healthz.
 
 on:
-  workflow_call:
-    inputs:
-      release_tag:
-        type: string
-        required: true
-    outputs:
-      endpoint:
-        description: Verified public wallet-api base URL
-        value: ${{ jobs.deploy.outputs.endpoint }}
   workflow_dispatch:
     inputs:
       deployment_source:
@@ -46,8 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: wallet-api-production
-    outputs:
-      endpoint: ${{ steps.readiness.outputs.endpoint }}
     steps:
       - uses: actions/checkout@v4
         with:

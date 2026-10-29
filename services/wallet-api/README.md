@@ -97,7 +97,7 @@ The committed `wrangler.jsonc` holds placeholders only: the `database_id` is zer
 
 ## Deployment
 
-`.github/workflows/deploy-wallet-api.yml` deploys the Worker. It runs from `release-wallet.yml` on every published release, and by hand (`workflow_dispatch`) with a published release tag or with `deployment_source: main` from `main`. A merge into `main` deploys nothing. The job runs in the GitHub environment `wallet-api-production`, type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
+`.github/workflows/deploy-wallet-api.yml` deploys the Worker. A production deploy is always started by hand: the workflow has only a `workflow_dispatch` trigger, run from the Actions tab with a published release tag or with `deployment_source: main` from `main`, and the `wallet-api-production` environment's required reviewers approve each run. A published release or a merge into `main` deploys nothing. The job type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
 
 A migration runs before the new Worker serves traffic, so every migration must keep working with the Worker that is live until the deploy lands.
 
