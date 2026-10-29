@@ -27,10 +27,11 @@ const options = api => ({
   expiresAt: now + 600_000,
   maxRuns: 10
 });
-function provider({ account = accountId, scripts = ['other-worker'] } = {}) {
+function provider({ account = accountId, scripts = ['other-worker'], namespaces = [] } = {}) {
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: account } };
     if (path === '/workers/scripts?page=1&per_page=100') return page(scripts);
+    if (path === '/workers/durable_objects/namespaces?page=1&per_page=1000') return { success: true, errors: [], result: namespaces, result_info: { page: 1, per_page: 1000, count: namespaces.length, total_pages: 1, total_count: namespaces.length } };
     throw new Error('Unexpected path');
   };
 }
@@ -49,4 +50,9 @@ test('account-bound preparation rejects a mismatched or malformed account', asyn
 
 test('account-bound preparation rejects a pre-existing script', async () => {
   assert.equal(await prepare(options(provider({ scripts: ['miden-elig-topology-12345-1'] }))), null);
+});
+
+test('account-bound preparation rejects a pre-existing topology namespace', async () => {
+  const namespace = { id: '1'.repeat(32), class: 'EligibilityGuard', script: 'miden-elig-topology-12345-1', use_sqlite: true };
+  assert.equal(await prepare(options(provider({ namespaces: [namespace] }))), null);
 });
