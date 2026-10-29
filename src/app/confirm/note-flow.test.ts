@@ -6,7 +6,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteScript: {
     p2id: () => ({ root: () => ({ toHex: () => 'p2id-root' }) }),
     p2ide: () => ({ root: () => ({ toHex: () => 'p2ide-root' }) }),
-    pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) })
+    pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }),
+    swap: () => ({ root: () => ({ toHex: () => 'swap-root' }) }),
+    mint: () => ({ root: () => ({ toHex: () => 'mint-root' }) }),
+    burn: () => ({ root: () => ({ toHex: () => 'burn-root' }) }),
+    networkAccountConfig: () => ({ root: () => ({ toHex: () => 'network-account-config-root' }) }),
+    feeSponsorship: () => ({ root: () => ({ toHex: () => 'fee-sponsorship-root' }) })
   },
   NoteType: { Private: 0, Public: 1 },
   TransactionResult: { deserialize: jest.fn() },
@@ -19,14 +24,19 @@ jest.mock('lib/miden/activity/fee-notes', () => ({
 }));
 jest.mock('lib/shared/helpers', () => ({ b64ToU8: (value: string) => new Uint8Array([value.length]) }));
 
-const note = (id: string, root: string, visibility = 1) => ({
+const note = (id: string, root: string, visibility = 1, standardNoteName?: string | null) => ({
   id: () => ({ toString: () => id }),
   metadata: () => ({ noteType: () => visibility, sender: () => 'sender' }),
   assets: () => ({
     fungibleAssets: () => [{ faucetId: () => 'faucet', amount: () => 4n }],
     nonFungibleAssets: () => []
   }),
-  script: () => ({ root: () => ({ toHex: () => root }) })
+  script: () => ({
+    root: () => ({ toHex: () => root }),
+    ...(standardNoteName === undefined
+      ? {}
+      : { standardNoteName: () => (standardNoteName === null ? undefined : standardNoteName) })
+  })
 });
 const output = (id: string, full?: ReturnType<typeof note>) => ({
   id: () => ({ toString: () => id }),
@@ -49,9 +59,9 @@ it('lists zero inputs and every output, including the fee note', () => {
   expect(flow.inputs).toEqual([]);
   expect(flow.inputCount).toBe(0);
   expect(flow.outputs.map(n => [n.id, n.kind])).toEqual([
-    ['payment', 'p2id'],
+    ['payment', 'P2ID'],
     ['partial', 'unknown'],
-    ['swap', 'pswap'],
+    ['swap', 'PSWAP'],
     ['fee', 'fee']
   ]);
   expect(flow.outputs[0]).toMatchObject({ visibility: 'public', sender: 'bech32:sender' });
@@ -73,7 +83,7 @@ it('keeps multiple inputs and labels unknown full scripts without inventing a re
   };
   const flow = noteFlowFromTransaction(tx as any);
   expect(flow.inputs.map(n => [n.id, n.kind])).toEqual([
-    ['in-1', 'p2ide'],
+    ['in-1', 'P2IDE'],
     ['in-2', 'custom']
   ]);
   expect(flow.inputs[1]).not.toHaveProperty('recipient');
@@ -176,6 +186,70 @@ it('keeps note details when a storage slot cannot be decoded', () => {
     })
   };
   const flow = noteFlowFromTransaction(tx as any);
-  expect(flow.outputs[0]?.kind).toBe('p2id');
+  expect(flow.outputs[0]?.kind).toBe('P2ID');
   expect(flow.storageChanges).toBeUndefined();
+});
+
+it('names every standard note the SDK can construct, and a script outside that list stays custom', () => {
+  const tx = {
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    userNotes: [
+      output('sponsor', note('sponsor', 'FEE-SPONSORSHIP-ROOT')),
+      output('swap', note('swap', 'swap-root')),
+      output('mint', note('mint', 'mint-root')),
+      output('burn', note('burn', 'burn-root')),
+      output('config', note('config', 'network-account-config-root')),
+      output('custom', note('custom', '0xnot-a-standard-script'))
+    ],
+    feeNote: undefined
+  };
+  expect(noteFlowFromTransaction(tx as any).outputs.map(item => [item.id, item.kind])).toEqual([
+    ['sponsor', 'FEE_SPONSORSHIP'],
+    ['swap', 'SWAP'],
+    ['mint', 'MINT'],
+    ['burn', 'BURN'],
+    ['config', 'NETWORK_ACCOUNT_CONFIG'],
+    ['custom', 'custom']
+  ]);
+});
+
+it('uses StandardNote::from_script when the SDK reports it, including a tx fee that is not the partitioned fee', () => {
+  const tx = {
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    userNotes: [
+      output('fee-script', note('fee-script', 'unlisted-root', 1, 'TX_FEE')),
+      output('upgrade', note('upgrade', 'unlisted-root', 1, 'UPGRADE')),
+      output('future', note('future', 'unlisted-root', 1, 'FUTURE_NOTE')),
+      output('foreign', note('foreign', 'p2id-root', 1, null))
+    ],
+    feeNote: output('kernel-fee', note('kernel-fee', 'unlisted-root', 1, 'TX_FEE'))
+  };
+  expect(noteFlowFromTransaction(tx as any).outputs.map(item => [item.id, item.kind])).toEqual([
+    ['fee-script', 'TX_FEE'],
+    ['upgrade', 'UPGRADE'],
+    ['future', 'FUTURE_NOTE'],
+    ['foreign', 'custom'],
+    ['kernel-fee', 'fee']
+  ]);
+});
+
+it('leaves the kind unknown when the standard-note name cannot be read', () => {
+  const broken = note('broken', 'tx-root');
+  const script = broken.script();
+  const tx = {
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    userNotes: [
+      output('broken', {
+        ...broken,
+        script: () => ({
+          ...script,
+          standardNoteName: () => {
+            throw new Error('wasm');
+          }
+        })
+      })
+    ],
+    feeNote: undefined
+  };
+  expect(noteFlowFromTransaction(tx as any).outputs[0]).toMatchObject({ id: 'broken', kind: 'unknown' });
 });

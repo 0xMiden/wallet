@@ -1180,6 +1180,18 @@
     "message": "Kaynak:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "İşlem Başlatıcı",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notes'u göster",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "notes'u gizle",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "Ağ:",
     "englishSource": "Network:"
@@ -4447,6 +4459,15 @@
   "PSWAP": {
     "message": "PSWAP note",
     "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "otherNoteScript": {
     "message": "Diğer note metni",

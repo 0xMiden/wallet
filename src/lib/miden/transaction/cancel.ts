@@ -6,7 +6,7 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -14,8 +14,11 @@ import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagno
 import { classifyReapStartRelation } from 'lib/telemetry/reap-start-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
+  captureSubmitContext,
   reportTransactionFailure,
+  type PreflightSyncReport,
   type QueueAgeBucket,
+  type QueueHiddenBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -52,7 +55,7 @@ import {
   recordOutOfBandEnd,
   updateTransactionStatus
 } from './helper';
-import { consumeQueueAdmission, type QueueAdmissionMember } from './queue-admission-diagnostics';
+import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
@@ -305,7 +308,13 @@ export const cancelTransaction = async (
       feeAdmission: committed.feeAdmission,
       reason: failureReason,
       ...(failureReason === 'queued_expired'
-        ? { queueAge: queueAgeBucket(committed, returnedAtMs), queueAdmissionObservation }
+        ? {
+            queueAge: queueAgeBucket(committed, returnedAtMs),
+            queueAdmissionObservation,
+            queueSighting: queueSightingFor(committed),
+            preflightSync: reportedPreflightSync(committed),
+            queueHidden: queueHiddenBucket(committed, returnedAtMs)
+          }
         : {}),
       submitCrossing: attemptSubmitCrossing(committed),
       reap:
@@ -421,6 +430,30 @@ const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h
   [86_400_000, '6h_to_24h']
 ];
 
+const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
+  const step = row.preflightSync;
+  if (
+    row.preflightSyncAt === row.initiatedAt &&
+    row.preflightSyncSeq === (row.queuedSeq ?? null) &&
+    (step === 'entered' || step === 'returned' || step === 'threw')
+  )
+    return step;
+  return 'not_entered';
+};
+
+/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
+  if (!isMobile()) return 'not_measured';
+  if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageSec = nowMs / 1000 - row.initiatedAt;
+  if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  const hidden = hiddenSecondsSince(row.initiatedAt, nowMs);
+  if (!Number.isFinite(hidden) || hidden < 0) return 'unavailable';
+  if (hidden === 0) return 'none';
+  return hidden * 2 >= ageSec ? 'half_or_more' : 'under_half';
+};
+
 const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageMs = nowMs - row.initiatedAt * 1000;
@@ -457,7 +490,11 @@ const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | '
  * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
  * write does for an unconfirmed row today.
  */
-export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+export const markTransactionUnconfirmed = async (
+  tx: ITransaction,
+  error: unknown,
+  originAttemptId?: string
+): Promise<number> => {
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
@@ -485,7 +522,45 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     // window left open would refuse its Retry as possibly still running.
     row.cancelledInFlightAt = undefined;
     if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      if (
+        row.status === ITransactionStatus.Failed &&
+        originAttemptId !== undefined &&
+        row.attemptId === originAttemptId
+      ) {
+        const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
+        const entry = matching.length === 1 ? matching[0] : undefined;
+        if (
+          entry &&
+          entry.submitContext === undefined &&
+          (transactionId === undefined || entry.transactionId === transactionId)
+        ) {
+          const context = captureSubmitContext(
+            error,
+            hiddenDuringSubmit(row, returnedAtMs),
+            submitLegMs(row, returnedAtMs)
+          );
+          if (context) entry.submitContext = context;
+        }
+      }
       return attemptId === undefined && !windowOpen ? false : undefined;
+    }
+    if (tx.attemptId !== undefined && row.attemptId === tx.attemptId) {
+      const entries = row.submitEvidence ?? [];
+      const matching = entries.filter(entry => entry.attemptId === tx.attemptId);
+      const context = captureSubmitContext(
+        error,
+        hiddenDuringSubmit(row, returnedAtMs),
+        submitLegMs(row, returnedAtMs)
+      );
+      if (
+        matching.length === 1 &&
+        context &&
+        matching[0] !== undefined &&
+        matching[0].submitContext === undefined &&
+        (transactionId === undefined || matching[0].transactionId === transactionId)
+      ) {
+        matching[0].submitContext = context;
+      }
     }
     row.status = ITransactionStatus.Unconfirmed;
     row.completedAt = nowSec;
@@ -496,7 +571,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     committed = { ...row };
     return undefined;
   });
-  if (!entered) return;
+  if (!entered) return returnedAtMs;
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
@@ -524,6 +599,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     errorKind: classifyError(rawError),
     step: stepOfStage(existing?.stage)
   });
+  return returnedAtMs;
 };
 
 /**
@@ -627,11 +703,11 @@ const cancelWhilePipelineMayStillRun = async (
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
-export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any, originAttemptId?: string) => {
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
-    await markTransactionUnconfirmed(tx, error);
+    await markTransactionUnconfirmed(tx, error, originAttemptId);
     return;
   }
   // A lock-recovery eviction (issue #775) is treated like an offscreen

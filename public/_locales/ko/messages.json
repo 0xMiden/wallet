@@ -1180,6 +1180,18 @@
     "message": "출처:",
     "englishSource": "Origin:"
   },
+  "originator": {
+    "message": "발신자",
+    "englishSource": "Originator"
+  },
+  "showNotes": {
+    "message": "notes 보기",
+    "englishSource": "Show notes"
+  },
+  "hideNotes": {
+    "message": "notes 숨기기",
+    "englishSource": "Hide notes"
+  },
   "networkLabel": {
     "message": "네트워크:",
     "englishSource": "Network:"
@@ -4446,6 +4458,15 @@
   "PSWAP": {
     "message": "PSWAP note",
     "englishSource": "PSWAP note"
+  },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "otherNoteScript": {
     "message": "기타 note 스크립트",

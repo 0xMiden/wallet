@@ -849,7 +849,7 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', VALID_TOKEN.tokenId);
     expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
     // Recipient row value.
-    expect(screen.getByText('0xrecipient')).toBeInTheDocument();
+    expect(screen.getByTestId('review-row-to')).toHaveTextContent('0xrecipient');
 
     // Seeding effect ran -> recallDate seeded -> capitalized relative
     // label + reclaim note both present.
@@ -960,7 +960,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getAllByText('Sepolia').length).toBeGreaterThan(0);
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
     expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();

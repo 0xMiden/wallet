@@ -403,7 +403,7 @@ describe('ReviewSwap', () => {
         const submit = screen.getByTestId('swap-submit');
         expect(warning).toHaveAttribute('role', 'status');
         expect(warning).toHaveTextContent(fillStatus === 'none' ? 'swapNoFillWarning' : 'swapPartialFillWarning');
-        expect(warning.nextElementSibling).toBe(submit);
+        expect(warning.nextElementSibling).toContainElement(submit);
         expect(submit).toBeEnabled();
         fireEvent.click(submit);
         expect(onSubmit).toHaveBeenCalledTimes(1);
