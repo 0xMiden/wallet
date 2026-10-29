@@ -37,7 +37,8 @@ jobs:
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
       - name: Verify telemetry and recovery integration
-        run: yarn jest --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern="downgrade: a critical op|a sendMessage transport rejection" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+        run: |
+          yarn jest --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern="downgrade: a critical op|a sendMessage transport rejection" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
