@@ -121,7 +121,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-4" data-testid="bridge-token-scroll">
+        <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4" data-testid="bridge-token-scroll">
           <ListGroup>
             {rows.map(({ token, name, logoSymbol, balance, loading }) => (
               <ListRow

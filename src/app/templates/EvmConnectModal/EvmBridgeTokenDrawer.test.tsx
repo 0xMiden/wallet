@@ -155,7 +155,7 @@ describe('EvmBridgeTokenDrawer', () => {
   it('puts the token rows in an inner scroll area', () => {
     renderDrawer();
     const body = screen.getByTestId('bridge-token-scroll');
-    expect(body).toHaveClass('min-h-0', 'overflow-y-auto', 'overscroll-contain');
+    expect(body).toHaveClass('min-h-0', 'overflow-y-auto', 'overscroll-y-contain');
     expect(within(body).getByTestId('bridge-token-ETH')).toBeInTheDocument();
     expect(within(body).queryByRole('heading')).not.toBeInTheDocument();
   });
