@@ -9,7 +9,8 @@ test('capture unavailable price history', async ({ extensionContext, extensionId
   await page.setViewportSize({ width: 390, height: 844 });
   const url = `chrome-extension://${extensionId}/fullpage.html`;
   await completeSeedImportOnboarding(page, url);
-  await page.goto(`${url}#/token-detail/${faucet}`, { waitUntil: 'domcontentloaded' });
+  const sidebarUrl = `chrome-extension://${extensionId}/sidepanel.html`;
+  await page.goto(`${sidebarUrl}#/token-detail/${faucet}`, { waitUntil: 'domcontentloaded' });
   const section = page.getByTestId('token-detail-price');
   await expect(section).toBeVisible({ timeout: 30_000 });
   if (process.env.PRICE_VISUAL_REVISION === 'after') {
@@ -19,6 +20,7 @@ test('capture unavailable price history', async ({ extensionContext, extensionId
     await expect(section.locator('.recharts-wrapper')).toBeVisible();
     await expect(page.getByTestId('token-detail-chart-unavailable')).toHaveCount(0);
   }
+  if (process.env.PRICE_VISUAL_REVISION === 'before') await page.waitForTimeout(1500);
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
     await section.scrollIntoViewIfNeeded();
