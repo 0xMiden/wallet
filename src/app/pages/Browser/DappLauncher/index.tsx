@@ -91,7 +91,10 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
     if (itemIds.length === 0) return catalog;
     return {
       ...catalog,
-      sections: [{ id: 'featured', kind: 'featured' as const, title: t('exploreFeatured'), itemIds }, ...catalog.sections]
+      sections: [
+        { id: 'featured', kind: 'featured' as const, title: t('exploreFeatured'), itemIds },
+        ...catalog.sections
+      ]
     };
   }, [catalog, filter, t]);
   const results = useMemo(() => searchExploreCatalog(visibleCatalog, filter, query), [visibleCatalog, filter, query]);
