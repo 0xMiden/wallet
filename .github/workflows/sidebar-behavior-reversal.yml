@@ -1,0 +1,58 @@
+name: Sidebar behavior reversal proof
+on:
+  push:
+    branches: [ci/sidebar-behavior-reversal]
+permissions:
+  contents: read
+jobs:
+  reversal:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [store, seed]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bind snapshot
+        run: |
+          test "$(git rev-parse HEAD^)" = 82e1d2279410714a2f46d241916f6ee45157d09d
+          test "$(git rev-parse HEAD^^)" = 67f7c1f61de8ba2a1c68e2850971034451eb7fc7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Verify baseline and behavior reversal
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          if [ "$TARGET" = store ]; then
+            file=src/lib/store/index.ts
+            suite=src/lib/store/index.test.ts
+            expected='resolves pending after two lost refreshes'
+          else
+            file=src/app/templates/VerifySeedPhraseFlow.tsx
+            suite=src/app/templates/VerifySeedPhraseFlow.test.tsx
+            expected='shows the removed screen when removal is acknowledged but the refresh stays pending'
+          fi
+          yarn jest --runTestsByPath "$suite" --maxWorkers=2 > proof/baseline.log 2>&1
+          git show "67f7c1f61de8ba2a1c68e2850971034451eb7fc7:$file" > "$file"
+          git diff --full-index --binary > proof/reversal.patch
+          sha256sum proof/reversal.patch > proof/reversal.sha256
+          set +e
+          yarn jest --runTestsByPath "$suite" --maxWorkers=2 > proof/reversal.log 2>&1
+          status=$?
+          set -e
+          cat proof/reversal.log
+          test "$status" -ne 0
+          grep -E "● .*${expected}" proof/reversal.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sidebar-reversal-${{ matrix.target }}
+          path: proof/
