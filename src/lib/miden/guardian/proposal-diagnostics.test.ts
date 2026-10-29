@@ -329,9 +329,9 @@ describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
 
 it.each([
   ['LegacyConsumeNotesNoteMissingError', 'consume_notes_legacy_note_missing', 'consume_note_missing'],
-  ['ConsumeNoteNotAuthenticatedError', 'consume_notes_note_not_authenticated', 'consume_note_authentication'],
+  ['ConsumeNoteNotAuthenticatedError', 'consume_notes_note_not_authenticated', 'consume_note_not_verified'],
   ['ConsumeNotesMetadataOversizeError', 'consume_notes_metadata_oversize', 'consume_metadata_oversize'],
-  ['MultisigAuthArgsMissingError', 'multisig_auth_args_missing', 'multisig_auth_args_missing'],
+  ['MultisigAuthArgsMissingError', 'multisig_auth_args_missing', 'multisig_required_args_missing'],
   ['BoundBlockNotDeclaredError', 'bound_block_not_declared', 'bound_block_not_declared'],
   ['TransactionSummaryLayoutError', 'transaction_summary_layout_unsupported', 'summary_layout_unsupported']
 ])('observes only the actual consume rejection family %s without changing the SDK call', async (name, code, family) => {
