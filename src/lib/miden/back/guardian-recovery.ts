@@ -1,5 +1,6 @@
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
+import { restoreHistoryFromBackup } from 'lib/backup/refresh';
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
@@ -952,6 +953,16 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       });
       reservations.delete(account.publicKey);
       console.log(`[GuardianRecovery] Notes recovered for ${account.publicKey}; history waits for the key rotation`);
+      return;
+    }
+    // The encrypted backup is the record of history once it holds another device's
+    // rows: a Guardian operator retains only proposals and note ids, so its history
+    // pass runs only when the backup gives nothing. The notes pass above always runs.
+    if (await restoreHistoryFromBackup()) {
+      console.log(`[GuardianRecovery] History for ${account.publicKey} restored from the encrypted backup`);
+      if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
+      await clearGuardianNoteRecoveryProgress(account.publicKey);
+      keepReservation(account.publicKey, { generation, failed: false });
       return;
     }
     // History shares the seed-restore flag: the flag clears once every Guardian

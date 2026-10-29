@@ -12,6 +12,8 @@
  * | Guardian sync adopts a state  | `history`, with `since`; on a 304 again      | `signalGuardianStateAdopted`                |
  * |                               | after 10, 30 and 60 s, then stop             |                                             |
  * | A row reaches Completed       | upload the history                           | `signalTransactionCompleted`                |
+ * | A recovered wallet's Guardian | `history`, with `since`; a peer's history    | `restoreHistoryFromBackup` from the         |
+ * | pass reaches its history step | found ends the pass, no Guardian history read| Guardian recovery (`guardian-recovery.ts`)  |
  *
  * Each refresh also uploads the local changes of its features. A completed
  * transaction flushes history at once ({@link flushHistoryNow}).
@@ -30,7 +32,7 @@ import type { BackupRefreshOutcome, BackupRefreshReason } from 'lib/shared/types
 import { deleteProfile, getStorageIndex } from './api-client';
 import { syncAccounts } from './features/accounts';
 import { syncContacts } from './features/contacts';
-import { flushHistory, readHistory } from './features/history';
+import { flushHistory, peerHistoryChunkCount, readHistory } from './features/history';
 import {
   type BackupSession,
   BackupSessionClosedError,
@@ -161,6 +163,26 @@ export async function refreshHistory(reason: HistoryRefreshReason): Promise<Back
       if (outcome === 'unchanged') scheduleGuardianReread(0);
       return outcome;
     }
+  }
+}
+
+/**
+ * Restore the history of a recovered wallet from the backup. True when the
+ * backup holds the history of another device, applied now: the backup is then
+ * the record of history, and the Guardian history pass does not run. False
+ * when the backup is off, cannot be read, or holds no peer history (a profile
+ * this device just made, or peers that never uploaded), so the Guardian pass
+ * runs instead. Never throws.
+ */
+export async function restoreHistoryFromBackup(): Promise<boolean> {
+  const opened = await getBackupSession();
+  if ('unavailable' in opened) return false;
+  try {
+    await readHistory(opened.session, true);
+    return (await peerHistoryChunkCount(opened.session)) > 0;
+  } catch (error) {
+    if (!(error instanceof BackupSessionClosedError)) console.warn('[backup] the history restore failed', error);
+    return false;
   }
 }
 

@@ -628,6 +628,16 @@ async function ownChunkKeys(session: BackupSession): Promise<Set<string>> {
 }
 
 /**
+ * How many history chunks of OTHER devices this device has applied: the
+ * server entries it recorded, less its own chunks. More than zero means the
+ * backup holds a peer's history, so the backup is the record of history.
+ */
+export async function peerHistoryChunkCount(session: BackupSession): Promise<number> {
+  const own = await ownChunkKeys(session);
+  return Object.keys(session.state.features.history.entries).filter(key => !own.has(key)).length;
+}
+
+/**
  * Read the chunks of other devices and write their rows locally. `since`
  * bounds the read to chunks written at or after the last applied cursor.
  * Returns true when a read brought new chunks.

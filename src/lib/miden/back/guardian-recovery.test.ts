@@ -1,5 +1,6 @@
 import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-client';
 
+import { restoreHistoryFromBackup } from 'lib/backup/refresh';
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
@@ -87,6 +88,8 @@ jest.mock('lib/miden-chain/constants', () => {
   };
 });
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
+// The encrypted backup gives no history unless a test says so: the Guardian history pass runs.
+jest.mock('lib/backup/refresh', () => ({ restoreHistoryFromBackup: jest.fn().mockResolvedValue(false) }));
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
@@ -332,6 +335,23 @@ describe('notes before a rotation that waits for funds', () => {
 
     expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
     expect(recoverGuardianHistory).toHaveBeenCalledTimes(1);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  it('skips the Guardian history pass and ends the recovery when the encrypted backup restored the history', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey));
+    jest.mocked(recoverGuardianHistory).mockClear();
+    jest.mocked(restoreHistoryFromBackup).mockResolvedValueOnce(true);
+
+    await expect(maybeStartGuardianRecovery({ ...account, requiresHotKeyRotation: false })).resolves.toBe(true);
+    await drainDetachedRun();
+
+    expect(restoreHistoryFromBackup).toHaveBeenCalledTimes(1);
+    expect(recoverGuardianHistory).not.toHaveBeenCalled();
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
   });
 
