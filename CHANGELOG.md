@@ -3,6 +3,10 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
+- [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
+
+- [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
+
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.
 - [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.

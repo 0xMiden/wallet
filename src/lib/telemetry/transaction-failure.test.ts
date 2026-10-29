@@ -1167,6 +1167,22 @@ describe('an unknown submit outcome', () => {
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
   });
+
+  it('reports a bare indefinite submit as unavailable and keeps its measured visibility', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      submitLegMs: 5000,
+      error: new Error(`submission of transaction ${TX_ID} came back without a definite outcome`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; submit_outcome_unknown; endpoint unavailable; grpc unavailable; app hidden during submit no; submit leg under_9s. '
+    );
+    expectNoTransactionData(message);
+  });
 });
 
 describe('a submit the node refused', () => {
@@ -1858,6 +1874,31 @@ describe('the never-committed verdict', () => {
     expectNoTransactionData(message);
   });
 
+  it('rejects unlisted prior submit context without leaking private values', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'consume',
+      stage: 'submitting',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      priorError: new Error(
+        `failed to submit proven transaction: submission of transaction ${ACCOUNT_HEX} came back without a definite ` +
+          'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+          'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+          'TypeError: Load failed'
+      ),
+      priorSubmitContext: {
+        endpoint: 'submit_proven_transaction',
+        status: 'unavailable',
+        hidden: ACCOUNT_HEX,
+        leg: 'under_9s'
+      }
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('app hidden during submit unavailable; submit leg unavailable');
+    expectNoTransactionData(message);
+  });
+
   it('omits prior failure identity for non-expired never-committed verdicts', async () => {
     reportTransactionFailure({
       point: 'node_verdict',
@@ -2330,4 +2371,22 @@ it.each([
     )
   });
   expect(await reportedMessage()).toContain('cause fetch_inputs');
+});
+
+it('carriesIOSPerCallBridgeDiagnosticWithoutPrivateFields', () => {
+  jest.mocked(resolveTelemetryContext).mockReturnValue({ platform: 'ios', network: 'testnet', appVersion: '1.17.8' });
+  jest.mocked(isDesktop).mockReturnValue(false);
+  const cause = new Error('private-topic 0x1234567890 9.84');
+  markReownNativeFailure(cause, { nativeOrigin: 'unconfigured', requestAge: 'unknown', published: 'unobserved' });
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause }
+  });
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect(snapshotCrashDiagnostics(report)).toEqual({
+    reownNativeOrigin: 'unconfigured',
+    reownRequestAge: 'unknown',
+    reownPublished: 'unobserved'
+  });
+  expect(JSON.stringify(snapshotCrashDiagnostics(report))).not.toContain('private-topic');
 });
