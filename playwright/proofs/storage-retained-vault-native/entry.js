@@ -278,7 +278,7 @@ async function prepare(password, includePrivate) {
   check('priorAttemptVerified', prior?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
   const provider = getStorageProvider();
   const before = JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS));
-  const floorKey = 'vault_recoverycontinuity';
+  const floorKey = await digest(new TextEncoder().encode('vault_recoverycontinuity'));
   const beforeFloor = JSON.stringify((await provider.get([floorKey]))[floorKey]);
   check('independentFloorPresent', typeof beforeFloor === 'string' && beforeFloor.length > 0);
   const filePassword = crypto.randomUUID();
