@@ -109,6 +109,7 @@ export function buildTopologyManifest(options = {}) {
     const bundleSha256 = digest(bundle);
     const configSha256 = digest(encode(config));
     const ownerMarker = digest(encode({ identity: identityCopy, bundleSha256, configSha256 }));
+    config.vars = { ...config.vars, TOPOLOGY_CONFIG_SHA: configSha256, TOPOLOGY_OWNER: ownerMarker };
     return freeze({
       schema: 1,
       identity: identityCopy,
