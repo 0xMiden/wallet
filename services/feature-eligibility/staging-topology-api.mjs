@@ -48,6 +48,57 @@ async function boundedBody(response) {
   }
 }
 
+function settingsMetadata(body, target) {
+  if (
+    body?.success !== true ||
+    !Array.isArray(body.errors) ||
+    body.errors.length ||
+    !Array.isArray(body.result?.bindings)
+  )
+    return null;
+  const bindings = [];
+  for (const entry of body.result.bindings) {
+    if (
+      !entry ||
+      typeof entry.name !== 'string' ||
+      !/^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(entry.name) ||
+      typeof entry.type !== 'string' ||
+      !/^[a-z_]{1,64}$/.test(entry.type)
+    )
+      return null;
+    const value = { name: entry.name, type: entry.type };
+    const fields =
+      entry.type === 'durable_object_namespace'
+        ? ['class_name', 'namespace_id', 'script_name']
+        : entry.type === 'service'
+          ? ['service']
+          : [];
+    for (const field of fields) {
+      if (entry[field] !== undefined) {
+        if (typeof entry[field] !== 'string') return null;
+        value[field] = entry[field];
+      }
+    }
+    if (
+      target &&
+      ['TOPOLOGY_OWNER', 'TOPOLOGY_CONFIG_SHA', 'TOPOLOGY_SOURCE', 'TOPOLOGY_RUN_UNTIL', 'TOPOLOGY_RUN_MAX'].includes(
+        entry.name
+      )
+    ) {
+      const pattern =
+        entry.name === 'TOPOLOGY_SOURCE'
+          ? /^[a-f0-9]{40}$/
+          : entry.name === 'TOPOLOGY_OWNER' || entry.name === 'TOPOLOGY_CONFIG_SHA'
+            ? /^[a-f0-9]{64}$/
+            : /^[0-9]{1,16}$/;
+      if (entry.type !== 'plain_text' || typeof entry.text !== 'string' || !pattern.test(entry.text)) return null;
+      value.text = entry.text;
+    }
+    bindings.push(value);
+  }
+  return { success: true, errors: [], result: { bindings } };
+}
+
 // This adapter only reads fixed provider paths; its output alone cannot authorize any mutation.
 export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now = () => performance.now() } = {}) {
   if (
@@ -91,6 +142,7 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
           return { status: 404, body: { success: false, errors: [{ code: 10007 }] } };
         }
         if (!response.ok || !body || typeof body !== 'object' || Array.isArray(body)) return null;
+        if (kind === 'settings' || kind === 'target') return settingsMetadata(body, kind === 'target');
         return body;
       };
       return await Promise.race([
