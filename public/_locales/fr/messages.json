@@ -4854,6 +4854,31 @@
     "message": "1 transfert n'a pas pu être importé automatiquement.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "Importation interrompue : $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Problème de connexion",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Note illisible",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Rejetée par le nœud",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Motif indisponible",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Demain",
     "englishSource": "Tomorrow"
