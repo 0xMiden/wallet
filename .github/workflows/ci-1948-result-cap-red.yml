@@ -1,0 +1,30 @@
+name: Completed dApp result size regression
+on:
+  push:
+    branches: [ci/1948-result-cap-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - run: test "$(git rev-parse HEAD^)" = 111d8f63a30447893dbef1afbc8510fd2ed8b6a1
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - name: Prove oversized result is not bounded
+        shell: bash
+        run: |
+          mkdir -p proof
+          set +e
+          yarn jest --runTestsByPath src/lib/miden/transaction/result-size-limit.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+          status=${PIPESTATUS[0]}
+          test "$status" -ne 0 || exit 1
+          node -e "const x=require('./proof/results.json');const a=x.testResults.flatMap(s=>s.assertionResults);if(a.length!==2 || a.filter(t=>t.status==='passed').length!==1 || a.filter(t=>t.status==='failed').length!==1 || !a.find(t=>t.status==='failed').failureMessages.join(' ').includes('toBe')) process.exit(1); console.log('Expected red: oversized result is retained')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: dapp-result-cap-red, path: proof/ }
