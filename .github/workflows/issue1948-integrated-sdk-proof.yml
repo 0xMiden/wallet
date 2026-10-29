@@ -1,7 +1,7 @@
 name: Issue 1948 integrated SDK proof
 on:
   push:
-    branches: [ci/1948-retained-ack-green]
+    branches: [ci/1948-retained-ack-trace]
 permissions:
   contents: read
   actions: read
@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: b2e1920555f402b5db5012535971308f601c9c5f
+          ref: df443bd81575921901b560702302afaec386a1a5
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = b2e1920555f402b5db5012535971308f601c9c5f
+        run: test "$(git rev-parse HEAD)" = df443bd81575921901b560702302afaec386a1a5
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
