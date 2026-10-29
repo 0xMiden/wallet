@@ -8704,6 +8704,14 @@
     "message": "Експортуйте останні перевірені дані для відновлення у файл, який зберігається поза цим пристроєм. Він може не містити новіші облікові записи або дані про активність. Цей файл не містить ключів підпису або вашої фрази для відновлення. Перед імпортом окремо відновлюйте доступ підписувача.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Виберіть раніше експортований файл даних відновлення. Він не містить ключів підпису чи фрази відновлення, тому відновіть доступ до підпису окремо.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Введіть пароль для шифрування файлу даних відновлення.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Виберіть файл даних для відновлення",
     "englishSource": "Choose recovery data file"

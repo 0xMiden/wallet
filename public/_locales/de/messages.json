@@ -8711,6 +8711,14 @@
     "message": "Exportieren Sie die zuletzt verifizierten Wiederherstellungsdaten in eine Datei, die außerhalb dieses Geräts gespeichert wird. Diese enthält möglicherweise keine neueren Konten oder Aktivitäten. Diese Datei enthält keine Signaturschlüssel oder Ihre Wiederherstellungsphrase. Stellen Sie den Zugriff des Unterzeichners separat wieder her, bevor Sie die Daten importieren.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Wählen Sie eine zuvor exportierte Wiederherstellungsdatei. Sie enthält weder Signaturschlüssel noch Ihre Wiederherstellungsphrase. Stellen Sie den Zugriff auf die Signaturschlüssel separat wieder her.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Geben Sie ein Passwort ein, um Ihre Wiederherstellungsdatei zu verschlüsseln.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Wählen Sie die Wiederherstellungsdatei aus",
     "englishSource": "Choose recovery data file"

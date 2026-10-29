@@ -1908,6 +1908,8 @@
   "recoveryDataExport": "Eksportuj dane odzyskiwania",
   "recoveryDataImport": "Importuj dane odzyskiwania",
   "recoveryDataDescription": "Wyeksportuj ostatnie zweryfikowane dane odzyskiwania do pliku przechowywanego poza tym urządzeniem. Plik ten może nie zawierać nowszych kont ani aktywności. Plik ten nie zawiera kluczy podpisujących ani frazy odzyskiwania. Przed importem przywróć dostęp podpisującego oddzielnie.",
+  "recoveryDataImportDescription": "Wybierz wcześniej wyeksportowany plik danych odzyskiwania. Nie zawiera on kluczy podpisywania ani frazy odzyskiwania, dlatego dostęp do podpisywania należy przywrócić osobno.",
+  "recoveryDataExportPasswordDescription": "Wprowadź hasło, aby zaszyfrować plik danych odzyskiwania.",
   "recoveryDataChooseFile": "Wybierz plik danych odzyskiwania",
   "recoveryDataClearFile": "Wyczyść wybrany plik",
   "recoveryDataFilePassword": "Hasło do pliku odzyskiwania",

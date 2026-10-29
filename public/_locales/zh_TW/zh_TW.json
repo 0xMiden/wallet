@@ -1910,6 +1910,8 @@
   "recoveryDataExport": "匯出恢復資料",
   "recoveryDataImport": "匯入恢復資料",
   "recoveryDataDescription": "將最後一次驗證過的恢復資料匯出至本裝置外的檔案中。該檔案可能不包含較新的帳戶或活動紀錄。此檔案不包含簽名金鑰或您的恢復短語。在匯入前，請先另行恢復簽署者的存取權限。",
+  "recoveryDataImportDescription": "選擇先前匯出的復原資料檔案。此檔案不包含簽署金鑰或復原片語，請另外還原簽署權限。",
+  "recoveryDataExportPasswordDescription": "輸入密碼以加密您的復原資料檔案。",
   "recoveryDataChooseFile": "選擇恢復資料檔案",
   "recoveryDataClearFile": "清除選取的檔案",
   "recoveryDataFilePassword": "恢復檔案密碼",

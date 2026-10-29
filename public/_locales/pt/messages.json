@@ -8707,6 +8707,14 @@
     "message": "Exporte os últimos dados de recuperação verificados para um arquivo mantido fora deste dispositivo. Ele pode não incluir contas ou atividades mais recentes. Este arquivo não contém chaves de assinatura nem sua frase de recuperação. Restaure o acesso do signatário separadamente antes de importar.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Escolha um arquivo de dados de recuperação exportado anteriormente. Ele não contém chaves de assinatura nem sua frase de recuperação, portanto restaure o acesso à assinatura separadamente.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Digite uma senha para criptografar seu arquivo de dados de recuperação.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Escolha o arquivo de dados de recuperação",
     "englishSource": "Choose recovery data file"

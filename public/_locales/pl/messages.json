@@ -8704,6 +8704,14 @@
     "message": "Wyeksportuj ostatnie zweryfikowane dane odzyskiwania do pliku przechowywanego poza tym urządzeniem. Plik ten może nie zawierać nowszych kont ani aktywności. Plik ten nie zawiera kluczy podpisujących ani frazy odzyskiwania. Przed importem przywróć dostęp podpisującego oddzielnie.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Wybierz wcześniej wyeksportowany plik danych odzyskiwania. Nie zawiera on kluczy podpisywania ani frazy odzyskiwania, dlatego dostęp do podpisywania należy przywrócić osobno.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Wprowadź hasło, aby zaszyfrować plik danych odzyskiwania.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Wybierz plik danych odzyskiwania",
     "englishSource": "Choose recovery data file"

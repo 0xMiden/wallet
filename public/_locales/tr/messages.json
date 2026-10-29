@@ -8704,6 +8704,14 @@
     "message": "En son doğrulanmış kurtarma verilerini bu cihazın dışında tutulan bir dosyaya aktarın. Bu veriler, daha yeni hesapları veya etkinlikleri içermeyebilir. Bu dosya, imzalama anahtarlarını veya kurtarma ifadenizi içermez. İçe aktarmadan önce imzalayan erişimini ayrı olarak geri yükleyin.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Daha önce dışa aktarılmış bir kurtarma verisi dosyası seçin. Bu dosya imzalama anahtarlarını veya kurtarma ifadenizi içermez; imzalama erişimini ayrıca geri yükleyin.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Kurtarma verisi dosyanızı şifrelemek için bir parola girin.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Kurtarma veri dosyasını seçin",
     "englishSource": "Choose recovery data file"

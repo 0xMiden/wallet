@@ -1901,6 +1901,8 @@
   "recoveryDataExport": "Wiederherstellungsdaten exportieren",
   "recoveryDataImport": "Wiederherstellungsdaten importieren",
   "recoveryDataDescription": "Exportieren Sie die zuletzt verifizierten Wiederherstellungsdaten in eine Datei, die außerhalb dieses Geräts gespeichert wird. Diese enthält möglicherweise keine neueren Konten oder Aktivitäten. Diese Datei enthält keine Signaturschlüssel oder Ihre Wiederherstellungsphrase. Stellen Sie den Zugriff des Unterzeichners separat wieder her, bevor Sie die Daten importieren.",
+  "recoveryDataImportDescription": "Wählen Sie eine zuvor exportierte Wiederherstellungsdatei. Sie enthält weder Signaturschlüssel noch Ihre Wiederherstellungsphrase. Stellen Sie den Zugriff auf die Signaturschlüssel separat wieder her.",
+  "recoveryDataExportPasswordDescription": "Geben Sie ein Passwort ein, um Ihre Wiederherstellungsdatei zu verschlüsseln.",
   "recoveryDataChooseFile": "Wählen Sie die Wiederherstellungsdatei aus",
   "recoveryDataClearFile": "Ausgewählte Datei löschen",
   "recoveryDataFilePassword": "Passwort für die Wiederherstellungsdatei",

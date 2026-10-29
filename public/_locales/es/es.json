@@ -1903,6 +1903,8 @@
   "recoveryDataExport": "Exportar datos de recuperación",
   "recoveryDataImport": "Importar datos de recuperación",
   "recoveryDataDescription": "Exporta los últimos datos de recuperación verificados a un archivo que se guarde fuera de este dispositivo. Es posible que no incluya cuentas o actividades más recientes. Este archivo no contiene claves de firma ni tu frase de recuperación. Restablece el acceso del firmante por separado antes de importarlo.",
+  "recoveryDataImportDescription": "Selecciona un archivo de datos de recuperación exportado anteriormente. No contiene claves de firma ni tu frase de recuperación, por lo que debes restaurar el acceso de firma por separado.",
+  "recoveryDataExportPasswordDescription": "Introduce una contraseña para cifrar tu archivo de datos de recuperación.",
   "recoveryDataChooseFile": "Elige el archivo de datos de recuperación",
   "recoveryDataClearFile": "Borrar el archivo seleccionado",
   "recoveryDataFilePassword": "Contraseña del archivo de recuperación",

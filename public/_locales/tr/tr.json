@@ -1908,6 +1908,8 @@
   "recoveryDataExport": "Kurtarma verilerini dışa aktarın",
   "recoveryDataImport": "Kurtarma verilerini içe aktarın",
   "recoveryDataDescription": "En son doğrulanmış kurtarma verilerini bu cihazın dışında tutulan bir dosyaya aktarın. Bu veriler, daha yeni hesapları veya etkinlikleri içermeyebilir. Bu dosya, imzalama anahtarlarını veya kurtarma ifadenizi içermez. İçe aktarmadan önce imzalayan erişimini ayrı olarak geri yükleyin.",
+  "recoveryDataImportDescription": "Daha önce dışa aktarılmış bir kurtarma verisi dosyası seçin. Bu dosya imzalama anahtarlarını veya kurtarma ifadenizi içermez; imzalama erişimini ayrıca geri yükleyin.",
+  "recoveryDataExportPasswordDescription": "Kurtarma verisi dosyanızı şifrelemek için bir parola girin.",
   "recoveryDataChooseFile": "Kurtarma veri dosyasını seçin",
   "recoveryDataClearFile": "Seçili dosyayı temizle",
   "recoveryDataFilePassword": "Kurtarma dosyası şifresi",

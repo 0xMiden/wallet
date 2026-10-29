@@ -1907,6 +1907,8 @@
   "recoveryDataExport": "Exporter les données de récupération",
   "recoveryDataImport": "Importer les données de récupération",
   "recoveryDataDescription": "Exportez les dernières données de récupération vérifiées vers un fichier conservé en dehors de cet appareil. Ce fichier peut ne pas inclure les comptes ou activités les plus récents. Il ne contient ni clés de signature ni votre phrase de récupération. Rétablissez l’accès du signataire séparément avant l’importation.",
+  "recoveryDataImportDescription": "Choisissez un fichier de données de récupération exporté précédemment. Il ne contient ni clés de signature ni phrase de récupération. Rétablissez séparément l’accès à la signature.",
+  "recoveryDataExportPasswordDescription": "Saisissez un mot de passe pour chiffrer votre fichier de données de récupération.",
   "recoveryDataChooseFile": "Choisissez le fichier de données de récupération",
   "recoveryDataClearFile": "Effacer le fichier sélectionné",
   "recoveryDataFilePassword": "Mot de passe du fichier de récupération",

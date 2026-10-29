@@ -8702,6 +8702,14 @@
     "message": "最後に検証された復旧データを、このデバイス外部に保管するファイルにエクスポートしてください。このデータには、それ以降に作成されたアカウントやアクティビティは含まれていない場合があります。このファイルには、署名鍵や復旧フレーズは含まれていません。インポートする前に、署名者のアクセス権を別途復元してください。",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "以前にエクスポートした復元データファイルを選択してください。このファイルには署名鍵や復元フレーズは含まれません。署名へのアクセスは別途復元してください。",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "復元データファイルを暗号化するパスワードを入力してください。",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "復旧データファイルを選択してください",
     "englishSource": "Choose recovery data file"

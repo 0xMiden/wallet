@@ -8705,6 +8705,14 @@
     "message": "Exportez les dernières données de récupération vérifiées vers un fichier conservé en dehors de cet appareil. Ce fichier peut ne pas inclure les comptes ou activités les plus récents. Il ne contient ni clés de signature ni votre phrase de récupération. Rétablissez l’accès du signataire séparément avant l’importation.",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "Choisissez un fichier de données de récupération exporté précédemment. Il ne contient ni clés de signature ni phrase de récupération. Rétablissez séparément l’accès à la signature.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Saisissez un mot de passe pour chiffrer votre fichier de données de récupération.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "Choisissez le fichier de données de récupération",
     "englishSource": "Choose recovery data file"

@@ -8702,6 +8702,14 @@
     "message": "將最後一次驗證過的恢復資料匯出至本裝置外的檔案中。該檔案可能不包含較新的帳戶或活動紀錄。此檔案不包含簽名金鑰或您的恢復短語。在匯入前，請先另行恢復簽署者的存取權限。",
     "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
   },
+  "recoveryDataImportDescription": {
+    "message": "選擇先前匯出的復原資料檔案。此檔案不包含簽署金鑰或復原片語，請另外還原簽署權限。",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "輸入密碼以加密您的復原資料檔案。",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
   "recoveryDataChooseFile": {
     "message": "選擇恢復資料檔案",
     "englishSource": "Choose recovery data file"
