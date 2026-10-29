@@ -367,10 +367,10 @@ describe('Task5 availability followon', () => {
     expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
   });
 
-  it('does not let a delayed pending snapshot replace verified healthy state', () => {
+  it('does not let an older healthy snapshot replace a newer verified state', () => {
     const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
     useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: recovered });
-    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: { status: 'pending' } });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: healthy });
     expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
   });
 });
