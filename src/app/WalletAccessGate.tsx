@@ -24,6 +24,7 @@ const INITIALIZATION_FAILED: GeoLookup = {
 };
 
 export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
+  performance.mark("proof-wallet-gate-render");
   const { t } = useTranslation();
   const [endpointsReady, setEndpointsReady] = useState(false);
   const [geo, setGeo] = useState<GeoLookup>({ state: 'loading' });
@@ -46,6 +47,7 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
         const decision = new Promise<GeoLookup>(resolve => resolve(initFeatureEligibility())).catch(
           () => INITIALIZATION_FAILED
         );
+        performance.mark("proof-endpoints-ready");
         if (mounted) setEndpointsReady(true);
         return decision.then(
           (result): GeoLookup =>
