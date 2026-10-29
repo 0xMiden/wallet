@@ -830,6 +830,7 @@ export class MidenClientInterface {
           operation: 'sdk_initialize',
           stage,
           workerMode: useWorker ? 'enabled' : 'disabled',
+          ...(stage === 'client_create' ? { clientRole: 'primary' } : {}),
           ...wasmStartupEvidence(error)
         });
         throw error;
@@ -837,13 +838,6 @@ export class MidenClientInterface {
     } catch (error) {
       if (ownsClient()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
       liveness.disposed = true;
-      annotateCrash(error, {
-        operation: 'sdk_initialize',
-        stage,
-        workerMode: useWorker ? 'enabled' : 'disabled',
-        ...(stage === 'client_create' ? { clientRole: 'primary' } : {}),
-        ...wasmStartupEvidence(error)
-      });
       throw error;
     }
   }
