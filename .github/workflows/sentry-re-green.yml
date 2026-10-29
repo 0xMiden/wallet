@@ -1,0 +1,46 @@
+name: Sentry RE native response verification
+on:
+  push:
+    branches: [ci/sentry-re-green-v2]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 01e784c57b255da215e73aa3b8229e3bbbb88ac1
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: sudo apt-get update && sudo apt-get install -y junit4
+      - name: Run native observation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          kotlinc android/app/src/main/java/com/miden/wallet/ReownRequestObservations.kt android/app/src/test/java/com/miden/wallet/ReownRequestObservationsTest.kt -cp /usr/share/java/junit4.jar -include-runtime -d "$RUNNER_TEMP/reown-tests.jar"
+          (cd android/app && java -cp "$RUNNER_TEMP/reown-tests.jar:/usr/share/java/junit4.jar:/usr/share/java/hamcrest-core.jar" org.junit.runner.JUnitCore com.miden.wallet.ReownRequestObservationsTest) | tee "$RUNNER_TEMP/native-green.log"
+          grep -F 'OK (9 tests)' "$RUNNER_TEMP/native-green.log"
+  decoder-and-egress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 01e784c57b255da215e73aa3b8229e3bbbb88ac1
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: ./.github/actions/yarn-install
+      - name: Check formatting and lint
+        run: |
+          yarn prettier --check src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/egress-boundary.test.ts
+          yarn eslint src/lib/walletconnect/native-request-failure.ts src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/egress-boundary.test.ts --max-warnings 0
+      - name: Check TypeScript
+        run: yarn ts --noEmit
+      - name: Run decoder and real egress suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn jest src/lib/walletconnect/native-request-failure.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/bridge-receive-failure.test.ts src/lib/telemetry/egress-boundary.test.ts --maxWorkers=2 --no-coverage 2>&1 | tee "$RUNNER_TEMP/js-green.log"
+          grep -F 'Test Suites: 4 passed, 4 total' "$RUNNER_TEMP/js-green.log"
