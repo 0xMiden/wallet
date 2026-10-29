@@ -16,7 +16,21 @@ export const REOWN_NATIVE_ORIGINS = closedValues(
   'session_deleted',
   'other'
 );
-export const REOWN_WALLET_RESPONSE_CODES = closedValues('user_rejected', 'invalid_params', 'internal_error', 'other');
+export const REOWN_WALLET_RESPONSE_CODES = closedValues(
+  'user_rejected',
+  'invalid_params',
+  'internal_error',
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited',
+  'other'
+);
 export const REOWN_REQUEST_AGES = closedValues('under_30s', '30_to_120s', '120_to_300s', 'over_300s', 'unknown');
 export const REOWN_PUBLICATIONS = closedValues('confirmed', 'unobserved');
 export const REOWN_BACKGROUND_ANSWERS = closedValues('yes', 'no');
