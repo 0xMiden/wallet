@@ -180,6 +180,13 @@ export async function runBudgetScenario({ budget, counters, now = Date.now }) {
       const granted = Math.min(4, 16 - count);
       if (body?.reserved !== true || body.count !== granted || await readCount() !== count + granted) return 'failed';
       count += granted;
+      if (index === 0) {
+        const duplicate = await send('lease', { leaseId, count: 4 });
+        const duplicateBody = await duplicate.json();
+        if (!duplicate.ok || duplicateBody?.reserved !== true || duplicateBody.count !== granted || await readCount() !== count) return 'failed';
+        const mismatch = await send('lease', { leaseId, count: 3 });
+        if (mismatch.ok || await readCount() !== count) return 'failed';
+      }
     }
     if (count !== 16) return 'failed';
     const denied = await send('reserve', {});
