@@ -118,3 +118,40 @@ export function validateTopologyBindings(scripts, expected) {
   }
   return seenScripts.size === expected.scripts.length && seenOwned.size === owned.size;
 }
+
+// The returned list is evidence only; settings and namespace ownership must still be checked independently.
+export function readTopologyScriptInventory(pages) {
+  if (!Array.isArray(pages) || pages.length < 1 || pages.length > 100) return null;
+  const ids = [];
+  const seen = new Set();
+  let total;
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    const info = page?.result_info;
+    if (
+      page?.success !== true ||
+      !Array.isArray(page.errors) ||
+      page.errors.length ||
+      !Array.isArray(page.result) ||
+      !info ||
+      info.page !== index + 1 ||
+      info.per_page !== 100 ||
+      info.total_pages !== pages.length ||
+      info.count !== page.result.length ||
+      !Number.isSafeInteger(info.total_count) ||
+      info.total_count < 0 ||
+      info.total_pages !== Math.max(1, Math.ceil(info.total_count / 100)) ||
+      info.count !== Math.min(100, info.total_count - index * 100) ||
+      (total !== undefined && total !== info.total_count)
+    )
+      return null;
+    total = info.total_count;
+    for (const entry of page.result) {
+      if (!entry || typeof entry.id !== 'string' || !/^[a-zA-Z0-9_-]{1,63}$/.test(entry.id) || seen.has(entry.id))
+        return null;
+      seen.add(entry.id);
+      ids.push(entry.id);
+    }
+  }
+  return ids.length === total ? ids : null;
+}
