@@ -1,7 +1,7 @@
 name: Recovery visual proof
 on:
   push:
-    branches: [ci/recovery-visual-1948]
+    branches: [ci/recovery-visual-1948-fixed]
 permissions:
   contents: read
 jobs:
