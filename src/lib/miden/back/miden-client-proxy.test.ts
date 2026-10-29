@@ -2120,8 +2120,9 @@ describe('MidenClientProxy — deadline kill', () => {
     prover.incrementCriticalOp();
     fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
 
+    const readyListener = waitForReadyListener();
     const p = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
-    await flush();
+    await readyListener;
     fireReady();
     await flush();
 
@@ -2253,8 +2254,9 @@ describe('MidenClientProxy — settlement paths', () => {
     const transportError = new Error('message port closed before a response');
     fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
 
+    const readyListener = waitForReadyListener();
     const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
-    await flush();
+    await readyListener;
     fireReady();
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
