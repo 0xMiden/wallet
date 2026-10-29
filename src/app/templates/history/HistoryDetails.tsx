@@ -59,6 +59,7 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
@@ -315,8 +316,12 @@ const AccountDisplay: FC<{
   return <AddressChip address={address} className="ml-2" displayName={getDisplayName(address)} />;
 });
 
-const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null }> = ({ errorId, ...props }) => {
-  useUserVisibleError(errorId, 'inline');
+const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null; diagnostics?: UiEvidenceInput }> = ({
+  errorId,
+  diagnostics,
+  ...props
+}) => {
+  useUserVisibleError(errorId, 'inline', undefined, diagnostics);
   return <p {...props} />;
 };
 
@@ -860,6 +865,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             isRetryingPayback={actions.isRetryingPayback}
             paybackRetryError={actions.paybackRetryError}
             paybackRetryErrorId={actions.paybackRetryErrorId}
+            paybackRetryErrorDiagnostics={actions.paybackRetryErrorDiagnostics}
             onRetryPayback={actions.onRetryPayback}
           />
         ) : (
@@ -1513,6 +1519,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {actions.retryError && (
               <HistoryError
                 errorId={actions.retryErrorId}
+                diagnostics={actions.retryErrorDiagnostics}
                 data-testid="history-retry-error"
                 className="mb-2 text-center text-sm text-status-negative"
               >

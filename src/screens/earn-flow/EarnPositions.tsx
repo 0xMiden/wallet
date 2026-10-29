@@ -18,7 +18,7 @@ import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, isLoading, error, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
 
   // A failed load must NOT read as "you have no positions / $0": with nothing to fall back on it
   // replaces the list; with last-good positions on screen (a failed refresh keeps them) they stay,
@@ -32,7 +32,7 @@ const EarnPositions: FC = () => {
   return (
     <SubPageLayout data-testid="earn-positions-page" title={t('earnPositionsTitle')} onBack={goBack}>
       {showLoadError ? (
-        <EarnLoadError onRetry={refetch} className="mt-10" />
+        <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} className="mt-10" />
       ) : pending ? null : empty ? (
         <EmptyState
           surface="dashed"
@@ -44,7 +44,7 @@ const EarnPositions: FC = () => {
         />
       ) : (
         <>
-          {loadFailed && <EarnLoadError onRetry={refetch} />}
+          {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
           <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
           {/* Cards in a list are separated by space, 12px, as on the tab root. */}

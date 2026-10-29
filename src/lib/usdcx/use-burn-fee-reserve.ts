@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useMidenContext } from 'lib/miden/front/client';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 
+import { burnFeeFailureOf, type BurnFeeFailure } from './burn-fee-failure';
+
 /** What a burn's cost depends on: the account that burns and the chain it pays out on, never the recipient. */
 interface BurnFeeReserveTarget {
   accountPublicKey: string;
@@ -15,10 +17,10 @@ export interface BurnFeeReserve {
   status: BurnFeeReserveStatus;
   /** Native-asset base units to hold back for the burn's cost; set only once `status` is `measured`. */
   reserve?: bigint;
+  failure?: BurnFeeFailure;
 }
 
 const PENDING: BurnFeeReserve = { status: 'pending' };
-const FAILED: BurnFeeReserve = { status: 'failed' };
 
 /** Busy answers taken before the estimate reports failed, so the screen never measures forever. */
 const MAX_BUSY_ANSWERS = 3;
@@ -52,7 +54,7 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): Bur
         return await estimateUsdcxBurnFee(accountPublicKey, destinationChainId);
       } catch (err) {
         console.warn('[usdcx burn fee] the estimate request failed', err);
-        return { outcome: 'failed' };
+        return { outcome: 'failed', failure: 'request_failed' };
       }
     };
     const ask = async (busyAnswers: number, retriedFailure: boolean): Promise<void> => {
@@ -65,7 +67,13 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): Bur
       } else if (estimate.outcome === 'busy' && busyAnswers + 1 < MAX_BUSY_ANSWERS) {
         backoff = setTimeout(() => void ask(busyAnswers + 1, retriedFailure), BUSY_BACKOFF_MS * 2 ** busyAnswers);
       } else {
-        setAnswer({ key, state: FAILED });
+        setAnswer({
+          key,
+          state: {
+            status: 'failed',
+            failure: estimate.outcome === 'busy' ? 'busy_exhausted' : (burnFeeFailureOf(estimate) ?? 'estimate_failed')
+          }
+        });
       }
     };
     void ask(0, false);

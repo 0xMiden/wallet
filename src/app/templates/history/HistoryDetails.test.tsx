@@ -4407,6 +4407,30 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(screen.getByText('epoch is down')).toBeInTheDocument();
   });
 
+  it('reports the Earn receive retry origin for the displayed refusal', async () => {
+    const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+      'lib/telemetry/ui-producer-diagnostics'
+    );
+    const failure = new Error('private receive retry failure');
+    annotatePendingRetry(failure, 'verdict_busy');
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom' }));
+    mockRetryEarnWithdrawReceive.mockRejectedValueOnce(failure);
+    await renderAndLoad();
+    fireEvent.click(screen.getByText('retry'));
+    await flush();
+    expect(screen.getByText('private receive retry failure')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError).toHaveBeenCalledWith('raw_history_retry_failed', 'inline', {
+      kind: 'history_retry',
+      retryNoticeOrigin: 'history_earn_receive',
+      pendingRetryReason: 'verdict_busy'
+    });
+    expect(mockRetryEarnWithdrawReceive).toHaveBeenCalledWith('tx-1');
+    expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+  });
+
   it('renders the full withdraw detail card once the intent, settlement tx and note are known', async () => {
     setMockRow(
       earnWithdrawTx(
@@ -5163,7 +5187,70 @@ describe('user-visible history action errors', () => {
     fireEvent.click(screen.getByTestId('history-retry-button'));
     await flush();
     expect(screen.getByTestId('history-retry-error')).toHaveTextContent(text);
-    await expectErrorAfterDwell(id, 'inline');
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    const args =
+      id === 'raw_history_retry_failed'
+        ? [
+            id,
+            'inline',
+            { kind: 'history_retry', retryNoticeOrigin: 'history_primary', pendingRetryReason: 'unexpected' }
+          ]
+        : [id, 'inline'];
+    expect(mockReportUserVisibleError).toHaveBeenCalledWith(...args);
+  });
+
+  it('reports the primary retry reason owned by the displayed error after dwell', async () => {
+    const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+      'lib/telemetry/ui-producer-diagnostics'
+    );
+    const failure = new Error('private retry amount 42');
+    annotatePendingRetry(failure, 'guardian_hold');
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(failure);
+    await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    expect(screen.getByTestId('history-retry-error')).toHaveTextContent('private retry amount 42');
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError).toHaveBeenCalledWith('raw_history_retry_failed', 'inline', {
+      kind: 'history_retry',
+      retryNoticeOrigin: 'history_primary',
+      pendingRetryReason: 'guardian_hold'
+    });
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a retry refusal that settles after switching transaction rows', async () => {
+    const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+      'lib/telemetry/ui-producer-diagnostics'
+    );
+    const failure = new Error('previous row retry refusal');
+    annotatePendingRetry(failure, 'guardian_hold');
+    let rejectRetry: (error: Error) => void = () => {};
+    mockRequeueFailedTransaction.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectRetry = reject;
+      })
+    );
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    const view = await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    setMockRow({ ...baseSendTx, id: 'tx-2', status: 3, error: 'Other failure', displayMessage: 'Failed' });
+    view.rerender(<HistoryDetails transactionId="tx-2" />);
+    await flush();
+    await act(async () => {
+      rejectRetry(failure);
+    });
+    await flush();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
   });
 
   it('reports a live retry fee refusal with insufficientFeeAsset', async () => {

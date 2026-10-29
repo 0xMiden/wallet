@@ -23,6 +23,7 @@ jest.mock('./components', () => ({
 }));
 let mockAvailable = '10.123456789012345678';
 let mockStale = false;
+let mockPositionFailure: object = {};
 jest.mock('./useEarnPositions', () => ({
   earnItemLoadState: () => ({ loadFailed: false, pending: false }),
   useEarnPositions: () => ({
@@ -37,6 +38,7 @@ jest.mock('./useEarnPositions', () => ({
         stale: mockStale
       }
     ],
+    ...mockPositionFailure,
     refetch: jest.fn()
   })
 }));
@@ -46,6 +48,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 afterEach(() => {
   mockAvailable = '10.123456789012345678';
   mockStale = false;
+  mockPositionFailure = {};
   jest.clearAllMocks();
 });
 it('offers exact Max and hands only the selected amount to review', () => {
@@ -134,4 +137,22 @@ describe('user-visible amount errors', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+it('forwards the selected failure evidence from withdrawal amount to the real Notice', () => {
+  jest.useFakeTimers();
+  try {
+    jest.mocked(reportUserVisibleError).mockClear();
+    const evidence = {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'response_decode',
+      earnPositionsLoadOutcome: 'partial_failure'
+    };
+    mockPositionFailure = { error: 'private failure', errorDiagnostics: evidence };
+    render(<EarnWithdrawAmount positionId="p" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+  } finally {
+    jest.useRealTimers();
+  }
 });
