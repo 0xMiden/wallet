@@ -1,0 +1,28 @@
+name: Storage recovery stale cache red proof
+on:
+  push:
+    branches: [ci/1948-stale-epoch-red2]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check frozen source
+        run: |
+          git checkout --detach 3a879284cc27c8e0e2c7e5ea54d3db5c065b5c78
+          test "$(git rev-parse HEAD)" = 3a879284cc27c8e0e2c7e5ea54d3db5c065b5c78
+      - uses: ./.github/actions/yarn-install
+      - name: Stale epoch tests (expected red)
+        run: >-
+          yarn test --runInBand --runTestsByPath
+          src/lib/store/index.ready-balance-read.test.ts
+          src/lib/store/utils/updateBalancesFromSyncData.test.ts
+          --testNamePattern='cached snapshot from an older|legacy snapshot without an epoch'
