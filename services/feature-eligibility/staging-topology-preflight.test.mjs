@@ -3,11 +3,30 @@ import test from 'node:test';
 import * as topology from './staging-topology-preflight.mjs';
 
 const prepare = topology.prepareTopologyInventory ?? (() => null);
-const identity = { repository: '0xMiden/wallet', workflowPath: '.github/workflows/feature-eligibility-topology.yml', sourceSha: 'a'.repeat(40), runId: '12345', runAttempt: '1' };
+const identity = {
+  repository: '0xMiden/wallet',
+  workflowPath: '.github/workflows/feature-eligibility-topology.yml',
+  sourceSha: 'a'.repeat(40),
+  runId: '12345',
+  runAttempt: '1'
+};
 const accountId = 'a'.repeat(32);
 const now = Date.UTC(2026, 9, 29);
-const page = ids => ({ success: true, errors: [], result: ids.map(id => ({ id })), result_info: { page: 1, per_page: 100, count: ids.length, total_pages: 1, total_count: ids.length } });
-const options = api => ({ api, accountId, identity, bundle: new Uint8Array([1, 2, 3]), now, expiresAt: now + 600_000, maxRuns: 10 });
+const page = ids => ({
+  success: true,
+  errors: [],
+  result: ids.map(id => ({ id })),
+  result_info: { page: 1, per_page: 100, count: ids.length, total_pages: 1, total_count: ids.length }
+});
+const options = api => ({
+  api,
+  accountId,
+  identity,
+  bundle: new Uint8Array([1, 2, 3]),
+  now,
+  expiresAt: now + 600_000,
+  maxRuns: 10
+});
 function provider({ account = accountId, scripts = ['other-worker'] } = {}) {
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: account } };
