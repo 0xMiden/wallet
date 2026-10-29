@@ -246,34 +246,83 @@ async function prepare(password, includePrivate) {
   check('retainedAccountFloor', journal?.accounts.length === 1);
   const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
   check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
-  const journalDigest = await digest(new TextEncoder().encode(JSON.stringify(journal)));
   await control('state', {
     accountId: fixture.accountId,
-    noteId: fixture.noteId,
-    includePrivate,
-    sdkStore,
-    feeFaucetId: fixture.feeFaucetId,
-    journalDigest,
-    baselineSequence: journal.sequence
+    includePrivate: false,
+    expectedBytes: fixture.expectedBytes
   });
-  progress('orderly-sdk-disposal');
+  progress('cross-realm-ready');
+  return { phase, checks: { ...checks } };
+}
+let crossRealmState;
+let crossRealmWallet;
+async function attach(password) {
+  guard();
+  progress('second-realm-setup');
+  await ensureSdkWasmReady();
+  await initializeStorageHealth();
+  check('secondRealmInitiallyHealthy', getStorageHealth().status === 'healthy');
+  crossRealmState = await control('read-state', {});
+  vault = await Vault.setup(password);
+  await Repo.db.open();
+  await Repo.metadata.put({ id: 'cross-realm-ready', generation: 'disposable', origin: 'fresh' });
+  check('secondRealmWalletWritable', (await Repo.metadata.get('cross-realm-ready'))?.generation === 'disposable');
   await withWasmClientLock(async () => {
     const wallet = await getMidenClient();
-    await wallet.client.waitForIdle();
+    crossRealmWallet = wallet;
+    const account = await wallet.getAccount(crossRealmState.accountId);
+    check('secondRealmRealAccount', account !== null && account !== undefined);
+    account?.free();
+    const file = sdk.NoteFile.deserialize(new Uint8Array(crossRealmState.expectedBytes));
+    file.free();
+    check('secondRealmValidSdkInput', true);
   });
-  await resetMidenClient();
-  vault.retire();
-  vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
-  progress('disposable-sdk-store-loss');
-  await new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(sdkStore);
-    request.onsuccess = resolve;
-    request.onerror = () => reject(new Error('sdk-delete'));
-    request.onblocked = () => reject(new Error('sdk-delete-blocked'));
-  });
-  check('physicalSdkMissing', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  progress('second-realm-ready');
   return { phase, checks: { ...checks } };
+}
+async function injectedWalletWrite(name) {
+  guard();
+  if (name !== 'AbortError' && name !== 'QuotaExceededError') throw new Error('fixture-error-type');
+  const original = IDBDatabase.prototype.transaction;
+  let injected = 0;
+  IDBDatabase.prototype.transaction = function (...args) {
+    if (this.name === Repo.db.name && args[1] === 'readwrite' && injected === 0) {
+      injected++;
+      throw new DOMException('disposable-injected-failure', name);
+    }
+    return Reflect.apply(original, this, args);
+  };
+  let rejected = false;
+  try {
+    await Repo.metadata.put({ id: 'cross-realm-proof-control', generation: 'disposable', origin: 'fresh' });
+  } catch { rejected = true; }
+  finally { IDBDatabase.prototype.transaction = original; }
+  return { injected: injected === 1, rejected, healthy: getStorageHealth().status === 'healthy', unavailable: getStorageHealth().status === 'unavailable' };
+}
+async function blockedWrites() {
+  guard();
+  const originalTransaction = IDBDatabase.prototype.transaction;
+  let nativeWrites = 0;
+  IDBDatabase.prototype.transaction = function (...args) {
+    if (this.name === Repo.db.name && args[1] === 'readwrite') nativeWrites++;
+    return Reflect.apply(originalTransaction, this, args);
+  };
+  let walletRefused = false;
+  try { await Repo.metadata.put({ id: 'cross-realm-proof-blocked', generation: 'disposable', origin: 'fresh' }); }
+  catch (error) { walletRefused = error instanceof Error && error.name === 'StorageUnavailableError'; }
+  finally { IDBDatabase.prototype.transaction = originalTransaction; }
+  let sdkCalls = 0;
+  let sdkRefused = false;
+  await withWasmClientLock(async hold => {
+    const wallet = crossRealmWallet;
+    const notes = wallet.client.notes;
+    const originalImport = notes.import;
+    notes.import = function (...args) { sdkCalls++; return Reflect.apply(originalImport, this, args); };
+    try { await wallet.importNoteBytes(new Uint8Array(crossRealmState.expectedBytes), hold); }
+    catch (error) { sdkRefused = error instanceof Error && error.name === 'StorageUnavailableError'; }
+    finally { notes.import = originalImport; }
+  });
+  return { walletRefused, sdkRefused, noNativeWalletWrite: nativeWrites === 0, noNativeSdkImport: sdkCalls === 0, unavailable: getStorageHealth().status === 'unavailable' };
 }
 async function recover(password) {
   guard();
@@ -333,4 +382,4 @@ async function recover(password) {
     .map(stage => Reflect.get(globalThis, '__noteRestore' + stage) === true);
   return { phase, checks: { ...checks }, progress: observed, service, noteStages };
 }
-window.__retainedProof = { prepare, recover };
+window.__retainedProof = { prepare, recover, attach, injectedWalletWrite, blockedWrites, status: () => getStorageHealth().status };
