@@ -1,7 +1,7 @@
 name: Issue 1948 main integration proof
 on:
   push:
-    branches: [ci/1948-main-integration-proof-v2]
+    branches: [ci/1948-main-integration-proof-v3]
 permissions:
   contents: read
   actions: read
@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ff35b1235ecb1b40f33f8dd441590a5fdb669d84
+          ref: 6626329348e2d6ce2db675c9f0136951372ebc91
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = ff35b1235ecb1b40f33f8dd441590a5fdb669d84
+        run: test "$(git rev-parse HEAD)" = 6626329348e2d6ce2db675c9f0136951372ebc91
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
