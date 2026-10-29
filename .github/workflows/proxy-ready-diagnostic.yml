@@ -33,6 +33,8 @@ jobs:
         run: |
           yarn prettier --check src/lib/miden/back/miden-client-proxy.test.ts
           yarn eslint src/lib/miden/back/miden-client-proxy.test.ts --max-warnings=0
+      - name: Typecheck
+        run: yarn tsc --noEmit
       - name: Run all split proxy tests with coverage
         run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.writes.test.ts src/lib/miden/back/miden-client-proxy.guardian.test.ts --maxWorkers=2 --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-ready-results.json"
       - uses: actions/upload-artifact@v4
