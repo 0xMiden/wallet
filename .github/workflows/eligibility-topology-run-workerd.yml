@@ -1,0 +1,65 @@
+name: Eligibility topology run bounds workerd proof
+on:
+  push:
+    branches: [ci/1894-topology-run-workerd]
+permissions:
+  contents: read
+jobs:
+  workerd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = e7ecc800b2f91557dbeea5761c16f34fe2cf01ba
+      - name: Verify bounds with a real local Durable Object
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/worker.mjs <<'JS'
+          import { createRunController } from '../services/feature-eligibility/staging-topology.mjs';
+          export class Budget {
+            constructor(state) { this.storage = state.storage; }
+            async fetch(request) {
+              const handle = createRunController({
+                storage: this.storage, now: () => 100, expiresAt: 1000, maxRuns: 2,
+                runScenario: async () => { await new Promise(resolve => setTimeout(resolve, 200)); return 'passed'; }
+              });
+              return handle(request);
+            }
+          }
+          export default {
+            async fetch(_request, env) {
+              const stub = env.BUDGET.get(env.BUDGET.idFromName('fixed-test-run'));
+              const request = () => new Request('https://topology.internal/scenario/cache_reuse', { method: 'POST' });
+              const first = await stub.fetch(request());
+              const concurrent = await Promise.all([stub.fetch(request()), stub.fetch(request())]);
+              const final = await stub.fetch(request());
+              return Response.json({ first: first.status, concurrent: concurrent.map(value => value.status).sort(), final: final.status });
+            }
+          };
+          JS
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-run-bounds-proof","main":"worker.mjs","compatibility_date":"2026-10-20","workers_dev":false,"durable_objects":{"bindings":[{"name":"BUDGET","class_name":"Budget"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["Budget"]}]}
+          JSON
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18947 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18947/ > proof/response.json; then break; fi
+            sleep 1
+          done
+          node -e "const a=require('node:assert/strict');const x=require('./proof/response.json');a.deepEqual(x,{first:200,concurrent:[200,429],final:429});console.log('Real local Durable Object enforced persisted budget and overlap limit')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topology-run-workerd
+          path: |
+            proof/runtime.log
+            proof/response.json
