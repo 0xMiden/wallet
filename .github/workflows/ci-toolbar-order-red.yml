@@ -1,0 +1,17 @@
+name: Toolbar migration ordering regression
+on:
+  push:
+    branches: [ci/toolbar-order-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run expected failing ordering test
+        run: yarn test --runInBand --runTestsByPath src/lib/extension/toolbar-action.test.ts
