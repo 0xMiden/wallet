@@ -5732,6 +5732,47 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('Task1948 keeps an ordinary cancelled journal write healthy and preserves the prior generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    const failure = new DOMException('Cancelled', 'AbortError');
+    const inject = jest.fn(async () => {
+      throw failure;
+    });
+    mockBeforeRecoveryWrite = inject;
+    try {
+      await expect(vault.reconcileStorageRecovery()).rejects.toBe(failure);
+      expect(inject).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task1948 classifies an independent journal quota and preserves the prior generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    const failure = new DOMException('Independent store full', 'QuotaExceededError');
+    const inject = jest.fn(async () => {
+      throw failure;
+    });
+    mockBeforeRecoveryWrite = inject;
+    try {
+      await expect(vault.reconcileStorageRecovery()).rejects.toBe(failure);
+      expect(inject).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth()).toMatchObject({
+        status: 'unavailable',
+        reason: 'quota',
+        backend: 'independent',
+        operation: 'mutate'
+      });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
+
   it('Task4C3G3 latches a real canonical primary write quota while preserving the last readable generation', async () => {
     const fixture = await canonicalAcquisition();
     const before = await fixture.savedFamily();
