@@ -1,4 +1,4 @@
-const SCENARIOS = new Set(['cache_reuse', 'colo_isolation']);
+const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget']);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -156,6 +156,35 @@ export async function runColoScenario({ service, counters }) {
   }
 }
 
-export async function runBudgetScenario() {
-  return 'failed';
+export async function runBudgetScenario({ budget, counters, now = Date.now }) {
+  try {
+    const readCount = async () => {
+      const value = (await counters())?.count;
+      if (!Number.isSafeInteger(value) || value < 0 || value > 16) throw new Error('Invalid staging count');
+      return value;
+    };
+    const send = (path, fields) => budget.fetch(new Request(`https://eligibility.internal/${path}`, {
+      method: 'POST',
+      body: JSON.stringify({ day: new Date(now()).toISOString().slice(0, 10), deadline: now() + 5000, ...fields })
+    }));
+    let count = await readCount();
+    if (count >= 16) return 'failed';
+    const reserve = await send('reserve', {});
+    if (!reserve.ok || (await reserve.json())?.reserved !== true || await readCount() !== count + 1) return 'failed';
+    count++;
+    for (let index = 0; count < 16 && index < 4; index++) {
+      const leaseId = `00000000-0000-4000-8000-00000000000${index}`;
+      const lease = await send('lease', { leaseId, count: 4 });
+      if (!lease.ok) return 'failed';
+      const body = await lease.json();
+      const granted = Math.min(4, 16 - count);
+      if (body?.reserved !== true || body.count !== granted || await readCount() !== count + granted) return 'failed';
+      count += granted;
+    }
+    if (count !== 16) return 'failed';
+    const denied = await send('reserve', {});
+    return !denied.ok && await readCount() === 16 ? 'passed' : 'failed';
+  } catch {
+    return 'failed';
+  }
 }

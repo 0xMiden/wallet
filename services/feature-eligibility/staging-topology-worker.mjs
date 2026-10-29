@@ -1,5 +1,5 @@
 import { createService } from './worker.mjs';
-import topology, { createRunController, runCacheScenario, runColoScenario } from './staging-topology.mjs';
+import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario } from './staging-topology.mjs';
 
 const policy = {
   network: 'testnet',
@@ -42,6 +42,10 @@ export class EligibilityGuard {
   }
 
   async fetch(request) {
+    if (request.method === 'GET' && new URL(request.url).pathname === '/proof-budget') {
+      const budget = await this.delegate.storage.get('budget');
+      return Response.json({ count: budget?.day === new Date().toISOString().slice(0, 10) ? budget.count : 0 });
+    }
     if (request.method === 'GET' && new URL(request.url).pathname === '/proof-counters') {
       return Response.json({ reservations: this.reservations });
     }
@@ -104,6 +108,10 @@ export class TopologyControl {
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
+      if (name === 'shared_budget') {
+        const counters = async () => (await budget.fetch('https://topology.internal/proof-budget')).json();
+        return runBudgetScenario({ budget, counters });
+      }
       if (name === 'colo_isolation') {
         const iad = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:IAD'));
         const fra = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:FRA'));
