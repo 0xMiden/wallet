@@ -77,6 +77,30 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
   };
 }
 
-export async function runCacheScenario() {
-  return 'failed';
+export async function runCacheScenario({ service, counters }) {
+  const fixedRequest = () => {
+    const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
+      headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://wallet.example' }
+    });
+    Object.defineProperty(request, 'cf', { value: { colo: 'TST' } });
+    return request;
+  };
+  const validCounters = value =>
+    value && ['lookups', 'writes', 'reservations'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
+  try {
+    const before = await counters();
+    const first = await service.fetch(fixedRequest());
+    const afterMiss = await counters();
+    const second = await service.fetch(fixedRequest());
+    const afterHit = await counters();
+    if (![before, afterMiss, afterHit].every(validCounters) || !first.ok || !second.ok) return 'failed';
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    const expected = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } };
+    if (JSON.stringify(firstBody) !== JSON.stringify(expected) || JSON.stringify(secondBody) !== JSON.stringify(expected)) return 'failed';
+    if (!['lookups', 'writes', 'reservations'].every(key => afterMiss[key] === before[key] + 1 && afterHit[key] === afterMiss[key])) return 'failed';
+    return 'passed';
+  } catch {
+    return 'failed';
+  }
 }
