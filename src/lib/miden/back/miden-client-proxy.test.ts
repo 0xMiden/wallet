@@ -2109,6 +2109,10 @@ describe('MidenClientProxy — deadline kill', () => {
 
   it('§3.3 downgrade: a critical op in flight turns a read deadline into reject-without-kill', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => {
+      await wait(30);
+      docExists = true;
+    });
     const { OperationAbortedError } = await import('./offscreen-codec');
     // Simulate a critical op (a whole-op write) owning the doc via the REAL
     // counter the write path uses.
@@ -2241,6 +2245,10 @@ describe('MidenClientProxy — settlement paths', () => {
   // node check, and the persisted `rawError` carried no recognizable kill reason.
   it('a sendMessage transport rejection settles as OperationAbortedError(transport), keeping the cause', async () => {
     const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => {
+      await wait(30);
+      docExists = true;
+    });
     const { OperationAbortedError } = await import('./offscreen-codec');
     const transportError = new Error('message port closed before a response');
     fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
