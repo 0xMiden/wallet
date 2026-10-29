@@ -1,0 +1,34 @@
+name: Eligibility manifest verification expected red
+on:
+  push:
+    branches: [ci/1894-manifest-verify-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 7cd3532ee60be6c6f6f2954f7eda6dd784ea8120
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-manifest-verify.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - manifest verification accepts exactly reconstructed run identity' result.log || exit 1
+          grep -F 'ok 3 - manifest verification rejects accessor-backed properties' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manifest-red
+          path: result.log
