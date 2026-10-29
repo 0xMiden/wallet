@@ -11,10 +11,18 @@
  * - A realm with no handler (the extension popup) forwards the signal to the
  *   backend as a `BackupRefreshRequest`.
  *
+ * The base URL comes from the network's wallet-config document, and a signal
+ * can be raised before this realm hydrated its bridge config. So the check
+ * here is only a cheap early exit: it drops a signal only when this realm's
+ * snapshot has settled and gives no base URL. While the snapshot still loads,
+ * the signal goes on, and the refresh it reaches (`runBackupRefresh`) waits
+ * for the backend's hydration and makes the real check.
+ *
  * This module is a leaf on purpose: it imports no vault, store or session, so
  * the Guardian and transaction modules can import it in every realm.
  */
 import type { IIntercomClient } from 'lib/intercom/client';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { type BackupRefreshReason, type BackupRefreshRequest, WalletMessageType } from 'lib/shared/types';
 
 import { isWalletApiEnabled } from './api-client';
@@ -31,10 +39,15 @@ export function installBackupSignalHandler(next: SignalHandler | null): void {
   handler = next;
 }
 
+/** False only when this realm's bridge config has settled and gives no base URL. */
+function mayBeEnabled(): boolean {
+  return isWalletApiEnabled() || getBridgeConfigSnapshot().status === 'loading';
+}
+
 /** Hand `reason` to the handler, or forward it to the backend. Never throws, never waits. */
 function signal(reason: BackupSignalReason, label: string): void {
   try {
-    if (!isWalletApiEnabled()) return;
+    if (!mayBeEnabled()) return;
     if (handler !== null) {
       handler(reason);
       return;
