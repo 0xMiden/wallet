@@ -1,0 +1,34 @@
+name: Eligibility lease idempotence expected red
+on:
+  push:
+    branches: [ci/1894-lease-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 96ed76b29792eddeb87467b3147f26828638dc17
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-budget.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 3 - budget scenario checks identical and mismatched duplicate leases' result.log || exit 1
+          grep -F 'not ok 4 - budget scenario rejects duplicate lease paths that reserve again' result.log || exit 1
+          grep -F '# fail 2' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lease-red
+          path: result.log
