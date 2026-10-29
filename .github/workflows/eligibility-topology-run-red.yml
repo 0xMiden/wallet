@@ -1,0 +1,35 @@
+name: Eligibility topology run bound expected red
+on:
+  push:
+    branches: [ci/1894-topology-run-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 4af8ba292f580963f37380a8b7848831c39c85a8
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-run.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - the persisted run budget limits repeated requests across controller instances' result.log || exit 1
+          grep -F 'ok 2 - expiry refuses the scenario without invoking it' result.log || exit 1
+          grep -F 'not ok 3 - an overlapping request is refused while a scenario is active' result.log || exit 1
+          grep -F '# fail 2' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topology-run-red
+          path: result.log
