@@ -3,9 +3,16 @@ import { createStore, createEvent } from 'effector';
 import { PublicError } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { NETWORKS } from 'lib/miden/networks';
+import {
+  getStorageAvailability,
+  sanitizeStorageAvailability,
+  subscribeStorageAvailability,
+  type StorageAvailability
+} from 'lib/miden/storage-health';
 import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
 
 export interface StoreState extends WalletState {
+  storageAvailability: StorageAvailability;
   inited: boolean;
   vault: Vault | null;
 }
@@ -21,8 +28,9 @@ export function toFront({
   settings,
   currentAccount,
   ownMnemonic,
-  seedPhraseStatus
-}: StoreState): WalletState {
+  seedPhraseStatus,
+  storageAvailability
+}: StoreState): WalletState & { storageAvailability: StorageAvailability } {
   return {
     status,
     accounts,
@@ -30,13 +38,16 @@ export function toFront({
     settings,
     currentAccount,
     ownMnemonic,
-    seedPhraseStatus
+    seedPhraseStatus,
+    storageAvailability: sanitizeStorageAvailability(storageAvailability ?? { status: 'pending' })
   };
 }
 
 /**
  * Events
  */
+
+const storageAvailabilityUpdated = createEvent<StorageAvailability>('Storage availability updated');
 
 export const inited = createEvent<boolean>('Inited');
 export const locked = createEvent('Locked');
@@ -65,6 +76,7 @@ export const settingsUpdated = createEvent<WalletSettings>('Settings updated');
 
 export const store = createStore<StoreState>({
   inited: false,
+  storageAvailability: getStorageAvailability(),
   vault: null,
   status: WalletStatus.Idle,
   accounts: [],
@@ -79,13 +91,15 @@ export const store = createStore<StoreState>({
     status: vaultExist ? WalletStatus.Locked : WalletStatus.Idle,
     networks: NETWORKS
   }))
-  .on(locked, () => ({
+  .on(storageAvailabilityUpdated, (state, storageAvailability) => ({ ...state, storageAvailability }))
+  .on(locked, state => ({
     // Attention!
     // Security stuff!
     // Don't merge new state to exisitng!
     // Build a new state from scratch
     // Reset all properties!
     inited: true,
+    storageAvailability: state.storageAvailability,
     vault: null,
     status: WalletStatus.Locked,
     accounts: [],
@@ -119,6 +133,8 @@ export const store = createStore<StoreState>({
     ...state,
     settings
   }));
+
+subscribeStorageAvailability(storageAvailabilityUpdated);
 
 /**
  * Helpers

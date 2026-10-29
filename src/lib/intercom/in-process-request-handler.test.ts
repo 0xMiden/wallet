@@ -18,7 +18,13 @@ const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   outcome: 'measured',
   feeReserve: '315'
 }));
+const mockExportRecovery = jest.fn(async (..._args: unknown[]) => 'encrypted-disposable-file');
+const mockImportRecovery = jest.fn(async (..._args: unknown[]) => ({ imported: true, retainedEntries: 2 }));
+const mockCancelRecovery = jest.fn(async (..._args: unknown[]) => undefined);
 jest.mock('lib/miden/back/actions', () => ({
+  exportRecoveryDataFile: (...args: unknown[]) => mockExportRecovery(...args),
+  importRecoveryDataFile: (...args: unknown[]) => mockImportRecovery(...args),
+  cancelRecoveryDataOperation: (...args: unknown[]) => mockCancelRecovery(...args),
   recoverWalletStorage: (operation: string, epoch: number) => mockRecoverWalletStorage(operation, epoch),
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
@@ -134,5 +140,66 @@ describe('processInProcessRequest', () => {
       )
     ).rejects.toThrow('Invalid password');
     expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+  });
+});
+
+describe('Task5 recovery file transport', () => {
+  beforeEach(() => jest.clearAllMocks());
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])(
+    'exports through %s with one authenticated operation',
+    async adapter => {
+      await expect(
+        processInProcessRequest(
+          {
+            type: WalletMessageType.ExportRecoveryDataRequest,
+            filePassword: 'disposable-file-password',
+            expectedEpoch: 9,
+            operationId: 'disposable-operation',
+            credential: 'disposable-credential'
+          },
+          adapter
+        )
+      ).resolves.toEqual({ type: WalletMessageType.ExportRecoveryDataResponse, content: 'encrypted-disposable-file' });
+      expect(mockExportRecovery).toHaveBeenCalledWith(
+        'disposable-file-password',
+        9,
+        'disposable-operation',
+        'disposable-credential'
+      );
+    }
+  );
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])(
+    'imports through %s without granting resume authority',
+    async adapter => {
+      await expect(
+        processInProcessRequest(
+          {
+            type: WalletMessageType.ImportRecoveryDataRequest,
+            content: 'encrypted-disposable-file',
+            filePassword: 'disposable-file-password',
+            expectedEpoch: 9,
+            operationId: 'disposable-operation',
+            credential: 'disposable-credential'
+          },
+          adapter
+        )
+      ).resolves.toEqual({ type: WalletMessageType.ImportRecoveryDataResponse, imported: true, retainedEntries: 2 });
+      expect(mockImportRecovery).toHaveBeenCalledWith(
+        'encrypted-disposable-file',
+        'disposable-file-password',
+        9,
+        'disposable-operation',
+        'disposable-credential'
+      );
+    }
+  );
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])('retires a file operation through %s', async adapter => {
+    await expect(
+      processInProcessRequest(
+        { type: WalletMessageType.CancelRecoveryDataRequest, operationId: 'disposable-operation' },
+        adapter
+      )
+    ).resolves.toEqual({ type: WalletMessageType.CancelRecoveryDataResponse });
+    expect(mockCancelRecovery).toHaveBeenCalledWith('disposable-operation');
   });
 });

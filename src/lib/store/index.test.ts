@@ -119,6 +119,7 @@ describe('useWalletStore', () => {
     // Reset store to initial state before each test
     useWalletStore.setState({
       status: WalletStatus.Idle,
+      storageAvailability: { status: 'healthy', epoch: 0 },
       accounts: [],
       currentAccount: null,
       networks: [],

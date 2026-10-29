@@ -71,9 +71,12 @@ jest.mock('lib/platform', () => ({
 // change listener's, which a case can hold.
 jest.mock('lib/platform/storage-adapter', () => {
   const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
+  const desktop = new actual.DesktopStorage();
+  const getStorageProvider = () => (mockPlatform.isExtension ? mockBrowserStorage.local : desktop);
   return {
     ...actual,
-    getStorageProvider: () => (mockPlatform.isExtension ? mockBrowserStorage.local : actual.getStorageProvider())
+    getStorageProvider,
+    default: getStorageProvider
   };
 });
 

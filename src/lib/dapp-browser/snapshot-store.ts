@@ -13,7 +13,24 @@
 
 import { InAppBrowser } from '@miden/dapp-browser';
 
+const SNAPSHOT_MAX_BYTES = 524_288;
+const SNAPSHOT_MAX_ENTRIES = 8;
+const SNAPSHOTS_MAX_BYTES = 4_194_304;
 const snapshots = new Map<string, string>();
+const encoder = new TextEncoder();
+
+function retainSnapshot(sessionId: string, dataUrl: string): boolean {
+  if (encoder.encode(dataUrl).byteLength > SNAPSHOT_MAX_BYTES) return false;
+  snapshots.delete(sessionId);
+  snapshots.set(sessionId, dataUrl);
+  const retainedBytes = () => encoder.encode(JSON.stringify(Object.fromEntries(snapshots))).byteLength;
+  while (snapshots.size > SNAPSHOT_MAX_ENTRIES || retainedBytes() > SNAPSHOTS_MAX_BYTES) {
+    const oldest = snapshots.keys().next().value;
+    if (oldest === undefined) break;
+    snapshots.delete(oldest);
+  }
+  return snapshots.has(sessionId);
+}
 const pendingCaptures = new Map<string, Set<symbol>>();
 const listeners = new Set<() => void>();
 
@@ -33,8 +50,7 @@ export async function captureSnapshot(sessionId: string, scale = 0.5, quality = 
   try {
     const result = await InAppBrowser.snapshot({ id: sessionId, scale, quality });
     if (!captures.has(token)) return null;
-    if (result?.data) {
-      snapshots.set(sessionId, result.data);
+    if (result?.data && retainSnapshot(sessionId, result.data)) {
       notify();
       return result.data;
     }
@@ -77,8 +93,7 @@ export function clearAllSnapshots(): void {
  */
 export const snapshotStoreInternals = {
   setRaw(sessionId: string, dataUrl: string): void {
-    snapshots.set(sessionId, dataUrl);
-    notify();
+    if (retainSnapshot(sessionId, dataUrl)) notify();
   }
 };
 
