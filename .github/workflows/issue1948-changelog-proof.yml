@@ -1,0 +1,23 @@
+name: Issue 1948 changelog proof
+on:
+  push:
+    branches: [ci/1948-changelog-proof]
+permissions:
+  contents: read
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7f020b973b0c51e14cc2f061fe929fa4ad48e636
+          fetch-depth: 0
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = 7f020b973b0c51e14cc2f061fe929fa4ad48e636
+      - name: Test changelog gate
+        run: bash scripts/check-changelog.test.sh
+      - name: Check changelog
+        env:
+          BASE_REF: main
+          NO_CHANGELOG_LABEL: 'false'
+        run: bash scripts/check-changelog.sh
