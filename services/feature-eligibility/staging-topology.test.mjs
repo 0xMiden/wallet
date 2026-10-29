@@ -68,3 +68,34 @@ test('unknown scenarios and caller-supplied inputs are refused before control ac
     assert.deepEqual(calls, []);
   }
 });
+
+test('control results expose only the fixed scenario and outcome', async () => {
+  const { env } = harness();
+  env.TOPOLOGY_CONTROL.get = () => ({
+    fetch: async () => Response.json({ ...response, secret: 'private-marker' })
+  });
+  const result = await worker.fetch(request('/scenario/cache_reuse', { method: 'POST' }), env);
+  assert.deepEqual(await result.json(), response);
+});
+
+test('missing, malformed, and failed control results fail closed', async () => {
+  for (const control of [
+    undefined,
+    { idFromName: () => 'run', get: () => ({ fetch: async () => Response.json({ ...response, status: 'unknown' }) }) },
+    { idFromName: () => 'run', get: () => ({ fetch: async () => new Response('private-marker', { status: 503 }) }) }
+  ]) {
+    const { env } = harness();
+    env.TOPOLOGY_CONTROL = control;
+    const result = await worker.fetch(request('/scenario/cache_reuse', { method: 'POST' }), env);
+    assert.equal(result.status, 503);
+    assert.deepEqual(await result.json(), { error: 'unavailable' });
+  }
+});
+
+test('an unset bearer never permits access', async () => {
+  const { env, calls } = harness();
+  env.TOPOLOGY_BEARER = '';
+  const result = await worker.fetch(request('/scenario/cache_reuse', { method: 'POST' }), env);
+  assert.equal(result.status, 403);
+  assert.deepEqual(calls, []);
+});
