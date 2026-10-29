@@ -457,8 +457,18 @@ export class Vault {
           isRealmKeystoreInstalled({ insertKey: this.insertKeySink })
         ) {
           const context = { backend: 'independent', operation: 'mutate' } satisfies StorageFailureContext;
-          if (isRecoveryJournalIntegrityFailure(error)) confirmStorageFailure(error, 'journal', context, epoch);
-          else markStorageUnavailable('journal', context);
+          if (isRecoveryJournalIntegrityFailure(error)) {
+            confirmStorageFailure(error, 'journal', context, epoch);
+          } else if (!reportStorageFailure(error, context)) {
+            let name: unknown;
+            try {
+              if (typeof error === 'object' && error !== null) name = Reflect.get(error, 'name');
+            } catch {
+              name = undefined;
+            }
+            if (typeof name !== 'string' || !/abort|cancel|deadline|timeout|poison|network/i.test(name))
+              markStorageUnavailable('journal', context);
+          }
         }
       }
     );
