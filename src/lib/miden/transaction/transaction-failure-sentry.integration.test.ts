@@ -1138,7 +1138,12 @@ it('does not persist a gate sighting captured before cancel and Retry restamped 
   await Repo.transactions.put(row({ id: 'active-sighting', processingStartedAt: now }));
   mockImportAllNotes.mockImplementationOnce(async () => {
     await cancelTransaction(waiting, USER_CANCELLED_TRANSACTION_REASON);
-    await requeueFailedTransaction(waiting.id);
+    const retryClock = jest.spyOn(Date, 'now').mockReturnValue((now + 1) * 1000);
+    try {
+      await requeueFailedTransaction(waiting.id);
+    } finally {
+      retryClock.mockRestore();
+    }
     await importQueuedNotes();
   });
   const guardianProvider = {
@@ -1150,13 +1155,15 @@ it('does not persist a gate sighting captured before cancel and Retry restamped 
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   const retried = await Repo.transactions.get(waiting.id);
   expect(retried?.queueSighting).toBeUndefined();
+  if (!retried) throw new Error('Retry did not retain the queued row');
   expect(retried?.status).toBe(ITransactionStatus.Queued);
+  expect(retried.initiatedAt).toBe(now + 1);
   expect(retried?.queuedSeq).not.toBe(waiting.queuedSeq);
   report.mockClear();
   await generateTransactionsLoop(async () => new Uint8Array(), false, guardianProvider);
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   pruneQueueAdmission([]);
-  const clock = jest.spyOn(Date, 'now').mockReturnValue((now + MAX_QUEUED_AGE + 1) * 1000);
+  const clock = jest.spyOn(Date, 'now').mockReturnValue((retried.initiatedAt + MAX_QUEUED_AGE + 1) * 1000);
   try {
     await cancelStaleQueuedTransactions();
     expect(report).toHaveBeenCalledWith(
