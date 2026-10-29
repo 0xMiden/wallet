@@ -1,0 +1,43 @@
+name: Proxy coverage diagnostic
+on:
+  push:
+    branches: [ci/proxy-coverage-diagnostic-1948]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source identity
+        run: test "$(git rev-parse HEAD^)" = ec8d99b9b5f25f1d6d0d157fa00644be9512f047
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Install reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - name: Run full proxy file with V8 coverage
+        run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --maxWorkers=2 --coverageReporters=json --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proxy-coverage-results
+          path: ${{ runner.temp }}/proxy-results.json
+          if-no-files-found: warn
