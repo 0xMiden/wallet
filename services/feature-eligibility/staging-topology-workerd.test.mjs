@@ -36,3 +36,12 @@ test('isolated workerd refuses rate limits before object access', async () => {
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'rate_refusal', status: 'passed' });
 });
+
+test('isolated workerd distinguishes overload from retryable failure', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/failure_behavior', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'failure_behavior', status: 'passed' });
+});
