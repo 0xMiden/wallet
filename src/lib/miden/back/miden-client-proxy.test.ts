@@ -2172,6 +2172,26 @@ describe('MidenClientProxy — deadline kill', () => {
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
 
+  it('fixture prematurely fires ready before the listener exists', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    let releaseCreate!: () => void;
+    const creating = new Promise<void>(resolve => { releaseCreate = resolve; });
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => { await creating; docExists = true; });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({ ok: true, op_id: env.op_id, resultB64: null, durationMs: 1 }));
+    const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
+    try {
+      await flush();
+      expect(fakeChrome.runtime.onMessage.listeners).toHaveLength(1);
+      fireReady();
+    } finally {
+      releaseCreate();
+      for (let i = 0; i < 50 && fakeChrome.runtime.onMessage.listeners.length === 0; i++) await flush();
+      fireReady();
+      await p;
+    }
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
   it('recovers after a kill: a fresh call succeeds through the reopened doc (same-store recovery)', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
