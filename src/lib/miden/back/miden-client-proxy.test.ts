@@ -72,8 +72,6 @@ jest.mock('lib/miden/swap/fee-context', () => {
 
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
-import { decodeArg } from './offscreen-codec';
-
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
 // module state the write path increments — so a "read deadline while a write is
@@ -122,6 +120,17 @@ function installChromeMock(opts: { withOffscreen?: boolean } = {}) {
 /** Resolve the reopen/open ready gate. */
 function fireReady() {
   for (const l of fakeChrome.runtime.onMessage.listeners) l({ type: 'OFFSCREEN_READY' }, undefined, () => {});
+}
+
+function waitForReadyListener(): Promise<void> {
+  const event = fakeChrome.runtime.onMessage;
+  if (event.listeners.length > 0) return Promise.resolve();
+  return new Promise(resolve => {
+    event.addListener.mockImplementation((listener: OnMessageListener) => {
+      event.listeners.push(listener);
+      resolve();
+    });
+  });
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -2137,11 +2146,38 @@ describe('MidenClientProxy — deadline kill', () => {
       durationMs: 1
     }));
 
+    const readyListener = waitForReadyListener();
     const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
-    await flush();
+    await readyListener;
     fireReady();
     const result = await p;
     expect(result).toBeNull();
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
+  it('waits for the offscreen ready listener when document creation is delayed', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    let releaseCreate!: () => void;
+    const creating = new Promise<void>(resolve => {
+      releaseCreate = resolve;
+    });
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => {
+      await creating;
+      docExists = true;
+    });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const readyListener = waitForReadyListener();
+    const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
+    setTimeout(releaseCreate, 30);
+    await readyListener;
+    expect(fakeChrome.runtime.onMessage.listeners).toHaveLength(1);
+    fireReady();
+    await expect(p).resolves.toBeNull();
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
 
@@ -2220,4 +2256,3 @@ describe('MidenClientProxy — settlement paths', () => {
     expect((err as Error).cause).toBe(transportError);
   });
 });
-

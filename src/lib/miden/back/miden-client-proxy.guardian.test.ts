@@ -70,8 +70,6 @@ jest.mock('lib/miden/swap/fee-context', () => {
   return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
 });
 
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
-
 import { decodeArg } from './offscreen-codec';
 
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
@@ -80,7 +78,6 @@ import { decodeArg } from './offscreen-codec';
 // in flight" downgrade is exercised against real bookkeeping, not a stub.
 
 type OnMessageListener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
-type WasmLockHold = import('lib/miden/sdk/miden-client').WasmLockHold;
 
 let fakeChrome: any;
 let docExists = false;
@@ -125,7 +122,6 @@ function fireReady() {
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 let ORIGINAL_FLAG: string | undefined;
 
@@ -267,12 +263,6 @@ async function loadProxy(flagOn: boolean, { overridesLoaded = true }: { override
   await endpoints.clearEndpointOverride();
   if (overridesLoaded) await endpoints.loadEndpointOverrides();
   return import('./miden-client-proxy');
-}
-
-function tryReadAccount(proxy: object, accountId: string): Promise<unknown> {
-  const method: unknown = Reflect.get(proxy, 'tryGetAccount');
-  if (typeof method !== 'function') throw new Error('midenClientProxy.tryGetAccount is missing');
-  return Promise.resolve(Reflect.apply(method, proxy, [accountId]));
 }
 
 beforeEach(() => {
