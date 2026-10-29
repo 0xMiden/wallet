@@ -116,3 +116,13 @@ test('read adapter preserves explicit script logging state without exposing unre
     result: { logpush: false, observability: { enabled: false }, tail_consumers: [] }
   });
 });
+
+test('script logging observation preserves unknown observability and refuses tail consumers', async () => {
+  const path = '/workers/scripts/miden-elig-topology-12345-1/script-settings';
+  const makeApi = result =>
+    create({ accountId, token, fetchImpl: async () => Response.json({ success: true, errors: [], result }) });
+  assert.equal((await makeApi({ observability: null })(path))?.result?.observability, null);
+  assert.equal(await makeApi({ tail_consumers: [{ service: 'other-worker' }] })(path), null);
+  assert.equal(await makeApi({ observability: {} })(path), null);
+  assert.equal(await makeApi({})('/workers/scripts/production/script-settings'), null);
+});

@@ -7,6 +7,8 @@ const TARGET = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
 
 function pathKind(path) {
   if (path === '/account') return 'account';
+  const scriptSettings = /^\/workers\/scripts\/([^/]+)\/script-settings$/.exec(path);
+  if (scriptSettings && TARGET.test(scriptSettings[1])) return 'script-settings';
   const pages = /^\/workers\/(scripts|durable_objects\/namespaces)\?page=([1-9][0-9]{0,2})&per_page=(100|1000)$/.exec(
     path
   );
@@ -18,6 +20,20 @@ function pathKind(path) {
     return 'list';
   const settings = /^\/workers\/scripts\/([^/]+)\/settings$/.exec(path);
   return settings && SCRIPT.test(settings[1]) ? (TARGET.test(settings[1]) ? 'target' : 'settings') : null;
+}
+
+function scriptSettingsMetadata(body) {
+  if (body?.success !== true || !Array.isArray(body.errors) || body.errors.length || !body.result) return null;
+  const { logpush, observability, tail_consumers: tails } = body.result;
+  if (logpush !== undefined && typeof logpush !== 'boolean') return null;
+  if (observability !== undefined && observability !== null && typeof observability.enabled !== 'boolean') return null;
+  if (tails !== undefined && (!Array.isArray(tails) || tails.length)) return null;
+  const result = {};
+  if (logpush !== undefined) result.logpush = logpush;
+  if (observability !== undefined)
+    result.observability = observability === null ? null : { enabled: observability.enabled };
+  if (tails !== undefined) result.tail_consumers = [];
+  return { success: true, errors: [], result };
 }
 
 async function boundedBody(response) {
@@ -143,6 +159,7 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
         }
         if (!response.ok || !body || typeof body !== 'object' || Array.isArray(body)) return null;
         if (kind === 'settings' || kind === 'target') return settingsMetadata(body, kind === 'target');
+        if (kind === 'script-settings') return scriptSettingsMetadata(body);
         return body;
       };
       return await Promise.race([
