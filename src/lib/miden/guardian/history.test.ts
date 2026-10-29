@@ -7,6 +7,7 @@ import {
   reconcileRecoveredSwaps,
   recoveredAction,
   recoveredHistoryRecord,
+  recoveredHotKeyMode,
   sameNonemptyNotes
 } from './history';
 import { GuardianHistoryDataError } from './history-errors';
@@ -213,6 +214,16 @@ it('requires the device replacement marker', () => {
     'replace-hot-key'
   );
   expect(recoveredAction({ proposalType: 'add_signer', description: 'Other signer' })).toBe('execute');
+});
+
+// Only the add description reads as an add: every other rotation, and a proposal with no metadata, is a replace.
+it('reads the recovered rotation mode from the proposal description', () => {
+  expect(recoveredHotKeyMode({ proposalType: 'add_signer', description: 'Add device (hot) signer' })).toBe('add');
+  expect(recoveredHotKeyMode({ proposalType: 'add_signer', description: 'Replace device (hot) signer' })).toBe(
+    'replace'
+  );
+  expect(recoveredHotKeyMode({ proposalType: 'add_signer', description: 'add device (hot) signer' })).toBe('replace');
+  expect(recoveredHotKeyMode(undefined)).toBe('replace');
 });
 
 it('uses top-level metadata before legacy metadata', () => {

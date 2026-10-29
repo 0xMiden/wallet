@@ -220,7 +220,9 @@ describe('clients on the SDK store', () => {
       // The prove worker's client only proves and never opens a store, so a createClient on it fails here.
       'offscreen/prove-worker.ts': ['new WebClient('],
       // A guardian client factory, not the SDK's.
-      'lib/miden/back/guardian-history-recovery.ts': ['context.createClient(']
+      'lib/miden/back/guardian-history-recovery.ts': ['context.createClient('],
+      // The intercom port client that forwards a backup signal to the backend, not the SDK's.
+      'lib/backup/adopt-signal.ts': ['module.createIntercomClient(']
     });
   });
 

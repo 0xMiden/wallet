@@ -43,6 +43,7 @@ import {
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
+import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -62,7 +63,6 @@ import {
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
-  type HotKeyActivationMode,
   INoteDeliveryState,
   isOpenSettlementClaim,
   ITransaction,
@@ -528,16 +528,6 @@ const storedAccountIdFor = async (guardianProvider: GuardianAccountProvider, acc
  */
 export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
 export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
-
-/** The history message of a landed rotation: an add keeps the other devices, a replace rotates them out. */
-const hotKeyActivationMessage = (mode: HotKeyActivationMode | undefined): string => {
-  switch (mode) {
-    case 'add':
-      return 'Device added';
-    default:
-      return 'Everyday key rotated';
-  }
-};
 
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,

@@ -450,7 +450,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.recovered
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
+            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed, hotKeyExtra?.mode === 'add'))
             : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,

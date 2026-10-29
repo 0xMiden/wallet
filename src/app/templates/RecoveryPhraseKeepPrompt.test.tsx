@@ -172,6 +172,46 @@ describe('RecoveryPhraseKeepPrompt', () => {
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
   });
 
+  it('a failed removal with no message shows the generic removal error', async () => {
+    mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');
+    mockRemoveSeedPhrase.mockRejectedValueOnce(new Error(''));
+    render(<RecoveryPhraseKeepPrompt />);
+
+    fireEvent.click(await screen.findByTestId('recovery-phrase-keep-remove'));
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith(expect.objectContaining({ title: 'error', children: 'seedRemovalFailed' }))
+    );
+  });
+
+  // The first tap holds the answer until its write ends, so a second tap does not remove the phrase two times.
+  it('runs the removal once when Remove is tapped twice while it runs', async () => {
+    mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');
+    let finishRemoval: () => void = () => {};
+    mockRemoveSeedPhrase.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishRemoval = resolve;
+        })
+    );
+    render(<RecoveryPhraseKeepPrompt />);
+
+    const remove = await screen.findByTestId('recovery-phrase-keep-remove');
+    fireEvent.click(remove);
+    fireEvent.click(remove);
+    fireEvent.click(screen.getByTestId('recovery-phrase-keep-keep'));
+    expect(mockRemoveSeedPhrase).toHaveBeenCalledTimes(1);
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishRemoval();
+    });
+
+    await waitFor(() => expect(mockPutToStorage).toHaveBeenCalledTimes(1));
+    expect(mockPutToStorage).toHaveBeenCalledWith(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, '');
+    expect(mockRemoveSeedPhrase).toHaveBeenCalledTimes(1);
+  });
+
   it('Keep clears the flag and stays on the page', async () => {
     mockStored.set(RECOVERY_PHRASE_KEEP_PROMPT_STORAGE_KEY, 'acc-1');
     render(<RecoveryPhraseKeepPrompt />);

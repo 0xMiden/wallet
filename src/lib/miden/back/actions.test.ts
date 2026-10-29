@@ -1,4 +1,5 @@
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
+import type { BackupSignalReason } from 'lib/backup/adopt-signal';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -11,6 +12,8 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  type BackupRefreshOutcome,
+  type BackupRefreshReason,
   EstimateUsdcxBurnFeeRequest,
   type UsdcxBurnFeeEstimate,
   WalletMessageType,
@@ -67,7 +70,9 @@ import {
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
   swapHotKey,
-  importHotKeyPair
+  importHotKeyPair,
+  refreshBackup,
+  deleteBackup
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -193,6 +198,22 @@ jest.mock('lib/miden/back/guardian-recovery', () => ({
   releaseGuardianRecoveriesOnLock: jest.fn()
 }));
 
+// The encrypted backup is the network boundary of these actions: each action only names the event.
+const mockRunBackupRefresh = jest.fn<Promise<BackupRefreshOutcome>, [BackupRefreshReason]>();
+const mockDeleteBackupProfile = jest.fn<Promise<BackupRefreshOutcome>, []>();
+const mockOnBackupLock = jest.fn<void, []>();
+jest.mock('lib/backup/refresh', () => ({
+  runBackupRefresh: (reason: BackupRefreshReason) => mockRunBackupRefresh(reason),
+  deleteBackupProfile: () => mockDeleteBackupProfile(),
+  onBackupLock: () => mockOnBackupLock()
+}));
+
+const mockInstallBackupSignalHandler = jest.fn<void, [((reason: BackupSignalReason) => void) | null]>();
+jest.mock('lib/backup/adopt-signal', () => ({
+  installBackupSignalHandler: (next: ((reason: BackupSignalReason) => void) | null) =>
+    mockInstallBackupSignalHandler(next)
+}));
+
 const mockVaultGetKey = jest.fn();
 const mockWithAccountFileKeyReader = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
@@ -312,6 +333,10 @@ describe('actions', () => {
     mockStorageRemove.mockReset().mockResolvedValue(undefined);
     mockStorageSet.mockReset().mockResolvedValue(undefined);
     mockAdmitted.mockReset();
+    mockRunBackupRefresh.mockReset().mockResolvedValue('unchanged');
+    mockDeleteBackupProfile.mockReset().mockResolvedValue('updated');
+    mockOnBackupLock.mockReset();
+    mockInstallBackupSignalHandler.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
     mockLocked.mockClear();
@@ -389,6 +414,18 @@ describe('actions', () => {
       await init();
 
       expect(mockInited).toHaveBeenCalledWith(false);
+    });
+
+    // The backup keys live in this realm, so a signal raised here runs the refresh directly.
+    it('installs the backup signal handler, which runs the refresh of the signalled event', async () => {
+      await init();
+
+      expect(mockInstallBackupSignalHandler).toHaveBeenCalledTimes(1);
+      const handler = mockInstallBackupSignalHandler.mock.calls[0]![0];
+      expect(handler).not.toBeNull();
+      handler?.('guardian-adopt');
+      handler?.('transaction-completed');
+      expect(mockRunBackupRefresh.mock.calls).toEqual([['guardian-adopt'], ['transaction-completed']]);
     });
   });
 
@@ -474,6 +511,14 @@ describe('actions', () => {
       await lock();
 
       expect(mockLocked).toHaveBeenCalled();
+    });
+
+    // The backup's storage key and AES key live for one unlock only.
+    it('drops the backup session keys once, before locked', async () => {
+      await lock();
+
+      expect(mockOnBackupLock).toHaveBeenCalledTimes(1);
+      expect(mockOnBackupLock.mock.invocationCallOrder[0]).toBeLessThan(mockLocked.mock.invocationCallOrder[0]!);
     });
 
     it('releases the Guardian recoveries a failed source kept, once, under the WASM lock before locked', async () => {
@@ -1463,6 +1508,69 @@ describe('actions', () => {
 
       expect(mockVault.updateSettings).toHaveBeenCalledWith({ contacts: [] });
       expect(mockSettingsUpdated).toHaveBeenCalledWith(newSettings);
+    });
+
+    // A changed contacts list goes to the encrypted backup at once, after the vault write.
+    it('runs the contacts backup refresh after the write when the settings carry contacts', async () => {
+      const contacts = [{ address: 'mtst1friend', name: 'Friend' }];
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts });
+
+      await updateSettings({ contacts });
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('contacts-changed');
+      expect(mockRunBackupRefresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockSettingsUpdated.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('runs the contacts backup refresh for an emptied contacts list too', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts: [] });
+
+      await updateSettings({ contacts: [] });
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('contacts-changed');
+    });
+
+    it('does not refresh the backup when the settings carry no contacts', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({});
+
+      await updateSettings({});
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh the backup when the vault write fails', async () => {
+      mockVault.updateSettings.mockRejectedValueOnce(new Error('write failed'));
+
+      await expect(updateSettings({ contacts: [] })).rejects.toThrow('write failed');
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
+    });
+
+    it('does not wait for the backup refresh before it resolves', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts: [] });
+      mockRunBackupRefresh.mockReturnValueOnce(new Promise<BackupRefreshOutcome>(() => {}));
+
+      await expect(updateSettings({ contacts: [] })).resolves.toBeUndefined();
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('encrypted backup', () => {
+    it('refreshBackup runs the refresh of the named event and returns its outcome', async () => {
+      mockRunBackupRefresh.mockResolvedValueOnce('updated');
+
+      await expect(refreshBackup('activity-open')).resolves.toBe('updated');
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('activity-open');
+    });
+
+    it('deleteBackup deletes the backup profile and returns its outcome', async () => {
+      mockDeleteBackupProfile.mockResolvedValueOnce('disabled');
+
+      await expect(deleteBackup()).resolves.toBe('disabled');
+      expect(mockDeleteBackupProfile).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
     });
   });
 

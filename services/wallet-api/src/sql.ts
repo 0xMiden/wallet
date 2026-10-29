@@ -3,9 +3,10 @@
 // The database clock in Unix ms. julianday works on every SQLite version that D1 runs.
 const DB_NOW_MS = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
 
-// One upsert per entry. The CASE writes revision 0 on a refused insert.
+// One upsert per entry. The CASE writes revision 0 on a refused write.
 // The CHECK (revision >= 1) then fails, and D1 rolls back the full batch.
-// A refused insert is an insert while the salt is NULL, an insert from a token of another
+// SQLite checks the CHECK before the conflict, so the guard refuses an insert and
+// an update alike: a write while the salt is NULL, a write from a token of another
 // profile generation, or a new key in a full feature.
 // updated_at is the larger of the database clock and the largest updated_at of the profile.
 export const UPSERT_ENTRY = `

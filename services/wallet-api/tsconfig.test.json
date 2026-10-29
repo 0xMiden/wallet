@@ -1,0 +1,5 @@
+{
+  // Type-check the Worker source and its Jest tests. The tests import the Jest globals from @jest/globals.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

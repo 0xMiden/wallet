@@ -88,6 +88,7 @@ import { getConnectivityState, resetConnectivityState } from '../activity/connec
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
+  type HotKeyActivationMode,
   ISubmitEvidence,
   ITransactionStage,
   ITransactionStatus,
@@ -13110,6 +13111,23 @@ describe('initiateReplaceHotKeyTransaction', () => {
     });
   });
 
+  it('records the replace mode on the row when the caller names it', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeGuardianProvider(true), 'replace');
+
+    expect(txStore).toHaveLength(1);
+    expect(txStore[0]?.extraInputs).toEqual({ mode: 'replace', guardianEndpoint: 'https://old.guardian' });
+  });
+
+  // A pending rotation is reused whatever the mode asks: the row keeps the mode it was queued with.
+  it('reuses a pending rotation and keeps its mode when a second call asks for another mode', async () => {
+    const provider = makeGuardianProvider(true);
+    const firstId = await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add');
+
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace')).resolves.toBe(firstId);
+    expect(txStore).toHaveLength(1);
+    expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: 'add' }));
+  });
+
   it('records the guardian when the provider spells the account id differently', async () => {
     const provider = {
       ...makeGuardianProvider(true),
@@ -13205,9 +13223,16 @@ describe('completeReplaceHotKeyTransaction', () => {
     });
   });
 
-  it('calls swapHotKey with the new hot pubkey, drops the cached service, and marks the row Completed', async () => {
+  // The history message follows the mode: an add keeps the other devices, a replace (or a row from before the
+  // mode existed) rotates them out.
+  it.each<[HotKeyActivationMode | undefined, string]>([
+    [undefined, 'Everyday key rotated'],
+    ['replace', 'Everyday key rotated'],
+    ['add', 'Device added']
+  ])('mode %s: swaps the hot key, drops the cached service and completes the row as "%s"', async (mode, message) => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
-    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    const inputs = mode === undefined ? { newHotPublicKey: 'new-hot-pub' } : { newHotPublicKey: 'new-hot-pub', mode };
+    tx.extraInputs = inputs;
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
     const swapHotKey = jest.fn(async () => {});
@@ -13228,7 +13253,9 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Everyday key rotated');
+    expect(row.displayMessage).toBe(message);
+    // The completion spreads the whole record, so the mode survives for the history label.
+    expect(row.extraInputs).toEqual(expect.objectContaining(inputs));
   });
 
   it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {

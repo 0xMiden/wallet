@@ -1,4 +1,4 @@
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
+import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -33,7 +33,6 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
-  type HotKeyActivationMode,
   IAgglayerDelivery,
   IBridgedSendNoteParams,
   IBridgeProvider,

@@ -56,17 +56,17 @@ export async function readFeature(context: RequestContext, feature: Feature): Pr
   await limitStorage(context, principal, 'read');
   const { profileId } = principal;
   const page = parseReadPage(context.url);
-  // The salt, the metadata and the page come from one batch, so all are one snapshot.
-  const results = await db.batch([
-    profileStatement(db, profileId),
-    featureMetadataStatement(db, profileId, feature),
-    featureEntriesStatement(db, profileId, feature, page)
-  ]);
+  // The salt and the metadata come from one batch, so the ETag is one snapshot.
+  // The page is read only after the ETag check, so a 304 reads no blob.
+  // A write between the two reads makes the page newer than the ETag. That is
+  // safe: the next conditional read then returns 200 again, nothing is missed.
+  const results = await db.batch([profileStatement(db, profileId), featureMetadataStatement(db, profileId, feature)]);
   const saltHex = saltHexOf(resultAt(results, 0), principal);
   const metadata = resultAt(results, 1).results.map(parseMetadataRow);
   const etag = await featureEtag(saltHex, metadata);
   if (ifNoneMatch(context.request)?.has(etag)) return notModified(etag);
-  const rows = resultAt(results, 2).results.map(row => entryView(parseEntryRow(row)));
+  const pageResult = await featureEntriesStatement(db, profileId, feature, page).all();
+  const rows = pageResult.results.map(row => entryView(parseEntryRow(row)));
   const entries: EntryView[] = rows.slice(0, page.limit);
   const last = entries[entries.length - 1];
   const next = rows.length > page.limit && last !== undefined ? last.hashedKey : null;
