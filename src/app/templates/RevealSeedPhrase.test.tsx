@@ -851,7 +851,7 @@ describe('RevealSeedPhrase', () => {
     });
 
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('keeps the warning on screen while the biometric prompt is pending', async () => {

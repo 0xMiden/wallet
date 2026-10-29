@@ -114,7 +114,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
   // the host's fallback. A deep link or a reload lands at the first history entry, where goBack()
   // does nothing. Read-only is the /settings sub-page; the standalone debug route belongs to home.
-  const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
+  const handleBack = useBackWithFallback(readOnly ? '/me' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
   const customAlert = useAlert();

@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -46,9 +46,7 @@ import pkg from '../../../package.json';
 import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
-  embedded?: boolean;
   tabSlug?: string | null;
-  rootScrollTop?: React.MutableRefObject<number>;
 };
 
 /** A tab that only opens something outside the wallet: the shared header, and nothing under it. */
@@ -373,7 +371,7 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
   return isEndpointOverrideActive();
 }
 
-const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop, embedded = false }) => {
+const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
@@ -468,19 +466,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     () => allTabs.find(tab => tab.slug === tabSlug && !tab.actionOnly) || null,
     [allTabs, tabSlug]
   );
-  const handleSubPageBack = useBackWithFallback('/settings');
-  const handleSettingsBack = useBackWithFallback('/me');
+  const handleSubPageBack = useBackWithFallback('/me');
   const languageLabel = getCurrentLanguageLabel();
-  // PageRouter owns the root offset across settings routes. Standalone instances
-  // keep a local fallback.
-  const localRootScrollTop = useRef(0);
-  const rootScrollTop = savedRootScrollTop ?? localRootScrollTop;
-  const rootBodyRef = useRef<HTMLDivElement>(null);
   const invalidTab = Boolean(tabSlug) && !activeTab;
 
   useEffect(() => {
     // Return to the menu when a slug is unknown or unavailable to this account.
-    if (invalidTab) navigate('/settings', HistoryAction.Replace);
+    if (invalidTab) navigate('/me', HistoryAction.Replace);
   }, [invalidTab]);
 
   // On mobile, move parked dApp trays out while Settings owns the
@@ -493,24 +485,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // Setting it here by hand meant a confirmation closing over a settings sub-page (the
   // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
-  useHideDappBubblesWhileOpen(!embedded);
-
-  // PageRouter remounts the root when a settings sub-page is popped. Preserve the
-  // root's position without adding a second scroller inside SubPageLayout.
-  useEffect(() => {
-    if (embedded || activeTab) return;
-    const node = rootBodyRef.current;
-    if (!node) return;
-    node.scrollTop = rootScrollTop.current;
-    const rememberScroll = () => {
-      rootScrollTop.current = node.scrollTop;
-    };
-    node.addEventListener('scroll', rememberScroll, { passive: true });
-    return () => {
-      rootScrollTop.current = node.scrollTop;
-      node.removeEventListener('scroll', rememberScroll);
-    };
-  }, [embedded, activeTab, rootScrollTop]);
+  useHideDappBubblesWhileOpen(Boolean(tabSlug));
 
   // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
   const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
@@ -581,23 +556,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     </>
   );
 
-  if (embedded)
-    return (
-      <div className="flex flex-col gap-5" data-testid="profile-settings-menu">
-        {menu}
-      </div>
-    );
-
   return (
-    <SubPageLayout
-      title={t('settings')}
-      onBack={handleSettingsBack}
-      focusTitleOnMount
-      bodyRef={rootBodyRef}
-      data-testid="settings-root"
-    >
+    <div className="flex flex-col gap-5" data-testid="profile-settings-menu">
       {menu}
-    </SubPageLayout>
+    </div>
   );
 };
 
