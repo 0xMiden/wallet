@@ -44,6 +44,7 @@ function apiFixture({ changedDigest = false, logging = false, missingMarker = fa
   }));
   for (const [name, text] of Object.entries(manifest.config.vars))
     if (!(missingMarker && name === 'TOPOLOGY_OWNER')) bindings.push({ name, type: 'plain_text', text });
+  bindings.push({ name: 'TOPOLOGY_BEARER', type: 'secret_text' });
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: accountId } };
     if (path === '/workers/scripts?page=1&per_page=100') return page([{ id: manifest.scriptName }], 100);
@@ -54,7 +55,16 @@ function apiFixture({ changedDigest = false, logging = false, missingMarker = fa
       return {
         success: true,
         errors: [],
-        result: { logpush: false, observability: { enabled: logging }, tail_consumers: [] }
+        result: {
+          logpush: false,
+          observability: {
+            enabled: logging,
+            logs: { enabled: false, invocation_logs: false, persist: false },
+            traces: { enabled: false, persist: false },
+            issues: { enabled: false }
+          },
+          tail_consumers: []
+        }
       };
     if (path === `/workers/scripts/${manifest.scriptName}/content/v2`)
       return { sha256: changedDigest ? 'b'.repeat(64) : manifest.bundleSha256 };
@@ -72,6 +82,25 @@ test('live topology evidence is bound to account, markers, content and safe logg
   assert.equal(await observe({ ...input, api: apiFixture({ changedDigest: true }) }), null);
   assert.equal(await observe({ ...input, api: apiFixture({ logging: true }) }), null);
   assert.equal(await observe({ ...input, api: apiFixture({ missingMarker: true }) }), null);
+  const good = apiFixture();
+  assert.equal(
+    await observe({
+      ...input,
+      api: async path =>
+        path.endsWith('/script-settings')
+          ? { success: true, errors: [], result: { logpush: false, observability: null, tail_consumers: [] } }
+          : good(path)
+    }),
+    null
+  );
+  let contentReads = 0;
+  assert.equal(
+    await observe({
+      ...input,
+      api: async path => (path.endsWith('/content/v2') && ++contentReads > 1 ? { sha256: 'b'.repeat(64) } : good(path))
+    }),
+    null
+  );
 });
 
 test('observation fixture binds the named script and distinct namespaces', () => {
