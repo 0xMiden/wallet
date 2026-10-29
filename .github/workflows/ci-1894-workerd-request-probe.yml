@@ -1,0 +1,51 @@
+name: Eligibility workerd request metadata probe
+on:
+  push:
+    branches: [ci/1894-workerd-request-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 3278f2f22033bb798ffa74d0008ae81aa81debf7
+      - name: Probe synthetic metadata in local Workers runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/worker.mjs <<'JS'
+          export default {
+            async fetch() {
+              const request = new Request('https://example.invalid/v1/eligibility?network=testnet', {
+                headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://example.invalid' }
+              });
+              Object.defineProperty(request, 'cf', { value: { colo: 'TST' } });
+              return Response.json({ colo: request.cf?.colo, ip: request.headers.get('CF-Connecting-IP'), origin: request.headers.get('Origin') });
+            }
+          };
+          JS
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-request-probe","main":"worker.mjs","compatibility_date":"2026-10-20","workers_dev":false}
+          JSON
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18945 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18945/ > proof/response.json; then break; fi
+            sleep 1
+          done
+          node -e "const assert=require('node:assert/strict');const x=require('./proof/response.json');assert.deepEqual(x,{colo:'TST',ip:'192.0.2.1',origin:'https://example.invalid'});console.log('Synthetic metadata survived inside workerd')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eligibility-workerd-request-probe
+          path: proof/*.log
