@@ -437,7 +437,7 @@ export interface GetStateRequest extends WalletMessageBase {
 
 export interface GetStateResponse extends WalletMessageBase {
   type: WalletMessageType.GetStateResponse;
-  state: WalletState;
+  state: WalletState & { backendInitialized?: boolean };
 }
 
 // TODO: Make generalizable and pull out somewhere

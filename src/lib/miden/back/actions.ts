@@ -77,6 +77,7 @@ import {
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  GetStateResponse,
   GuardianRecoveryAction,
   GuardianSyncStatus,
   EstimateUsdcxBurnFeeRequest,
@@ -89,7 +90,6 @@ import {
   WalletAccount,
   WalletMessageType,
   WalletSettings,
-  WalletState,
   WalletStatus
 } from 'lib/shared/types';
 import { resolveTelemetryContext } from 'lib/telemetry/context';
@@ -216,11 +216,11 @@ export async function init() {
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<WalletState & { storageAvailability: StorageAvailability }> {
+export async function getFrontState(): Promise<GetStateResponse['state'] & { storageAvailability: StorageAvailability }> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return toFront(state);
+      return { ...toFront(state), backendInitialized: true };
     }
   } catch {
     // store not initialized yet
@@ -233,7 +233,8 @@ export async function getFrontState(): Promise<WalletState & { storageAvailabili
     currentAccount: null,
     networks: [],
     settings: null,
-    ownMnemonic: null
+    ownMnemonic: null,
+    backendInitialized: false
   };
 }
 

@@ -1561,16 +1561,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       type Account = { publicKey?: string };
       type StoreState = {
         accounts: Account[];
-        createAccount(type: 'off-chain' | 'guardian'): Promise<void>;
+        createAccount(type: 'off-chain' | 'guardian'): Promise<'synced' | 'pending'>;
       };
       const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
       if (!store?.getState) throw new Error('createAdditionalAccount requires the E2E wallet store hook');
 
       const before = new Set(store.getState().accounts.map(account => account.publicKey));
-      await store.getState().createAccount(requestedType);
-      const created = store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
-      if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
-      return { address: created.publicKey };
+      const outcome = await store.getState().createAccount(requestedType);
+      const findCreated = () =>
+        store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
+      const created = findCreated();
+      if (created?.publicKey) return { address: created.publicKey };
+      if (outcome === 'pending') {
+        for (let attempt = 0; attempt < 120; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const landed = findCreated();
+          if (landed?.publicKey) return { address: landed.publicKey };
+        }
+        throw new Error('account list has not landed');
+      }
+      throw new Error('createAdditionalAccount did not add an account');
     }, walletType);
   }
 

@@ -61,6 +61,9 @@ jobs:
       - name: Install native action and screenshot tools
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
 
+      - name: Test native toolbar locator
+        run: /usr/bin/python3 -m unittest -v playwright/toolbar/native_bread_button_test.py
+
       - name: Install Playwright Browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium

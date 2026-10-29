@@ -47,6 +47,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     [seedStatus]
   );
   const [credential, setCredential] = useState<string>();
+  const [removalAccepted, setRemovalAccepted] = useState(false);
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
@@ -196,9 +197,10 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     setIsSubmitting(true);
     setAuthError(null);
     try {
-      await removeSeedPhrase(credential);
+      const outcome = await removeSeedPhrase(credential);
       setMnemonic(null);
       setCredential(undefined);
+      if (outcome === 'pending') setRemovalAccepted(true);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : t('seedRemovalFailed'));
       setAuthErrorId(error instanceof Error ? 'raw_seed_remove_failed' : 'seedRemovalFailed');
@@ -218,6 +220,21 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
         <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>}>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
+        </SubPageSection>
+      </SubPageLayout>
+    );
+  }
+
+  if (removalAccepted && (!seedStatus || seedStatus === 'stored')) {
+    return (
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={back}
+        data-testid="verify-seed-state"
+        footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
+      >
+        <SubPageSection description={<p role="status">{t('seedPhraseRemoved')}</p>}>
           <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
