@@ -93,6 +93,8 @@ export const MAINNET_ACCESS_CHECK_FAILURES: readonly MainnetAccessCheckFailure[]
   'invitation_check',
   'unrecorded'
 ];
+export const MAINNET_ACCESS_CODE_REJECTION_ORIGINS = ['eligibility_check', 'registration_redemption'] as const;
+export type MainnetAccessCodeRejectionOrigin = (typeof MAINNET_ACCESS_CODE_REJECTION_ORIGINS)[number];
 export type NoteClaimFailureOrigin = 'queue_single' | 'queue_batch' | 'transaction_row';
 export const NOTE_CLAIM_FAILURE_ORIGINS: readonly NoteClaimFailureOrigin[] = [
   'queue_single',
@@ -166,6 +168,10 @@ export type UiEvidenceInput =
     }
   | { kind: 'burn_fee'; burnFeeFailure: BurnFeeFailure }
   | { kind: 'mainnet_access_check'; mainnetAccessCheckFailure: MainnetAccessCheckFailure; uiFailureKind: UiFailureKind }
+  | {
+      kind: 'mainnet_access_code_rejection';
+      mainnetAccessCodeRejectionOrigin: MainnetAccessCodeRejectionOrigin;
+    }
   | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind }
   | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
 export type UiProducerDiagnostics = {
@@ -181,6 +187,7 @@ export type UiProducerDiagnostics = {
   recipientValidationStage?: RecipientValidationStage;
   burnFeeFailure?: BurnFeeFailure;
   mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
+  mainnetAccessCodeRejectionOrigin?: MainnetAccessCodeRejectionOrigin;
   noteClaimFailureOrigin?: NoteClaimFailureOrigin;
   uiFailureKind?: UiFailureKind;
   backupNetworkFailureStage?: BackupNetworkFailureStage;
@@ -198,6 +205,7 @@ export const UI_PRODUCER_KEYS = [
   'recipientValidationStage',
   'burnFeeFailure',
   'mainnetAccessCheckFailure',
+  'mainnetAccessCodeRejectionOrigin',
   'noteClaimFailureOrigin',
   'uiFailureKind',
   'backupNetworkFailureStage'
@@ -238,6 +246,11 @@ const groups = {
     id: 'mainnetAccessCheckFailed',
     surface: 'inline',
     fields: { mainnetAccessCheckFailure: MAINNET_ACCESS_CHECK_FAILURES, uiFailureKind: UI_FAILURE_KINDS }
+  },
+  mainnet_access_code_rejection: {
+    id: 'mainnetAccessCodeRejected',
+    surface: 'inline',
+    fields: { mainnetAccessCodeRejectionOrigin: MAINNET_ACCESS_CODE_REJECTION_ORIGINS }
   },
   note_claim: {
     id: 'noteClaimFailedRetry',

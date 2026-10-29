@@ -1,13 +1,13 @@
 import { createElement } from 'react';
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { englishWordlist } from '@miden/hd-key';
 import { Scope } from '@sentry/browser';
 import { act, render, renderHook } from '@testing-library/react';
 import Dexie from 'dexie';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
-import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -3144,3 +3144,16 @@ it.each([
     expect(leaksIn(wireText())).toEqual([]);
   }
 );
+
+it('sends the closed mainnet code rejection origin on the actual outgoing envelope', async () => {
+  consentOn();
+  reportUserVisibleError('mainnetAccessCodeRejected', 'inline', {
+    kind: 'mainnet_access_code_rejection',
+    mainnetAccessCodeRejectionOrigin: 'registration_redemption'
+  } as never);
+  await flushEgress();
+  const wire = wireText();
+  expect(wire).toContain('"mainnetAccessCodeRejectionOrigin":"registration_redemption"');
+  expect(wire).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
+  expect(leaksIn(wire)).toEqual([]);
+});
