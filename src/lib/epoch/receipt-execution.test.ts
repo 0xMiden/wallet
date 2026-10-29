@@ -111,6 +111,7 @@ function fixture(resourceLockRequired = true, batch = false, forced = false) {
     } else if (url.pathname === '/reportFill') body = { success: true };
     else if (url.pathname === '/miden-recipient')
       body = { midenP2IDRecipientAccountId: PREPARED_RECIPIENT, midenMinReclaimBlocks: 1000 };
+    else if (url.pathname === '/health') body = { status: 'healthy', midenRecallBufferBlocks: 250 };
     else throw new Error(`Unexpected allocator path ${url.pathname}`);
     return {
       ok: true,
@@ -337,7 +338,7 @@ it.each([true, false])(
       );
       expect(notes[0]?.[0]).toBe(lock ? PREPARED_FAUCET : undefined);
       expect(notes[0]?.[1]).toBe(lock ? '1000000' : undefined);
-      expect(Number(notes[0]?.[3] ?? 1000)).toBeGreaterThanOrEqual(1000);
+      if (lock) expect(notes[0]?.[3]).toBe(1250);
       expect(Array.isArray(notes[0]?.[4])).toBe(lock);
     } finally {
       ack.release();

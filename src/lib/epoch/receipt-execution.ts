@@ -90,7 +90,7 @@ const executionTransactions = z
 
 /** Composes the pinned SDK services without allocating a second compact nonce. */
 export async function executeRetainedEpochIntent(
-  sdk: EpochIntentSDK,
+  sdk: Pick<EpochIntentSDK, 'submitAllocation'>,
   params: SolveIntentParams,
   hooks: EpochReceiptHooks
 ) {
@@ -225,7 +225,7 @@ export async function executeRetainedEpochIntent(
         faucetId,
         request.compact.amount,
         midenConfig.recipientAccountId,
-        computeMidenRecallBlocks(midenConfig.minReclaimBlocks),
+        computeMidenRecallBlocks(midenConfig.minReclaimBlocks, midenConfig.recallBufferBlocks),
         felts
       );
       if (!note.success || !note.noteId) throw new Error('Failed to create P2IDE note');

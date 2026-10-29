@@ -276,7 +276,7 @@ function solvedCompactExpires(solveResult: unknown): string | undefined {
 }
 
 export async function buildEVMToMidenIntent(
-  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'>,
+  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> & Partial<Pick<EpochIntentSDK, 'submitAllocation'>>,
   params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote; recovery?: EpochReceiptHooks }
 ): Promise<IntentResult> {
   let taskTypeString: string;
@@ -299,8 +299,13 @@ export async function buildEVMToMidenIntent(
       quoteResult,
       collateralType: CollateralType.EVM
     };
+    if (params.recovery && !sdk.submitAllocation) throw new Error('Epoch allocation is unavailable');
     const solveResult = params.recovery
-      ? await executeRetainedEpochIntent(sdk, solveParams, params.recovery)
+      ? await executeRetainedEpochIntent(
+          { submitAllocation: sdk.submitAllocation!.bind(sdk) },
+          solveParams,
+          params.recovery
+        )
       : await sdk.solveIntent(solveParams);
 
     const compactExpires = solvedCompactExpires(solveResult);

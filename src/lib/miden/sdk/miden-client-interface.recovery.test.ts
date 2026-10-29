@@ -276,6 +276,11 @@ async function lockedClient() {
   return { client, lock, wasm: jest.requireMock('@miden-sdk/miden-sdk/lazy'), singletonFree, singletonMarkPoisoned };
 }
 
+async function importGuardianHistory(client: RecoveryClientInterface, noteId: string) {
+  const { withWasmClientLock } = await import('./miden-client');
+  return withWasmClientLock(hold => client.importGuardianHistoryP2ideNotes('summary', 'acct', noteId, hold));
+}
+
 describe('Guardian pending-note recovery (SDK surface)', () => {
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -310,7 +315,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       ];
       const client = await loadClient();
       for (const output of historyOutputs) {
-        await client.importGuardianHistoryP2ideNotes('summary', 'acct', output.id().toString(), NO_HOLD);
+        await importGuardianHistory(client, output.id().toString());
       }
       expect(noteImport).toHaveBeenCalledTimes(2);
       expect(historyFree).toHaveBeenCalledTimes(historyOutputs.length);
@@ -320,7 +325,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       historyOutputs = [historyOutput(historyNote('sent'), false)];
       fakeRpc.getNotesById.mockResolvedValue([{ noteId: 'sent', asInputNote: () => ({ note: () => historyNote() }) }]);
       const client = await loadClient();
-      await client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD);
+      await importGuardianHistory(client, 'sent');
       expect(noteImport).toHaveBeenCalledTimes(1);
       expect(requestedIdBatches[0]).toEqual(['sent']);
     });
@@ -331,16 +336,14 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         { noteId: 'sent', asInputNote: () => ({ note: () => historyNote('sent', 'p2id') }) }
       ]);
       const client = await loadClient();
-      await client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD);
+      await importGuardianHistory(client, 'sent');
       expect(noteImport).not.toHaveBeenCalled();
     });
 
     it('fails when the public body is missing so recovery can retry', async () => {
       historyOutputs = [historyOutput(historyNote(), false)];
       const client = await loadClient();
-      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
-        'missing'
-      );
+      await expect(importGuardianHistory(client, 'sent')).rejects.toThrow('missing');
       expect(noteImport).not.toHaveBeenCalled();
     });
 
@@ -348,9 +351,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       historyOwner = 'other';
       historyOutputs = [historyOutput()];
       const client = await loadClient();
-      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
-        'account'
-      );
+      await expect(importGuardianHistory(client, 'sent')).rejects.toThrow('account');
       expect(noteImport).not.toHaveBeenCalled();
     });
 
@@ -358,9 +359,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       historyOutputs = [historyOutput()];
       noteImport.mockRejectedValue(new Error('storage failure'));
       const client = await loadClient();
-      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
-        'Could not import'
-      );
+      await expect(importGuardianHistory(client, 'sent')).rejects.toThrow('Could not import');
     });
   });
 
