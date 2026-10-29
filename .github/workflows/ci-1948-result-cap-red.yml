@@ -10,10 +10,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 2 }
+        with: { fetch-depth: 3 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: yarn }
-      - run: test "$(git rev-parse HEAD^)" = 111d8f63a30447893dbef1afbc8510fd2ed8b6a1
+      - run: test "$(git rev-parse HEAD~2^{tree})" = b769a46b5859a0ed5657cfb3ecf451ee0be080ae
       - run: yarn install --frozen-lockfile --network-timeout 120000
         timeout-minutes: 6
       - name: Prove oversized result is not bounded
