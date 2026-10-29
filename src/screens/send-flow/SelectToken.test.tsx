@@ -79,7 +79,9 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the component only reads
 // `tokenPrices` via a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, unknown> } = { tokenPrices: {} };
+let mockStoreState: { tokenPrices: Record<string, unknown>; tokenPricesStatus?: 'loading' | 'ready' | 'error' } = {
+  tokenPrices: {}
+};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
@@ -434,6 +436,42 @@ describe('SelectTokenDrawer', () => {
     renderDrawer();
 
     expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('shows loading and failed quote states in the fiat slot', () => {
+    setBalances([BTC]);
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
+    const loading = renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('loading')).toBeInTheDocument();
+    loading.unmount();
+
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'error' };
+    renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('unavailable')).toBeInTheDocument();
+  });
+
+  it('shows unsupported and unknown-scale states without inventing a value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([
+      XYZ,
+      {
+        ...BTC,
+        metadata: { ...BTC.metadata, scaleIsUnknown: true } as Balance['metadata']
+      }
+    ]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-XYZ')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('assetValueUnknownScale')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('shows $0.00 when a supported token has a known zero balance and quote', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([{ ...BTC, balance: 0 }]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('$0.00')).toBeInTheDocument();
   });
 
   it('values the native token at the nominal $1 with the nominal rate on, and hands the amount step that price', () => {
