@@ -1,0 +1,22 @@
+{
+  "head": "a0911feba15a4a5517e36a648e2b88b05b9d1ac6",
+  "tree": "4bf65edf0e12b0c675bf5fb68269fdf69f709bf4",
+  "parent": "016388e6dada1db1203b81b5cbcce8454d0d2aa6",
+  "tests": [
+    "src/lib/settings/helpers.test.ts",
+    "src/lib/miden/back/sync-manager.test.ts",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts"
+  ],
+  "pattern": "repairs opted-out telemetry|leaves the telemetry mirror unchanged|unpublished present mirror|unpublished delegate key|captured before cancel|another incarnation",
+  "files": {
+    "src/lib/settings/helpers.test.ts": "d73fb5663eb143b53a4bc78360a9e67b53ee87b3df8593629a6ec1746c48c05d",
+    "src/lib/miden/back/sync-manager.test.ts": "186c7f8581ee939ecd51c323de99ffc53daa4c5478c3e96e348c720a3eea2792",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts": "330dfc440e4e2a7cef209f114f7c146d609100d195861ca0186dd59faa1cbbb6",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts": "52dfbb7366184bc5fa3e953cdf5be393b6cb83bd7343d26ee78e4421c11f7676",
+    "src/lib/settings/helpers.ts": "a02007528878e1cd2d67ac8c85dff0502d835bf76eab0f5cbd51b74b2847534e",
+    "src/lib/miden/back/sync-manager.ts": "9cb794c63a17471ac2ba869a64fe53473ca93e4a548c3604a7f933f082828585",
+    "src/lib/miden/transaction/index.ts": "29817eebddc7a0d2be2b3f3786b810b7083625183f5fed2c46f1ef409af4f6e9"
+  },
+  "regression_base": "c8361a602f357dd941bc1ebb3323620979132ad2",
+  "regression_patch_sha256": "df8fc87ead6d4aea87d76e8ce58d34583f95a28101d518d7affd6567a20705b3"
+}

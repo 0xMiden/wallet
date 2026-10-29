@@ -1,0 +1,323 @@
+diff --git a/src/lib/miden/back/sync-manager.test.ts b/src/lib/miden/back/sync-manager.test.ts
+index 3245d495a..16f8a4233 100644
+--- a/src/lib/miden/back/sync-manager.test.ts
++++ b/src/lib/miden/back/sync-manager.test.ts
+@@ -184,11 +184,13 @@ const mockStorageSet = jest.fn();
+ const mockIsAutoConsumeAsync = jest.fn(async (): Promise<boolean> => false);
+ const mockIsDelegateProofAsync = jest.fn(async (): Promise<boolean> => true);
+ const mockAreBgMirrored = jest.fn(async (): Promise<boolean> => true);
++const mockReadMirroredDelegateProof = jest.fn(async (): Promise<boolean | undefined> => undefined);
+ jest.mock('lib/settings/helpers', () => ({
+   ...jest.requireActual('lib/settings/helpers'),
+   isAutoConsumeEnabledAsync: () => mockIsAutoConsumeAsync(),
+   isDelegateProofEnabledAsync: () => mockIsDelegateProofAsync(),
+-  areBackgroundSettingsMirrored: () => mockAreBgMirrored()
++  areBackgroundSettingsMirrored: () => mockAreBgMirrored(),
++  readMirroredDelegateProof: () => mockReadMirroredDelegateProof()
+ }));
+ 
+ let mockBaseFee: number | null = 0;
+@@ -374,6 +376,7 @@ beforeEach(() => {
+   // NOT mockResolvedValue impls, so a per-test override (e.g. areBgMirrored=false) would
+   // otherwise leak and silently gate off later tests' native path.
+   mockAreBgMirrored.mockResolvedValue(true);
++  mockReadMirroredDelegateProof.mockResolvedValue(undefined);
+   mockIsAutoConsumeAsync.mockResolvedValue(false);
+   mockIsDelegateProofAsync.mockResolvedValue(true);
+   mockGetFaucetIdSetting.mockResolvedValue(null);
+@@ -2068,6 +2071,47 @@ describe('doSync - zero-fill swap reclaim', () => {
+     }
+   });
+ 
++  it.each([
++    { mirror: false, order: true },
++    { mirror: true, order: false }
++  ])('uses local reclaim proving with an unpublished present mirror $mirror and saved choice $order', async choice => {
++    mockAreBgMirrored.mockResolvedValue(false);
++    mockReadMirroredDelegateProof.mockResolvedValue(choice.mirror);
++    mockGetMidenClient.mockImplementation(async () => ({
++      ...mockClient,
++      client: { pswap: { lineages: async () => [zeroFillLineage] } },
++      buildPswapCancelRequest: jest.fn(async () => reclaimBytes)
++    }));
++    await Repo.transactions.put({ ...zeroFillOrderRow, delegateTransaction: choice.order });
++    try {
++      await doSync();
++      expect(mockInitiatePswapReclaim.mock.calls[0]?.[4]).toBe(false);
++      expect(mockInitiatePswapReclaim).toHaveBeenCalledTimes(1);
++    } finally {
++      mockGetMidenClient.mockImplementation(async () => mockClient);
++      await Repo.transactions.clear();
++    }
++  });
++
++  it('keeps the saved remote reclaim choice when the unpublished delegate key is absent', async () => {
++    mockAreBgMirrored.mockResolvedValue(false);
++    mockSettlementSeen.reconcile.length = 0;
++    mockGetMidenClient.mockImplementation(async () => ({
++      ...mockClient,
++      client: { pswap: { lineages: async () => [zeroFillLineage] } },
++      buildPswapCancelRequest: jest.fn(async () => reclaimBytes)
++    }));
++    await Repo.transactions.put({ ...zeroFillOrderRow, delegateTransaction: true });
++    try {
++      await doSync();
++      expect(mockSettlementSeen.reconcile[0]?.[2]).toBeUndefined();
++      expect(mockInitiatePswapReclaim.mock.calls[0]?.[4]).toBe(true);
++    } finally {
++      mockGetMidenClient.mockImplementation(async () => mockClient);
++      await Repo.transactions.clear();
++    }
++  });
++
+   it('builds and queues no reclaim while the vault is locked, and the first lap after unlock does', async () => {
+     const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
+     mockGetMidenClient.mockImplementation(async () => ({
+@@ -2397,6 +2441,28 @@ describe('doSync - expired swap order settlement', () => {
+     await Repo.transactions.put(partFilledOrderRow);
+   };
+ 
++  it.each([
++    { mirror: false, order: true },
++    { mirror: true, order: false }
++  ])('uses local payback proving with an unpublished present mirror $mirror and saved choice $order', async choice => {
++    mockAreBgMirrored.mockResolvedValue(false);
++    mockReadMirroredDelegateProof.mockResolvedValue(choice.mirror);
++    await seedPartFilledOrder();
++    await Repo.transactions.update(partFilledOrderRow.id, { delegateTransaction: choice.order });
++    try {
++      await doSync();
++      expect(mockInitiateConsumeBatch.mock.calls[0]?.[2]).toBe(false);
++      expect(mockInitiateConsumeBatch.mock.calls[1]?.[2]).toBe(false);
++      expect(mockInitiateConsumeBatch.mock.calls.map(call => call[1])).toEqual([
++        [expect.objectContaining({ id: 'payback' })],
++        [expect.objectContaining({ id: 'remainder-tip' })]
++      ]);
++    } finally {
++      mockGetMidenClient.mockImplementation(async () => mockClient);
++      await Repo.transactions.clear();
++    }
++  });
++
+   it('worker settlement refuses token-only payback and remainder and still settles a funded order', async () => {
+     const undoRealQueue = useRealClaimQueue();
+     const feeContext = jest.mocked(
+diff --git a/src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts b/src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts
+index 69eab7940..7a1fbe72b 100644
+--- a/src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts
++++ b/src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts
+@@ -42,6 +42,7 @@ import {
+ import { updateTransactionStatus } from './helper';
+ import { generateTransactionsLoop } from './index';
+ import { recordQueueAdmission, consumeQueueAdmission, pruneQueueAdmission } from './queue-admission-diagnostics';
++import { requeueFailedTransaction } from './retry';
+ import { ITransaction, ITransactionStatus } from '../db/types';
+ 
+ jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
+@@ -61,6 +62,23 @@ jest.mock('../sdk/miden-client', () => ({
+   assertWasmHoldCurrent: () => {}
+ }));
+ jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
++const importQueuedNotes = () =>
++  jest.requireActual<typeof import('../activity/notes')>('../activity/notes').importAllNotes();
++const mockImportAllNotes = jest.fn(importQueuedNotes);
++jest.mock(
++  '../activity/notes',
++  () =>
++    new Proxy(
++      {},
++      {
++        get: (_target, key) => {
++          if (key === '__esModule') return true;
++          if (key === 'importAllNotes') return () => mockImportAllNotes();
++          return Reflect.get(jest.requireActual<typeof import('../activity/notes')>('../activity/notes'), key);
++        }
++      }
++    )
++);
+ jest.mock('@capacitor/core', () => {
+   const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
+   const reown = { sendTransaction: jest.fn() };
+@@ -92,6 +110,7 @@ const phased = (type: 'earn-withdraw' | 'bridged-receive', phase: string): ITran
+ 
+ beforeEach(async () => {
+   jest.clearAllMocks();
++  mockImportAllNotes.mockReset().mockImplementation(importQueuedNotes);
+   jest.mocked(Capacitor.getPlatform).mockImplementation(actualCapacitor.getPlatform);
+   jest.mocked(rawReown.sendTransaction).mockReset();
+   await Repo.transactions.clear();
+@@ -1111,6 +1130,76 @@ it.each([false, true])('uses only earlier exact gate membership at committed exp
+   }
+ });
+ 
++it('does not persist a gate sighting captured before cancel and Retry restamped the queue row', async () => {
++  pruneQueueAdmission([]);
++  const now = Math.floor(Date.now() / 1000);
++  const waiting = row({ id: 'retry-sighting', status: ITransactionStatus.Queued, initiatedAt: now - 1, queuedSeq: 1 });
++  await Repo.transactions.put(waiting);
++  await Repo.transactions.put(row({ id: 'active-sighting', processingStartedAt: now }));
++  mockImportAllNotes.mockImplementationOnce(async () => {
++    await cancelTransaction(waiting, USER_CANCELLED_TRANSACTION_REASON);
++    await requeueFailedTransaction(waiting.id);
++    await importQueuedNotes();
++  });
++  const guardianProvider = {
++    getAccounts: async () => [],
++    getPublicKeyForCommitment: async () => '',
++    signWord: async () => ''
++  };
++  await generateTransactionsLoop(async () => new Uint8Array(), false, guardianProvider);
++  await new Promise<void>(resolve => setTimeout(resolve, 0));
++  const retried = await Repo.transactions.get(waiting.id);
++  expect(retried?.queueSighting).toBeUndefined();
++  expect(retried?.status).toBe(ITransactionStatus.Queued);
++  expect(retried?.queuedSeq).not.toBe(waiting.queuedSeq);
++  report.mockClear();
++  await generateTransactionsLoop(async () => new Uint8Array(), false, guardianProvider);
++  await new Promise<void>(resolve => setTimeout(resolve, 0));
++  pruneQueueAdmission([]);
++  const clock = jest.spyOn(Date, 'now').mockReturnValue((now + MAX_QUEUED_AGE + 1) * 1000);
++  try {
++    await cancelStaleQueuedTransactions();
++    expect(report).toHaveBeenCalledWith(
++      expect.objectContaining({ reason: 'queued_expired', queueSighting: 'in_progress_gate' })
++    );
++  } finally {
++    clock.mockRestore();
++  }
++});
++
++it('persists an equal-rank gate sighting when the stored label belongs to another incarnation', async () => {
++  pruneQueueAdmission([]);
++  const now = Math.floor(Date.now() / 1000);
++  await Repo.transactions.put(
++    row({
++      id: 'unbound-sighting',
++      status: ITransactionStatus.Queued,
++      initiatedAt: now,
++      queuedSeq: 2,
++      queueSighting: 'in_progress_gate',
++      queueSightingAt: now - 1,
++      queueSightingSeq: 1
++    })
++  );
++  await Repo.transactions.put(row({ id: 'active-sighting', processingStartedAt: now }));
++  await generateTransactionsLoop(async () => new Uint8Array(), false, {
++    getAccounts: async () => [],
++    getPublicKeyForCommitment: async () => '',
++    signWord: async () => ''
++  });
++  await new Promise<void>(resolve => setTimeout(resolve, 0));
++  pruneQueueAdmission([]);
++  const clock = jest.spyOn(Date, 'now').mockReturnValue((now + MAX_QUEUED_AGE + 1) * 1000);
++  try {
++    await cancelStaleQueuedTransactions();
++    expect(report).toHaveBeenCalledWith(
++      expect.objectContaining({ reason: 'queued_expired', queueSighting: 'in_progress_gate' })
++    );
++  } finally {
++    clock.mockRestore();
++  }
++});
++
+ it('cleans restored terminal queue history without reporting it', async () => {
+   const waiting = row({
+     status: ITransactionStatus.Queued,
+diff --git a/src/lib/settings/helpers.test.ts b/src/lib/settings/helpers.test.ts
+index 7b975560f..f558b4bc0 100644
+--- a/src/lib/settings/helpers.test.ts
++++ b/src/lib/settings/helpers.test.ts
+@@ -412,6 +412,93 @@ describe('settings helpers', () => {
+       expect((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())).toBe(false);
+     });
+ 
++    it.each([AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY])(
++      'repairs opted-out telemetry when the operational write %s is rejected',
++      async rejectedKey => {
++        mockKvStore[TELEMETRY_STORAGE_KEY] = true;
++        mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++        for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++          localStorage.setItem(key, 'false');
++        }
++        const payloads: Record<string, unknown>[] = [];
++        mockSet = async items => {
++          payloads.push(items);
++          if (rejectedKey in items) throw new Error('Operational write unavailable');
++          Object.assign(mockKvStore, items);
++        };
++        mirrorBackgroundSettings();
++        await nextTask();
++        expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(false);
++        expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
++        expect(payloads).toContainEqual({ [TELEMETRY_STORAGE_KEY]: false });
++        expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
++      }
++    );
++
++    it('repairs opted-out telemetry when clearing the marker is rejected', async () => {
++      mockKvStore[TELEMETRY_STORAGE_KEY] = true;
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++        localStorage.setItem(key, 'false');
++      }
++      const payloads: Record<string, unknown>[] = [];
++      mockSet = async items => {
++        payloads.push(items);
++        if (items[BG_SETTINGS_MIRRORED_KEY] === false) throw new Error('Marker write unavailable');
++        Object.assign(mockKvStore, items);
++      };
++      mirrorBackgroundSettings();
++      await nextTask();
++      expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(false);
++      expect(payloads).toContainEqual({ [TELEMETRY_STORAGE_KEY]: false });
++      expect(payloads.some(items => AUTO_CONSUME_STORAGE_KEY in items)).toBe(false);
++      expect(payloads.some(items => DELEGATE_PROOF_STORAGE_KEY in items)).toBe(false);
++      expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
++      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(true);
++    });
++
++    it.each([AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY])(
++      'repairs opted-out telemetry when the operational entry read %s is malformed',
++      async unreadableKey => {
++        mockKvStore[TELEMETRY_STORAGE_KEY] = true;
++        mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++        for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++          localStorage.setItem(key, key === unreadableKey ? '0' : 'false');
++        }
++        const payloads: Record<string, unknown>[] = [];
++        mockSet = async items => {
++          payloads.push(items);
++          Object.assign(mockKvStore, items);
++        };
++        mirrorBackgroundSettings();
++        await nextTask();
++        expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(false);
++        expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(true);
++        expect(payloads).toContainEqual({ [TELEMETRY_STORAGE_KEY]: false });
++        expect(payloads.some(items => BG_SETTINGS_MIRRORED_KEY in items)).toBe(false);
++        expect(payloads.some(items => AUTO_CONSUME_STORAGE_KEY in items)).toBe(false);
++        expect(payloads.some(items => DELEGATE_PROOF_STORAGE_KEY in items)).toBe(false);
++      }
++    );
++
++    it('leaves the telemetry mirror unchanged when its entry read is malformed', async () => {
++      mockKvStore[TELEMETRY_STORAGE_KEY] = true;
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++      localStorage.setItem(AUTO_CONSUME_STORAGE_KEY, 'false');
++      localStorage.setItem(DELEGATE_PROOF_STORAGE_KEY, 'false');
++      localStorage.setItem(TELEMETRY_STORAGE_KEY, '0');
++      const payloads: Record<string, unknown>[] = [];
++      mockSet = async items => {
++        payloads.push(items);
++        Object.assign(mockKvStore, items);
++      };
++      mirrorBackgroundSettings();
++      await nextTask();
++      expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(true);
++      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(true);
++      expect(payloads.some(items => TELEMETRY_STORAGE_KEY in items)).toBe(false);
++    });
++
+     it('does not copy preferences when clearing the mirror marker is rejected', async () => {
+       mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+       mockKvStore[AUTO_CONSUME_STORAGE_KEY] = true;
