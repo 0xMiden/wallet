@@ -359,4 +359,18 @@ describe('Task5 availability followon', () => {
     expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
     expect(mockFetchBalances).toHaveBeenCalledTimes(1);
   });
+
+  it('ignores a delayed pre-recovery incident after the newer healthy state arrives', () => {
+    const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: recovered });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: incident });
+    expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
+  });
+
+  it('does not let a delayed pending snapshot replace verified healthy state', () => {
+    const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: recovered });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: { status: 'pending' } });
+    expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
+  });
 });

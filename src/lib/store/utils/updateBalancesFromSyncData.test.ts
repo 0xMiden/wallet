@@ -48,6 +48,22 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('updateBalancesFromSyncData', () => {
+  it('does not land an old sync snapshot after storage enters a newer incident', async () => {
+    useWalletStore.setState({ balances: {}, storageAvailability: { status: 'healthy', epoch: 8 } });
+    let release!: (value: Record<string, never>) => void;
+    mockGetTokenMetadataOverrides.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const read = updateBalancesFromSyncData('account-1', [
+      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
+    ]);
+    while (!release) await Promise.resolve();
+    useWalletStore.setState({
+      storageAvailability: { status: 'unavailable', epoch: 9, reason: 'continuity', backend: 'sdk', operation: 'open', time: 1000 }
+    });
+    release({});
+    await read;
+    expect(useWalletStore.getState().balances['account-1']).toBeUndefined();
+  });
+
   it('tags only landed balances with the original worker nonce/network, never a fresh arrival time', async () => {
     const assets = [
       { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
