@@ -1,0 +1,50 @@
+name: Queue and settings regression red proof
+on:
+  push:
+    branches: [ci/q6-r3-regression-red-20261029]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable test-only source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-r3-red-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-r3-red-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 016388e6dada1db1203b81b5cbcce8454d0d2aa6
+          cp -R .github/q6-r3-red "$RUNNER_TEMP/q6-r3-red-packet"
+          cp "$RUNNER_TEMP/q6-r3-red-packet/"* "$RUNNER_TEMP/q6-r3-red-evidence/"
+          git checkout --detach 016388e6dada1db1203b81b5cbcce8454d0d2aa6
+          test "$(git rev-parse HEAD^{tree})" = 7f78e26128cbbc25dc51c1d218475682939d640b
+          git diff HEAD^ HEAD > "$RUNNER_TEMP/q6-r3-red-evidence/test-only.patch"
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-r3-red-evidence/install.log"
+      - name: Confirm nine functional failures and four green controls
+        env:
+          PROOF_EVIDENCE: ${{ runner.temp }}/q6-r3-red-evidence
+        run: python3 "$RUNNER_TEMP/q6-r3-red-packet/proof.py"
+      - name: Full typecheck and strict named lint
+        if: always()
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/q6-r3-red-evidence/typecheck.log"
+          yarn eslint src/lib/settings/helpers.test.ts src/lib/miden/back/sync-manager.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-r3-red-evidence/lint.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-r3-regression-red-proof
+          path: ${{ runner.temp }}/q6-r3-red-evidence
+          if-no-files-found: error
