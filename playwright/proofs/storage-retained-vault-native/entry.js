@@ -7,7 +7,7 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
-import { JOURNAL_MAX_ENTRIES, RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
+import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES, RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
@@ -279,11 +279,11 @@ async function prepare(password, includePrivate) {
   const beforeValues = await provider.get(RECOVERY_JOURNAL_KEYS);
   const beforeCipher = JSON.stringify(beforeValues);
   const beforeDigest = await digest(new TextEncoder().encode(JSON.stringify(prior)));
-  const notes = Array.from({ length: JOURNAL_MAX_ENTRIES }, (_, index) => ({
-    kind: 'note', id: `disposable-capacity-${index}`, accountId: fixture.accountId,
-    noteFile: new Uint8Array([1]), provenance: 'input'
-  }));
-  check('entryBoundExceededInMemory', notes.length === JOURNAL_MAX_ENTRIES && prior.entries.length > 0 && notes.length + prior.entries.length > JOURNAL_MAX_ENTRIES);
+  const largeBytes = new Uint8Array(Math.ceil(JOURNAL_MAX_BYTES / 2));
+  const serializedLength = new TextEncoder().encode(JSON.stringify(Array.from(largeBytes))).length;
+  const notes = [{ kind: 'note', id: 'disposable-byte-capacity', accountId: fixture.accountId,
+    noteFile: largeBytes, provenance: 'input' }];
+  check('byteBoundExceededInMemory', serializedLength > JOURNAL_MAX_BYTES && prior.entries.length + notes.length < JOURNAL_MAX_ENTRIES);
   const serviceBefore = await control('summary', {});
   progress('capacity-refusal');
   let capacityRefused = false;

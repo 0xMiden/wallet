@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createRecoveryService } from './service.mjs';
 
-test('st/main/retained-vault/journal-entry-capacity', async ({ browser }, testInfo) => {
+test('st/main/retained-vault/journal-byte-capacity', async ({ browser }, testInfo) => {
   const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
   if (!binary) throw new Error('producer-required');
   const service = await createRecoveryService(resolve(process.env.RECOVERY_PROOF_BUILD_ROOT || 'proof-dist/retained'), binary);
