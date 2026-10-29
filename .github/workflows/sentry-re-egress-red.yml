@@ -1,0 +1,29 @@
+name: Sentry RE egress expected red
+on:
+  push:
+    branches: [ci/sentry-re-egress-red]
+permissions:
+  contents: read
+jobs:
+  egress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = c76e589f30015c7486bf93d9891a21f0074a13d3
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: ./.github/actions/yarn-install
+      - name: Verify egress functional regression
+        shell: bash
+        run: |
+          set +e
+          yarn jest src/lib/telemetry/egress-boundary.test.ts --runInBand --no-coverage --testNamePattern='real native rejection sends only closed diagnostics' > "$RUNNER_TEMP/egress-red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/egress-red.log"
+          test "$status" -ne 0
+          grep -F 'real native rejection sends only closed diagnostics for provider_unauthorized' "$RUNNER_TEMP/egress-red.log"
+          grep -F 'real native rejection sends only closed diagnostics for internal_error' "$RUNNER_TEMP/egress-red.log"
+          grep -F '"reownWalletResponseCode": "other"' "$RUNNER_TEMP/egress-red.log"
