@@ -165,7 +165,7 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
           })
       )
       .mockResolvedValueOnce({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'new' } });
-    intercom.subscribe.mockImplementation(callback => {
+    intercom.subscribe.mockImplementation((callback: (message: unknown) => void) => {
       listener = callback;
       return () => {};
     });
