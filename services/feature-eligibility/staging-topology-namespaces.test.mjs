@@ -28,3 +28,15 @@ test('namespace inventory rejects incomplete or inconsistent pagination', () => 
   assert.equal(validate([page(owned.slice(0, 2), 1, 2, 4)], expected), false);
   assert.equal(validate([page(owned.slice(0, 2), 1, 2, 4), page(owned.slice(2), 2, 2, 5)], expected), false);
 });
+
+test('namespace inventory accepts a complete multi-page response', () => {
+  const others = Array.from({ length: 997 }, (_, index) => ({
+    ...item('Other', index + 20), script: 'unrelated-worker'
+  }));
+  const first = [...owned.slice(0, 3), ...others];
+  assert.equal(validate([page(first, 1, 2, 1001), page(owned.slice(3), 2, 2, 1001)], expected), true);
+});
+
+test('namespace inventory rejects impossible page sizes for the reported total', () => {
+  assert.equal(validate([page(owned.slice(0, 2), 1, 2, 4), page(owned.slice(2), 2, 2, 4)], expected), false);
+});
