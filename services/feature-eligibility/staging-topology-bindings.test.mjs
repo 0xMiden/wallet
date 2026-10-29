@@ -6,7 +6,12 @@ const validate = topology.validateTopologyBindings ?? (() => false);
 const target = 'miden-elig-topology-123-1';
 const ownedId = '00000000000000000000000000000001';
 const expected = { script: target, namespaceIds: [ownedId], scripts: [target, 'other-worker'] };
-const binding = { name: 'GUARD', type: 'durable_object_namespace', class_name: 'EligibilityGuard', namespace_id: ownedId };
+const binding = {
+  name: 'GUARD',
+  type: 'durable_object_namespace',
+  class_name: 'EligibilityGuard',
+  namespace_id: ownedId
+};
 const scripts = () => [
   { id: target, bindings: [binding] },
   { id: 'other-worker', bindings: [{ name: 'OTHER', type: 'plain_text' }] }

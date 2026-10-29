@@ -65,29 +65,52 @@ export function validateTopologyNamespaces(pages, expected) {
 
 // The caller must independently establish the complete script list before using this evidence.
 export function validateTopologyBindings(scripts, expected) {
-  if (!Array.isArray(scripts) || !expected || typeof expected.script !== 'string' ||
-      !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
-      !Array.isArray(expected.scripts) || !Array.isArray(expected.namespaceIds) ||
-      expected.scripts.length !== scripts.length || expected.scripts.length < 1 ||
-      new Set(expected.scripts).size !== expected.scripts.length || !expected.scripts.includes(expected.script) ||
-      expected.namespaceIds.length < 1 || new Set(expected.namespaceIds).size !== expected.namespaceIds.length ||
-      !expected.namespaceIds.every(id => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id))) return false;
+  if (
+    !Array.isArray(scripts) ||
+    !expected ||
+    typeof expected.script !== 'string' ||
+    !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
+    !Array.isArray(expected.scripts) ||
+    !Array.isArray(expected.namespaceIds) ||
+    expected.scripts.length !== scripts.length ||
+    expected.scripts.length < 1 ||
+    new Set(expected.scripts).size !== expected.scripts.length ||
+    !expected.scripts.includes(expected.script) ||
+    expected.namespaceIds.length < 1 ||
+    new Set(expected.namespaceIds).size !== expected.namespaceIds.length ||
+    !expected.namespaceIds.every(id => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id))
+  )
+    return false;
   const seenScripts = new Set();
   const seenOwned = new Set();
   const owned = new Set(expected.namespaceIds);
   for (const script of scripts) {
-    if (!script || typeof script.id !== 'string' || !/^[a-zA-Z0-9_-]{1,63}$/.test(script.id) ||
-        !expected.scripts.includes(script.id) || seenScripts.has(script.id) || !Array.isArray(script.bindings)) return false;
+    if (
+      !script ||
+      typeof script.id !== 'string' ||
+      !/^[a-zA-Z0-9_-]{1,63}$/.test(script.id) ||
+      !expected.scripts.includes(script.id) ||
+      seenScripts.has(script.id) ||
+      !Array.isArray(script.bindings)
+    )
+      return false;
     seenScripts.add(script.id);
     for (const entry of script.bindings) {
-      if (!entry || typeof entry.name !== 'string' || !entry.name || typeof entry.type !== 'string' || !entry.type) return false;
+      if (!entry || typeof entry.name !== 'string' || !entry.name || typeof entry.type !== 'string' || !entry.type)
+        return false;
       if (entry.type !== 'durable_object_namespace') continue;
-      if (typeof entry.class_name !== 'string' || !entry.class_name || typeof entry.namespace_id !== 'string' ||
-          !/^[a-f0-9]{32}$/.test(entry.namespace_id) ||
-          (entry.script_name !== undefined && (typeof entry.script_name !== 'string' || !entry.script_name))) return false;
+      if (
+        typeof entry.class_name !== 'string' ||
+        !entry.class_name ||
+        typeof entry.namespace_id !== 'string' ||
+        !/^[a-f0-9]{32}$/.test(entry.namespace_id) ||
+        (entry.script_name !== undefined && (typeof entry.script_name !== 'string' || !entry.script_name))
+      )
+        return false;
       const targetBinding = owned.has(entry.namespace_id) || entry.script_name === expected.script;
       if (script.id !== expected.script && targetBinding) return false;
-      if (script.id === expected.script && owned.has(entry.namespace_id)) {
+      if (script.id === expected.script) {
+        if (!owned.has(entry.namespace_id) || seenOwned.has(entry.namespace_id)) return false;
         if (entry.script_name !== undefined && entry.script_name !== expected.script) return false;
         seenOwned.add(entry.namespace_id);
       }
