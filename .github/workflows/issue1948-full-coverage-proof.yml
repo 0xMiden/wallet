@@ -1,0 +1,100 @@
+name: Issue 1948 full coverage proof
+on:
+  push:
+    branches: [ci/1948-full-coverage-proof]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/3
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 395b27f14b1d188554c2264be7c7be2224004785
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frozen source
+        run: test "$(git rev-parse HEAD)" = 395b27f14b1d188554c2264be7c7be2224004785
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - name: Run unchanged coverage shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          set -euo pipefail
+          yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+      - name: Count shard tests
+        if: always()
+        continue-on-error: true
+        run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1948-coverage-shard-${{ matrix.shard }}
+          path: |
+            coverage/coverage-final.json
+            coverage/test-count.json
+            coverage/jest-results.json
+          if-no-files-found: warn
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: test "$SHARDS_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          ref: 395b27f14b1d188554c2264be7c7be2224004785
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install coverage reporters
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: issue1948-coverage-shard-*
+          path: coverage-shards
+      - name: Merge shards and enforce unchanged 95 percent gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/issue1948-coverage-shard-1/coverage-final.json coverage-shards/issue1948-coverage-shard-2/coverage-final.json coverage-shards/issue1948-coverage-shard-3/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1948-coverage-merged
+          path: coverage/coverage-summary.json
+          if-no-files-found: warn
