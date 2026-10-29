@@ -45,3 +45,12 @@ test('isolated workerd distinguishes overload from retryable failure', async () 
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'failure_behavior', status: 'passed' });
 });
+
+test('isolated workerd retains lease state through restart and day boundary', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/restart_day', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'restart_day', status: 'passed' });
+});
