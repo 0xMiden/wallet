@@ -2138,6 +2138,15 @@
     "message": "제출",
     "englishSource": "Submit"
   },
+  "amountShortcutPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
   "max": {
     "message": "맥스",
     "englishSource": "Max"

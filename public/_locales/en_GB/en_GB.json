@@ -448,6 +448,7 @@
   "no": "No",
   "actionConfirmation": "Confirm the action",
   "submit": "Submit",
+  "amountShortcutPercent": "$percent$",
   "max": "Max",
   "from": "From",
   "to": "To",

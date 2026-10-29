@@ -2138,6 +2138,15 @@
     "message": "Надіслати",
     "englishSource": "Submit"
   },
+  "amountShortcutPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
   "max": {
     "message": "Макс",
     "englishSource": "Max"
