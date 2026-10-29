@@ -2323,6 +2323,49 @@ describe('crash-report egress', () => {
 });
 
 describe('user-visible error reports', () => {
+  it('sends only closed bridge balance evidence through the real crash wire', async () => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'raw_bridge_balance_failed',
+      'field',
+      { kind: 'bridge_balance_read', bridgeBalanceBranch: 'registered_erc20', bridgeBalanceStage: 'value_decode' }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      userErrorId: 'raw_bridge_balance_failed',
+      userErrorSurface: 'field',
+      bridgeBalanceBranch: 'registered_erc20',
+      bridgeBalanceStage: 'value_decode'
+    });
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('drops bridge evidence containing private extras before reaching the crash wire', async () => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'raw_bridge_balance_failed',
+      'field',
+      {
+        kind: 'bridge_balance_read',
+        bridgeBalanceBranch: 'native',
+        bridgeBalanceStage: 'request',
+        rawError: POISON.mnemonic12,
+        address: POISON.addressTestnet
+      }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).not.toHaveProperty('bridgeBalanceBranch');
+    expect(diagnostics).not.toHaveProperty('bridgeBalanceStage');
+    expect(diagnostics).not.toHaveProperty('rawError');
+    expect(diagnostics).not.toHaveProperty('address');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('sends only the closed startup attempt evidence through the real crash wire', async () => {
     consentOn();
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;

@@ -43,6 +43,33 @@ export const EARN_POSITIONS_LOAD_STAGES = [
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
+export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
+export type BridgeBalanceStage =
+  | 'configuration'
+  | 'input_validation'
+  | 'request_build'
+  | 'request'
+  | 'response_decode'
+  | 'rpc_rejected'
+  | 'value_decode'
+  | 'unrecorded';
+export const BRIDGE_BALANCE_BRANCHES: readonly BridgeBalanceBranch[] = [
+  'fast_usdc',
+  'circle_usdc',
+  'native',
+  'registered_erc20',
+  'unrecorded'
+];
+export const BRIDGE_BALANCE_STAGES: readonly BridgeBalanceStage[] = [
+  'configuration',
+  'input_validation',
+  'request_build',
+  'request',
+  'response_decode',
+  'rpc_rejected',
+  'value_decode',
+  'unrecorded'
+];
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
 export const BACKUP_NETWORK_FAILURE_STAGES = ['declared_network', 'genesis_header'] as const;
 export type BackupNetworkFailureStage = (typeof BACKUP_NETWORK_FAILURE_STAGES)[number];
@@ -52,6 +79,11 @@ export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[num
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
 export type UiEvidenceInput =
+  | {
+      kind: 'bridge_balance_read';
+      bridgeBalanceBranch: BridgeBalanceBranch;
+      bridgeBalanceStage: BridgeBalanceStage;
+    }
   | {
       kind: 'feature_unavailable';
       featureUnavailableFeature: FeatureUnavailableFeature;
@@ -69,6 +101,8 @@ export type UiEvidenceInput =
 export type UiProducerDiagnostics = {
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
+  bridgeBalanceBranch?: BridgeBalanceBranch;
+  bridgeBalanceStage?: BridgeBalanceStage;
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
@@ -79,6 +113,8 @@ export type UiProducerDiagnostics = {
 export const UI_PRODUCER_KEYS = [
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
+  'bridgeBalanceBranch',
+  'bridgeBalanceStage',
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
@@ -94,6 +130,11 @@ const groups = {
       earnPositionsLoadStage: EARN_POSITIONS_LOAD_STAGES,
       earnPositionsLoadOutcome: EARN_POSITIONS_LOAD_OUTCOMES
     }
+  },
+  bridge_balance_read: {
+    id: 'raw_bridge_balance_failed',
+    surface: 'field',
+    fields: { bridgeBalanceBranch: BRIDGE_BALANCE_BRANCHES, bridgeBalanceStage: BRIDGE_BALANCE_STAGES }
   },
   feature_unavailable: {
     id: 'bridgeFeatureUnavailableBody',

@@ -202,6 +202,11 @@ const uiCases = [
   ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
   ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
   [
+    'raw_bridge_balance_failed',
+    'field',
+    { kind: 'bridge_balance_read', bridgeBalanceBranch: 'circle_usdc', bridgeBalanceStage: 'request' }
+  ],
+  [
     'encryptedWalletFileWrongNetwork',
     'field',
     { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' }

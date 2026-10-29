@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
+- [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
 - [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
 
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.

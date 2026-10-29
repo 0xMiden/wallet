@@ -66,6 +66,7 @@ Three more things travel with each message as part of the technical envelope our
 
 ### Crash reports
 
+- Only `raw_bridge_balance_failed` on `field` carries `bridgeBalanceBranch` (`fast_usdc`, `circle_usdc`, `native`, `registered_erc20`, `unrecorded`) and `bridgeBalanceStage` (`configuration`, `input_validation`, `request_build`, `request`, `response_decode`, `rpc_rejected`, `value_decode`, `unrecorded`). These describe the owned balance read, without addresses, chain identifiers, token contracts, balances, amounts, URLs or error text. Unowned display fallbacks carry no producer evidence.
 - UI feature diagnostics are scoped to `bridgeFeatureUnavailableBody` on `notice`: `featureUnavailableFeature` (`earnDeposit`, `fastBridgeOut`, `fastBridgeIn`, `bridgeIn`, `bridgeOut`, `usdcxDeposit`, `usdcxWithdrawal`, `unknown`) and `featureUnavailableReason` (`off`, `not-configured`, `not-deployed`, `service-down`, `unknown`). Composite features stay unknown; pending and restricted decisions remain unreported.
 - Only `submissionUnanswered` on `status_screen` carries `submissionFeedbackBranch` (`prover_at_submit`, `guardian_unanswered`, `grpc_unknown`, `no_answer`), naming the existing selected feedback branch rather than its cause.
 - Only `raw_pending_activity_retry_failed` on `notice` carries `pendingRetryReason` (`row_missing`, `not_retryable`, `guardian_hold`, `landing_pending`, `verdict_busy`, `unsafe_retry`, `unexpected`). A refusal does not disclose transaction or account data.
