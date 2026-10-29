@@ -27,10 +27,11 @@ const options = api => ({
   expiresAt: now + 600_000,
   maxRuns: 10
 });
-function provider({ account = accountId, scripts = ['other-worker'], namespaces = [] } = {}) {
+function provider({ account = accountId, scripts = ['other-worker'], namespaces = [], target = { status: 404, body: { success: false, errors: [{ code: 10007 }] } } } = {}) {
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: account } };
     if (path === '/workers/scripts?page=1&per_page=100') return page(scripts);
+    if (path === '/workers/scripts/miden-elig-topology-12345-1/settings') return target;
     if (path === '/workers/durable_objects/namespaces?page=1&per_page=1000')
       return {
         success: true,
@@ -94,4 +95,9 @@ test('account-bound preparation rejects changing or incomplete namespace invento
       ? { success: true, errors: [], result: [] }
       : base(path);
   assert.equal(await prepare(options(incomplete)), null);
+});
+
+test('account-bound preparation requires an explicit provider absence receipt', async () => {
+  assert.equal(await prepare(options(provider({ target: { status: 200, body: { success: true } } }))), null);
+  assert.equal(await prepare(options(provider({ target: { status: 404, body: { success: false, errors: [] } } }))), null);
 });
