@@ -3,6 +3,8 @@
 ## 1.17.9 (TBD)
 
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
+- [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
