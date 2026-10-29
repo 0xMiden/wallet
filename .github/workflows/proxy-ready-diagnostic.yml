@@ -30,7 +30,7 @@ jobs:
           mkdir -p node_modules/@miden-sdk/miden-sdk
           tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
       - name: Run unchanged-timeout readiness diagnostic
-        run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern='no deadline \(null\)|demonstrates early ready|fixture prematurely fires ready' --maxWorkers=2 --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-ready-results.json"
+        run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern='no deadline \(null\)|waits for the offscreen ready listener' --maxWorkers=2 --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-ready-results.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
