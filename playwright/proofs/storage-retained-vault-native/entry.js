@@ -115,7 +115,7 @@ async function prepare(password, includePrivate) {
     await control('learn', { kind: 'early-notes' });
     const earlyTag = new sdk.NoteTag(fixture.tag);
     progress('early-rpc-enter');
-    try { const earlyResult = await rpc.syncNotes(fixture.block - 1, fixture.block - 1, [earlyTag]); progress('early-rpc-return'); earlyResult.free(); progress('early-result-freed'); } finally { earlyTag.free(); }
+    const earlyResult = await rpc.syncNotes(fixture.block - 1, fixture.block - 1, [earlyTag]); progress('early-rpc-return'); earlyResult.free(); progress('early-result-freed');
     progress('early-tag-freed');
     await control('learn', { kind: 'account' });
     const proof = await rpc.getAccountProof(id);
@@ -274,7 +274,7 @@ async function prepare(password, includePrivate) {
   await control('learn', { kind: 'notes' });
   const noteRpc = new sdk.RpcClient(new sdk.Endpoint(location.origin));
   const noteTags = tags.sort((a, b) => a - b).map(value => new sdk.NoteTag(value));
-  try { const result = await noteRpc.syncNotes(fixture.block, generated.headers - 1, noteTags); result.free(); } finally { noteTags.forEach(tag => tag.free()); noteRpc.free(); }
+  try { const result = await noteRpc.syncNotes(fixture.block, generated.headers - 1, noteTags); result.free(); } finally { noteRpc.free(); }
   const expectedJournal = await vault.readRecoveryJournal();
   const expected = expectedJournal.entries.find(entry => entry.kind === 'note' && entry.provenance === 'input');
   const same = (a, b) => a?.length === b.length && a.every((value, index) => value === b[index]);
