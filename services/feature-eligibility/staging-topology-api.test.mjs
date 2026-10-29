@@ -126,3 +126,16 @@ test('script logging observation preserves unknown observability and refuses tai
   assert.equal(await makeApi({ observability: {} })(path), null);
   assert.equal(await makeApi({})('/workers/scripts/production/script-settings'), null);
 });
+
+test('read adapter returns only the digest of the fixed target module content', async () => {
+  const path = '/workers/scripts/miden-elig-topology-12345-1/content/v2';
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      new Response('abc', {
+        headers: { 'content-type': 'application/javascript+module', 'cf-entrypoint': 'staging-topology-worker.mjs' }
+      })
+  });
+  assert.deepEqual(await api(path), { sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' });
+});
