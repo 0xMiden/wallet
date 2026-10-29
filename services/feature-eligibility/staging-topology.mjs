@@ -4,6 +4,31 @@ function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
+async function emptyBody(request) {
+  if (request.body === null) return true;
+  if (request.headers.get('Content-Length') !== '0') return false;
+  const reader = request.body.getReader();
+  let timer;
+  try {
+    return await Promise.race([
+      (async () => {
+        for (let count = 0; count < 2; count++) {
+          const chunk = await reader.read();
+          if (chunk.done) return true;
+          if (chunk.value?.byteLength) return false;
+        }
+        return false;
+      })(),
+      new Promise(resolve => { timer = setTimeout(() => resolve(false), 1000); })
+    ]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (
@@ -16,7 +41,7 @@ export default {
 
     const url = new URL(request.url);
     const match = /^\/scenario\/([a-z_]+)$/.exec(url.pathname);
-    if (request.method !== 'POST' || request.body !== null || url.search || !match || !SCENARIOS.has(match[1])) {
+    if (request.method !== 'POST' || url.search || !match || !SCENARIOS.has(match[1]) || !(await emptyBody(request))) {
       return reply(400, { error: 'bad_request' });
     }
 
@@ -39,7 +64,7 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
   return async request => {
     const url = new URL(request.url);
     const match = /^\/scenario\/([a-z_]+)$/.exec(url.pathname);
-    if (request.method !== 'POST' || request.body !== null || url.search || !match || !SCENARIOS.has(match[1])) {
+    if (request.method !== 'POST' || url.search || !match || !SCENARIOS.has(match[1]) || !(await emptyBody(request))) {
       return reply(400, { error: 'bad_request' });
     }
     if (!Number.isSafeInteger(expiresAt) || !Number.isInteger(maxRuns) || maxRuns < 1 || maxRuns > 20) {
