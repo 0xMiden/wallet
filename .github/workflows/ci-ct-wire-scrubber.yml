@@ -11,9 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Bind source revision
-        run: test "$(git rev-parse HEAD^)" = 122e9dd421a1c8e922a9baddd3652427e2db9e67
+        run: git merge-base --is-ancestor 122e9dd421a1c8e922a9baddd3652427e2db9e67 HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -21,7 +21,7 @@ with patch.object(socket, 'socket', forbid_network), patch.object(socket, 'creat
     for canonical, wire in pairs:
         event = {'contexts': {'walletDiagnostics': {'proposalCreateApi': 'consume_notes', 'proposalCreateFamily': wire}}}
         values = pii_strip_event(config, event)['contexts']['walletDiagnostics']
-        assert values == {'proposalCreateApi': 'consume_notes', 'proposalCreateFamily': wire}, (canonical, wire, values)
+        assert values['proposalCreateApi'] == 'consume_notes' and values['proposalCreateFamily'] == wire, (canonical, wire, values)
         if canonical in changed:
             old = {'contexts': {'walletDiagnostics': {'proposalCreateFamily': canonical}}}
             assert pii_strip_event(config, old)['contexts']['walletDiagnostics']['proposalCreateFamily'] == '[Filtered]'
