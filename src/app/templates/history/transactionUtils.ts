@@ -364,6 +364,12 @@ export interface BridgeRowDisplay {
  */
 export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  // Agglayer stores a bridge network ID separately from the EVM chain ID in its saved route.
+  const destinationChainId =
+    entry.bridgeProvider === 'agglayer'
+      ? (entry.bridgeAgglayerRoute?.chainId ?? DEFAULT_CHAIN_ID)
+      : (entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID);
+  const network = getChain(destinationChainId)?.name ?? String(destinationChainId);
   if (entry.bridgeProvider === 'usdcx') {
     return {
       inSymbol,
@@ -372,7 +378,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
       providerLabel: 'Circle xReserve',
-      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      network,
       status: bridgeStatusOf(entry)
     };
   }
@@ -390,7 +396,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     outLabel,
     outAmount,
     providerLabel,
-    network: 'Sepolia',
+    network,
     status: bridgeStatusOf(entry)
   };
 };
