@@ -1,0 +1,30 @@
+name: Featured text contrast regression
+on:
+  push:
+    branches: [ci/1982-contrast-red]
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 7d7a287be411afbe02fc848afb697964ad7f2c7d
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - run: npx playwright install --with-deps chromium
+      - name: Prove contrast failure
+        shell: bash
+        run: |
+          set +e
+          yarn playwright test --config playwright.contrast-proof.config.ts 2>&1 | tee "$RUNNER_TEMP/contrast.log"
+          status=${PIPESTATUS[0]}
+          test "$status" -ne 0
+          grep -q 'FEATURED_NAME_CONTRAST' "$RUNNER_TEMP/contrast.log"
+          grep -q 'toBeGreaterThanOrEqual' "$RUNNER_TEMP/contrast.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: featured-contrast-red, path: test-results/contrast-proof/, if-no-files-found: error }
