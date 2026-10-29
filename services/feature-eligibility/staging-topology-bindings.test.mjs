@@ -58,3 +58,15 @@ test('binding inventory rejects duplicated target-worker namespaces independentl
   values[0].bindings.push({ ...binding, name: 'DUPLICATE' });
   assert.equal(validate(values, expected), false);
 });
+
+test('binding inventory rejects an external service reference to the target worker', () => {
+  const values = scripts();
+  values[1].bindings.push({ name: 'SERVICE', type: 'service', service: target });
+  assert.equal(validate(values, expected), false);
+});
+
+test('binding inventory rejects an ambiguous service binding', () => {
+  const values = scripts();
+  values[1].bindings.push({ name: 'SERVICE', type: 'service' });
+  assert.equal(validate(values, expected), false);
+});
