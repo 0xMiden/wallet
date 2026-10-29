@@ -16,6 +16,8 @@ export function validateTopologyNamespaces(pages, expected) {
     if (page?.success !== true || !Array.isArray(page.errors) || page.errors.length || !Array.isArray(page.result) ||
         !info || info.page !== index + 1 || info.per_page !== 1000 || info.total_pages !== pages.length ||
         info.count !== page.result.length || !Number.isSafeInteger(info.total_count) || info.total_count < 0 ||
+        info.total_pages !== Math.max(1, Math.ceil(info.total_count / 1000)) ||
+        info.count !== Math.min(1000, info.total_count - index * 1000) ||
         (expectedTotal !== undefined && expectedTotal !== info.total_count)) return false;
     expectedTotal = info.total_count;
     total += page.result.length;
