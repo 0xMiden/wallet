@@ -38,6 +38,41 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(failure)).toEqual({});
   });
 
+  it('accepts only the fixed client roles at client construction', () => {
+    for (const clientRole of ['primary', 'realm_reader']) {
+      const failure = new Error('client creation failed');
+      annotateCrash(failure, { operation: 'sdk_initialize', stage: 'client_create', clientRole });
+      expect(snapshotCrashDiagnostics(failure)).toMatchObject({ clientRole });
+    }
+    const invalid = new Error('client creation failed');
+    annotateCrash(invalid, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      clientRole: 'client /private/0xfeed'
+    });
+    expect(snapshotCrashDiagnostics(invalid)).toEqual({ operation: 'sdk_initialize', stage: 'client_create' });
+    const wrongStage = new Error('client creation failed');
+    annotateCrash(wrongStage, { operation: 'sdk_initialize', stage: 'mock_create', clientRole: 'primary' });
+    expect(snapshotCrashDiagnostics(wrongStage)).toEqual({ operation: 'sdk_initialize', stage: 'mock_create' });
+  });
+
+  it('annotates a DOMException at the fixed client construction boundary', () => {
+    const failure = new DOMException('database path /private/0xfeed and balance 12.5', 'UnknownError');
+    annotateCrash(failure, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(JSON.stringify(snapshotCrashDiagnostics(failure))).not.toMatch(/private|0xfeed|12\.5/);
+  });
+
   it('retains a coherent storage pair on the exact frozen Error', () => {
     const failure = Object.freeze(new Error('cursor request failed'));
     annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
