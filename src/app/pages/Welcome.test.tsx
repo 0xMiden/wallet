@@ -65,7 +65,7 @@ jest.mock('app/templates/OnboardingNetwork', () => ({
     showWhilePreparing
   }: {
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
-    requireInviteOnly: boolean;
+    requireInviteOnly?: boolean;
     showWhilePreparing: boolean;
   }) => {
     mockNetworkPolicy({ requireInviteOnly, showWhilePreparing });
@@ -565,21 +565,25 @@ afterEach(() => {
 // ===========================================================================
 
 describe('Welcome network policy', () => {
-  it('shows code entry at once in production', async () => {
+  it('delegates launch policy and keeps Welcome visible only without a route hash', async () => {
     await renderWelcome();
-    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: true, showWhilePreparing: true });
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: false });
   });
 
   it('keeps the configured launch policy in E2E builds', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
     await renderWelcome();
-    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: false, showWhilePreparing: true });
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
   });
 
   it('keeps an explicit developer network choice', async () => {
     mockDeveloperChoice = true;
     await renderWelcome();
-    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: false, showWhilePreparing: true });
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
   });
 
   it('recovery skips the test-network notice while the host requires mainnet', async () => {

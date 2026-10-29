@@ -392,3 +392,41 @@ it('shows the invite welcome during preparation and blocks later steps until mai
   await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
   expect(screen.getByTestId('flow').parentElement).not.toHaveClass('pointer-events-none');
 });
+
+it('covers hash-less Welcome after preparation fails and keeps it covered through Retry', async () => {
+  let finishRetry!: () => void;
+  mockApply
+    .mockRejectedValueOnce(new Error('Storage unavailable'))
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishRetry = resolve;
+        })
+    );
+  render(
+    <OnboardingNetwork showWhilePreparing>
+      {content}
+    </OnboardingNetwork>
+  );
+
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointSaveFailed');
+  const flow = screen.getByTestId('flow');
+  expect(flow.parentElement).toHaveClass('pointer-events-none');
+  expect(flow).toHaveAttribute('inert');
+
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+  await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(flow.parentElement).toHaveClass('pointer-events-none');
+  expect(flow).toHaveAttribute('inert');
+
+  await act(async () => finishRetry());
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  expect(flow.parentElement).not.toHaveClass('pointer-events-none');
+  expect(flow).not.toHaveAttribute('inert');
+});
