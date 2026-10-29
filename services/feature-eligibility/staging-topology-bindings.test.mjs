@@ -5,7 +5,7 @@ import * as topology from './staging-topology-namespaces.mjs';
 const validate = topology.validateTopologyBindings ?? (() => false);
 const target = 'miden-elig-topology-123-1';
 const ownedId = '00000000000000000000000000000001';
-const expected = { script: target, namespaceIds: [ownedId], scripts: [target, 'other-worker'] };
+const expected = { script: target, namespaceIds: [ownedId], namespaceClasses: { [ownedId]: 'EligibilityGuard' }, scripts: [target, 'other-worker'] };
 const binding = {
   name: 'GUARD',
   type: 'durable_object_namespace',

@@ -72,6 +72,10 @@ export function validateTopologyBindings(scripts, expected) {
     !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
     !Array.isArray(expected.scripts) ||
     !Array.isArray(expected.namespaceIds) ||
+    !expected.namespaceClasses || typeof expected.namespaceClasses !== 'object' || Array.isArray(expected.namespaceClasses) ||
+    Object.keys(expected.namespaceClasses).length !== expected.namespaceIds.length ||
+    !expected.namespaceIds.every(id => Object.hasOwn(expected.namespaceClasses, id) && CLASSES.includes(expected.namespaceClasses[id])) ||
+    new Set(Object.values(expected.namespaceClasses)).size !== expected.namespaceIds.length ||
     expected.scripts.length !== scripts.length ||
     expected.scripts.length < 1 ||
     new Set(expected.scripts).size !== expected.scripts.length ||
@@ -116,6 +120,7 @@ export function validateTopologyBindings(scripts, expected) {
       if (script.id !== expected.script && targetBinding) return false;
       if (script.id === expected.script) {
         if (!owned.has(entry.namespace_id) || seenOwned.has(entry.namespace_id)) return false;
+        if (entry.class_name !== expected.namespaceClasses[entry.namespace_id]) return false;
         if (entry.script_name !== undefined && entry.script_name !== expected.script) return false;
         seenOwned.add(entry.namespace_id);
       }
@@ -187,7 +192,7 @@ export async function collectTopologyScriptInventory(api) {
   }
 }
 
-export async function collectTopologyNamespaces(api, expected) {
+export async function collectTopologyNamespaceRecords(api, expected) {
   try {
     const scan = async () => {
       const pages = [];
@@ -209,10 +214,15 @@ export async function collectTopologyNamespaces(api, expected) {
     if (first === null) return null;
     const second = await scan();
     if (second === null || JSON.stringify(first) !== JSON.stringify(second)) return null;
-    return first.filter(entry => entry.script === expected.script).map(entry => entry.id);
+    return first.filter(entry => entry.script === expected.script).map(({ id, className }) => ({ id, className }));
   } catch {
     return null;
   }
+}
+
+export async function collectTopologyNamespaces(api, expected) {
+  const records = await collectTopologyNamespaceRecords(api, expected);
+  return records === null ? null : records.map(entry => entry.id);
 }
 
 // Only closed binding metadata leaves this function; this is not an account or deployment ownership check.
@@ -275,6 +285,27 @@ export async function collectTopologySettings(api, ids) {
     if (first === null) return null;
     const second = await scan();
     return second !== null && JSON.stringify(first) === JSON.stringify(second) ? first : null;
+  } catch {
+    return null;
+  }
+}
+
+// This observation is not atomic and does not authorize cleanup or establish account identity.
+export async function observeTopologyRelationships(api, expected) {
+  try {
+    const scripts = await collectTopologyScriptInventory(api);
+    if (scripts === null || !scripts.includes(expected?.script)) return null;
+    const records = await collectTopologyNamespaceRecords(api, expected);
+    if (records === null) return null;
+    const settings = await collectTopologySettings(api, scripts);
+    if (settings === null) return null;
+    const namespaceIds = records.map(record => record.id);
+    const namespaceClasses = Object.fromEntries(records.map(record => [record.id, record.className]));
+    if (!validateTopologyBindings(settings, { script: expected.script, scripts, namespaceIds, namespaceClasses })) return null;
+    const finalRecords = await collectTopologyNamespaceRecords(api, expected);
+    const finalScripts = await collectTopologyScriptInventory(api);
+    if (JSON.stringify(records) !== JSON.stringify(finalRecords) || JSON.stringify(scripts) !== JSON.stringify(finalScripts)) return null;
+    return { status: 'observed' };
   } catch {
     return null;
   }
