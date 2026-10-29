@@ -284,8 +284,11 @@ async function prepare(password, includePrivate) {
   const filePassword = crypto.randomUUID();
   progress('external-file-export');
   const content = await Vault.exportRecoveryData(filePassword, password);
+  progress('external-file-export-returned');
   check('encryptedFileBounded', new TextEncoder().encode(content).length <= RECOVERY_DATA_FILE_MAX_BYTES && !content.includes(syntheticId) && !content.includes(attemptId));
+  progress('external-file-ciphertext-verified');
   const opened = await decryptRecoveryDataFile(content, filePassword);
+  progress('external-file-decrypt-returned');
   check('correctPasswordRoundTrip', (await digest(new TextEncoder().encode(JSON.stringify(opened)))) === (await digest(new TextEncoder().encode(JSON.stringify(prior)))));
   progress('external-file-wrong-password');
   let wrongPasswordRefused = false;
