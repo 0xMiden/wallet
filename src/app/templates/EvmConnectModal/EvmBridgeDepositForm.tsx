@@ -17,6 +17,7 @@ import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { evmQuote } from 'lib/prices/evm';
 import { useWalletStore } from 'lib/store';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
@@ -33,6 +34,7 @@ interface EvmBridgeDepositFormProps {
   isValidAmount: boolean;
   error?: string;
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   evmAddress: string;
   onAmountChange: (value: string) => void;
   onSelectToken: () => void;
@@ -52,6 +54,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   isValidAmount,
   error,
   errorId,
+  errorDiagnostics,
   evmAddress,
   onAmountChange,
   onSelectToken,
@@ -122,6 +125,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
         invalid={!!amountError}
         error={amountError}
         errorId={amountErrorId}
+        errorDiagnostics={amountErrorId === 'raw_bridge_balance_failed' ? errorDiagnostics : undefined}
         accent="receive"
         showDivider={false}
         data-testid="send-amount-input"

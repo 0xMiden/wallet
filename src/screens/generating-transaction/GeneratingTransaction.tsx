@@ -33,6 +33,7 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, Redirect } from 'lib/woozie';
@@ -114,7 +115,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const { signTransaction } = useMidenContext();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<{ text: string; id: UserErrorId } | null>(null);
+  const [retryError, setRetryError] = useState<{
+    text: string;
+    id: UserErrorId;
+    transactionId: string;
+    diagnostics?: Extract<UiEvidenceInput, { kind: 'transaction_retry' }>;
+  } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
@@ -246,13 +252,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         requestSWTransactionProcessing();
       } catch (error) {
         if (error instanceof ClaimFeeRefusedError) {
-          setRetryError({ text: t('insufficientFeeAsset'), id: 'insufficientFeeAsset' });
+          setRetryError({ text: t('insufficientFeeAsset'), id: 'insufficientFeeAsset', transactionId: active.id });
         } else {
           console.error('[GeneratingTransaction] Failed to retry transaction:', error);
           setRetryError(
             error instanceof Error
-              ? { text: error.message, id: 'raw_transaction_retry_failed' }
-              : { text: t('smthWentWrong'), id: 'smthWentWrong' }
+              ? {
+                  text: error.message,
+                  id: 'raw_transaction_retry_failed',
+                  transactionId: active.id,
+                  diagnostics: {
+                    kind: 'transaction_retry',
+                    retryNoticeOrigin: 'status_screen',
+                    pendingRetryReason: snapshotPendingRetry(error) ?? 'unexpected'
+                  }
+                }
+              : { text: t('smthWentWrong'), id: 'smthWentWrong', transactionId: active.id }
           );
         }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
@@ -374,7 +389,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
             canRetry={canRetry}
             isRetrying={isRetrying}
             retryError={retryError?.text}
-            retryErrorId={retryError?.id}
+            retryErrorId={retryError && retryError.transactionId === active?.id ? retryError.id : null}
+            retryErrorDiagnostics={
+              retryError && retryError.transactionId === active?.id ? retryError.diagnostics : undefined
+            }
           />
         )}
       </div>
@@ -399,10 +417,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   canRetry = false,
   isRetrying = false,
   retryError,
-  retryErrorId
+  retryErrorId,
+  retryErrorDiagnostics
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
-  useUserVisibleError(!showSuccessReceipt && retryError ? retryErrorId : null, 'inline');
+  useUserVisibleError(
+    !showSuccessReceipt && retryError ? retryErrorId : null,
+    'inline',
+    undefined,
+    retryErrorDiagnostics
+  );
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);

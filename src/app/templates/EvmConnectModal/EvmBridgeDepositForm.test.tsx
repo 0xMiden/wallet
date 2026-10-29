@@ -122,6 +122,32 @@ describe('user-visible bridge amount errors', () => {
     jest.useRealTimers();
   });
 
+  it('forwards owned balance evidence only while that balance failure is displayed', async () => {
+    const errorDiagnostics: {
+      kind: 'bridge_balance_read';
+      bridgeBalanceBranch: 'circle_usdc';
+      bridgeBalanceStage: 'request';
+    } = {
+      kind: 'bridge_balance_read',
+      bridgeBalanceBranch: 'circle_usdc',
+      bridgeBalanceStage: 'request'
+    };
+    const evidenceProps = { errorDiagnostics };
+    const view = render(<EvmBridgeDepositForm {...props} {...evidenceProps} error="private balance failure" />);
+    expect(screen.getByText('private balance failure')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_balance_failed', 'field', errorDiagnostics]]);
+    mockReportUserVisibleError.mockClear();
+    view.rerender(<EvmBridgeDepositForm {...props} {...evidenceProps} error="amountMustBeLessThanBalance" />);
+    expect(screen.getByText('Visible balance limit')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['amountMustBeLessThanBalance', 'field']]);
+  });
+
   it('renders the raw balance-read text even when translation would replace it', () => {
     const raw = 'private balance 42 at https://synthetic.invalid/0xabc';
     mockRawTranslationTrap = true;
