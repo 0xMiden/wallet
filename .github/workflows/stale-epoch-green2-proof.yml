@@ -1,0 +1,38 @@
+name: Storage recovery stale epoch green proof v2
+on:
+  push:
+    branches: [ci/1948-stale-epoch-green2]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check frozen source
+        run: |
+          git checkout --detach dae81d7cabe9479a20beb329b5fe4a8a973b80e4
+          test "$(git rev-parse HEAD)" = dae81d7cabe9479a20beb329b5fe4a8a973b80e4
+      - uses: ./.github/actions/yarn-install
+      - name: Focused storage and balance tests
+        run: >-
+          yarn test --runInBand --runTestsByPath
+          src/lib/store/index.ready-balance-read.test.ts
+          src/lib/store/utils/updateBalancesFromSyncData.test.ts
+          src/lib/store/hooks/useIntercomSync.test.ts
+          src/lib/miden/back/sync-manager.test.ts
+      - name: Lint changed code and tests
+        run: >-
+          yarn eslint --max-warnings 0
+          src/lib/shared/types.ts src/lib/miden/back/sync-manager.ts
+          src/lib/miden/back/sync-manager.test.ts src/lib/store/index.ts
+          src/lib/store/index.ready-balance-read.test.ts
+          src/lib/store/utils/updateBalancesFromSyncData.ts
+          src/lib/store/utils/updateBalancesFromSyncData.test.ts
+          src/lib/store/hooks/useIntercomSync.ts src/lib/store/hooks/useIntercomSync.test.ts
