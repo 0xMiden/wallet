@@ -36,6 +36,8 @@ function provider({
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: account } };
     if (path === '/workers/scripts?page=1&per_page=100') return page(scripts);
+    if (path === '/workers/scripts/other-worker/settings')
+      return { success: true, errors: [], result: { bindings: [] } };
     if (path === '/workers/scripts/miden-elig-topology-12345-1/settings') return target;
     if (path === '/workers/durable_objects/namespaces?page=1&per_page=1000')
       return {

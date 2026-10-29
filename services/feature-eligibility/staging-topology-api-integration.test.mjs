@@ -31,6 +31,8 @@ function fixture({ collision = false } = {}) {
       return Response.json(page([{ id: 'other-worker' }], 100));
     if (parsed.pathname === `${base}/workers/durable_objects/namespaces` && parsed.search === '?page=1&per_page=1000')
       return Response.json(page([], 1000));
+    if (parsed.pathname === `${base}/workers/scripts/other-worker/settings`)
+      return Response.json({ success: true, errors: [], result: { bindings: [] } });
     if (parsed.pathname === `${base}/workers/scripts/miden-elig-topology-12345-1/settings`)
       return collision
         ? Response.json({ success: true, errors: [] })
@@ -55,7 +57,7 @@ test('read-only topology preflight composes bounded provider reads without deplo
   const result = await prepareTopologyInventory(options);
   assert.equal(result?.status, 'inventory_observed');
   assert.equal(result?.deploymentAuthorized, false);
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 10);
   assert.ok(calls.every(call => call.method === 'GET'));
   assert.equal(JSON.stringify(result).includes(token), false);
 });

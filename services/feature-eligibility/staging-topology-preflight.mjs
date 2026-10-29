@@ -1,6 +1,7 @@
 import { buildTopologyManifest, verifyTopologyManifest } from './staging-topology-manifest.mjs';
 import {
   collectTopologyScriptInventory,
+  collectTopologySettings,
   observeTopologyNamespaceAbsence,
   observeTopologyRelationships
 } from './staging-topology-namespaces.mjs';
@@ -124,6 +125,17 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       inventory: scripts.map(id => ({ id }))
     });
     if (manifest === null || !(await observeTopologyNamespaceAbsence(api, manifest.scriptName))) return null;
+    const settings = await collectTopologySettings(api, scripts);
+    if (settings === null) return null;
+    const rateIds = new Set(manifest.config.ratelimits.map(rate => rate.namespace_id));
+    if (
+      settings.some(script =>
+        script.bindings.some(binding => binding.type === 'ratelimit' && rateIds.has(binding.namespace_id))
+      )
+    )
+      return null;
+    const finalScripts = await collectTopologyScriptInventory(api);
+    if (!finalScripts || JSON.stringify(finalScripts) !== JSON.stringify(scripts)) return null;
     const target = await api(`/workers/scripts/${manifest.scriptName}/settings`);
     if (
       target?.status !== 404 ||

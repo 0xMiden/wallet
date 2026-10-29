@@ -291,6 +291,10 @@ export async function collectTopologySettings(api, ids) {
               binding[field] = entry[field];
             }
           }
+          if (entry.type === 'ratelimit') {
+            if (typeof entry.namespace_id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(entry.namespace_id)) return null;
+            binding.namespace_id = entry.namespace_id;
+          }
           bindings.push(binding);
         }
         scripts.push({ id, bindings });
