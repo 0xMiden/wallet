@@ -9,7 +9,7 @@ import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
 import { RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
-import { decryptRecoveryDataFile, RECOVERY_DATA_FILE_MAX_BYTES } from 'lib/miden/recovery/external-file';
+import { decryptRecoveryDataFile, encryptRecoveryDataFile, RECOVERY_DATA_FILE_MAX_BYTES } from 'lib/miden/recovery/external-file';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
@@ -280,48 +280,41 @@ async function prepare(password, includePrivate) {
     submitEvidence: [{ attemptId, capturedAt: 1, source: 'stage', ...evidence }]
   });
   await vault.retainTransactionRecovery(syntheticId, { requestBytes, notes: [] }, evidence, attemptId);
-  progress('external-file-baseline');
+  progress('foreign-file-baseline');
   const prior = await vault.readRecoveryJournal();
   check('priorAttemptVerified', prior?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
   const provider = getStorageProvider();
-  const before = JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS));
   const floorKey = await digest(new TextEncoder().encode('vault_recoverycontinuity'));
-  const beforeFloor = JSON.stringify((await provider.get([floorKey]))[floorKey]);
-  check('independentFloorPresent', typeof beforeFloor === 'string' && beforeFloor.length > 0);
+  const protectedKeys = [...RECOVERY_JOURNAL_KEYS, floorKey];
+  const before = JSON.stringify(await provider.get(protectedKeys));
+  const beforeDigest = await digest(new TextEncoder().encode(JSON.stringify(prior)));
+  const epoch = getStorageHealth().epoch;
   const filePassword = crypto.randomUUID();
-  progress('external-file-export');
-  const content = await Vault.exportRecoveryData(filePassword, password);
-  progress('external-file-export-returned');
-  check('encryptedFileBounded', new TextEncoder().encode(content).length <= RECOVERY_DATA_FILE_MAX_BYTES && !content.includes(syntheticId) && !content.includes(attemptId));
-  progress('external-file-ciphertext-verified');
-  const opened = await decryptRecoveryDataFile(content, filePassword);
-  progress('external-file-decrypt-returned');
-  check('correctPasswordRoundTrip', (await digest(new TextEncoder().encode(JSON.stringify(opened)))) === (await digest(new TextEncoder().encode(JSON.stringify(prior)))));
-  progress('external-file-wrong-password');
-  let wrongPasswordRefused = false;
-  try { await Vault.importRecoveryData(content, filePassword + '-wrong', getStorageHealth().epoch, password); }
-  catch (error) { wrongPasswordRefused = error instanceof Error && error.name === 'RecoveryDataFileError' && error.code === 'password'; }
-  check('wrongPasswordRefused', wrongPasswordRefused);
-  check('wrongPasswordUnchanged', JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS)) === before && getStorageHealth().status === 'healthy');
-  progress('disposable-journal-store-loss');
-  await provider.remove(RECOVERY_JOURNAL_KEYS);
-  const missing = await provider.get(RECOVERY_JOURNAL_KEYS);
-  check('onlyJournalKeysMissing', RECOVERY_JOURNAL_KEYS.every(key => missing[key] === undefined) && (await indexedDB.databases()).some(item => item.name === Repo.db.name) && (await indexedDB.databases()).some(item => item.name === sdkStore));
-  check('independentFloorSurvived', JSON.stringify((await provider.get([floorKey]))[floorKey]) === beforeFloor);
-  check('missingJournalRefused', (await vault.verifyStorageContinuity(false)) === false && getStorageHealth().status === 'unavailable');
-  const incident = getStorageHealth();
-  progress('external-file-import');
-  const imported = await Vault.importRecoveryData(content, filePassword, incident.epoch, password);
-  check('encryptedFileImported', imported.imported === true);
-  check('importDidNotResume', getStorageHealth().status === 'unavailable' && getStorageHealth().epoch === incident.epoch);
+  const foreign = { ...prior, scope: { ...prior.scope, network: prior.scope.network + '/disposable-foreign' } };
+  progress('foreign-file-encrypt');
+  const content = await encryptRecoveryDataFile(foreign, filePassword);
+  check('foreignFileEncrypted', new TextEncoder().encode(content).length <= RECOVERY_DATA_FILE_MAX_BYTES && !content.includes(syntheticId) && !content.includes(attemptId));
+  const decoded = await decryptRecoveryDataFile(content, filePassword);
+  check('foreignScopeAuthentic', decoded.scope.network === foreign.scope.network && decoded.scope.network !== prior.scope.network && decoded.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId));
+  const serviceBefore = await control('summary', {});
+  progress('foreign-file-refusal');
+  let networkRefused = false;
+  try { await Vault.importRecoveryData(content, filePassword, epoch, password); }
+  catch (error) { networkRefused = error instanceof Error && error.name === 'RecoveryDataFileError' && error.code === 'network'; }
+  check('foreignNetworkRefused', networkRefused);
+  check('healthUnchanged', getStorageHealth().status === 'healthy' && getStorageHealth().epoch === epoch);
+  check('journalAndFloorUnchanged', JSON.stringify(await provider.get(protectedKeys)) === before);
   const retained = await vault.readRecoveryJournal();
-  check('importedScopeAndEvidence', retained?.scope.network === prior.scope.network && retained.scope.walletGeneration === prior.scope.walletGeneration && retained.scope.sdkGeneration === prior.scope.sdkGeneration && retained.sequence >= prior.sequence && retained.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1));
-  progress('external-file-bounded-recovery');
-  check('boundedRecoverySucceeded', (await vault.recoverStorage()) === true && getStorageHealth().status === 'healthy');
-  const restored = await Repo.transactions.get(syntheticId);
-  check('syntheticEvidenceRestored', restored?.status === ITransactionStatus.Unconfirmed && restored.mayHaveSubmitted === true && restored.submitEvidence?.length === 1 && restored.requestBytes?.length === 3 && restored.requestBytes.every((value, index) => value === [1, 2, 3][index]));
-  const summary = await control('summary', {});
-  check('noSubmissionOrRefusal', summary.submitCalls === 0 && summary.refusedRequests === 0);
+  const retainedDigest = await digest(new TextEncoder().encode(JSON.stringify(retained)));
+  check('lastGoodEvidenceUnchanged', retainedDigest === beforeDigest && retained?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
+  await withWasmClientLock(async () => {
+    const wallet = await getMidenClient();
+    const account = await wallet.getAccount(fixture.accountId);
+    check('accountStillReadable', account !== null && account !== undefined);
+    account?.free();
+  });
+  const serviceAfter = await control('summary', {});
+  check('noForeignNetworkOrSubmission', JSON.stringify(serviceAfter) === JSON.stringify(serviceBefore) && serviceAfter.submitCalls === 0 && serviceAfter.refusedRequests === 0);
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {
