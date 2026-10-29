@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { MidenState } from 'lib/miden/types';
 import { hasExtensionRuntime, isExtension } from 'lib/platform';
@@ -91,6 +91,7 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<v
  */
 export function useIntercomSync() {
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
+  const updateRevision = useRef(0);
 
   useEffect(() => {
     // The backend broadcasts `StateUpdated` once SW init completes (see
@@ -99,10 +100,11 @@ export function useIntercomSync() {
     // that a missed broadcast or slow port setup never leaves the popup
     // permanently stuck (the failure mode in #113).
     let cancelled = false;
+    const initialRevision = updateRevision.current;
 
     (async () => {
       const state = await retryFetchState(() => cancelled);
-      if (cancelled || !state) return;
+      if (cancelled || !state || initialRevision !== updateRevision.current) return;
       syncFromBackend(state);
 
       // Rehydrate balances from the last SW sync snapshot BEFORE the app
@@ -135,6 +137,7 @@ export function useIntercomSync() {
 
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
+        updateRevision.current += 1;
         currentRefetchToken.cancelled = true;
         const token = { cancelled: false };
         currentRefetchToken = token;
