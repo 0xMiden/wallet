@@ -1,0 +1,23 @@
+name: Sidebar startup ordering verification
+on:
+  push:
+    branches: [ci/sidebar-sync-race-green-v2]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: test "$(git rev-parse HEAD^)" = d29bdfb4278d1d0a5ed179cac7d5a8f2ee514810
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - name: Verify startup synchronization tests
+        run: yarn jest --runTestsByPath src/lib/store/hooks/useIntercomSync.test.ts --maxWorkers=2
