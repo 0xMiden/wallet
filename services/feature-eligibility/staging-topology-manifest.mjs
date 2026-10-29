@@ -3,6 +3,19 @@ import { createHash } from 'node:crypto';
 const classes = ['TopologyControl', 'EligibilityGuard', 'CallerEligibilityGuard', 'RestartProof'];
 const digest = value => createHash('sha256').update(value).digest('hex');
 const encode = value => JSON.stringify(value);
+const dataRecord = (value, keys) => {
+  if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+    return null;
+  const actual = Reflect.ownKeys(value);
+  if (actual.length !== keys.length || actual.some(key => typeof key !== 'string' || !keys.includes(key))) return null;
+  const result = {};
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
+    result[key] = descriptor.value;
+  }
+  return result;
+};
 const freeze = value => {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) freeze(child);
@@ -12,11 +25,14 @@ const freeze = value => {
 };
 
 // This builds a local identity only. It neither proves inventory completeness nor authorizes a deployment.
-export function buildTopologyManifest({ identity, bundle, now, expiresAt, maxRuns, inventory } = {}) {
+export function buildTopologyManifest(options = {}) {
   try {
+    const input = dataRecord(options, ['identity', 'bundle', 'now', 'expiresAt', 'maxRuns', 'inventory']);
+    if (input === null) return null;
+    const { bundle, now, expiresAt, maxRuns, inventory } = input;
+    const identity = dataRecord(input.identity, ['repository', 'runAttempt', 'runId', 'sourceSha', 'workflowPath']);
     if (
       !identity ||
-      Object.keys(identity).sort().join(',') !== 'repository,runAttempt,runId,sourceSha,workflowPath' ||
       identity.repository !== '0xMiden/wallet' ||
       identity.workflowPath !== '.github/workflows/feature-eligibility-topology.yml' ||
       typeof identity.runId !== 'string' ||
@@ -40,7 +56,14 @@ export function buildTopologyManifest({ identity, bundle, now, expiresAt, maxRun
       return null;
     const scriptName = `miden-elig-topology-${identity.runId}-${identity.runAttempt}`;
     const seen = new Set();
-    for (const item of inventory) {
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(inventory, 'length');
+    const inventoryLength =
+      lengthDescriptor && Object.hasOwn(lengthDescriptor, 'value') ? lengthDescriptor.value : null;
+    if (!Number.isSafeInteger(inventoryLength) || inventoryLength < 0 || inventoryLength > 10000) return null;
+    for (let index = 0; index < inventoryLength; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(inventory, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
+      const item = dataRecord(descriptor.value, ['id']);
       if (
         !item ||
         typeof item.id !== 'string' ||
