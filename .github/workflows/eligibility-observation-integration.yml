@@ -1,0 +1,48 @@
+name: Eligibility topology observation integration proof
+on:
+  push:
+    branches: [ci/1894-workerd-rate-green]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: git checkout --detach 5d1a99d16f00dae5e3e8cf2cf804dfbdcbc4c6f2 && test "$(git rev-parse HEAD)" = 5d1a99d16f00dae5e3e8cf2cf804dfbdcbc4c6f2
+      - name: Verify the missing real cache scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-staging-proof","main":"../services/feature-eligibility/staging-topology-worker.mjs","compatibility_date":"2026-10-20","workers_dev":false,"vars":{"TOPOLOGY_BEARER":"synthetic-test-only-bearer","TOPOLOGY_RUN_UNTIL":"REPLACE_UNTIL","TOPOLOGY_RUN_MAX":"7"},"ratelimits":[{"name":"TOPOLOGY_CALLER_RATE","namespace_id":"900001","simple":{"limit":4,"period":60}},{"name":"TOPOLOGY_COLO_RATE","namespace_id":"900002","simple":{"limit":4,"period":10}}],"durable_objects":{"bindings":[{"name":"TOPOLOGY_CONTROL","class_name":"TopologyControl"},{"name":"RESTART_PROOF","class_name":"RestartProof"},{"name":"ELIGIBILITY_GUARD","class_name":"EligibilityGuard"},{"name":"CALLER_GUARD","class_name":"CallerEligibilityGuard"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["TopologyControl","EligibilityGuard","CallerEligibilityGuard","RestartProof"]}]}
+          JSON
+          sed -i "s/REPLACE_UNTIL/$(node -e 'console.log(Date.now()+600000)')/" proof/wrangler.jsonc
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18949 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent http://127.0.0.1:18949/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --test services/feature-eligibility/staging-topology.test.mjs services/feature-eligibility/staging-topology-run.test.mjs services/feature-eligibility/staging-topology-cache.test.mjs services/feature-eligibility/staging-topology-colo.test.mjs services/feature-eligibility/staging-topology-budget.test.mjs services/feature-eligibility/staging-topology-rate.test.mjs services/feature-eligibility/staging-topology-failure.test.mjs services/feature-eligibility/staging-topology-restart.test.mjs services/feature-eligibility/staging-topology-namespaces.test.mjs services/feature-eligibility/staging-topology-bindings.test.mjs services/feature-eligibility/staging-topology-scripts.test.mjs services/feature-eligibility/staging-topology-collect.test.mjs services/feature-eligibility/staging-topology-collect-namespaces.test.mjs services/feature-eligibility/staging-topology-settings.test.mjs services/feature-eligibility/staging-topology-observe.test.mjs services/feature-eligibility/staging-topology-manifest.test.mjs services/feature-eligibility/staging-topology-preflight.test.mjs services/feature-eligibility/staging-topology-manifest-verify.test.mjs services/feature-eligibility/staging-topology-ownership.test.mjs services/feature-eligibility/staging-topology-api.test.mjs services/feature-eligibility/staging-topology-api-integration.test.mjs services/feature-eligibility/staging-topology-workerd.test.mjs > proof/result.log 2>&1
+          cat proof/result.log
+          grep -F '# tests 107' proof/result.log
+          grep -F '# pass 107' proof/result.log
+          grep -F '# fail 0' proof/result.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eligibility-observation-integration
+          path: |
+            proof/runtime.log
+            proof/result.log
+            proof/wrangler.jsonc
