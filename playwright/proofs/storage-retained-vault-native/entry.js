@@ -114,7 +114,9 @@ async function prepare(password, includePrivate) {
     tip.free();
     await control('learn', { kind: 'early-notes' });
     const earlyTag = new sdk.NoteTag(fixture.tag);
-    try { const earlyResult = await rpc.syncNotes(fixture.block - 1, fixture.block - 1, [earlyTag]); earlyResult.free(); } finally { earlyTag.free(); }
+    progress('early-rpc-enter');
+    try { const earlyResult = await rpc.syncNotes(fixture.block - 1, fixture.block - 1, [earlyTag]); progress('early-rpc-return'); earlyResult.free(); progress('early-result-freed'); } finally { earlyTag.free(); }
+    progress('early-tag-freed');
     await control('learn', { kind: 'account' });
     const proof = await rpc.getAccountProof(id);
     proof.free();
