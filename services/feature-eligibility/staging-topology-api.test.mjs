@@ -172,3 +172,29 @@ test('content observation hashes the sole named multipart module', async () => {
     sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
   });
 });
+
+test('script observation retains independent logging and tracing switches', async () => {
+  const path = '/workers/scripts/miden-elig-topology-12345-1/script-settings';
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: {
+          observability: {
+            enabled: false,
+            logs: { enabled: true, invocation_logs: true, persist: true },
+            traces: { enabled: true, persist: false }
+          }
+        }
+      })
+  });
+  const result = await api(path);
+  assert.deepEqual(result?.result?.observability, {
+    enabled: false,
+    logs: { enabled: true, invocation_logs: true, persist: true },
+    traces: { enabled: true, persist: false }
+  });
+});
