@@ -1,0 +1,35 @@
+name: Eligibility cache scenario expected red
+on:
+  push:
+    branches: [ci/1894-topology-cache-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = a3f54008169cb594c84ea3ebdfc3ec8c8ef6c44b
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-cache.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - cache scenario proves one miss followed by an unchanged hit' result.log || exit 1
+          grep -F 'not ok 2 - cache scenario fails if the second request performs a lookup or writes' result.log || exit 1
+          grep -F 'not ok 3 - cache scenario fails when a service request does not succeed' result.log || exit 1
+          grep -F '# fail 3' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topology-cache-red
+          path: result.log
