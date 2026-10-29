@@ -47,3 +47,9 @@ test('binding inventory rejects unexpected or duplicated target-worker namespace
   duplicate[0].bindings.push({ ...binding, name: 'DUPLICATE' });
   assert.equal(validate(duplicate, expected), false);
 });
+
+test('binding inventory rejects duplicated target-worker namespaces independently', () => {
+  const values = scripts();
+  values[0].bindings.push({ ...binding, name: 'DUPLICATE' });
+  assert.equal(validate(values, expected), false);
+});
