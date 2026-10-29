@@ -1,16 +1,24 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type { RecoveryDataImportResult } from 'lib/miden/recovery/external-file';
 import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
   SerializedSpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
+import type { StorageAvailability } from 'lib/miden/storage-health';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
+  ExportRecoveryDataRequest = 'EXPORT_RECOVERY_DATA_REQUEST',
+  ExportRecoveryDataResponse = 'EXPORT_RECOVERY_DATA_RESPONSE',
+  ImportRecoveryDataRequest = 'IMPORT_RECOVERY_DATA_REQUEST',
+  ImportRecoveryDataResponse = 'IMPORT_RECOVERY_DATA_RESPONSE',
+  CancelRecoveryDataRequest = 'CANCEL_RECOVERY_DATA_REQUEST',
+  CancelRecoveryDataResponse = 'CANCEL_RECOVERY_DATA_RESPONSE',
   FinancialRecoveryRequest = 'FINANCIAL_RECOVERY_REQUEST',
   FinancialRecoveryResponse = 'FINANCIAL_RECOVERY_RESPONSE',
   ProviderReceiptRequest = 'PROVIDER_RECEIPT_REQUEST',
@@ -224,6 +232,8 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Storage health epoch that owned the balance read; absent on older snapshots. */
+  storageEpoch?: number;
   /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
   balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
   // When the service worker's last successful sync finished, so a reader can tell a
@@ -431,6 +441,7 @@ export type GuardianRecoveryAction =
 export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
 
 export interface WalletState {
+  storageAvailability?: StorageAvailability;
   seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this
@@ -981,6 +992,36 @@ export interface ProviderReceiptResponse extends WalletMessageBase {
   type: WalletMessageType.ProviderReceiptResponse;
 }
 
+export interface ExportRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportRecoveryDataRequest;
+  filePassword: string;
+  credential?: string;
+  expectedEpoch: number;
+  operationId: string;
+}
+export interface ExportRecoveryDataResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportRecoveryDataResponse;
+  content: string;
+}
+export interface ImportRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportRecoveryDataRequest;
+  content: string;
+  filePassword: string;
+  credential?: string;
+  expectedEpoch: number;
+  operationId: string;
+}
+export interface ImportRecoveryDataResponse extends WalletMessageBase, RecoveryDataImportResult {
+  type: WalletMessageType.ImportRecoveryDataResponse;
+}
+export interface CancelRecoveryDataRequest extends WalletMessageBase {
+  type: WalletMessageType.CancelRecoveryDataRequest;
+  operationId: string;
+}
+export interface CancelRecoveryDataResponse extends WalletMessageBase {
+  type: WalletMessageType.CancelRecoveryDataResponse;
+}
+
 export interface StorageRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.StorageRecoveryRequest;
   expectedEpoch: number;
@@ -1405,6 +1446,9 @@ export type WalletRequest =
   | FinancialRecoveryRequest
   | ProviderReceiptRequest
   | StorageRecoveryRequest
+  | ExportRecoveryDataRequest
+  | ImportRecoveryDataRequest
+  | CancelRecoveryDataRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
@@ -1486,6 +1530,9 @@ export type WalletResponse =
   | FinancialRecoveryResponse
   | ProviderReceiptResponse
   | StorageRecoveryResponse
+  | ExportRecoveryDataResponse
+  | ImportRecoveryDataResponse
+  | CancelRecoveryDataResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse

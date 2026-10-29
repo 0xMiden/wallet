@@ -8170,5 +8170,171 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "Зберігання в гаманці недоступне",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Дані вашого гаманця не вдалося перевірити. Операції з балансами та гаманцем призупинено до перевірки сховища.",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "Надіслана транзакція все ще може завершитися. Перевірте її статус, перш ніж спробувати ще раз.",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "Перевірте сховище",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "Відновлення на основі даних відновлення",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "Перевірте подані транзакції",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "Перевірка збережених даних гаманця...",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "Перевірка не вдалося завершити. Операції з гаманцем залишаються призупиненими.",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "Зберігання не було перевірено. Операції з гаманцем залишаються призупиненими.",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "Перевірені рахунки: $verifiedAccounts$ із $expectedAccounts$. Перевірені вхідні дані: $verifiedInputs$ із $expectedInputs$.",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "Зберегти файл даних для відновлення",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "Підготовка файлу даних для відновлення...",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "Не вдалося зберегти дані для відновлення",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "Файл даних для відновлення не вдалося доставити. Спробуйте ще раз, перш ніж покладатися на цю копію.",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "Дані для відновлення",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "збережено",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "Зберігайте цю зашифровану копію останніх перевірених даних для відновлення поза цим пристроєм і бережіть її пароль у безпеці. Вона може не містити новіші облікові записи або дані про активність.",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "Цей файл не містить ваших ключів підпису або фрази відновлення.",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "Спочатку окремо відновлюйте доступ підписувача, потім імпортуйте ці дані та перевірте стан гаманця, перш ніж повторювати транзакції.",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "Дані для відновлення",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "Експорт даних відновлення",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "Імпортувати дані відновлення",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "Експортуйте останні перевірені дані для відновлення у файл, який зберігається поза цим пристроєм. Він може не містити новіші облікові записи або дані про активність. Цей файл не містить ключів підпису або вашої фрази для відновлення. Перед імпортом окремо відновлюйте доступ підписувача.",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataChooseFile": {
+    "message": "Виберіть файл даних для відновлення",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "Очистити вибраний файл",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "Пароль до файлу відновлення",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "Пройдіть аутентифікацію за допомогою вашого захисника гаманця, щоб отримати доступ до даних для відновлення.",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "Збережені дані для відновлення",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "Імпортовані дані не відновлюють активність гаманця. Перевірте та відновите сховище гаманця, а потім узгодьте подані транзакції, перш ніж повторити спробу.",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "Пароль до файлу відновлення неправильний.",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "Це не є дійсним файлом даних для відновлення.",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "Ця версія файлу відновлення не підтримується.",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "Файл даних для відновлення перевищує обмеження за розміром.",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "Ці дані для відновлення належать до іншої мережі.",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "Ці дані для відновлення не відповідають збереженим обліковим записам гаманців.",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "Перевірені дані щодо відновлення недоступні.",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "Дані для відновлення",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "Не вдалося прочитати вибраний файл відновлення. Виберіть його ще раз і спробуйте знову.",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }

@@ -6726,6 +6726,7 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
     const file = {
       note: () => body,
       noteDetails: () => undefined,
+      inclusionProof: () => undefined,
       noteId: () => ({ toString: () => '0x' + noteId, free: () => {} }),
       nullifier: () => '0x' + 'ef'.repeat(32),
       noteTag: () => undefined,
@@ -6735,7 +6736,7 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
     };
     G.__off.deserializeAcquiredNoteFile = jest.fn(() => file);
     let adopted = false;
-    let generation = 'retained-sdk';
+    let generation = Array.from(new TextEncoder().encode('retained-sdk'));
     let gate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionOptions['beforeNoteAcquisition'];
     const candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate = {
       operationId: 'offscreen-native-import',
@@ -6761,7 +6762,7 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
     );
     const settings = {
       get: jest.fn(async () => generation),
-      set: jest.fn(async (_key: string, value: string) => {
+      set: jest.fn(async (_key: string, value: number[]) => {
         generation = value;
       })
     };
