@@ -857,7 +857,9 @@ type LoadedClient = Awaited<ReturnType<typeof load>>['client'];
 
 /** Runs the apply retry's waits on fake timers, so a failed apply costs no real time (#1233). */
 async function afterApplyRetryWaits<T>(pending: Promise<T>): Promise<T> {
+  console.log('RETRY_DIAGNOSTIC timer advance begins', jest.getTimerCount());
   await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, ms) => total + ms, 0));
+  console.log('RETRY_DIAGNOSTIC timer advance ends', jest.getTimerCount());
   return pending;
 }
 
@@ -1055,10 +1057,12 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       jest.useFakeTimers();
       let writing: Promise<unknown> = Promise.resolve();
 
+      console.log('RETRY_DIAGNOSTIC eviction lock starts', _site);
       const lockError = await withWasmClientLock(async () => {
         writing = site.write(client);
         return writing;
       }).catch((caught: unknown) => caught);
+      console.log('RETRY_DIAGNOSTIC eviction lock settles', _site, jest.getTimerCount());
       // The eviction settles the lock first; the abandoned write keeps running and ends on its own.
       const abandoned = await afterApplyRetryWaits(writing.catch((caught: unknown) => caught));
 
