@@ -103,7 +103,7 @@ export function useIntercomSync() {
     const initialRevision = updateRevision.current;
 
     (async () => {
-      const state = await retryFetchState(() => cancelled);
+      const state = await retryFetchState(() => cancelled || initialRevision !== updateRevision.current);
       if (cancelled || !state || initialRevision !== updateRevision.current) return;
       syncFromBackend(state);
 
