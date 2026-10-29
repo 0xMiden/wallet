@@ -720,12 +720,16 @@ export function importFundraiserAccount(_email: string, _password: string, _mnem
 
 export function importWatchOnlyAccount(_viewKey: string) {}
 
-export function updateSettings(settings: Partial<WalletSettings>) {
-  return withUnlocked(async ({ vault }) => {
+export async function updateSettings(settings: Partial<WalletSettings>) {
+  await withUnlocked(async ({ vault }) => {
     const updatedSettings = await vault.updateSettings(settings);
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+  // A changed contacts list goes to the encrypted backup at once, after the write and outside it:
+  // the refresh merges with the server copy and uploads, and it never throws. Not awaited, so the
+  // caller's response does not wait for the network.
+  if (settings.contacts !== undefined) runBackupRefresh('contacts-changed');
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {

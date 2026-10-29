@@ -1103,13 +1103,16 @@ export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
 /**
  * The event that asks for an encrypted-backup refresh (wallet-api). Each event
  * reads only its own features: `unlock` and `foreground` read the storage index
- * and every changed feature, `address-book` the contacts, `activity-open` and
- * `guardian-adopt` the history, and `transaction-completed` uploads the history.
+ * and every changed feature, `address-book` and `contacts-changed` the contacts
+ * (the second after a local contacts write, so the change uploads at once),
+ * `activity-open` and `guardian-adopt` the history, and `transaction-completed`
+ * uploads the history.
  */
 export type BackupRefreshReason =
   | 'unlock'
   | 'foreground'
   | 'address-book'
+  | 'contacts-changed'
   | 'activity-open'
   | 'guardian-adopt'
   | 'transaction-completed';

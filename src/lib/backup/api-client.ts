@@ -141,9 +141,21 @@ export function getWalletApiBaseUrl(): string | null {
   }
 }
 
-/** The backup runs only on mainnet and only with a configured base URL. Every public entry point checks this. */
+/** True for a base URL on a loopback host: a local Worker, used for development on any network. */
+function isLoopbackBaseUrl(base: string): boolean {
+  return new URL(base).protocol === 'http:';
+}
+
+/**
+ * The backup needs a configured base URL. A deployed (https) Worker is used on
+ * mainnet only; a local Worker on a loopback host is used on every network, so
+ * a devnet or testnet build can try the backup against it. Every public entry
+ * point checks this.
+ */
 export function isWalletApiEnabled(): boolean {
-  return getWalletApiBaseUrl() !== null && getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  const base = getWalletApiBaseUrl();
+  if (base === null) return false;
+  return isLoopbackBaseUrl(base) || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
 }
 
 const HEX_64 = /^[0-9a-f]{64}$/;

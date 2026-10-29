@@ -7,6 +7,7 @@
  * | Unlock and foreground         | `GET /v1/storage`, then each changed feature | the store's Ready transition,               |
  * |                               |                                              | `useBackupForegroundRefresh`                |
  * | Address book opens            | `contacts`                                   | `AddressBook` on mount                      |
+ * | A contact is written          | `contacts`, then upload the merged list      | `Actions.updateSettings` with `contacts`    |
  * | Activity opens                | `history`, with `since`                      | `AllHistory` when its page turns active     |
  * | Guardian sync adopts a state  | `history`, with `since`; on a 304 again      | `signalGuardianStateAdopted`                |
  * |                               | after 10, 30 and 60 s, then stop             |                                             |
@@ -50,6 +51,7 @@ export function runBackupRefresh(reason: BackupRefreshReason): Promise<BackupRef
     case 'foreground':
       return refreshOnUnlock();
     case 'address-book':
+    case 'contacts-changed':
       return refreshContacts();
     case 'activity-open':
     case 'guardian-adopt':

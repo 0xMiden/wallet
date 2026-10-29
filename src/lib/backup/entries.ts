@@ -26,6 +26,8 @@
  */
 import {
   type BackupFeature,
+  type Conditional,
+  type FeatureRead,
   MAX_BATCH_ENTRIES,
   MAX_REQUEST_BODY_BYTES,
   type StoredEntry,
@@ -124,9 +126,11 @@ async function readPages(
   let etag: string | null = null;
   let after: string | null = null;
   for (let page = 0; page < MAX_READ_PAGES; page += 1) {
-    const startAfter = after;
+    const startAfter: string | null = after;
     const conditional = page === 0 ? ifNoneMatch : null;
-    const read = await withSessionToken(session, token => getFeature(token, feature, conditional, since, startAfter));
+    const read: Conditional<FeatureRead> = await withSessionToken(session, token =>
+      getFeature(token, feature, conditional, since, startAfter)
+    );
     if (read === null) return null;
     etag ??= read.etag;
     entries.push(...read.entries);
