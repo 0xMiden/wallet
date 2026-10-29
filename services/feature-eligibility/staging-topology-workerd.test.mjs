@@ -9,3 +9,12 @@ test('isolated workerd cache scenario proves the real service miss and hit', asy
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'cache_reuse', status: 'passed' });
 });
+
+test('isolated workerd keeps two colo caches separate', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/colo_isolation', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'colo_isolation', status: 'passed' });
+});
