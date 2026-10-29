@@ -47,12 +47,15 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
     }
     try {
       const admission = await storage.transaction(async transaction => {
-        const current = await transaction.get('run') ?? { count: 0, active: false };
+        const current = await transaction.get('run') ?? { count: 0, active: false, expiresAt, maxRuns };
         const time = now();
         if (!Number.isSafeInteger(time) || time >= expiresAt || expiresAt - time > 900_000) return 'expired';
-        if (!Number.isSafeInteger(current.count) || current.count < 0 || typeof current.active !== 'boolean') return 'invalid';
+        if (
+          !Number.isSafeInteger(current.count) || current.count < 0 || typeof current.active !== 'boolean' ||
+          current.expiresAt !== expiresAt || current.maxRuns !== maxRuns
+        ) return 'invalid';
         if (current.active || current.count >= maxRuns) return 'limited';
-        await transaction.put('run', { count: current.count + 1, active: true });
+        await transaction.put('run', { ...current, count: current.count + 1, active: true });
         return 'accepted';
       });
       if (admission === 'limited') return reply(429, { error: 'limited' });
