@@ -52,3 +52,12 @@ test('topology manifest independently rejects accessor-backed inventory', () => 
   Object.defineProperty(item, 'id', { enumerable: true, get: () => 'worker' });
   assert.equal(build({ ...options(), inventory: [item] }), null);
 });
+
+test('topology manifest rejects accessor-backed options and inventory entries', () => {
+  const opts = options();
+  Object.defineProperty(opts, 'maxRuns', { enumerable: true, get: () => 10 });
+  assert.equal(build(opts), null);
+  const entries = [{ id: 'worker' }];
+  Object.defineProperty(entries, 0, { enumerable: true, get: () => ({ id: 'worker' }) });
+  assert.equal(build({ ...options(), inventory: entries }), null);
+});
