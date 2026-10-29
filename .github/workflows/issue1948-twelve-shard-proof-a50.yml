@@ -1,0 +1,175 @@
+name: Issue 1948 twelve shard coverage proof a50
+on:
+  push:
+    branches: [ci/1948-twelve-shards-a50]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a50c133c95399855e1cd3950ac92a1832462ccee
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frozen source
+        run: test "$(git rev-parse HEAD)" = a50c133c95399855e1cd3950ac92a1832462ccee
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - name: Verify disjoint test manifest union
+        env:
+          JEST_COVERAGE_SHARD: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p shard-manifest
+          node node_modules/jest/bin/jest.js --listTests --json --runInBand > shard-manifest/all.json
+          for shard in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            node node_modules/jest/bin/jest.js --listTests --json --runInBand --shard="$shard/12" > "shard-manifest/$shard.json"
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('shard-manifest')
+          all_files = json.loads((root / 'all.json').read_text())
+          shards = [json.loads((root / f'{i}.json').read_text()) for i in range(1, 13)]
+          union = [file for shard in shards for file in shard]
+          assert all_files and all(shards), 'empty full suite or shard'
+          assert len(all_files) == len(set(all_files)), 'duplicate in full suite'
+          assert len(union) == len(set(union)), 'duplicate between shards'
+          assert set(union) == set(all_files), 'shard union differs from full suite'
+          print('Full test files:', len(all_files), 'shard file counts:', [len(x) for x in shards])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue1948-six-shard-manifests
+          path: shard-manifest
+          if-no-files-found: error
+  coverage:
+    name: Coverage shard ${{ matrix.shard }}/12
+    needs: manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a50c133c95399855e1cd3950ac92a1832462ccee
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frozen source
+        run: test "$(git rev-parse HEAD)" = a50c133c95399855e1cd3950ac92a1832462ccee
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue1948-six-shard-manifests
+          path: shard-manifest
+      - name: Run unchanged coverage shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          yarn test:coverage --shard="$SHARD/12" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+      - name: Verify executed suite manifest
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          expected = json.loads(Path('shard-manifest', os.environ['SHARD'] + '.json').read_text())
+          result = json.loads(Path('coverage/jest-results.json').read_text())
+          executed = [suite['name'] for suite in result['testResults']]
+          assert executed and result['numTotalTests'] > 0, 'no tests executed'
+          assert len(executed) == len(set(executed)), 'duplicate suite results'
+          assert set(executed) == set(expected), 'executed suites differ from verified shard manifest'
+          print('Matched suites:', len(executed), 'tests:', result['numTotalTests'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1948-six-coverage-shard-${{ matrix.shard }}
+          path: |
+            coverage/coverage-final.json
+            coverage/jest-results.json
+          if-no-files-found: warn
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: [manifest, coverage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check manifest and shards
+        env:
+          MANIFEST_RESULT: ${{ needs.manifest.result }}
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: test "$MANIFEST_RESULT" = success && test "$SHARDS_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          ref: a50c133c95399855e1cd3950ac92a1832462ccee
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install coverage reporters
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: issue1948-six-coverage-shard-*
+          path: coverage-shards
+      - name: Merge all shards and enforce unchanged 95 percent gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: |
+          set -euo pipefail
+          maps=()
+          for shard in 1 2 3 4 5 6 7 8 9 10 11 12; do maps+=("coverage-shards/issue1948-six-coverage-shard-$shard/coverage-final.json"); done
+          node scripts/merge-jest-coverage.mjs "${maps[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1948-six-coverage-merged
+          path: coverage/coverage-summary.json
+          if-no-files-found: warn
