@@ -3,6 +3,9 @@
 ## 1.17.9 (TBD)
 
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
+- [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
+- [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
@@ -25,6 +28,7 @@
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
 - [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
+- [FIX][all] Buy GameCoin from the new sale script with an explicit USDCx payment and Guardian fee authentication; select eligible offers by price and amount, and exclude the buyer's own sales.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.

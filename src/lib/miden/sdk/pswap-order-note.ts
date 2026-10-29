@@ -7,6 +7,7 @@ import {
   NoteScript,
   NoteTag,
   type FetchedNote,
+  type NoteInclusionProof,
   type RpcClient
 } from '@miden-sdk/miden-sdk/lazy';
 
@@ -15,6 +16,9 @@ import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
 import { walletAccountIdToSdk } from './helpers';
+
+/** The GameCoin sale script requires an explicit payment from each buyer. */
+export const GC_SALE_SCRIPT_ROOT = '0xfe5c6de19f05ae3c77227128bcf15180fc252b94429a3b030967126077e1db2a';
 
 // Per node read. The cancel-request build makes two of them inside its offscreen op, whose deadline allows for both.
 const PSWAP_ORDER_NOTE_READ_TIMEOUT_MS = 5_000;
@@ -91,15 +95,20 @@ function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>
 }
 
 /** The PSWAP fields of `note`, a PSWAP note under `noteId` of the script's shape; undefined for any other note. */
-export function pswapFieldsOf(note: Note, noteId: string): PswapFields | undefined {
+export function pswapFieldsOf(
+  note: Note,
+  noteId: string,
+  scriptRoot: string = NoteScript.pswap().root().toHex()
+): PswapFields | undefined {
   if (note.id().toString() !== noteId) return undefined;
-  if (note.script().root().toHex() !== NoteScript.pswap().root().toHex()) return undefined;
+  if (note.script().root().toHex() !== scriptRoot) return undefined;
   const items = note.recipient().storage().items();
   const serial = note.recipient().serialNum().toFelts();
   const [asset, ...otherAssets] = note.assets().fungibleAssets();
   const [requestedSuffix, requestedPrefix] = [items[0], items[1]];
   const [creatorSuffix, creatorPrefix] = [items[5], items[6]];
   if (items.length !== 7 || serial.length !== 4 || !asset || otherAssets.length > 0) return undefined;
+  if (note.assets().nonFungibleAssets().length > 0) return undefined;
   if (!creatorSuffix || !creatorPrefix || !requestedSuffix || !requestedPrefix) return undefined;
   const storage = items.map(item => item.asInt());
   let creator: string;
@@ -156,7 +165,7 @@ export async function readPswapOrderNote(noteId: string, creatorAccountId: strin
 }
 
 export type PublicPswapNoteRead =
-  | { kind: 'open'; note: Note; fields: PswapFields; block: number }
+  | { kind: 'open'; note: Note; fields: PswapFields; block: number; inclusionProof: NoteInclusionProof }
   | { kind: 'spent' }
   | { kind: 'absent' };
 
@@ -169,8 +178,11 @@ const publicPswapNoteReads = new Map<string, Promise<PublicPswapNoteRead>>();
  * `readPswapOrderNote`, it reads on RpcClients of its own and takes no WASM client lock: the note is somebody else's
  * sale, which this client never tracked.
  */
-export function readPublicPswapNote(noteId: string): Promise<PublicPswapNoteRead> {
-  const slot = `${getEffectiveRpcUrl()} ${noteId}`;
+export function readPublicPswapNote(
+  noteId: string,
+  scriptRoot: string = NoteScript.pswap().root().toHex()
+): Promise<PublicPswapNoteRead> {
+  const slot = `${getEffectiveRpcUrl()} ${noteId} ${scriptRoot}`;
   const existing = publicPswapNoteReads.get(slot);
   if (existing) return existing;
   const pending = (async (): Promise<PublicPswapNoteRead> => {
@@ -178,11 +190,13 @@ export function readPublicPswapNote(noteId: string): Promise<PublicPswapNoteRead
     const fetched = await read(key, 'public PSWAP note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
     const entry = fetchedEntry(fetched, noteId);
     const note = entry?.note;
-    const fields = entry && note ? pswapFieldsOf(note, noteId) : undefined;
+    const fields = entry && note ? pswapFieldsOf(note, noteId, scriptRoot) : undefined;
     if (!entry || !note || !fields) return { kind: 'absent' };
     const block = entry.inclusionProof.location().blockNum();
     const spentAt = await spendOf(key, note, block, 'public PSWAP note nullifier');
-    return spentAt === undefined ? { kind: 'open', note, fields, block } : { kind: 'spent' };
+    return spentAt === undefined
+      ? { kind: 'open', note, fields, block, inclusionProof: entry.inclusionProof }
+      : { kind: 'spent' };
   })();
   publicPswapNoteReads.set(slot, pending);
   const settled = () => {
