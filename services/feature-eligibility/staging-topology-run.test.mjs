@@ -44,12 +44,12 @@ test('expiry refuses the scenario without invoking it', async () => {
 test('an overlapping request is refused while a scenario is active', async () => {
   let release;
   let entered;
-  const started = new Promise(resolve => { entered = resolve; });
+  const started = new Promise(resolve => { entered = () => resolve(true); });
   const held = new Promise(resolve => { release = resolve; });
   let calls = 0;
   const handle = createRunController({ storage: storage(), now: () => 100, expiresAt: 1000, maxRuns: 2, runScenario: async () => { calls++; entered(); await held; return 'passed'; } });
   const first = handle(input());
-  await started;
+  assert.equal(await Promise.race([started, new Promise(resolve => setTimeout(() => resolve(false), 50))]), true);
   assert.equal((await handle(input())).status, 429);
   release();
   assert.equal((await first).status, 200);
