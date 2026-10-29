@@ -1,0 +1,53 @@
+name: Token history visual proof
+on:
+  push:
+    branches: [ci/token-history-visual-2050]
+permissions:
+  contents: read
+jobs:
+  visual:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - revision: before
+            target: 973141b6d67679e206949b37c2ddba43cbfbd326
+          - revision: after
+            target: d2f04d0f5f1146edc965a31fa9c34dbe3000bbe3
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare source-bound fixture
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cp -R visual-proof "$RUNNER_TEMP/visual-proof"
+          git checkout --detach "$TARGET"
+          test "$(git rev-parse HEAD)" = "$TARGET"
+          cp "$RUNNER_TEMP/visual-proof/price-history-visual.spec.ts" playwright/tests/price-history-visual.spec.ts
+          node "$RUNNER_TEMP/visual-proof/configure.mjs"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Start wallet fixture
+        uses: ./.github/actions/start-eligibility-fixture
+      - name: Build extension
+        run: yarn build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          DISABLE_TS_CHECKER: 'true'
+      - run: npx playwright install --with-deps chromium
+      - name: Capture actual wallet page
+        run: xvfb-run -a yarn test:e2e playwright/tests/price-history-visual.spec.ts --retries=0
+        env:
+          PRICE_VISUAL_REVISION: ${{ matrix.revision }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: token-history-${{ matrix.revision }}
+          path: test-results/
+          if-no-files-found: warn
