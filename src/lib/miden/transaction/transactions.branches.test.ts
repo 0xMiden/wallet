@@ -2229,6 +2229,84 @@ describe('generateTransactionsLoop error paths', () => {
     ]);
   });
 
+  const parsedIndefinite = (transactionId: string) =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${transactionId} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+        'TypeError: Load failed'
+    );
+
+  it('keeps the pickup attempt submit context when a cancelled send later comes back indefinite (#1081)', async () => {
+    const indefiniteId = `0x${'cd'.repeat(32)}`;
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite-context', USER_CANCELLED_TRANSACTION_REASON);
+        throw parsedIndefinite(indefiniteId);
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite-context',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(row.rawError).toBeUndefined();
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: row.attemptId,
+        transactionId: indefiniteId,
+        submitContext: expect.objectContaining({ endpoint: 'submit_proven_transaction', status: 'unavailable' })
+      })
+    ]);
+  });
+
+  it('does not store submit context on a replaced attempt when the pickup attempt differs (#1081)', async () => {
+    const indefiniteId = `0x${'ef'.repeat(32)}`;
+    const replacedAttempt = 'replaced-attempt';
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite-replaced', USER_CANCELLED_TRANSACTION_REASON);
+        const index = txStore.findIndex(entry => entry.id === 'tx-cancelled-indefinite-replaced');
+        const stored = txStore[index];
+        txStore[index] = {
+          ...stored,
+          attemptId: replacedAttempt,
+          submitEvidence: stored.submitEvidence?.map((entry: { attemptId: string }) => ({ ...entry }))
+        };
+        throw parsedIndefinite(indefiniteId);
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite-replaced',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    const replaced = row.submitEvidence.find((entry: { attemptId: string }) => entry.attemptId === replacedAttempt);
+    const pickup = row.submitEvidence.find((entry: { attemptId: string }) => entry.attemptId !== replacedAttempt);
+    expect(replaced).toBeDefined();
+    expect(pickup).toBeDefined();
+    expect(replaced.transactionId).toBe(indefiniteId);
+    expect(replaced.submitContext).toBeUndefined();
+    expect(pickup.submitContext).toBeUndefined();
+  });
+
   // The Unconfirmed write's terminal-row branch is for the indefinite outcome on a row that can await a verdict;
   // any other cancelled row keeps exactly what its cancel wrote.
   const cancelMidLeafThenThrow = (id: string, error: Error): (() => Record<string, unknown>) => {
