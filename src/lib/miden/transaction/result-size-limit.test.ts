@@ -70,3 +70,15 @@ it.each(['send', 'consume'])('bounds a dApp-owned %s result', async type => {
   expect(rows[0]?.resultTooLarge).toBe(true);
   expect(rows[0]?.status).toBe(ITransactionStatus.Completed);
 });
+
+it('uses the current row ownership when a completion carries an older snapshot', async () => {
+  rows[0]!.type = 'consume';
+  rows[0]!.dappOrigins = ['https://example.com'];
+  await updateTransactionStatus('tx', ITransactionStatus.Completed, {
+    dappOrigins: [],
+    transactionId: 'accepted',
+    resultBytes: new Uint8Array(limit + 1)
+  } as never);
+  expect(rows[0]?.resultBytes instanceof Uint8Array).toBe(false);
+  expect(rows[0]?.resultTooLarge).toBe(true);
+});

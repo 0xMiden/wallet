@@ -207,8 +207,12 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // run; only their own writers change these (#1081).
     const storedEvidence = t.submitEvidence;
     const storedNeverCommittedAt = t.neverCommittedAt;
+    const dappOwned =
+      t.type === 'execute' ||
+      Boolean(t.dappOrigins?.length) ||
+      Boolean((otherValues as Partial<ITransaction>).dappOrigins?.length);
     Object.assign(t, otherValues);
-    if (status === ITransactionStatus.Completed && t.type === 'execute' && t.resultBytes) {
+    if (status === ITransactionStatus.Completed && dappOwned && t.resultBytes) {
       if (t.resultBytes.byteLength > MAX_DAPP_RESULT_BYTES) {
         delete t.resultBytes;
         t.resultTooLarge = true;
