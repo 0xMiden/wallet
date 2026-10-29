@@ -231,6 +231,7 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
     network: diagnostics.network,
     ...(diagnostics.storageOwner === undefined ? {} : { storage_owner: diagnostics.storageOwner }),
     ...(diagnostics.storageOperation === undefined ? {} : { storage_operation: diagnostics.storageOperation }),
+    ...(diagnostics.clientRole === undefined ? {} : { sdk_client_role: diagnostics.clientRole }),
     ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
     ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
     ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface }),

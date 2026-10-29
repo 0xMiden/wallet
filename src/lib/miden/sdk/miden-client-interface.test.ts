@@ -258,7 +258,8 @@ describe('MidenClientInterface', () => {
       expect(snapshotCrashDiagnostics(initializationFailure)).toEqual({
         operation: 'sdk_initialize',
         stage: 'client_create',
-        workerMode: useWorker ? 'enabled' : 'disabled'
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        clientRole: 'primary'
       });
     }
     // A trap adds its memory evidence; outside an isolated extension page both read as unavailable.
@@ -269,6 +270,7 @@ describe('MidenClientInterface', () => {
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'enabled',
+      clientRole: 'primary',
       sharedMemoryProbe: 'unavailable',
       extensionViews: 'unavailable'
     });
@@ -4422,17 +4424,29 @@ describe('MidenClientInterface', () => {
   });
 
   it('backs off a failed reader build instead of rebuilding on every read', async () => {
+    const failure = new DOMException(
+      'Unable to open database file at /private/0xfeed for balance 12.5',
+      'UnknownError'
+    );
     const createClient = jest
       .fn()
-      .mockRejectedValueOnce(new Error('rpc down'))
+      .mockRejectedValueOnce(failure)
       .mockImplementation(async () => emptyReader());
     const { makeClient, clock, log, warn } = await importWithReader(createClient);
     const client = makeClient();
 
-    await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('rpc down');
+    await expect(client.getConsumableNotes('mtst1account')).rejects.toBe(failure);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(failure)).toMatchObject({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(JSON.stringify(snapshotCrashDiagnostics(failure))).not.toMatch(/0xfeed|private|12\.5/);
     // A failed build may have stranded its store connection, so inside the window there is no new build.
     clock.now += 29_999;
-    await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('rpc down');
+    await expect(client.getConsumableNotes('mtst1account')).rejects.toBe(failure);
     expect(createClient).toHaveBeenCalledTimes(1);
     clock.now += 1;
     await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([]);
@@ -4440,10 +4454,7 @@ describe('MidenClientInterface', () => {
     // One warn for the failed build, naming its window and carrying the error; the read served from the window adds
     // none. The build that ended the window says why it ran, and that it ended the streak.
     expect(readerLines(warn, 'build ')).toEqual([expect.stringContaining('failed (1 in a row) - next build in 30s')]);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('[realm-reader]'),
-      expect.objectContaining({ message: 'rpc down' })
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[realm-reader]'), failure);
     const builds = readerLines(log, 'building');
     expect(builds).toHaveLength(2);
     expect(builds[1]).toContain('(backoff window ended)');
