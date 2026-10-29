@@ -1,0 +1,24 @@
+name: PR 1982 filter contrast proof
+on:
+  push:
+    branches: [ci/1982-filter-contrast-proof]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bind source
+        run: git checkout --detach cc8aafae92ffc6a3db77c9956a1237abe135f7e2 && test "$(git rev-parse HEAD)" = cc8aafae92ffc6a3db77c9956a1237abe135f7e2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Test tab filters
+        run: yarn jest src/components/ui/TabRootHeader.test.tsx src/app/pages/TabRootHeaderParity.test.tsx src/app/pages/AllHistory.test.tsx --runInBand --json --outputFile="$RUNNER_TEMP/filter-result.json"
+      - name: Verify tests executed
+        run: node -e 'const d=require(process.env.RUNNER_TEMP+"/filter-result.json"); if(!d.success || d.numTotalTests < 1 || d.numFailedTests !== 0) process.exit(1); console.log(`Executed ${d.numTotalTests} tests`);'
