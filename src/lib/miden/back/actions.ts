@@ -840,7 +840,7 @@ interface RecoveryFileOperation {
   acceptQuarantine: (epoch: number | undefined) => void;
 }
 const recoveryFileOperations = new Map<string, RecoveryFileOperation>();
-const validRecoveryFileOperation = (id: string) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+const validRecoveryFileOperation = (id: string) => typeof id === 'string' && /^[A-Za-z0-9_ -]{1,128}$/.test(id);
 
 function beginRecoveryFileOperation(expectedEpoch: number, operationId: string): RecoveryFileOperation {
   if (
