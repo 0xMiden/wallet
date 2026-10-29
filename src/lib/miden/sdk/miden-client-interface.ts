@@ -18,6 +18,7 @@ import {
   NoteExportFormat,
   NoteFile,
   NoteQuery,
+  NoteScript,
   type NoteInclusionProof,
   RpcClient,
   NoteType,
@@ -26,6 +27,7 @@ import {
   TransactionProver,
   TransactionRequest,
   TransactionResult,
+  TransactionSummary,
   type GetKeyCallback,
   type InsertKeyCallback,
   type SignCallback,
@@ -36,6 +38,7 @@ import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
@@ -124,6 +127,7 @@ import {
   type GuardianCreateKey,
   type PendingGuardianRegistration
 } from '../guardian/account';
+import { GuardianHistoryDataError } from '../guardian/history-errors';
 import { withGuardianProbe } from '../guardian/native-http';
 import {
   type ConsumeRestriction,
@@ -1153,6 +1157,51 @@ export class MidenClientInterface {
    */
   async decodeGuardianHistory(encoded: string, hold: WasmLockHold) {
     return decodeGuardianSummary(encoded, hold);
+  }
+
+  async importGuardianHistoryP2ideNotes(
+    encoded: string,
+    accountId: string,
+    noteId: string,
+    hold: WasmLockHold
+  ): Promise<void> {
+    const summary = TransactionSummary.deserialize(new Uint8Array(Buffer.from(encoded, 'base64')));
+    try {
+      const owner = walletAccountIdToSdk(accountId).toString();
+      if (summary.accountDelta().id().toString() !== owner) {
+        throw new GuardianHistoryDataError('Guardian summary account does not match');
+      }
+      const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+      const p2ideRoot = NoteScript.p2ide().root().toHex();
+      for (const output of splitExecutedOutputNotes(summary).userNotes) {
+        if (output.id().toString() !== noteId) continue;
+        let note = output.intoFull();
+        if (!note && output.metadata().noteType() === NoteType.Public) {
+          const id = output.id();
+          const expectedId = id.toString();
+          const fetched = await withRpcTimeout(() => rpc.getNotesById([id]), 'recoverySentNote', { retries: 0 });
+          note = fetched
+            .find(entry => String(entry.noteId) === expectedId)
+            ?.asInputNote()
+            ?.note();
+          if (!note) throw new Error('Public output note is missing from the node');
+        }
+        if (!note || note.recipient().script().root().toHex() !== p2ideRoot) continue;
+        if (note.metadata().sender().toString() !== owner) continue;
+        const result = await this.importRecoveryNoteBytes([note.serialize()], hold);
+        if (result.failures > 0) throw new Error('Could not import a recovered P2IDE note');
+      }
+    } catch (error) {
+      rethrowClientFault(error, hold);
+      throw error;
+    } finally {
+      // A trap can invalidate this handle before cleanup.
+      try {
+        summary.free();
+      } catch (error) {
+        console.warn('[GuardianRecovery] Could not free the sent-note summary:', error);
+      }
+    }
   }
 
   async getGuardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold) {
