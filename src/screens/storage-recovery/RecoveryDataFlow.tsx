@@ -217,6 +217,7 @@ export const RecoveryDataFlow: React.FC<RecoveryDataFlowProps> = ({ mode, onClos
         <ExportFilePassword
           error={error}
           description={t('recoveryDataDescription')}
+          passwordDescription={t('recoveryDataExportPasswordDescription')}
           onGoNext={startAuthentication}
           onGoBack={back}
           passwordValue={filePassword}
@@ -235,7 +236,7 @@ export const RecoveryDataFlow: React.FC<RecoveryDataFlowProps> = ({ mode, onClos
             />
           }
         >
-          <SubPageSection description={t('recoveryDataDescription')}>
+          <SubPageSection description={t('recoveryDataImportDescription')}>
             <TextField
               type="file"
               accept="application/json,.json"

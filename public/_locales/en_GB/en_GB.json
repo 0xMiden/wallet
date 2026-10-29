@@ -1910,6 +1910,8 @@
   "recoveryDataExport": "Export recovery data",
   "recoveryDataImport": "Import recovery data",
   "recoveryDataDescription": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing.",
+  "recoveryDataImportDescription": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately.",
+  "recoveryDataExportPasswordDescription": "Enter a password to encrypt your recovery data file.",
   "recoveryDataChooseFile": "Choose recovery data file",
   "recoveryDataClearFile": "Clear selected file",
   "recoveryDataFilePassword": "Recovery file password",

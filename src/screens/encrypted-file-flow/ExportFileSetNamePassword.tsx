@@ -18,6 +18,7 @@ import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboardin
 export interface ExportFilePasswordProps {
   error?: UserErrorId;
   description?: string;
+  passwordDescription?: string;
   onGoNext: () => void;
   onGoBack: () => void;
   passwordValue: string;
@@ -30,6 +31,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   onGoNext,
   error,
   description,
+  passwordDescription,
   handlePasswordChange,
   passwordValue,
   fileName,
@@ -143,7 +145,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         autoFocus
       />
 
-      <SubPageSection description={t('enterPasswordToEncrypt')} className="gap-4">
+      <SubPageSection description={passwordDescription ?? t('enterPasswordToEncrypt')} className="gap-4">
         <TextField
           ref={passwordRef}
           data-testid="export-file-password-input"
