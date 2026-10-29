@@ -155,3 +155,7 @@ export async function runColoScenario({ service, counters }) {
     return 'failed';
   }
 }
+
+export async function runBudgetScenario() {
+  return 'failed';
+}

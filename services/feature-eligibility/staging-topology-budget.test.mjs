@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { runBudgetScenario } from './staging-topology.mjs';
+
+function harness({ split = false } = {}) {
+  let count = 12;
+  let reserveCount = 0;
+  let leaseCount = 0;
+  const budget = {
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const body = await request.json();
+      assert.equal(body.day, '2026-10-29');
+      assert.equal(request.method, 'POST');
+      if (path === '/reserve') {
+        reserveCount++;
+        if (split) return Response.json({ reserved: true });
+        if (count >= 16) return Response.json({ error: 'unavailable' }, { status: 503 });
+        count++;
+        return Response.json({ reserved: true });
+      }
+      assert.equal(path, '/lease');
+      leaseCount++;
+      const granted = Math.min(body.count, 16 - count);
+      if (!granted) return Response.json({ error: 'unavailable' }, { status: 503 });
+      count += granted;
+      return Response.json({ reserved: true, count: granted });
+    }
+  };
+  return { budget, now: () => Date.parse('2026-10-29T00:00:00Z'), counters: async () => ({ count }), stats: () => ({ count, reserveCount, leaseCount }) };
+}
+
+test('budget scenario shares one cap across reserve and lease paths', async () => {
+  const fixture = harness();
+  assert.equal(await runBudgetScenario(fixture), 'passed');
+  assert.equal(fixture.stats().count, 16);
+  assert.ok(fixture.stats().reserveCount >= 2);
+  assert.ok(fixture.stats().leaseCount >= 1);
+});
+
+test('budget scenario rejects reserve paths that bypass the shared cap', async () => {
+  const fixture = harness({ split: true });
+  assert.equal(await runBudgetScenario(fixture), 'failed');
+  assert.ok(fixture.stats().reserveCount >= 1);
+});
