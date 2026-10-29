@@ -312,20 +312,28 @@ async function prepare(password, includePrivate) {
   try { await vault.retainTransactionRecovery(secondId, { requestBytes, notes: [] }, evidence, secondAttempt); }
   catch (error) { quotaRefused = typeof error === 'object' && error !== null && Reflect.get(error, 'name') === 'QuotaExceededError'; }
   finally { Storage.prototype.setItem = original; }
+  progress(injected === 1 ? (quotaRefused ? 'quota-injected-refused' : 'quota-injected-other') : (quotaRefused ? 'quota-not-injected-refused' : 'quota-not-injected-other'));
   check('quotaFaultInjected', injected === 1 && quotaRefused);
   const health = getStorageHealth();
+  progress(health.status === 'unavailable' ? (health.reason === 'quota' && health.backend === 'independent' ? 'quota-independent-latched' : 'quota-other-latched') : 'quota-health-not-latched');
   check('independentQuotaLatched', health.status === 'unavailable' && health.reason === 'quota' && health.backend === 'independent');
+  progress('quota-preservation-check');
   check('encryptedSlotsAndPointerUnchanged', JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS)) === beforeCipher);
   const retained = await vault.readRecoveryJournal();
   const retainedDigest = await digest(new TextEncoder().encode(JSON.stringify(retained)));
+  progress('quota-generation-check');
   check('lastGoodGenerationUnchanged', retained?.sequence === prior.sequence && retainedDigest === priorDigest);
+  progress('quota-prior-check');
   check('priorEvidenceRetained', retained?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
+  progress('quota-second-check');
   check('failedAttemptNotJournaled', retained?.entries.every(entry => entry.kind !== 'transaction' || entry.id !== secondId) === true);
   let retryRefused = false;
   try { await requeueFailedTransaction(secondId); } catch { retryRefused = true; }
   const row = await Repo.transactions.get(secondId);
+  progress('quota-retry-check');
   check('failedAttemptRetryRefused', retryRefused && row?.status === ITransactionStatus.Unconfirmed && row.mayHaveSubmitted === true);
   const afterService = await control('summary', {});
+  progress('quota-network-check');
   check('noNetworkOrSubmission', JSON.stringify(afterService) === JSON.stringify(beforeService) && afterService.submitCalls === 0 && afterService.refusedRequests === 0);
   return { phase, checks: { ...checks } };
 }
