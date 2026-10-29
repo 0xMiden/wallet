@@ -93,11 +93,34 @@ Local runs work with the placeholder `database_id`. Local state goes to `.wrangl
 | `AUTH_RATE_LIMIT` | Rate limit binding | Approximate 30 auth requests per caller address per 60 seconds |
 | `STORAGE_RATE_LIMIT` | Rate limit binding | Approximate 120 reads and 120 write units per profile per 60 seconds |
 
-Create the database once, put its id in `wrangler.jsonc`, then apply the migrations:
+The committed `wrangler.jsonc` holds placeholders only: the `database_id` is zeros, `ALLOWED_ORIGINS` is `[]`, and `DEPLOYMENT_REVISION` is `unknown`. The deploy workflow renders a release copy with the real values and never commits them. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT` and `STORAGE_RATE_LIMIT` with integers that no other rate limit binding in the account uses (the feature-eligibility Worker uses 189401 and 189402).
 
-```sh
-npx wrangler@4.151.3 d1 create miden-wallet-api
-npx wrangler@4.151.3 d1 migrations apply miden-wallet-api --remote
-```
+## Deployment
 
-Set the secret with `npx wrangler@4.151.3 secret put JWT_SIGNING_KEY`. Use a random value of 32 bytes or more. A new key makes every issued token invalid, and each device logs in again. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT` and `STORAGE_RATE_LIMIT` with integers that no other rate limit binding in the account uses.
+`.github/workflows/deploy-wallet-api.yml` deploys the Worker. It runs from `release-wallet.yml` on every published release, and by hand (`workflow_dispatch`) with a published release tag or with `deployment_source: main` from `main`. A merge into `main` deploys nothing. The job runs in the GitHub environment `wallet-api-production`, type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
+
+A migration runs before the new Worker serves traffic, so every migration must keep working with the Worker that is live until the deploy lands.
+
+### One-time setup, by hand
+
+1. Create the database with a Cloudflare token that can edit D1, and keep the returned id:
+
+   ```sh
+   CLOUDFLARE_ACCOUNT_ID=<account> CLOUDFLARE_API_TOKEN=<token> npx wrangler@4.151.3 d1 create miden-wallet-api
+   ```
+
+2. Create the GitHub environment `wallet-api-production` with required reviewers, and set:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit, D1: Edit and Account Settings: Read |
+   | `CLOUDFLARE_ACCOUNT_ID` | secret | The Cloudflare account id |
+   | `WALLET_API_JWT_SIGNING_KEY` | secret | 32 random bytes or more, for example `openssl rand -base64 48` |
+   | `WALLET_API_D1_DATABASE_ID` | variable | The id from step 1 |
+   | `WALLET_API_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins: the store extension origin `chrome-extension://<id>`, `capacitor://localhost`, `http://localhost` (Android), `tauri://localhost` |
+   | `WALLET_API_URL` | variable | The public base URL, `https://miden-wallet-api.<account>.workers.dev` or a custom hostname, no trailing slash |
+
+3. Run the workflow once by hand from `main` and check that the verify step passes.
+4. Open a `0xMiden/wallet-config` change that sets `features.encryptedBackup: true` and `backup.baseUrl` to `WALLET_API_URL` for each network that turns the backup on. The wallet reads the URL from that document; nothing is baked into a build.
+
+A new `WALLET_API_JWT_SIGNING_KEY` makes every issued token invalid, and each device logs in again on its next refresh. The database id and the origins change the rendered config only; `wrangler.jsonc` stays as committed.

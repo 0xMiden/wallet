@@ -1,0 +1,46 @@
+name: Wallet API service
+
+# Pull-request checks of the encrypted-backup Worker (services/wallet-api).
+# The Jest suites under services/wallet-api/test run in the Unit tests job of
+# pr.yml with the rest of the repository. This workflow checks the parts that
+# job does not: the Worker's own type-check, the deploy probe and a dry-run
+# bundle against the committed wrangler.jsonc. It deploys nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'services/wallet-api/**'
+      - 'scripts/feature-eligibility-deploy-source.mjs'
+      - '.github/workflows/wallet-api.yml'
+      - '.github/workflows/deploy-wallet-api.yml'
+      - '.github/workflows/release-wallet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wallet-api-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Wallet API checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Type-check the Worker and its tests
+        run: |
+          npx tsc --noEmit -p services/wallet-api/tsconfig.json
+          npx tsc --noEmit -p services/wallet-api/tsconfig.test.json
+      - name: Test the deploy probe
+        run: node --test services/wallet-api/check-deployment.test.mjs
+      - name: Validate Worker bundle and bindings
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/wallet-api/wrangler.jsonc

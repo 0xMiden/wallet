@@ -21,6 +21,15 @@ jobs:
       release_tag: ${{ github.event.release.tag_name }}
     secrets: inherit
 
+  # The wallet reads the backup URL from the wallet-config document, not from
+  # the build, so no build waits on this job.
+  wallet-api:
+    name: Deploy and verify wallet API
+    uses: ./.github/workflows/deploy-wallet-api.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
   chrome:
     needs: eligibility
     uses: ./.github/workflows/build-chrome.yml

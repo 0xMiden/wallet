@@ -1,0 +1,194 @@
+name: Deploy Wallet API
+
+# Deploys the encrypted-backup Worker (services/wallet-api) to Cloudflare.
+# It runs from the release workflow on every published release, and by hand
+# from main. A merge into main deploys nothing.
+#
+# The committed wrangler.jsonc holds placeholders only. This workflow renders a
+# release copy with the D1 database id, the allowed origins and the revision
+# from the `wallet-api-production` environment, applies the D1 migrations, then
+# deploys with the signing key as a server-only secret, and probes /healthz.
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+    outputs:
+      endpoint:
+        description: Verified public wallet-api base URL
+        value: ${{ jobs.deploy.outputs.endpoint }}
+  workflow_dispatch:
+    inputs:
+      deployment_source:
+        description: Source revision to deploy
+        type: choice
+        options:
+          - published-release
+          - main
+        default: published-release
+        required: true
+      release_tag:
+        description: Published wallet release tag to deploy
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wallet-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: wallet-api-production
+    outputs:
+      endpoint: ${{ steps.readiness.outputs.endpoint }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve deployment source
+        id: source
+        env:
+          DEPLOYMENT_SOURCE: ${{ inputs.deployment_source || 'published-release' }}
+          DEPLOYMENT_LABEL: Wallet API
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOY_EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_WORKFLOW_REF: ${{ github.ref }}
+          DEPLOY_WORKFLOW_SHA: ${{ github.sha }}
+        run: node scripts/feature-eligibility-deploy-source.mjs
+
+      - name: Require a published release
+        if: steps.source.outputs.mode == 'published-release'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        with:
+          script: |
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: process.env.RELEASE_TAG
+            });
+            if (release.draft || !release.published_at) throw new Error('A published release tag is required');
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+      - name: Resolve deployment revision
+        id: revision
+        env:
+          DEPLOYMENT_SOURCE: ${{ steps.source.outputs.mode }}
+          DEPLOYMENT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          if [[ "$DEPLOYMENT_SOURCE" == main && "$revision" != "$DEPLOYMENT_SHA" ]]; then
+            echo 'Main deployment checkout does not match the workflow commit' >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == release && "$revision" != "$GITHUB_SHA" ]]; then
+            echo 'Release tag moved after the publication event' >&2
+            exit 1
+          fi
+          printf 'sha=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+
+      # Wrangler bundles @noble/curves from the repository root.
+      - name: Install dependencies
+        uses: ./.github/actions/yarn-install
+      - name: Type-check the Worker
+        run: npx tsc --noEmit -p services/wallet-api/tsconfig.json
+
+      - name: Prepare server configuration and secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          JWT_SIGNING_KEY: ${{ secrets.WALLET_API_JWT_SIGNING_KEY }}
+          D1_DATABASE_ID: ${{ vars.WALLET_API_D1_DATABASE_ID }}
+          ALLOWED_ORIGINS: ${{ vars.WALLET_API_ALLOWED_ORIGINS }}
+          WALLET_API_URL: ${{ vars.WALLET_API_URL }}
+          DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { resolve, join } from 'node:path';
+          import { validateEndpoint, validateOrigins } from './services/wallet-api/check-deployment.mjs';
+          for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'JWT_SIGNING_KEY',
+            'D1_DATABASE_ID', 'ALLOWED_ORIGINS', 'WALLET_API_URL']) {
+            if (!process.env[key]) throw new Error(`Missing production setting: ${key}`);
+          }
+          if (process.env.JWT_SIGNING_KEY.length < 32) throw new Error('WALLET_API_JWT_SIGNING_KEY must have at least 32 characters');
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(process.env.D1_DATABASE_ID) ||
+            /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(process.env.D1_DATABASE_ID)) {
+            throw new Error('WALLET_API_D1_DATABASE_ID must be the id that `wrangler d1 create miden-wallet-api` returned');
+          }
+          validateOrigins(JSON.parse(process.env.ALLOWED_ORIGINS));
+          validateEndpoint(process.env.WALLET_API_URL);
+          const service = resolve('services/wallet-api');
+          const config = JSON.parse(readFileSync(join(service, 'wrangler.jsonc'), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
+          const authLimit = config.ratelimits?.find(binding => binding.name === 'AUTH_RATE_LIMIT');
+          const storageLimit = config.ratelimits?.find(binding => binding.name === 'STORAGE_RATE_LIMIT');
+          if (authLimit?.simple?.limit !== 30 || authLimit.simple.period !== 60 ||
+            storageLimit?.simple?.limit !== 120 || storageLimit.simple.period !== 60 ||
+            authLimit.namespace_id === storageLimit.namespace_id) {
+            throw new Error('Missing or invalid wallet-api rate limit bindings');
+          }
+          const [database] = config.d1_databases ?? [];
+          if (database?.binding !== 'DB' || database.database_name !== 'miden-wallet-api') {
+            throw new Error('Missing or invalid wallet-api D1 binding');
+          }
+          // The rendered copy lives outside the service folder, so every path is absolute.
+          config.main = resolve(service, config.main);
+          database.database_id = process.env.D1_DATABASE_ID;
+          database.migrations_dir = resolve(service, database.migrations_dir);
+          config.vars = Object.fromEntries(['ALLOWED_ORIGINS', 'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
+          writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-release.json'), JSON.stringify(config), { mode: 0o600 });
+          writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-secrets.json'),
+            JSON.stringify({ JWT_SIGNING_KEY: process.env.JWT_SIGNING_KEY }), { mode: 0o600 });
+          NODE
+
+      # A migration runs before the Worker that needs it serves traffic. It must
+      # stay compatible with the Worker that is live until the deploy lands.
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: >-
+          npx --yes wrangler@4.151.3 d1 migrations apply miden-wallet-api
+          --remote
+          --config "$RUNNER_TEMP/wallet-api-release.json"
+
+      - name: Deploy tagged service with server-only secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+          DEPLOYMENT_MESSAGE: ${{ steps.source.outputs.message }}
+        run: >-
+          npx --yes wrangler@4.151.3 deploy
+          --config "$RUNNER_TEMP/wallet-api-release.json"
+          --secrets-file "$RUNNER_TEMP/wallet-api-secrets.json"
+          --message "$DEPLOYMENT_MESSAGE"
+
+      - name: Verify deployment
+        id: readiness
+        env:
+          WALLET_API_URL: ${{ vars.WALLET_API_URL }}
+          WALLET_API_ALLOWED_ORIGINS: ${{ vars.WALLET_API_ALLOWED_ORIGINS }}
+          WALLET_API_REVISION: ${{ steps.revision.outputs.sha }}
+        run: node services/wallet-api/check-deployment.mjs
+
+      - name: Remove temporary server secrets
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/wallet-api-secrets.json" "$RUNNER_TEMP/wallet-api-release.json"
