@@ -1646,6 +1646,12 @@ describe('waitForTransactionCompletion — error subscription', () => {
     });
   });
 
+  it('does not present a local row ID as a network transaction ID for an oversized result', async () => {
+    txStore.push({ id: 'local-row', status: ITransactionStatus.Completed, resultTooLarge: true });
+    const result = await waitForTransactionCompletion('local-row');
+    expect(result).toEqual({ errorMessage: 'Transaction completed, but its result exceeds the size limit' });
+  });
+
   it('resolves with the error message when deserializing the result throws', async () => {
     const sdk = require('@miden-sdk/miden-sdk/lazy');
     const original = sdk.TransactionResult.deserialize;
