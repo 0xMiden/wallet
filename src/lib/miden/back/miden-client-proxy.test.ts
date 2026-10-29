@@ -2160,9 +2160,19 @@ describe('MidenClientProxy — deadline kill', () => {
   it('waits for the offscreen ready listener when document creation is delayed', async () => {
     const { midenClientProxy } = await loadProxy(true);
     let releaseCreate!: () => void;
-    const creating = new Promise<void>(resolve => { releaseCreate = resolve; });
-    fakeChrome.offscreen.createDocument.mockImplementation(async () => { await creating; docExists = true; });
-    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({ ok: true, op_id: env.op_id, resultB64: null, durationMs: 1 }));
+    const creating = new Promise<void>(resolve => {
+      releaseCreate = resolve;
+    });
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => {
+      await creating;
+      docExists = true;
+    });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
     const readyListener = waitForReadyListener();
     const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
     setTimeout(releaseCreate, 30);
@@ -2248,4 +2258,3 @@ describe('MidenClientProxy — settlement paths', () => {
     expect((err as Error).cause).toBe(transportError);
   });
 });
-
