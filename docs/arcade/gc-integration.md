@@ -2,26 +2,17 @@
 
 The current release scope is **Arcade discovery, game details, catalog-scoped Activity, synchronized GC balance display and the GC purchase on mainnet**, retaining the existing Arcade design. Coins shows GC balance and a **Buy more GC** entry point that is live while the mainnet sale note is open; there is no weekly claim, reset, next-claim countdown or global GC balance leaderboard.
 
-The purchase is the PSWAP fill described below (`lib/miden/arcade/gc-sale.ts` and the Arcade GC purchase section of `CLAUDE.md`): the wallet finds the live sale note by its tag, lets the user enter the GC to buy (1 GC by default), prices it from the note's own terms with the cost rounded up so the script never delivers less than asked, and queues a consume row whose fee-aware fill request is built from the node's copy of the note in the Guardian proposal's hold. The fixed 1 USDCx for 1,000 GC package below is superseded by the entered amount; the acceptance requirements still describe the fill's validation. `scripts/dev/gc-sale/buy.mjs` filled the mainnet note end to end on 2026-10-26 with a throwaway wallet. This branch does not implement a gift. The optional starter gift is not a release gate.
+The purchase uses GeoQuizz's custom sale script. See [Use Gamecoin](https://github.com/guelowrd/gq-thegamenotthemagazine/blob/main/docs/build-your-own-game.md#7-use-gamecoin). Standard PSWAP notes are not eligible for this purchase path.
 
 ## Asset and price
 
-Use existing Mainnet GC issuer `0x34a3510213533f512ec4abe36baf84`, six decimals, and the PSWAP purchase
-model. Testnet display/testing retains issuer `0x97924b9a77ed54917ff6d6364ae661`; other trial assets must
-not be relabeled. Neither a ticker nor a balance grants a verified badge: normal network-specific
-registry review/publication remains required.
+Mainnet GC uses faucet `0x34a3510213533f512ec4abe36baf84`, with six decimals. Payment uses the chain's USDCx fee asset, also with six decimals. The wallet accepts a price at or below 0.001 USDCx per GC. It selects the cheapest discovered sale that can supply the entered amount and meet the minimum fill. Equal prices select the larger inventory. The buyer's own sales are excluded because their consumption withdraws inventory.
 
-The final approved Bread package is **exactly 1 USDCx principal for 1,000 GC**, with no amount input
-or package selector. Network fees are separate. This uses the existing **0.001 USDCx per GC** rate;
-do not reprice the reference sale notes.
+The amount field starts at 1 GC. The cost is rounded up to a USDCx base unit. The receipt records the GC that the script delivers with this payment. Network fees are separate. There is no fixed package or protocol limit of 100 GC.
 
-Require actual backed inventory for the full package, with the principal unchanged. Do not silently
-partially fulfill, overpay a cheaper sale or retain a difference. Keep buying disabled until terms,
-inventory, fee approval, atomic execution, receipt/recovery and native acceptance are validated.
+Discovery uses the pair's standard PSWAP tag, `1663710438`, but accepts only sale script root `0xfe5c6de19f05ae3c77227128bcf15180fc252b94429a3b030967126077e1db2a`. A sale has seven storage fields and exactly one fungible asset. Each fill consumes its note and creates the remainder with a new ID. Discovery checks nullifiers, retains progress across bounded batches, and checks cached open sales again. A quote uses the eligible notes read so far; later checks can find more offers.
 
-The reference is [GQ's public shop](https://github.com/guelowrd/gq-thegamenotthemagazine/blob/b73356c436307b414cfb9fc0e07a9d821721bbe0/web/src/lib/shop.ts)
-and [configuration](https://github.com/guelowrd/gq-thegamenotthemagazine/blob/b73356c436307b414cfb9fc0e07a9d821721bbe0/web/src/config.ts).
-It is read-only reference material. No changes or deployment there are part of Bread integration.
+`features.arcadeGcPurchase` remains the purchase switch. The existing `arcade.sale.seller` field remains in the accepted config schema and cache scope for compatibility. It no longer restricts which sellers can supply GC. The script root, asset pair and price limit validate each offer.
 
 ## Registration gift: dependency, not delivered functionality
 
@@ -46,42 +37,13 @@ Require durable distribution status and deduplication for network + account, inc
 with any prior gift. Specify who funds gift delivery and any receipt-consumption cost. Account admission is not proof of
 GC delivery. Credit balance only from confirmed wallet state, never from registration success.
 
-## Native purchase: acceptance before enablement
+## Purchase request and acceptance
 
-A game URL is not a native purchase route. Before enabling Buy more GC, implement and review:
+The SDK's PSWAP consume helpers reject the custom sale root. `buildGcSaleRequest` instead uses the node's authenticated note as an explicit input with argument `[usdcx_paid, 0, 0, 0]`. The fee-aware builder retains the Guardian authentication arguments. The request is built under the WASM lock in the chain-synced Guardian proposal hold, then stored before proposal creation. Existing queue, spending-limit, signing and receipt handling remain in use.
 
-1. Discovery and validation of the intended PSWAP script, GC/payment assets, network, unspent sale,
-   available inventory, minimum fill and integer rounding.
-2. A quote binding the exact sale(s), exactly 1,000 GC received, exactly 1 USDCx principal, expiry
-   and all separate user-paid network fees. No amount selector, smaller delivery or silent principal change.
-   Revalidate the quote before approval/submission; show changed or unavailable inventory honestly.
-3. The normal Guardian signing, fee review and transaction queue, with durable operation identifiers
-   before dispatch and reconciliation before retrying uncertain submissions.
-4. Confirmed receipt/finality and balance refresh, plus insufficient funds, consumed/changed sale,
-   rejection, lost responses, delayed receipts and recovery. No optimistic credits or duplicate buys.
-5. Real supported-surface acceptance using backed inventory in a separately approved environment.
+The builder checks the script, unspent state, creator, explicit payment and minimum fill again. It refuses the buyer's own sale. The note ID binds the quoted storage and assets. If another buyer consumes that note, the purchase fails; a new quote must use a live remainder. Never retry an uncertain submission as a fresh purchase without reconciliation.
 
-### Atomic PSWAP feasibility: source findings, not purchase acceptance
-
-The installed SDK exposes a single-note PSWAP consume request. The reference game consumes a PSWAP
-input in one wallet transaction; its UI cap is not a protocol requirement. The picker selects one eligible sale and does not aggregate. A single matching backed
-sale with enough inventory for 1,000 GC can therefore be expressed as a candidate one-transaction package. Exact Guardian execution and
-result validation still need acceptance in Bread.
-
-The installed miden-standards 0.17.1 PSWAP model computes proportional output with integer rounding,
-and a payment at or above the note's requested amount returns its full offered amount. Overpayment is
-permitted by that primitive, so validate exact seller terms before constructing an approved request.
-
-If more than one sale is needed, a combined request must consume all selected notes atomically and
-prove aggregate principal exactly 1 USDCx and GC received exactly 1,000, while validating each note's
-minimum fill, remainder, asset and rounding. Calling the single-note helper repeatedly is not an atomic
-package. No combined Guardian transaction or real quote/inventory has been validated by this UI change.
-If the full exact package cannot be supplied in one approved transaction, show unavailable.
-Confirm our own transaction and correct GC receipt/balance reconciliation; sale-note consumption alone
-is insufficient because another buyer may have consumed it.
-
-The existing Coins UI has no sale scanner, executable quote or approved purchase route. It therefore
-shows the planned package without a live quote or availability guarantee and keeps buying disabled. Mainnet activation requires separate review.
+The old `scripts/dev/gc-sale/buy.mjs` probe used standard PSWAP notes. It does not establish acceptance of this custom-script path. A real Guardian purchase on extension, iOS, Android and desktop still needs supported-surface acceptance. Confirm the wallet's own transaction and GC balance; consumption of a sale note alone can be another buyer's transaction.
 
 ## Balance and game contract
 
