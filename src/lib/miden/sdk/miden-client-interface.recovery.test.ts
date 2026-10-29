@@ -739,12 +739,21 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     type Arrange = (error: unknown, wasm: Locked['wasm']) => void;
 
     /** Runs `call` under the real lock, its rejection turned into its outcome so only a catch's own retire marks. */
+    function timing(label: string) {
+      const title = expect.getState().currentTestName ?? '';
+      if (title.includes('trap from a note import') || title.includes("trap from the fallback's conversion"))
+        process.stderr.write(`RECOVERY_PHASE ${Date.now()} ${title} ${label}\n`);
+    }
+
     async function underLock(call: (locked: Locked, hold: WasmLockHold) => Promise<unknown>, arrange: Arrange) {
+      timing('fixture-start');
       const locked = await lockedClient();
+      timing('fixture-ready');
       const { WasmClientPoisonedError } = await import('./wasm-client-poison');
       const listener = jest.fn();
       locked.lock.onWasmClientPoisoned(listener);
       const before = await locked.lock.getMidenClient();
+      timing('initial-client-ready');
       return {
         ...locked,
         WasmClientPoisonedError,
@@ -752,21 +761,26 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         before,
         run: async (error: unknown, catchInside = true) => {
           arrange(error, locked.wasm);
+          timing('hold-request');
           return locked.lock.withWasmClientLock(async hold => {
+            timing('hold-entered');
             await locked.lock.getMidenClient();
             const outcome = call(locked, hold);
-            return catchInside ? outcome.catch((reason: unknown) => reason) : outcome;
+            return catchInside ? outcome.catch((reason: unknown) => { timing('trap-caught'); return reason; }) : outcome;
           });
         }
       };
     }
 
     async function expectRetiredOnce(state: Awaited<ReturnType<typeof underLock>>) {
+      timing('retirement-check-start');
       expect(state.singletonMarkPoisoned).toHaveBeenCalledTimes(1);
       expect(state.listener).toHaveBeenCalledTimes(1);
       await new Promise(resolve => setTimeout(resolve, 0));
       expect(state.singletonFree).toHaveBeenCalledTimes(1);
+      timing('cleanup-observed');
       expect(await state.lock.getMidenClient()).not.toBe(state.before);
+      timing('replacement-ready');
     }
 
     async function expectNothingMarked(state: Awaited<ReturnType<typeof underLock>>) {

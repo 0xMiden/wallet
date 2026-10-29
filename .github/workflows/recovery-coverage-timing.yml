@@ -1,0 +1,29 @@
+name: Recovery coverage timing diagnostic
+on:
+  push:
+    branches: [ci/recovery-coverage-timing-1948]
+permissions:
+  contents: read
+jobs:
+  recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        workers: [1, 2]
+    runs-on: ubuntu-latest
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run unchanged-timeout recovery coverage diagnostic
+        run: yarn jest --coverage --runTestsByPath src/lib/miden/sdk/miden-client-interface.recovery.test.ts --maxWorkers=${{ matrix.workers }} --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/recovery-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-timing-${{ matrix.workers }}
+          path: ${{ runner.temp }}/recovery-results.json
+          if-no-files-found: warn
