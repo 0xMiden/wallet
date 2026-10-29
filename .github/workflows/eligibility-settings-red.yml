@@ -1,0 +1,34 @@
+name: Eligibility settings collection expected red
+on:
+  push:
+    branches: [ci/1894-settings-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 9bbfad67d123a2e30579fbc41d885b37122c85d3
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-settings.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - settings collection repeats fixed paths and returns only closed binding metadata' result.log || exit 1
+          grep -F 'ok 4 - settings collection rejects provider errors and duplicate names' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collect-red
+          path: result.log
