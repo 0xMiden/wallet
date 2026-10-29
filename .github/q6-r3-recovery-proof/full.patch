@@ -1,0 +1,316 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 56a66aab3b79b7ac3453f50ac079f377b1482d0e..d2a4e5c8dee420381cad11fc2504608b1c43fa90 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,7 +2,7 @@
+ 
+ ## 1.17.9 (TBD)
+ 
+-- [FIX][all] Settings recovery honors opt-outs when a stored choice cannot be read or copied, an in-flight copy cannot turn those choices back on, and unavailable storage preserves consent routing.
++- [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
+ 
+ - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
+ - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.
+diff --git a/src/lib/miden/back/sync-manager.ts b/src/lib/miden/back/sync-manager.ts
+index cc3dd7f4e0778335d05bf5f1a05be3937a2e336e..66e9ae41331fc9e997558cc9c282aa07af453b48 100644
+--- a/src/lib/miden/back/sync-manager.ts
++++ b/src/lib/miden/back/sync-manager.ts
+@@ -19,7 +19,8 @@ import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native
+ import {
+   areBackgroundSettingsMirrored,
+   isAutoConsumeEnabledAsync,
+-  isDelegateProofEnabledAsync
++  isDelegateProofEnabledAsync,
++  readMirroredDelegateProof
+ } from 'lib/settings/helpers';
+ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
+ 
+@@ -804,12 +805,20 @@ async function runSync(force: boolean): Promise<void> {
+           // The user's CURRENT delegated-proving choice, read from the mirrored setting as the native enqueue
+           // below reads it, not the choice frozen on the swap row when the order was placed (#1644): a
+           // settlement claim proved on the device because the order predates the toggle is what overran the
+-          // write deadline. Only once the popup has mirrored the settings, as the native pass also requires:
+-          // a read miss answers the delegated default, so until then the order's own choice stands.
++          // write deadline. A published mirror uses that read, including its absent-key default. While the
++          // marker is false, a missing delegate key leaves the order's choice, and any present or unusable
++          // delegate mirror selects local proving.
++          let settlementDelegate: boolean | undefined;
++          if (await areBackgroundSettingsMirrored()) {
++            settlementDelegate = await isDelegateProofEnabledAsync();
++          } else {
++            const present = await readMirroredDelegateProof();
++            settlementDelegate = present === undefined ? undefined : false;
++          }
+           const settlement = await reconcileSwapOrderNotes(
+             accountPubKey,
+             managedNotes,
+-            (await areBackgroundSettingsMirrored()) ? await isDelegateProofEnabledAsync() : undefined,
++            settlementDelegate,
+             settlementNowSeconds,
+             swapOrderRows,
+             zeroFillReclaims,
+diff --git a/src/lib/miden/transaction/index.ts b/src/lib/miden/transaction/index.ts
+index 3d8a29334ffbe387bba98fa4de2f7d3650c3d15f..7e0b03cb361e20143e5b5d4bccc8d239e90a0f2e 100644
+--- a/src/lib/miden/transaction/index.ts
++++ b/src/lib/miden/transaction/index.ts
+@@ -680,19 +680,33 @@ const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean =
+ 
+ /**
+  * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
+- * an equal or stronger look for this same incarnation, and a failed write leaves the in-memory look in place.
++ * an equal or stronger bound look for this incarnation. A captured incarnation cannot write onto its replacement;
++ * a failed write leaves the in-memory look in place.
+  */
+ const persistQueueSighting = (
+-  row: QueueAdmissionMember & { queueSighting?: QueueSighting },
++  row: QueueAdmissionMember & {
++    queueSighting?: QueueSighting;
++    queueSightingAt?: number;
++    queueSightingSeq?: number | null;
++  },
+   observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
+ ): void => {
+-  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;
++  const current =
++    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
++      ? row.queueSighting
++      : undefined;
++  if (!row.id || !upgradedQueueSighting(current, observation)) return;
+   const initiatedAt = row.initiatedAt;
+   const queuedSeq = row.queuedSeq ?? null;
+   void Repo.transactions
+     .where({ id: row.id })
+     .modify(stored => {
+-      const next = upgradedQueueSighting(stored.queueSighting, observation);
++      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
++      const current =
++        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
++          ? stored.queueSighting
++          : undefined;
++      const next = upgradedQueueSighting(current, observation);
+       if (!next) return false;
+       stored.queueSighting = next;
+       stored.queueSightingAt = initiatedAt;
+diff --git a/src/lib/settings/helpers.test.ts b/src/lib/settings/helpers.test.ts
+index f558b4bc0d0cada5c1f1348f9979e0d38a6fda2d..dffee92580b335b8a1ee974f001f0ad06567f682 100644
+--- a/src/lib/settings/helpers.test.ts
++++ b/src/lib/settings/helpers.test.ts
+@@ -23,6 +23,7 @@ import {
+   isAutoConsumeEnabledAsync,
+   isCrashReportingEnabledAsync,
+   isDelegateProofEnabledAsync,
++  readMirroredDelegateProof,
+   mirrorBackgroundSettings,
+   areBackgroundSettingsMirrored,
+   setTelemetrySetting,
+@@ -336,6 +337,92 @@ describe('settings helpers', () => {
+       setDelegateProofSetting(true);
+       expect(await isDelegateProofEnabledAsync()).toBe(true);
+     });
++
++    it('readMirroredDelegateProof returns undefined when the delegate key is absent', async () => {
++      expect(await readMirroredDelegateProof()).toBeUndefined();
++    });
++
++    it('readMirroredDelegateProof returns a stored false', async () => {
++      mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = false;
++      expect(await readMirroredDelegateProof()).toBe(false);
++    });
++
++    it('readMirroredDelegateProof returns a stored true while the marker is false', async () => {
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = false;
++      mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = true;
++      expect(await readMirroredDelegateProof()).toBe(true);
++      expect(await areBackgroundSettingsMirrored()).toBe(false);
++    });
++
++    it.each([
++      {
++        name: 'non-boolean',
++        arrange: () => {
++          mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = 0;
++        }
++      },
++      {
++        name: 'thrown provider',
++        arrange: () => {
++          mockStorageThrows = true;
++        }
++      }
++    ])('readMirroredDelegateProof returns false for a $name read', async ({ arrange }) => {
++      arrange();
++      expect(await readMirroredDelegateProof()).toBe(false);
++    });
++
++    it('reads the pre-seeded delegate mirror while a marker clear is parked', async () => {
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++      mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = true;
++      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++        localStorage.setItem(key, 'false');
++      }
++      let releaseClear!: () => void;
++      const clearPending = new Promise<void>(resolve => {
++        releaseClear = resolve;
++      });
++      let signalParked!: () => void;
++      const clearParked = new Promise<void>(resolve => {
++        signalParked = resolve;
++      });
++      mockSet = async items => {
++        Object.assign(mockKvStore, items);
++        if (items[BG_SETTINGS_MIRRORED_KEY] === false) {
++          signalParked();
++          await clearPending;
++        }
++      };
++      try {
++        mirrorBackgroundSettings();
++        await clearParked;
++        expect(await readMirroredDelegateProof()).toBe(true);
++        expect(await areBackgroundSettingsMirrored()).toBe(false);
++      } finally {
++        releaseClear();
++        await nextTask();
++      }
++    });
++
++    it('keeps a pre-seeded true delegate mirror when the delegate write is rejected', async () => {
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++      mockKvStore[DELEGATE_PROOF_STORAGE_KEY] = true;
++      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++        localStorage.setItem(key, 'false');
++      }
++      const payloads: Record<string, unknown>[] = [];
++      mockSet = async items => {
++        payloads.push(items);
++        if (DELEGATE_PROOF_STORAGE_KEY in items) throw new Error('Delegate write unavailable');
++        Object.assign(mockKvStore, items);
++      };
++      mirrorBackgroundSettings();
++      await nextTask();
++      expect(await readMirroredDelegateProof()).toBe(true);
++      expect(await areBackgroundSettingsMirrored()).toBe(false);
++      expect(mockKvStore[DELEGATE_PROOF_STORAGE_KEY]).toBe(true);
++      expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
++    });
+   });
+ 
+   describe('background-settings mirror marker', () => {
+@@ -435,6 +522,28 @@ describe('settings helpers', () => {
+       }
+     );
+ 
++    it('withholds the marker when the telemetry write is rejected after both operational copies', async () => {
++      mockKvStore[TELEMETRY_STORAGE_KEY] = true;
++      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
++      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
++        localStorage.setItem(key, 'false');
++      }
++      const payloads: Record<string, unknown>[] = [];
++      mockSet = async items => {
++        payloads.push(items);
++        if (TELEMETRY_STORAGE_KEY in items) throw new Error('Telemetry write unavailable');
++        Object.assign(mockKvStore, items);
++      };
++      mirrorBackgroundSettings();
++      await nextTask();
++      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
++      expect(mockKvStore[AUTO_CONSUME_STORAGE_KEY]).toBe(false);
++      expect(mockKvStore[DELEGATE_PROOF_STORAGE_KEY]).toBe(false);
++      expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(true);
++      expect(payloads).toContainEqual({ [TELEMETRY_STORAGE_KEY]: false });
++      expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
++    });
++
+     it('repairs opted-out telemetry when clearing the marker is rejected', async () => {
+       mockKvStore[TELEMETRY_STORAGE_KEY] = true;
+       mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+diff --git a/src/lib/settings/helpers.ts b/src/lib/settings/helpers.ts
+index f90800dc24150ca5361afcf1c364aefecbfb0962..a65b1104d4d717b25b81e0fbf07011c4a2db0774 100644
+--- a/src/lib/settings/helpers.ts
++++ b/src/lib/settings/helpers.ts
+@@ -128,6 +128,24 @@ export function isDelegateProofEnabledAsync(): Promise<boolean> {
+   return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF, false);
+ }
+ 
++/**
++ * The delegated-proving mirror without the absent-key default. A missing key is
++ * `undefined`. A stored boolean is that boolean. A non-boolean or a thrown read
++ * is false, so an unusable value cannot select remote proving.
++ */
++export async function readMirroredDelegateProof(): Promise<boolean | undefined> {
++  try {
++    const key = DELEGATE_PROOF_STORAGE_KEY;
++    const items = await getStorageProvider().get([key]);
++    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
++    if (!Object.prototype.hasOwnProperty.call(items, key)) return undefined;
++    const value = items[key];
++    return typeof value === 'boolean' ? value : false;
++  } catch {
++    return false;
++  }
++}
++
+ export function setAutoConsumeSetting(enabled: boolean) {
+   setSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
+   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
+@@ -291,30 +309,49 @@ function enqueueMirrorMarker(attempt: number, mirrored: boolean): Promise<void>
+ }
+ 
+ async function copyBackgroundSettings(attempt: number): Promise<void> {
++  let complete = true;
+   try {
+     await enqueueMirrorMarker(attempt, false);
+-    await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+-    await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
++  } catch {
++    complete = false;
++  }
++  if (complete) {
++    try {
++      await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
++    } catch {
++      complete = false;
++    }
++    try {
++      await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
++    } catch {
++      complete = false;
++    }
++  }
++  try {
+     await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+-    await enqueueMirrorMarker(attempt, true);
+   } catch {
+-    /* a refused clear or copy does not publish the marker */
++    complete = false;
+   }
++  if (complete) await enqueueMirrorMarker(attempt, true).catch(() => undefined);
+ }
+ 
+ /**
+  * Copy auto-consume, delegated proving, and telemetry from `localStorage` into the
+- * platform KV mirror the service worker reads. An unreadable local store leaves an
+- * established mirror unchanged. Otherwise the copy clears the marker, then writes
+- * each choice from the local value at that write. Only the newest copy clears or
+- * publishes the marker. Call from a frontend context (the popup) where `localStorage`
+- * is available.
++ * platform KV mirror the service worker reads. Readable telemetry is repaired even
++ * when an operational read or write, or the marker clear, fails. Operational writes
++ * require a fulfilled clear, and publication requires all three choices to succeed.
++ * Each write reads the current local choice; only the newest copy changes the marker.
++ * Call from a frontend context where `localStorage` is available.
+  */
+ export function mirrorBackgroundSettings(): void {
+   const autoConsume = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+   const delegateProof = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+   const telemetry = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+-  if (autoConsume === null || delegateProof === null || telemetry === null) return;
++  if (telemetry === null) return;
++  if (autoConsume === null || delegateProof === null) {
++    void enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY).catch(() => undefined);
++    return;
++  }
+ 
+   // The entry reads only decide whether to start. Each write reads again in its own turn.
+   const attempt = ++backgroundMirrorAttempt;

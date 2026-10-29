@@ -1,0 +1,86 @@
+[
+  {
+    "name": "reader-absent-false",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "return undefined;",
+    "new": "return false;",
+    "reader_region": true,
+    "prediction": "returns undefined when the delegate key is absent",
+    "source_tree": "291ba58aa26ad1ffb6eb79ce754761ca8a4d9c5e",
+    "sha256": "536675dd65a19beaa9e5109f4de2aa93ad9a20b8895e4b122326c4454a88185c"
+  },
+  {
+    "name": "reader-booleans-inverted",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "typeof value === 'boolean' ? value : false",
+    "new": "typeof value === 'boolean' ? !value : false",
+    "reader_region": true,
+    "prediction": "returns a stored false",
+    "source_tree": "929d934a1ac0a480079367269c9d099c608c0cea",
+    "sha256": "d1c3e368905e639056b4bcb535db6fc2cdbfe0dbd4262702a24c1454e8aceb20"
+  },
+  {
+    "name": "reader-invalid-true",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "typeof value === 'boolean' ? value : false",
+    "new": "typeof value === 'boolean' ? value : true",
+    "reader_region": true,
+    "prediction": "non-boolean read",
+    "source_tree": "f331ee58a49f151ccb2d1b0ac7a6db5648614031",
+    "sha256": "2a10fab004144c6afefb97ae4115b2254cf829b0851c4ae4da8f6e0d16f29833"
+  },
+  {
+    "name": "reader-error-true",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "return false;",
+    "new": "return true;",
+    "reader_region": true,
+    "prediction": "thrown provider read",
+    "source_tree": "96f387037a0c9f4610218b4e46ea362c76725ce4",
+    "sha256": "a320a9bc5d8c35d79367a924b42d531c74138cfb201cb2fbfdfc9379dd793250"
+  },
+  {
+    "name": "consumer-stale-true-pass-through",
+    "path": "src/lib/miden/back/sync-manager.ts",
+    "old": "settlementDelegate = present === undefined ? undefined : false;",
+    "new": "settlementDelegate = present;",
+    "reader_region": false,
+    "prediction": "unpublished present mirror true and saved choice false",
+    "source_tree": "5a2b36c82f61d80dcdd2ccde87372f04921375e1",
+    "sha256": "9cebda874f353894e97845b77c25072c6477771d18b83995a5041c6758dd5c16"
+  },
+  {
+    "name": "intended-old-publish-site",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);",
+    "new": "    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);\n    await enqueueMirrorMarker(attempt, true);",
+    "reader_region": false,
+    "prediction": "operational write",
+    "replaces_invalid_prior": 10,
+    "source_tree": "4b0cf05c7109a4f8148f4915fc2f36b9002550c7",
+    "sha256": "46bd037ae66340598e1403b0461283d3485fe1f242fdb913c351655e7a8f7cb7"
+  },
+  {
+    "name": "intended-telemetry-catch-site",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "  try {\n    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);\n  } catch {\n    complete = false;\n  }",
+    "new": "  try {\n    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);\n  } catch {\n    /* a refused clear or copy does not publish the marker */\n  }",
+    "reader_region": false,
+    "prediction": "withholds the marker when the telemetry write is rejected",
+    "replaces_invalid_prior": 11,
+    "source_tree": "c05bc0e62b1407160f4e9a6717b6b59c24368c9a",
+    "sha256": "47ef2222cbbb618e4c33176bbe9960787c53a3e29e2632cc2b37e867a72869da"
+  },
+  {
+    "name": "old-queue-writer-counterfactual",
+    "path": "src/lib/miden/transaction/index.ts",
+    "old": "const persistQueueSighting = (\n  row: QueueAdmissionMember & {\n    queueSighting?: QueueSighting;\n    queueSightingAt?: number;\n    queueSightingSeq?: number | null;\n  },\n  observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'\n): void => {\n  const current =\n    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)\n      ? row.queueSighting\n      : undefined;\n  if (!row.id || !upgradedQueueSighting(current, observation)) return;\n  const initiatedAt = row.initiatedAt;\n  const queuedSeq = row.queuedSeq ?? null;\n  void Repo.transactions\n    .where({ id: row.id })\n    .modify(stored => {\n      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;\n      const current =\n        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)\n          ? stored.queueSighting\n          : undefined;\n      const next = upgradedQueueSighting(current, observation);\n      if (!next) return false;\n      stored.queueSighting = next;\n      stored.queueSightingAt = initiatedAt;\n      stored.queueSightingSeq = queuedSeq;\n      return undefined;\n    })\n    .catch(() => undefined);\n};\n",
+    "new": "const persistQueueSighting = (\n  row: QueueAdmissionMember & { queueSighting?: QueueSighting },\n  observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'\n): void => {\n  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;\n  const initiatedAt = row.initiatedAt;\n  const queuedSeq = row.queuedSeq ?? null;\n  void Repo.transactions\n    .where({ id: row.id })\n    .modify(stored => {\n      const next = upgradedQueueSighting(stored.queueSighting, observation);\n      if (!next) return false;\n      stored.queueSighting = next;\n      stored.queueSightingAt = initiatedAt;\n      stored.queueSightingSeq = queuedSeq;\n      return undefined;\n    })\n    .catch(() => undefined);\n};\n",
+    "reader_region": false,
+    "prediction": "captured before cancel and Retry",
+    "also_prediction": "stored label belongs to another incarnation",
+    "counterfactual": "Original writer against the deterministic refined clock; both root assertions must fail",
+    "source_tree": "c1184d67ac9ab626f3b4767b4c60397ec6983310",
+    "sha256": "61f58f7483d9c0f574dc9a878ac7a70b6583b2cc7375952526178932762d3cd6"
+  }
+]

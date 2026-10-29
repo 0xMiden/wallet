@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/lib/miden/transaction/index.ts",
+    "original_hunk": 2,
+    "sha256": "1cb714bb289406f0377d2b3be6f0d8d76fc63cd6005f7d0e05363fe203db4080"
+  },
+  {
+    "path": "src/lib/settings/helpers.ts",
+    "original_hunk": 8,
+    "sha256": "2ff83465653e34151b116b6803cdd54ab7c84a205539a36fbc3e998670e8ca88"
+  }
+]

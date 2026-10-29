@@ -1,0 +1,108 @@
+diff --git a/src/lib/miden/back/sync-manager.ts b/src/lib/miden/back/sync-manager.ts
+index cc3dd7f4e0778335d05bf5f1a05be3937a2e336e..66e9ae41331fc9e997558cc9c282aa07af453b48 100644
+--- a/src/lib/miden/back/sync-manager.ts
++++ b/src/lib/miden/back/sync-manager.ts
+@@ -22 +22,2 @@ import {
+-  isDelegateProofEnabledAsync
++  isDelegateProofEnabledAsync,
++  readMirroredDelegateProof
+@@ -807,2 +808,10 @@ async function runSync(force: boolean): Promise<void> {
+-          // write deadline. Only once the popup has mirrored the settings, as the native pass also requires:
+-          // a read miss answers the delegated default, so until then the order's own choice stands.
++          // write deadline. A published mirror uses that read, including its absent-key default. While the
++          // marker is false, a missing delegate key leaves the order's choice, and any present or unusable
++          // delegate mirror selects local proving.
++          let settlementDelegate: boolean | undefined;
++          if (await areBackgroundSettingsMirrored()) {
++            settlementDelegate = await isDelegateProofEnabledAsync();
++          } else {
++            const present = await readMirroredDelegateProof();
++            settlementDelegate = present === undefined ? undefined : false;
++          }
+@@ -812 +821 @@ async function runSync(force: boolean): Promise<void> {
+-            (await areBackgroundSettingsMirrored()) ? await isDelegateProofEnabledAsync() : undefined,
++            settlementDelegate,
+diff --git a/src/lib/miden/transaction/index.ts b/src/lib/miden/transaction/index.ts
+index 6cc279eddc44daa555e0facb10587b73f6a9b02d..7e0b03cb361e20143e5b5d4bccc8d239e90a0f2e 100644
+--- a/src/lib/miden/transaction/index.ts
++++ b/src/lib/miden/transaction/index.ts
+@@ -687 +687,5 @@ const persistQueueSighting = (
+-  row: QueueAdmissionMember & { queueSighting?: QueueSighting },
++  row: QueueAdmissionMember & {
++    queueSighting?: QueueSighting;
++    queueSightingAt?: number;
++    queueSightingSeq?: number | null;
++  },
+@@ -690 +694,5 @@ const persistQueueSighting = (
+-  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;
++  const current =
++    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
++      ? row.queueSighting
++      : undefined;
++  if (!row.id || !upgradedQueueSighting(current, observation)) return;
+@@ -696 +704,6 @@ const persistQueueSighting = (
+-      const next = upgradedQueueSighting(stored.queueSighting, observation);
++      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
++      const current =
++        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
++          ? stored.queueSighting
++          : undefined;
++      const next = upgradedQueueSighting(current, observation);
+diff --git a/src/lib/settings/helpers.ts b/src/lib/settings/helpers.ts
+index a94def83f3abca7eb2b6b6d155bad8fb96622ca6..a65b1104d4d717b25b81e0fbf07011c4a2db0774 100644
+--- a/src/lib/settings/helpers.ts
++++ b/src/lib/settings/helpers.ts
+@@ -130,0 +131,18 @@ export function isDelegateProofEnabledAsync(): Promise<boolean> {
++/**
++ * The delegated-proving mirror without the absent-key default. A missing key is
++ * `undefined`. A stored boolean is that boolean. A non-boolean or a thrown read
++ * is false, so an unusable value cannot select remote proving.
++ */
++export async function readMirroredDelegateProof(): Promise<boolean | undefined> {
++  try {
++    const key = DELEGATE_PROOF_STORAGE_KEY;
++    const items = await getStorageProvider().get([key]);
++    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
++    if (!Object.prototype.hasOwnProperty.call(items, key)) return undefined;
++    const value = items[key];
++    return typeof value === 'boolean' ? value : false;
++  } catch {
++    return false;
++  }
++}
++
+@@ -293,0 +312 @@ async function copyBackgroundSettings(attempt: number): Promise<void> {
++  let complete = true;
+@@ -296,2 +315,16 @@ async function copyBackgroundSettings(attempt: number): Promise<void> {
+-    await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+-    await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
++  } catch {
++    complete = false;
++  }
++  if (complete) {
++    try {
++      await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
++    } catch {
++      complete = false;
++    }
++    try {
++      await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
++    } catch {
++      complete = false;
++    }
++  }
++  try {
+@@ -299 +331,0 @@ async function copyBackgroundSettings(attempt: number): Promise<void> {
+-    await enqueueMirrorMarker(attempt, true);
+@@ -301 +333 @@ async function copyBackgroundSettings(attempt: number): Promise<void> {
+-    /* a refused clear or copy does not publish the marker */
++    complete = false;
+@@ -302,0 +335 @@ async function copyBackgroundSettings(attempt: number): Promise<void> {
++  if (complete) await enqueueMirrorMarker(attempt, true).catch(() => undefined);
+@@ -317 +350,5 @@ export function mirrorBackgroundSettings(): void {
+-  if (autoConsume === null || delegateProof === null || telemetry === null) return;
++  if (telemetry === null) return;
++  if (autoConsume === null || delegateProof === null) {
++    void enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY).catch(() => undefined);
++    return;
++  }

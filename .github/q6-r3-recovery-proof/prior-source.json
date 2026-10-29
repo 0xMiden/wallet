@@ -1,0 +1,46 @@
+{
+  "head": "3dfd9ec6936bdc8d730eeb4eb06ca9d1aebf1c13",
+  "tree": "17b7dc5ff8ec75e730c3189d98ec14d16e4924d7",
+  "parent": "a0911feba15a4a5517e36a648e2b88b05b9d1ac6",
+  "functional_baseline_tree": "2f34b3a0dd66593eae6087fccd4be803e7ff374f",
+  "tests": [
+    "src/lib/settings/helpers.test.ts",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx",
+    "src/lib/miden/back/sync-manager.test.ts",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+    "src/lib/miden/transaction/queue-admission-diagnostics.test.ts"
+  ],
+  "test_count": 325,
+  "hunks": 13,
+  "structural": 5,
+  "functional": 8,
+  "files": {
+    "src/lib/miden/back/sync-manager.ts": "5e48dd8a333eba36cbf1d74719726063df1d16efd95c3a0a3de25cebb4dc7e11",
+    "src/lib/miden/transaction/index.ts": "21eaee2cf3228105b9ff47fcc0e71c4209b33309a7f04896f96856976ad3bf59",
+    "src/lib/settings/helpers.ts": "222e6febc25b23662be3953760780940b855d1760b4b3e245138d890b910c3d5",
+    "src/lib/settings/helpers.test.ts": "50e07cded3abf625835955fb3e4d2378cb03391c6d93189228b59e4220ca4eb3",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts": "52dfbb7366184bc5fa3e953cdf5be393b6cb83bd7343d26ee78e4421c11f7676",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx": "b435e34add579c39c8eee3f4fcffd848e1b34684f80994defb190c0c3901b723",
+    "src/lib/miden/back/sync-manager.test.ts": "186c7f8581ee939ecd51c323de99ffc53daa4c5478c3e96e348c720a3eea2792",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts": "330dfc440e4e2a7cef209f114f7c146d609100d195861ca0186dd59faa1cbbb6",
+    "src/lib/miden/transaction/queue-admission-diagnostics.test.ts": "78006e89703c8fbe4ee152e9ea7ea6d20284ee0ecc50e8bb46cb3e5dd252dee4",
+    "CHANGELOG.md": "e411d0b2326bbd0450f493e024deaba33fe7ba1d12ebc8c8a87a6b33c3ec0b6f"
+  },
+  "full_patch_sha256": "8eb645c48bae60f62e35e866ec3cba24ea68fc47c23ddf8973f9cb1904ae9776",
+  "functional_patch_sha256": "6a6e2199988ddfbae162ef445d9c42e0e431ff9cab8919aa02937e09b53a7d45",
+  "functional_reverse_sha256": "9c8898e3ebccbc48daa773f47492af35626cac6ad1b20350236f1c9ab6edd646",
+  "excluded_docs": [
+    {
+      "path": "src/lib/miden/transaction/index.ts",
+      "original_hunk": 2,
+      "sha256": "1cb714bb289406f0377d2b3be6f0d8d76fc63cd6005f7d0e05363fe203db4080"
+    },
+    {
+      "path": "src/lib/settings/helpers.ts",
+      "original_hunk": 8,
+      "sha256": "2ff83465653e34151b116b6803cdd54ab7c84a205539a36fbc3e998670e8ca88"
+    }
+  ],
+  "installed_mutate_sha256": "32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc"
+}

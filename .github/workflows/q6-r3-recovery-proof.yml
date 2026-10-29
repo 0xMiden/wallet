@@ -1,0 +1,56 @@
+name: Queue and settings intended-site mutation recovery
+on:
+  push:
+    branches: [ci/q6-r3-green-recovery-v2-20261029]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind current source and retained prior evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-r3-recovery-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-r3-recovery-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 9767768da1a17ec866590dc752829305dbde1987
+          cp -R .github/q6-r3-recovery-proof "$RUNNER_TEMP/q6-r3-recovery-packet"
+          cp "$RUNNER_TEMP/q6-r3-recovery-packet/"* "$RUNNER_TEMP/q6-r3-recovery-evidence/"
+          gh run view 40818885556 --repo 0xMiden/wallet --json headSha,conclusion,status > "$RUNNER_TEMP/q6-r3-recovery-evidence/prior-run-api.json"
+          gh run download 40818885556 --repo 0xMiden/wallet --name q6-r3-green-mutation-proof --dir "$RUNNER_TEMP/q6-r3-prior-proof"
+          git checkout --detach 9767768da1a17ec866590dc752829305dbde1987
+          test "$(git rev-parse HEAD^{tree})" = d0a85bddeb3e39a57fb9f000842c9f7622bcf8d3
+          git fetch --depth=1 origin 3dfd9ec6936bdc8d730eeb4eb06ca9d1aebf1c13
+          python3 -m py_compile "$RUNNER_TEMP/q6-r3-recovery-packet/"*.py
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-r3-recovery-evidence/install.log"
+      - name: Current full typecheck and strict named lint
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/q6-r3-recovery-evidence/typecheck.log"
+          yarn eslint src/lib/miden/transaction/index.ts src/lib/settings/helpers.ts src/lib/settings/helpers.test.ts src/lib/miden/back/sync-manager.ts src/lib/miden/back/sync-manager.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-r3-recovery-evidence/lint.log"
+      - name: Baseline325, intended sites, semantic mutants, old writer, closing325
+        env:
+          PROOF_EVIDENCE: ${{ runner.temp }}/q6-r3-recovery-evidence
+          PRIOR_EVIDENCE: ${{ runner.temp }}/q6-r3-prior-proof
+        run: python3 "$RUNNER_TEMP/q6-r3-recovery-packet/recover.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-r3-intended-site-recovery-proof
+          path: ${{ runner.temp }}/q6-r3-recovery-evidence
+          if-no-files-found: error
