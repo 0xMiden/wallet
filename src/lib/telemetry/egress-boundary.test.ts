@@ -1,13 +1,13 @@
 import { createElement } from 'react';
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { englishWordlist } from '@miden/hd-key';
 import { Scope } from '@sentry/browser';
 import { act, render, renderHook } from '@testing-library/react';
 import Dexie from 'dexie';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
-import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { ErrorLine } from 'components/ui/ErrorLine';
