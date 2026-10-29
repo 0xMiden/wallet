@@ -37,3 +37,12 @@ test('topology manifest rejects untrusted identity and unbounded runs', () => {
 test('topology manifest rejects an existing script name', () => {
   assert.equal(build({ ...options(), inventory: [{ id: 'miden-elig-topology-12345-1' }] }), null);
 });
+
+test('topology manifest rejects accessor-backed identity and inventory', () => {
+  const withGetter = { ...identity };
+  Object.defineProperty(withGetter, 'sourceSha', { enumerable: true, get: () => 'a'.repeat(40) });
+  assert.equal(build({ ...options(), identity: withGetter }), null);
+  const item = {};
+  Object.defineProperty(item, 'id', { enumerable: true, get: () => 'worker' });
+  assert.equal(build({ ...options(), inventory: [item] }), null);
+});
