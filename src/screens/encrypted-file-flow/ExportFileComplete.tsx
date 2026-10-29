@@ -121,7 +121,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
       try {
         const result = await Filesystem.writeFile({
           path: fullFileName,
-          data: fileContent,
+          data: fileContent.slice(0, -1),
           directory: Directory.Cache,
           encoding: Encoding.UTF8
         });
