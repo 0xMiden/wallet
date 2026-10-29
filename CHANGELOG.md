@@ -22,6 +22,7 @@
 - [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
+- [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
