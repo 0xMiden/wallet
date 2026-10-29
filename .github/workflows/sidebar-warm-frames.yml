@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = f703e77958e72c377eb2b36dc52ac56b01b50807
+          test "$(git rev-parse HEAD^)" = 9fd0a0d0040cb3bcc6821c539b99e73222e29c40
           git diff --name-only fc43d4b29e009b8d36e3bb5bf0443ef82141e3b9 HEAD > "$RUNNER_TEMP/changed"
           printf '%s\n' .github/workflows/sidebar-warm-frames.yml playwright/toolbar/action-surfaces.spec.ts > "$RUNNER_TEMP/expected"
           diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/changed"
