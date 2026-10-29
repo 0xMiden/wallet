@@ -72,11 +72,47 @@ test('read adapter does not start a request after the total deadline', async () 
 
 test('read adapter strips unrelated setting values while retaining fixed ownership markers', async () => {
   const path = '/workers/scripts/miden-elig-topology-12345-1/settings';
-  const api = create({ accountId, token, fetchImpl: async () => Response.json({ success: true, errors: [], result: { bindings: [
-    { name: 'PASSWORD', type: 'secret_text', text: 'private-sentinel' },
-    { name: 'TOPOLOGY_OWNER', type: 'plain_text', text: 'a'.repeat(64) }
-  ] } }) });
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: {
+          bindings: [
+            { name: 'PASSWORD', type: 'secret_text', text: 'private-sentinel' },
+            { name: 'TOPOLOGY_OWNER', type: 'plain_text', text: 'a'.repeat(64) }
+          ]
+        }
+      })
+  });
   const value = await api(path);
   assert.equal(JSON.stringify(value).includes('private-sentinel'), false);
   assert.equal(value?.result?.bindings[1]?.text, 'a'.repeat(64));
+});
+
+test('read adapter preserves explicit script logging state without exposing unrelated provider data', async () => {
+  const path = '/workers/scripts/miden-elig-topology-12345-1/script-settings';
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: {
+          logpush: false,
+          observability: { enabled: false },
+          tail_consumers: [],
+          unrelated: 'private-sentinel'
+        }
+      })
+  });
+  const value = await api(path);
+  assert.deepEqual(value, {
+    success: true,
+    errors: [],
+    result: { logpush: false, observability: { enabled: false }, tail_consumers: [] }
+  });
 });
