@@ -2,7 +2,7 @@ name: Sidebar warm reopen visual evidence
 
 on:
   push:
-    branches: [ci/sidebar-gate-timing]
+    branches: [ci/sidebar-provider-timing]
 
 permissions:
   contents: read
@@ -23,9 +23,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = bf1c97886df3d594c02b8324f7f51bdda48dba42
+          test "$(git rev-parse HEAD^)" = 93f6cc94694e467c10bb325f9fe5b8d5b9947c2e
           git diff --name-only fc43d4b29e009b8d36e3bb5bf0443ef82141e3b9 HEAD > "$RUNNER_TEMP/changed"
-          printf '%s\n' .github/workflows/sidebar-warm-frames.yml playwright/toolbar/action-surfaces.spec.ts src/app/WalletAccessGate.tsx > "$RUNNER_TEMP/expected"
+          printf '%s\n' .github/workflows/sidebar-warm-frames.yml playwright/toolbar/action-surfaces.spec.ts src/app/WalletAccessGate.tsx src/lib/miden/front/provider.tsx > "$RUNNER_TEMP/expected"
           diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/changed"
 
       - name: Use Node 22

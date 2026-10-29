@@ -123,8 +123,11 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
         // The override can change the effective network, so the bridge config readers follow it.
         followEffectiveNetwork();
       }
+      performance.mark("proof-provider-before-wasm");
       await ensureSdkWasmReady();
+      performance.mark("proof-provider-before-preload");
       await preloaded;
+      performance.mark("proof-provider-ready");
       if (!cancelled) setReady(true);
     })().catch((reason: unknown) => {
       // An Error stays itself, so the crash report keeps the SDK's own object; any other value is named by an Error
