@@ -1,5 +1,5 @@
 import { createService } from './worker.mjs';
-import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario } from './staging-topology.mjs';
+import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario, runRateScenario } from './staging-topology.mjs';
 
 const policy = {
   network: 'testnet',
@@ -108,6 +108,26 @@ export class TopologyControl {
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
+      if (name === 'rate_refusal') {
+        let objects = 0;
+        const monitored = namespace => ({
+          idFromName: name => { objects++; return namespace.idFromName(name); },
+          get: id => { objects++; return namespace.get(id); }
+        });
+        const rateEnv = {
+          ...serviceEnv,
+          CALLER_GUARD: monitored(env.CALLER_GUARD),
+          ELIGIBILITY_GUARD: monitored(env.ELIGIBILITY_GUARD)
+        };
+        const adapter = {
+          fetch: (request, refusal) => service.fetch(request, {
+            ...rateEnv,
+            CALLER_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'caller' }) },
+            COLO_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'colo' }) }
+          })
+        };
+        return runRateScenario({ service: adapter, counters: async () => ({ objects }) });
+      }
       if (name === 'shared_budget') {
         const counters = async () => (await budget.fetch('https://topology.internal/proof-budget')).json();
         return runBudgetScenario({ budget, counters });

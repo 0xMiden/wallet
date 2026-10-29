@@ -1,4 +1,4 @@
-const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget']);
+const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget', 'rate_refusal']);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -191,6 +191,28 @@ export async function runBudgetScenario({ budget, counters, now = Date.now }) {
     if (count !== 16) return 'failed';
     const denied = await send('reserve', {});
     return !denied.ok && await readCount() === 16 ? 'passed' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function runRateScenario({ service, counters }) {
+  try {
+    const before = await counters();
+    if (!Number.isSafeInteger(before?.objects) || before.objects < 0) return 'failed';
+    for (const refusal of ['caller', 'colo']) {
+      const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
+        headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://wallet.example' }
+      });
+      Object.defineProperty(request, 'cf', { value: { colo: 'TST' } });
+      const response = await service.fetch(request, refusal);
+      const body = await response.json();
+      const after = await counters();
+      if (response.status !== 429 || body?.error !== 'rate_limited' ||
+          response.headers.get('Retry-After') !== (refusal === 'caller' ? '60' : '10') ||
+          after?.objects !== before.objects) return 'failed';
+    }
+    return 'passed';
   } catch {
     return 'failed';
   }
