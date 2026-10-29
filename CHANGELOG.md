@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
+
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
 
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
