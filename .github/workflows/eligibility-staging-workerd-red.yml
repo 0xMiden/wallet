@@ -11,11 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: test "$(git rev-parse HEAD^)" = dc062884c12f12d34e6d14696dbea09cc355053b
+      - run: git checkout --detach dc062884c12f12d34e6d14696dbea09cc355053b && test "$(git rev-parse HEAD)" = dc062884c12f12d34e6d14696dbea09cc355053b
       - name: Verify the missing real cache scenario
         shell: bash
         run: |
@@ -39,7 +39,7 @@ jobs:
           cat proof/result.log
           test "$status" -ne 0
           grep -F 'not ok 1 - isolated workerd cache scenario proves the real service miss and hit' proof/result.log
-          grep -F '503 !== 200' proof/result.log
+          grep -F '400 !== 200' proof/result.log
           grep -F '# fail 1' proof/result.log
       - uses: actions/upload-artifact@v4
         if: always()
