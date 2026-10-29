@@ -19,9 +19,9 @@
     {
       "binding": "DB",
       "database_name": "miden-wallet-api",
-      // Placeholder. Run `wrangler d1 create miden-wallet-api` and put the returned database_id here.
-      // Local `wrangler dev` and `wrangler d1 migrations apply --local` work with this placeholder.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // The production database, from `wrangler d1 create miden-wallet-api`. The id is not a secret.
+      // Local `wrangler dev` and `wrangler d1 migrations apply --local` do not use it.
+      "database_id": "8e645d00-84d0-4da5-a5f3-ae17563ca9d9",
       "migrations_dir": "migrations"
     }
   ],

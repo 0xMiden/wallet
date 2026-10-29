@@ -103,7 +103,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           JWT_SIGNING_KEY: ${{ secrets.WALLET_API_JWT_SIGNING_KEY }}
-          D1_DATABASE_ID: ${{ vars.WALLET_API_D1_DATABASE_ID }}
           ALLOWED_ORIGINS: ${{ vars.WALLET_API_ALLOWED_ORIGINS }}
           WALLET_API_URL: ${{ vars.WALLET_API_URL }}
           DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
@@ -114,14 +113,10 @@ jobs:
           import { resolve, join } from 'node:path';
           import { validateEndpoint, validateOrigins } from './services/wallet-api/check-deployment.mjs';
           for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'JWT_SIGNING_KEY',
-            'D1_DATABASE_ID', 'ALLOWED_ORIGINS', 'WALLET_API_URL']) {
+            'ALLOWED_ORIGINS', 'WALLET_API_URL']) {
             if (!process.env[key]) throw new Error(`Missing production setting: ${key}`);
           }
           if (process.env.JWT_SIGNING_KEY.length < 32) throw new Error('WALLET_API_JWT_SIGNING_KEY must have at least 32 characters');
-          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(process.env.D1_DATABASE_ID) ||
-            /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(process.env.D1_DATABASE_ID)) {
-            throw new Error('WALLET_API_D1_DATABASE_ID must be the id that `wrangler d1 create miden-wallet-api` returned');
-          }
           validateOrigins(JSON.parse(process.env.ALLOWED_ORIGINS));
           validateEndpoint(process.env.WALLET_API_URL);
           const service = resolve('services/wallet-api');
@@ -133,13 +128,14 @@ jobs:
             authLimit.namespace_id === storageLimit.namespace_id) {
             throw new Error('Missing or invalid wallet-api rate limit bindings');
           }
-          const [database] = config.d1_databases ?? [];
-          if (database?.binding !== 'DB' || database.database_name !== 'miden-wallet-api') {
-            throw new Error('Missing or invalid wallet-api D1 binding');
+          const [database, ...otherDatabases] = config.d1_databases ?? [];
+          if (otherDatabases.length || database?.binding !== 'DB' || database.database_name !== 'miden-wallet-api' ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(database.database_id) ||
+            /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(database.database_id)) {
+            throw new Error('wrangler.jsonc must bind DB to the one production database that `wrangler d1 create miden-wallet-api` returned');
           }
           // The rendered copy lives outside the service folder, so every path is absolute.
           config.main = resolve(service, config.main);
-          database.database_id = process.env.D1_DATABASE_ID;
           database.migrations_dir = resolve(service, database.migrations_dir);
           config.vars = Object.fromEntries(['ALLOWED_ORIGINS', 'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
           writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-release.json'), JSON.stringify(config), { mode: 0o600 });

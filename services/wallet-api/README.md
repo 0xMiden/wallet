@@ -73,12 +73,13 @@ Use Wrangler 4.151.3. Wrangler bundles `@noble/curves` from `package.json` at de
 ```sh
 yarn install   # at the repository root, once
 cd services/wallet-api
-npx tsc --noEmit -p .
-npx wrangler@4.151.3 d1 migrations apply miden-wallet-api --local
-npx wrangler@4.151.3 dev --var JWT_SIGNING_KEY:<32 or more characters>
+yarn build           # tsc --noEmit on the Worker and on its tests
+yarn migrate:local   # wrangler d1 migrations apply --local
+yarn dev             # wrangler dev on port 8787; put JWT_SIGNING_KEY in .dev.vars
+yarn test            # the deploy probe's node tests, then the Jest suites in test/
 ```
 
-`tsc --noEmit` checks the types only. Wrangler does not check types when it bundles, so run `tsc` before a deploy.
+The scripts in `package.json` pin Wrangler through `npx wrangler@4.151.3`. `yarn build` checks the types only. Wrangler does not check types when it bundles, so run it before a deploy.
 
 Local runs work with the placeholder `database_id`. Local state goes to `.wrangler/`, which git ignores. You can also put `JWT_SIGNING_KEY=...` in a `.dev.vars` file, which git ignores too. With `ALLOWED_ORIGINS` set to `[]`, the Worker refuses every request that sends an `Origin` header. Requests without the header, such as `curl`, are accepted.
 
@@ -93,34 +94,24 @@ Local runs work with the placeholder `database_id`. Local state goes to `.wrangl
 | `AUTH_RATE_LIMIT` | Rate limit binding | Approximate 30 auth requests per caller address per 60 seconds |
 | `STORAGE_RATE_LIMIT` | Rate limit binding | Approximate 120 reads and 120 write units per profile per 60 seconds |
 
-The committed `wrangler.jsonc` holds placeholders only: the `database_id` is zeros, `ALLOWED_ORIGINS` is `[]`, and `DEPLOYMENT_REVISION` is `unknown`. The deploy workflow renders a release copy with the real values and never commits them. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT` and `STORAGE_RATE_LIMIT` with integers that no other rate limit binding in the account uses (the feature-eligibility Worker uses 189401 and 189402).
+The committed `wrangler.jsonc` names the production database (`database_id`, which is an identifier and not a secret) and holds placeholders for the rest: `ALLOWED_ORIGINS` is `[]`, and `DEPLOYMENT_REVISION` is `unknown`. The deploy workflow renders a release copy with the real values and never commits them. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT` and `STORAGE_RATE_LIMIT` with integers that no other rate limit binding in the account uses (the feature-eligibility Worker uses 189401 and 189402).
 
 ## Deployment
 
-`.github/workflows/deploy-wallet-api.yml` deploys the Worker. A production deploy is always started by hand: the workflow has only a `workflow_dispatch` trigger, run from the Actions tab with a published release tag or with `deployment_source: main` from `main`, and the `wallet-api-production` environment's required reviewers approve each run. A published release or a merge into `main` deploys nothing. The job type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
+The Worker is live at `https://miden-wallet-api.utkarsh-s.workers.dev`, on the Cloudflare account that holds the database named in `wrangler.jsonc`. Every deploy is `.github/workflows/deploy-wallet-api.yml`, started by hand from the Actions tab: the workflow has only a `workflow_dispatch` trigger, run with a published release tag or with `deployment_source: main` from `main`. A published release or a merge into `main` deploys nothing. The job type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
 
 A migration runs before the new Worker serves traffic, so every migration must keep working with the Worker that is live until the deploy lands.
 
-### One-time setup, by hand
+The workflow reads these from the repository's Actions secrets and variables, or from a GitHub environment named `wallet-api-production` with required reviewers when an admin creates one (the workflow names that environment, so GitHub creates it without rules on the first run):
 
-1. Create the database with a Cloudflare token that can edit D1, and keep the returned id:
+| Name | Kind | Value |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit, D1: Edit and Account Settings: Read, limited to the account that holds the database |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | That account's id |
+| `WALLET_API_JWT_SIGNING_KEY` | secret | The signing key the live Worker holds, from the team password manager. The workflow sets the Worker secret on every run, so another value logs every device out |
+| `WALLET_API_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost` |
+| `WALLET_API_URL` | variable | `https://miden-wallet-api.utkarsh-s.workers.dev`, no trailing slash |
 
-   ```sh
-   CLOUDFLARE_ACCOUNT_ID=<account> CLOUDFLARE_API_TOKEN=<token> npx wrangler@4.151.3 d1 create miden-wallet-api
-   ```
+The origins and the revision change the rendered config only; `wrangler.jsonc` stays as committed. The wallet reads the URL from the `0xMiden/wallet-config` document (`features.encryptedBackup` and `backup.baseUrl`); nothing is baked into a build.
 
-2. Create the GitHub environment `wallet-api-production` with required reviewers, and set:
-
-   | Name | Kind | Value |
-   | --- | --- | --- |
-   | `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit, D1: Edit and Account Settings: Read |
-   | `CLOUDFLARE_ACCOUNT_ID` | secret | The Cloudflare account id |
-   | `WALLET_API_JWT_SIGNING_KEY` | secret | 32 random bytes or more, for example `openssl rand -base64 48` |
-   | `WALLET_API_D1_DATABASE_ID` | variable | The id from step 1 |
-   | `WALLET_API_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins: the store extension origin `chrome-extension://<id>`, `capacitor://localhost`, `http://localhost` (Android), `tauri://localhost` |
-   | `WALLET_API_URL` | variable | The public base URL, `https://miden-wallet-api.<account>.workers.dev` or a custom hostname, no trailing slash |
-
-3. Run the workflow once by hand from `main` and check that the verify step passes.
-4. Open a `0xMiden/wallet-config` change that sets `features.encryptedBackup: true` and `backup.baseUrl` to `WALLET_API_URL` for each network that turns the backup on. The wallet reads the URL from that document; nothing is baked into a build.
-
-A new `WALLET_API_JWT_SIGNING_KEY` makes every issued token invalid, and each device logs in again on its next refresh. The database id and the origins change the rendered config only; `wrangler.jsonc` stays as committed.
+The database was created once with `wrangler d1 create miden-wallet-api`, and its id is the `database_id` of the `DB` binding in `wrangler.jsonc`. A new account repeats the command and commits the new id there. Wrangler appends a second binding when it writes the id itself; keep the one `DB` binding, because the Worker reads `env.DB` and the deploy refuses a config with two. A new account also sets the signing key once with `npx wrangler@4.151.3 secret put JWT_SIGNING_KEY` before the first workflow run, or lets the workflow set it.
