@@ -1,0 +1,29 @@
+{
+  "head": "ae4be03e693baf19b502183202d0c9d2ece065af",
+  "tree": "f2add27c35a044491106067afee3c769938f4323",
+  "tests": [
+    "src/lib/settings/helpers.test.ts",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx",
+    "src/lib/miden/back/sync-manager.test.ts",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts",
+    "src/lib/miden/transaction/queue-admission-diagnostics.test.ts",
+    "src/lib/miden/transaction/failure-identity.integration.test.ts"
+  ],
+  "count": 365,
+  "files": {
+    "src/lib/settings/helpers.test.ts": "50e07cded3abf625835955fb3e4d2378cb03391c6d93189228b59e4220ca4eb3",
+    "src/lib/settings/helpers.capacitor-mirror.test.ts": "52dfbb7366184bc5fa3e953cdf5be393b6cb83bd7343d26ee78e4421c11f7676",
+    "src/lib/miden/front/NativeNoteAutoConsumeManager.test.tsx": "b435e34add579c39c8eee3f4fcffd848e1b34684f80994defb190c0c3901b723",
+    "src/lib/miden/back/sync-manager.test.ts": "186c7f8581ee939ecd51c323de99ffc53daa4c5478c3e96e348c720a3eea2792",
+    "src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts": "645083c09e399b5cefc938a0df8baa05e54e599a4bcef5d5c3ec9ee50cb42bf1",
+    "src/lib/miden/transaction/queue-admission-diagnostics.test.ts": "78006e89703c8fbe4ee152e9ea7ea6d20284ee0ecc50e8bb46cb3e5dd252dee4",
+    "src/lib/miden/transaction/failure-identity.integration.test.ts": "d20185fbcf08b739c466ee807dc25b183cee7ed9fdc7eb81137d2635d432ab88",
+    "src/lib/settings/helpers.ts": "222e6febc25b23662be3953760780940b855d1760b4b3e245138d890b910c3d5",
+    "src/lib/miden/back/sync-manager.ts": "5e48dd8a333eba36cbf1d74719726063df1d16efd95c3a0a3de25cebb4dc7e11",
+    "src/lib/miden/transaction/index.ts": "91fe38df2da384ff248ec07a3c7df31ea3edab34e750c3d9e1c7249b8ea45ddc",
+    "CHANGELOG.md": "42a6c1aa23c33b69a6f35c847aafda61b27a1194f39c7117f61d4edeaff34f9f",
+    "package.json": "e62a1c560e0f8719f0d08e7abcbf455ea0b1aa0864d7fe3dc2b25964d5c3b01a",
+    "yarn.lock": "c7eba9b8b4b4899d8539429a8a81a5de64fddac657274b59e515302f453306c4"
+  }
+}
