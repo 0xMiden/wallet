@@ -1,0 +1,62 @@
+name: Sidebar candidate focused proof
+on:
+  push:
+    branches: [ci/sidebar-candidate-proof]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: test "$(git rev-parse HEAD^)" = 82e1d2279410714a2f46d241916f6ee45157d09d
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Typecheck
+        run: yarn tsc --noEmit
+      - name: Focused tests
+        run: yarn jest --runTestsByPath src/lib/store/index.test.ts src/lib/intercom/client.test.ts src/app/templates/VerifySeedPhraseFlow.test.tsx src/lib/miden/front/client.test.tsx playwright/e2e/helpers/dapp-mobile-journey.test.ts --maxWorkers=2
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bind frozen candidate
+        run: |
+          test "$(git rev-parse HEAD^)" = 82e1d2279410714a2f46d241916f6ee45157d09d
+          git checkout --detach 82e1d2279410714a2f46d241916f6ee45157d09d
+          test "$(git rev-parse HEAD^{tree})" = cfbd8dcce78dc5909feb9bce4ea36f41761a0bbd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Obtain pinned Council mutation script
+        run: |
+          git clone --no-checkout https://github.com/WiktorStarczewski/review-council.git "$RUNNER_TEMP/council"
+          git -C "$RUNNER_TEMP/council" checkout --detach b76ca7c6ec1b8b86c54b8df91bea27866ab07424
+          cp "$RUNNER_TEMP/council/plugins/review-council/scripts/rev-mutate.sh" "$RUNNER_TEMP/rev-mutate.sh"
+          echo '32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc  '"$RUNNER_TEMP/rev-mutate.sh" | sha256sum -c -
+      - name: Measure frozen candidate hunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --mixed HEAD^
+          git diff --full-index --binary > "$RUNNER_TEMP/candidate.patch"
+          echo 'a5c0b3adbec8d94e2811fdb5535a71ff85fb7a5966995284a818406cce61a1b5  '"$RUNNER_TEMP/candidate.patch" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/session" proof
+          printf "REV_ROOT='%s'\n" "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/session/scope.env"
+          printf '{"phase":"fix"}\n' > "$RUNNER_TEMP/session/state.json"
+          bash "$RUNNER_TEMP/rev-mutate.sh" "$RUNNER_TEMP/session" 'yarn jest --runTestsByPath src/lib/store/index.test.ts src/lib/intercom/client.test.ts src/app/templates/VerifySeedPhraseFlow.test.tsx src/lib/miden/front/client.test.tsx playwright/e2e/helpers/dapp-mobile-journey.test.ts --maxWorkers=2' 2>&1 | tee proof/mutation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sidebar-mutation-proof
+          path: proof/
+          if-no-files-found: warn
