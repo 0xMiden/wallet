@@ -680,19 +680,33 @@ const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean =
 
 /**
  * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
- * an equal or stronger look for this same incarnation, and a failed write leaves the in-memory look in place.
+ * an equal or stronger bound look for this incarnation. A captured incarnation cannot write onto its replacement;
+ * a failed write leaves the in-memory look in place.
  */
 const persistQueueSighting = (
-  row: QueueAdmissionMember & { queueSighting?: QueueSighting },
+  row: QueueAdmissionMember & {
+    queueSighting?: QueueSighting;
+    queueSightingAt?: number;
+    queueSightingSeq?: number | null;
+  },
   observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
 ): void => {
-  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;
+  const current =
+    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
+      ? row.queueSighting
+      : undefined;
+  if (!row.id || !upgradedQueueSighting(current, observation)) return;
   const initiatedAt = row.initiatedAt;
   const queuedSeq = row.queuedSeq ?? null;
   void Repo.transactions
     .where({ id: row.id })
     .modify(stored => {
-      const next = upgradedQueueSighting(stored.queueSighting, observation);
+      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
+      const current =
+        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
+          ? stored.queueSighting
+          : undefined;
+      const next = upgradedQueueSighting(current, observation);
       if (!next) return false;
       stored.queueSighting = next;
       stored.queueSightingAt = initiatedAt;
