@@ -65,10 +65,20 @@ jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobi
 const importQueuedNotes = () =>
   jest.requireActual<typeof import('../activity/notes')>('../activity/notes').importAllNotes();
 const mockImportAllNotes = jest.fn(importQueuedNotes);
-jest.mock('../activity/notes', () => ({
-  ...jest.requireActual('../activity/notes'),
-  importAllNotes: () => mockImportAllNotes()
-}));
+jest.mock(
+  '../activity/notes',
+  () =>
+    new Proxy(
+      {},
+      {
+        get: (_target, key) => {
+          if (key === '__esModule') return true;
+          if (key === 'importAllNotes') return () => mockImportAllNotes();
+          return Reflect.get(jest.requireActual<typeof import('../activity/notes')>('../activity/notes'), key);
+        }
+      }
+    )
+);
 jest.mock('@capacitor/core', () => {
   const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
   const reown = { sendTransaction: jest.fn() };
