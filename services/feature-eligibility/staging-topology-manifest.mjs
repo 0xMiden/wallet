@@ -124,3 +124,30 @@ export function buildTopologyManifest(options = {}) {
     return null;
   }
 }
+
+// Verification checks data identity only; it does not establish current provider ownership.
+export function verifyTopologyManifest(manifest, options) {
+  try {
+    const expected = buildTopologyManifest(options);
+    if (expected === null) return false;
+    const same = (actual, reference) => {
+      if (reference === null || typeof reference !== 'object') return Object.is(actual, reference);
+      if (!actual || typeof actual !== 'object' || Array.isArray(actual) !== Array.isArray(reference)) return false;
+      const prototype = Object.getPrototypeOf(actual);
+      if (Array.isArray(reference) ? prototype !== Array.prototype : ![Object.prototype, null].includes(prototype))
+        return false;
+      const actualKeys = Reflect.ownKeys(actual);
+      const expectedKeys = Reflect.ownKeys(reference);
+      if (actualKeys.length !== expectedKeys.length || actualKeys.some(key => !expectedKeys.includes(key)))
+        return false;
+      for (const key of expectedKeys) {
+        const descriptor = Object.getOwnPropertyDescriptor(actual, key);
+        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !same(descriptor.value, reference[key])) return false;
+      }
+      return true;
+    };
+    return same(manifest, expected);
+  } catch {
+    return false;
+  }
+}

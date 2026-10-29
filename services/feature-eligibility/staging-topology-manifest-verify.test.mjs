@@ -4,7 +4,20 @@ import * as topology from './staging-topology-manifest.mjs';
 
 const verify = topology.verifyTopologyManifest ?? (() => false);
 const now = Date.UTC(2026, 9, 29);
-const options = () => ({ identity: { repository: '0xMiden/wallet', workflowPath: '.github/workflows/feature-eligibility-topology.yml', sourceSha: 'a'.repeat(40), runId: '12345', runAttempt: '1' }, bundle: new Uint8Array([1, 2, 3]), now, expiresAt: now + 600_000, maxRuns: 10, inventory: [] });
+const options = () => ({
+  identity: {
+    repository: '0xMiden/wallet',
+    workflowPath: '.github/workflows/feature-eligibility-topology.yml',
+    sourceSha: 'a'.repeat(40),
+    runId: '12345',
+    runAttempt: '1'
+  },
+  bundle: new Uint8Array([1, 2, 3]),
+  now,
+  expiresAt: now + 600_000,
+  maxRuns: 10,
+  inventory: []
+});
 const clone = value => JSON.parse(JSON.stringify(value));
 
 test('manifest verification accepts exactly reconstructed run identity', () => {
