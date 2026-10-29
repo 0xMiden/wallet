@@ -194,6 +194,26 @@ const uiCases = [
     { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'partial_failure' }
   ],
   [
+    'raw_history_retry_failed',
+    'inline',
+    { kind: 'history_retry', retryNoticeOrigin: 'history_primary', pendingRetryReason: 'guardian_hold' }
+  ],
+  [
+    'raw_history_retry_failed',
+    'inline',
+    { kind: 'history_retry', retryNoticeOrigin: 'history_earn_receive', pendingRetryReason: 'unexpected' }
+  ],
+  [
+    'raw_history_retry_failed',
+    'notice',
+    { kind: 'history_payback_retry', retryNoticeOrigin: 'history_payback', pendingRetryReason: 'verdict_busy' }
+  ],
+  [
+    'raw_transaction_retry_failed',
+    'inline',
+    { kind: 'transaction_retry', retryNoticeOrigin: 'status_screen', pendingRetryReason: 'unsafe_retry' }
+  ],
+  [
     'bridgeFeatureUnavailableBody',
     'notice',
     { kind: 'feature_unavailable', featureUnavailableFeature: 'earnDeposit', featureUnavailableReason: 'service-down' }

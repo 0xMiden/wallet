@@ -73,6 +73,12 @@ export const BRIDGE_BALANCE_STAGES: readonly BridgeBalanceStage[] = [
   'value_decode',
   'unrecorded'
 ];
+export const RETRY_NOTICE_ORIGINS = [
+  'history_primary',
+  'history_earn_receive',
+  'history_payback',
+  'status_screen'
+] as const;
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
 export type MainnetAccessCheckFailure =
   | 'endpoint_resolve'
@@ -130,6 +136,7 @@ export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[nu
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
+export type RetryNoticeOrigin = (typeof RETRY_NOTICE_ORIGINS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
 export type UiEvidenceInput =
   | {
@@ -144,6 +151,13 @@ export type UiEvidenceInput =
     }
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
+  | {
+      kind: 'history_retry';
+      retryNoticeOrigin: 'history_primary' | 'history_earn_receive';
+      pendingRetryReason: PendingRetryReason;
+    }
+  | { kind: 'history_payback_retry'; retryNoticeOrigin: 'history_payback'; pendingRetryReason: PendingRetryReason }
+  | { kind: 'transaction_retry'; retryNoticeOrigin: 'status_screen'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
   | {
       kind: 'earn_positions_load';
@@ -163,6 +177,7 @@ export type UiProducerDiagnostics = {
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   pendingRetryReason?: PendingRetryReason;
+  retryNoticeOrigin?: RetryNoticeOrigin;
   recipientValidationStage?: RecipientValidationStage;
   burnFeeFailure?: BurnFeeFailure;
   mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
@@ -179,6 +194,7 @@ export const UI_PRODUCER_KEYS = [
   'featureUnavailableReason',
   'submissionFeedbackBranch',
   'pendingRetryReason',
+  'retryNoticeOrigin',
   'recipientValidationStage',
   'burnFeeFailure',
   'mainnetAccessCheckFailure',
@@ -232,6 +248,24 @@ const groups = {
     id: 'usdcxBurnFeeUnavailable',
     surface: 'field',
     fields: { burnFeeFailure: BURN_FEE_FAILURES }
+  },
+  history_retry: {
+    id: 'raw_history_retry_failed',
+    surface: 'inline',
+    fields: {
+      retryNoticeOrigin: ['history_primary', 'history_earn_receive'],
+      pendingRetryReason: PENDING_RETRY_REASONS
+    }
+  },
+  history_payback_retry: {
+    id: 'raw_history_retry_failed',
+    surface: 'notice',
+    fields: { retryNoticeOrigin: ['history_payback'], pendingRetryReason: PENDING_RETRY_REASONS }
+  },
+  transaction_retry: {
+    id: 'raw_transaction_retry_failed',
+    surface: 'inline',
+    fields: { retryNoticeOrigin: ['status_screen'], pendingRetryReason: PENDING_RETRY_REASONS }
   },
   backup_network_failure: {
     id: 'encryptedWalletFileWrongNetwork',

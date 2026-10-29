@@ -1826,6 +1826,48 @@ describe('user-visible transaction errors', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 
+  it('reports the reason attached to the displayed status retry refusal', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+      'lib/telemetry/ui-producer-diagnostics'
+    );
+    const failure = new Error('private retry failure');
+    annotatePendingRetry(failure, 'guardian_hold');
+    requeueFailedTransactionMock.mockRejectedValueOnce(failure);
+    failRow();
+    await renderPage();
+    const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    await act(async () => {
+      retry!.click();
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('private retry failure');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_transaction_retry_failed', 'inline', {
+      kind: 'transaction_retry',
+      retryNoticeOrigin: 'status_screen',
+      pendingRetryReason: 'guardian_hold'
+    });
+    expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report retry evidence from a previous transaction after switching rows', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('previous row refusal'));
+    failRow();
+    await renderPage();
+    const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    await act(async () => {
+      retry!.click();
+    });
+    act(() => jest.advanceTimersByTime(999));
+    mockRowState = { row: makeTx({ id: 'tx-2', status: ITransactionStatus.Failed }), loaded: true };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-2" />);
+    });
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
   it.each(['raw', 'fee', 'fallback'])(
     'reports a user-triggered %s retry failure on a persisted failed row',
     async kind => {
@@ -1853,10 +1895,16 @@ describe('user-visible transaction errors', () => {
       const text =
         kind === 'fee' ? mockFeeCopy : kind === 'raw' ? 'private retry https://private.invalid 123' : 'smthWentWrong';
       expect(container.querySelector('[role="alert"]')?.textContent).toBe(text);
-      expectDwell(
-        kind === 'fee' ? 'insufficientFeeAsset' : kind === 'raw' ? 'raw_transaction_retry_failed' : 'smthWentWrong',
-        'inline'
-      );
+      if (kind === 'raw') {
+        act(() => jest.advanceTimersByTime(1000));
+        expect(reportUserVisibleError).toHaveBeenCalledWith('raw_transaction_retry_failed', 'inline', {
+          kind: 'transaction_retry',
+          retryNoticeOrigin: 'status_screen',
+          pendingRetryReason: 'unexpected'
+        });
+      } else {
+        expectDwell(kind === 'fee' ? 'insufficientFeeAsset' : 'smthWentWrong', 'inline');
+      }
     }
   );
 });
