@@ -65,7 +65,13 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+let mockStoreState: {
+  tokenPrices: Record<string, { price: number }>;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
+} = {
+  tokenPrices: {},
+  tokenPricesStatus: 'loading'
+};
 // Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
 // the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -180,7 +186,7 @@ beforeEach(() => {
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
-  mockStoreState = { tokenPrices: {} };
+  mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
 });
 
 afterEach(() => {
@@ -267,6 +273,7 @@ describe('SelectSwapTokenDrawer', () => {
 
       const row = tokenButton('IETH');
       expect(within(row).queryByText('1.25 IETH')).not.toBeInTheDocument();
+      expect(within(row).getByText('assetValueUnknownScale')).toBeInTheDocument();
       // Symbol twice: the row title and the amount line that stands in for the quantity.
       expect(within(row).getAllByText('IETH')).toHaveLength(2);
     });
@@ -353,7 +360,20 @@ describe('SelectSwapTokenDrawer', () => {
       mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
       renderDrawer();
 
-      expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
+      expect(within(tokenButton('IBTC')).getByText('$0.00')).toBeInTheDocument();
+    });
+
+    it('shows loading separately from unavailable and unsupported quotes', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1 }]);
+      const first = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('loading')).toBeInTheDocument();
+      expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+      first.unmount();
+
+      mockStoreState = { ...mockStoreState, tokenPricesStatus: 'ready' };
+      const { unmount } = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('unavailable')).toBeInTheDocument();
+      unmount();
     });
   });
 

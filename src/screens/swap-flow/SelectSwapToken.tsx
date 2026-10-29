@@ -62,6 +62,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const swapTokens = useSwapPickerTokens(partnersOf);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
 
   const onSelectToken = (token: SwapToken) => {
     onSelect(token);
@@ -91,6 +92,15 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 const fiatValue = listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+                const priceStatus = !scaleIsKnown
+                  ? t('assetValueUnknownScale')
+                  : fiatValue === undefined
+                    ? token.priceSymbol
+                      ? pricesStatus === 'loading'
+                        ? t('loading')
+                        : t('unavailable')
+                      : t('assetPriceUnsupported')
+                    : undefined;
 
                 return (
                   <AssetListItem
@@ -111,6 +121,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                         <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
                       )
                     }
+                    priceStatus={priceStatus}
                     selected={token.faucetId === currentFaucetId}
                     accent="swap"
                     onClick={() => onSelectToken(token)}

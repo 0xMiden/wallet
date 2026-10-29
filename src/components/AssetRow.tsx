@@ -14,6 +14,7 @@ import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useWalletStore } from 'lib/store';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
@@ -66,6 +67,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
+  const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
   const verification = useTokenVerification(asset.tokenId);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { metadata, balance } = asset;
@@ -99,6 +101,15 @@ export const AssetRow: FC<AssetRowProps> = ({
   const fiatValue = quote ? balance * quote.price : 0;
   const formatQuantity = adaptiveFormatterFor(balance);
   const formatFiat = adaptiveFormatterFor(fiatValue);
+  const priceStatus = !scaleIsKnown
+    ? t('assetValueUnknownScale')
+    : !quote
+      ? priceSymbol
+        ? pricesStatus === 'loading'
+          ? t('loading')
+          : t('unavailable')
+        : t('assetPriceUnsupported')
+      : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
   const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
@@ -147,6 +158,7 @@ export const AssetRow: FC<AssetRowProps> = ({
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
         ) : undefined
       }
+      priceStatus={priceStatus}
       delta={
         feedQuote && direction
           ? { value: <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />, direction }

@@ -238,7 +238,7 @@ it('values known balances only with a positive price and known scale', () => {
   expect(engine.listedPrice(prices, 'VALUED')).toBe(2);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
-  expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBe(0);
   expect(engine.listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
   expect(engine.listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
   expect(engine.pricesLoaded(prices, ['VALUED'])).toBe(true);
