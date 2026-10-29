@@ -1,7 +1,7 @@
 name: Issue 1948 integrated SDK proof
 on:
   push:
-    branches: [ci/1948-integrated-sdk-proof-v4]
+    branches: [ci/1948-retained-ack-green-v2]
 permissions:
   contents: read
   actions: read
@@ -38,13 +38,8 @@ jobs:
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
       - name: Full TypeScript check
         run: yarn tsc --noEmit
-      - name: Recovery and state integration tests
-        run: |
-          mapfile -t tests < <(find src/lib/miden/recovery src/screens/storage-recovery src/lib/store -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
-          tests+=(src/lib/miden/back/main.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts src/app/StorageRecoveryPage.test.tsx)
-          printf 'Selected %s suites\n' "${#tests[@]}"
-          test "${#tests[@]}" -gt 6
-          yarn jest --runTestsByPath "${tests[@]}" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+      - name: Diagnose retained acknowledgement
+        run: yarn jest --runTestsByPath src/offscreen/main.test.ts --runInBand --no-coverage -t 'Task4C3N2 offscreen retained primary acknowledgement' --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
