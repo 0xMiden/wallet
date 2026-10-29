@@ -448,6 +448,7 @@
   "no": "Hayır",
   "actionConfirmation": "Eylemi onaylayın",
   "submit": "Gönder",
+  "amountShortcutPercent": "%$percent$",
   "max": "Max",
   "from": "Kaynak:",
   "to": "Şuna",

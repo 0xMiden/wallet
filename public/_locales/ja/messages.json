@@ -2138,6 +2138,15 @@
     "message": "送信",
     "englishSource": "Submit"
   },
+  "amountShortcutPercent": {
+    "message": "$1%",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
   "max": {
     "message": "マックス",
     "englishSource": "Max"

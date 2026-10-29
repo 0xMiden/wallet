@@ -448,6 +448,7 @@
   "no": "No",
   "actionConfirmation": "Confirmar la acción",
   "submit": "Enviar",
+  "amountShortcutPercent": "$percent$ %",
   "max": "Máx",
   "from": "De",
   "to": "A",
