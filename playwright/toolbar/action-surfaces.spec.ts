@@ -50,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
       unlock: boolean;
       navigation: boolean;
     };
-    type SidebarSummary = { timeOrigin: number; current: SidebarState; samples: SidebarState[] };
+    type SidebarSummary = { timeOrigin: number; current: SidebarState; samples: SidebarState[]; early: Array<{ routeFallback: boolean; loadingText: boolean }> };
     const sidebarSnapshot = async (capturePath?: string) => {
       const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
       const response = await fetch(`http://127.0.0.1:${port}/json/list`);
@@ -93,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
                 window.__sidebarReopenProbe = samples;
                 record();
               }
-              return { timeOrigin: performance.timeOrigin, current: inspect(), samples: window.__sidebarReopenProbe };
+              return { timeOrigin: performance.timeOrigin, current: inspect(), samples: window.__sidebarReopenProbe, early: Reflect.get(globalThis, '__earlySidebarStates') };
             })()`,
                 returnByValue: true
               }
@@ -176,6 +176,9 @@ for (const theme of ['light', 'dark'] as const) {
       await persistDiagnostic('warm-reopen-regression', samples);
       if (captured) await testInfo.attach('warm-route-loading', { path, contentType: 'image/png' });
       expect(readyFrames).toBe(3);
+      const early = samples.flatMap(sample => sample.snapshot.summary?.early ?? []);
+      expect(early.length).toBeGreaterThan(0);
+      expect(early.some(state => state.routeFallback || state.loadingText)).toBe(false);
       expect(samples.some(sample => sample.snapshot.summary?.samples.some(state => state.routeFallback))).toBe(false);
     };
     const activate = () => {
@@ -330,8 +333,24 @@ for (const theme of ['light', 'dark'] as const) {
           )
         )
         .toBe(0);
+      const legacyBeforeClick = await worker.evaluate(async () => ({
+        behavior: await chrome.sidePanel.getPanelBehavior(),
+        popup: await chrome.action.getPopup({}),
+        observation: Reflect.get(globalThis, '__toolbarPanelObservation')
+      }));
       activate();
-      await expect.poll(panelCount).toBe(1);
+      try {
+        await expect.poll(panelCount).toBe(1);
+      } finally {
+        await persistDiagnostic('legacy-popup-click-diagnostic', {
+          before: legacyBeforeClick,
+          after: await worker.evaluate(async () => ({
+            behavior: await chrome.sidePanel.getPanelBehavior(),
+            popup: await chrome.action.getPopup({}),
+            observation: Reflect.get(globalThis, '__toolbarPanelObservation')
+          }))
+        });
+      }
       await capture('legacy-popup-recovered-on-later-action');
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });

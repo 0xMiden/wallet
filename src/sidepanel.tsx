@@ -17,6 +17,17 @@ import { initTheme } from 'lib/settings/theme';
 
 initTheme();
 
+const earlyStates: Array<{ routeFallback: boolean; loadingText: boolean }> = [];
+const recordEarlyState = () => {
+  earlyStates.push({
+    routeFallback: Boolean(document.querySelector('[data-testid="wallet-route-loading"]')),
+    loadingText: /(?:^|\n)Loading(?:\.\.\.|…)?(?:$|\n)/.test(document.body?.innerText ?? '')
+  });
+};
+new MutationObserver(recordEarlyState).observe(document, { subtree: true, childList: true, characterData: true });
+Reflect.set(globalThis, '__earlySidebarStates', earlyStates);
+recordEarlyState();
+
 const container = document.getElementById('root');
 const root = createRoot(container!);
 root.render(<App env={{ windowType: WindowType.SidePanel }} />);

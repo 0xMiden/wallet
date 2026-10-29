@@ -1,0 +1,9 @@
+name: Sidebar early render observation
+on:
+  push:
+    branches: [ci/sidebar-early-observation]
+permissions:
+  contents: read
+jobs:
+  native-toolbar:
+    uses: ./.github/workflows/native-toolbar.yml
