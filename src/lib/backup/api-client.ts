@@ -6,8 +6,8 @@
  * error, never a partial value. This module keeps no state; the session module
  * owns the token.
  */
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { getBackupBaseUrl } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
@@ -115,12 +115,14 @@ export interface EntryAck {
 /** A conditional read: `null` is a 304, the caller's copy is current. */
 export type Conditional<T> = T | null;
 
+const LOOPBACK_HOSTS: readonly string[] = ['localhost', '127.0.0.1'];
+
 /**
- * The base URL of wallet-api, without a trailing slash, from the
- * `MIDEN_WALLET_API_URL` build define. Null disables the backup. Only `https`
- * is accepted, and `http` on a loopback host for a local Worker.
+ * The `MIDEN_WALLET_API_URL` build define without a trailing slash, when it is
+ * an `http` URL on a loopback host: a local Worker for development. Any other
+ * value is ignored.
  */
-export function getWalletApiBaseUrl(): string | null {
+function loopbackOverride(): string | null {
   const raw = process.env.MIDEN_WALLET_API_URL;
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().replace(/\/+$/, '');
@@ -131,31 +133,40 @@ export function getWalletApiBaseUrl(): string | null {
   } catch {
     return null;
   }
-  switch (url.protocol) {
-    case 'https:':
-      return trimmed;
-    case 'http:':
-      return url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? trimmed : null;
-    default:
-      return null;
-  }
-}
-
-/** True for a base URL on a loopback host: a local Worker, used for development on any network. */
-function isLoopbackBaseUrl(base: string): boolean {
-  return new URL(base).protocol === 'http:';
+  return url.protocol === 'http:' && LOOPBACK_HOSTS.includes(url.hostname) ? trimmed : null;
 }
 
 /**
- * The backup needs a configured base URL. A deployed (https) Worker is used on
- * mainnet only; a local Worker on a loopback host is used on every network, so
- * a devnet or testnet build can try the backup against it. Every public entry
- * point checks this.
+ * The base URL of wallet-api, without a trailing slash. A loopback
+ * `MIDEN_WALLET_API_URL` build define goes first, so a local Worker works on
+ * every network. Else the accepted wallet-config document of the network
+ * supplies it (`backup.baseUrl` while `features.encryptedBackup` is on). Null
+ * disables the backup. This reads the realm's snapshot as it is: a path that
+ * runs without a user action uses {@link checkWalletApiEnabled} first.
  */
+export function getWalletApiBaseUrl(): string | null {
+  return loopbackOverride() ?? getBackupBaseUrl();
+}
+
+/** The backup needs a base URL. Every public entry point checks this. */
 export function isWalletApiEnabled(): boolean {
-  const base = getWalletApiBaseUrl();
-  if (base === null) return false;
-  return isLoopbackBaseUrl(base) || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  return getWalletApiBaseUrl() !== null;
+}
+
+/**
+ * {@link isWalletApiEnabled} after the realm hydrated its bridge config. A
+ * backend handler can run before startup hydrated the snapshot, and the
+ * document supplies the base URL. `initBridgeConfig` is idempotent and does not
+ * wait for the network. A failed hydration is logged and the check reads the
+ * snapshot as it is. Never throws.
+ */
+export async function checkWalletApiEnabled(): Promise<boolean> {
+  try {
+    await initBridgeConfig();
+  } catch (error) {
+    console.warn('[backup] the bridge config could not hydrate', error);
+  }
+  return isWalletApiEnabled();
 }
 
 const HEX_64 = /^[0-9a-f]{64}$/;

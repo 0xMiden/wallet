@@ -128,7 +128,7 @@ export default defineConfig({
     // Explore catalog E2E source; see vite.extension.config.ts.
     'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
     'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
-    // Encrypted-backup service base URL (lib/backup/api-client.ts). Empty disables the backup.
+    // Loopback-only development override of the encrypted-backup base URL; see vite.extension.config.ts.
     'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag

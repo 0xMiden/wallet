@@ -22,8 +22,8 @@ import type { BackupRefreshOutcome } from 'lib/shared/types';
 import {
   type LoginResponse,
   WalletApiError,
+  checkWalletApiEnabled,
   isUnauthorizedError,
-  isWalletApiEnabled,
   login,
   putProfileSalt,
   requestNonce
@@ -136,15 +136,20 @@ export function assertSessionLive(session: BackupSession): void {
   throw new BackupSessionClosedError(unlockedVault() === session.vault ? 'replaced' : 'locked');
 }
 
-/** The open session of this unlock, opened on first use. Never throws. */
-export function getBackupSession(): Promise<SessionResult> {
-  if (!isWalletApiEnabled()) return Promise.resolve({ unavailable: 'disabled' });
+/**
+ * The open session of this unlock, opened on first use. Never throws. The base
+ * URL comes from the bridge config, so the check waits for this realm to
+ * hydrate it ({@link checkWalletApiEnabled}); the rest runs without a yield, so
+ * concurrent callers share one open.
+ */
+export async function getBackupSession(): Promise<SessionResult> {
+  if (!(await checkWalletApiEnabled())) return { unavailable: 'disabled' };
   const vault = unlockedVault();
-  if (vault === null) return Promise.resolve({ unavailable: 'locked' });
+  if (vault === null) return { unavailable: 'locked' };
   if (current !== null && (current.vault !== vault || current.storageEpoch !== backupStorageEpoch())) {
     clearBackupSession();
   }
-  if (current !== null && Date.now() < current.tokenRefreshAt) return Promise.resolve({ session: current });
+  if (current !== null && Date.now() < current.tokenRefreshAt) return { session: current };
   if (opening === null) {
     const startedAt = epoch;
     const attempt = (current === null ? openSession(vault, startedAt) : renewSession(current, startedAt)).catch(

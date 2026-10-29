@@ -18,8 +18,11 @@
  * Each refresh also uploads the local changes of its features. A completed
  * transaction flushes history at once ({@link flushHistoryNow}).
  *
- * Every function runs in the backend realm, never throws, and is a no-op off
- * mainnet, without a configured base URL, while locked, or without a sync key.
+ * Every function runs in the backend realm, never throws, and is a no-op
+ * without a base URL (the network's wallet-config document names none, or
+ * turns the backup off), while locked, or without a sync key. An entry point
+ * can run before startup hydrated the bridge config, so it waits for that
+ * hydration before it reads the base URL ({@link checkWalletApiEnabled}).
  * A refresh that outlives its session (a lock, a wipe, a profile the server
  * made again) stops where the entry layer refuses it and reports `locked`.
  *
@@ -29,7 +32,7 @@
  */
 import type { BackupRefreshOutcome, BackupRefreshReason } from 'lib/shared/types';
 
-import { deleteProfile, getStorageIndex } from './api-client';
+import { checkWalletApiEnabled, deleteProfile, getStorageIndex } from './api-client';
 import { syncAccounts } from './features/accounts';
 import { syncContacts } from './features/contacts';
 import { flushHistory, peerHistoryChunkCount, readHistory } from './features/history';
@@ -46,8 +49,13 @@ import { persistBackupState, removeBackupState } from './state';
 /** Why the history is read. */
 export type HistoryRefreshReason = Extract<BackupRefreshReason, 'activity-open' | 'guardian-adopt'>;
 
-/** Run the refresh of one event. Never throws. */
-export function runBackupRefresh(reason: BackupRefreshReason): Promise<BackupRefreshOutcome> {
+/**
+ * Run the refresh of one event. Never throws. A signal that a realm raised
+ * before its bridge config hydrated arrives here, so this check waits for the
+ * backend's hydration and does not trust the sender's early exit.
+ */
+export async function runBackupRefresh(reason: BackupRefreshReason): Promise<BackupRefreshOutcome> {
+  if (!(await checkWalletApiEnabled())) return 'disabled';
   switch (reason) {
     case 'unlock':
     case 'foreground':
@@ -175,6 +183,7 @@ export async function refreshHistory(reason: HistoryRefreshReason): Promise<Back
  * runs instead. Never throws.
  */
 export async function restoreHistoryFromBackup(): Promise<boolean> {
+  if (!(await checkWalletApiEnabled())) return false;
   const opened = await getBackupSession();
   if ('unavailable' in opened) return false;
   try {
@@ -196,6 +205,7 @@ export function flushHistoryNow(): Promise<BackupRefreshOutcome> {
  * then the local records. A later refresh makes a new, empty profile.
  */
 export async function deleteBackupProfile(): Promise<BackupRefreshOutcome> {
+  if (!(await checkWalletApiEnabled())) return 'disabled';
   const opened = await getBackupSession();
   if ('unavailable' in opened) return opened.unavailable;
   try {
