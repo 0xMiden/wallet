@@ -1384,8 +1384,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
 const WelcomePage: FC = () => {
   const { hash } = useLocation();
 
+  // E2E fixtures set the launch policy for their test network.
+  const requireInviteOnly = process.env.MIDEN_E2E_TEST !== 'true' && !hasDeveloperNetworkChoice();
+
   return (
-    <OnboardingNetwork requireInviteOnly={!hasDeveloperNetworkChoice()} showWhilePreparing={!hash}>
+    <OnboardingNetwork requireInviteOnly={requireInviteOnly} showWhilePreparing={!hash}>
       {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
     </OnboardingNetwork>
   );

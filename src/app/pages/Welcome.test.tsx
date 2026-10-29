@@ -57,12 +57,20 @@ const finishWarns = (warn: jest.SpyInstance) =>
 
 let mockInviteOnly = false;
 const mockUnlockInviteOnly = jest.fn();
+const mockNetworkPolicy = jest.fn();
 jest.mock('app/templates/OnboardingNetwork', () => ({
   OnboardingNetwork: ({
-    children
+    children,
+    requireInviteOnly,
+    showWhilePreparing
   }: {
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
-  }) => children(mockInviteOnly, mockUnlockInviteOnly)
+    requireInviteOnly: boolean;
+    showWhilePreparing: boolean;
+  }) => {
+    mockNetworkPolicy({ requireInviteOnly, showWhilePreparing });
+    return children(mockInviteOnly, mockUnlockInviteOnly);
+  }
 }));
 const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
   jest
@@ -555,6 +563,25 @@ afterEach(() => {
 // ===========================================================================
 // Render + mount effects
 // ===========================================================================
+
+describe('Welcome network policy', () => {
+  it('shows code entry at once in production', async () => {
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: true, showWhilePreparing: true });
+  });
+
+  it('keeps the configured launch policy in E2E builds', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: false, showWhilePreparing: true });
+  });
+
+  it('keeps an explicit developer network choice', async () => {
+    mockDeveloperChoice = true;
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: false, showWhilePreparing: true });
+  });
+});
 
 describe('Welcome — mount & hardware-security check', () => {
   it('renders the onboarding flow on the Welcome step by default', async () => {
