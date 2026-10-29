@@ -1664,7 +1664,7 @@ export class Vault {
             snapshot.accounts.some(floor => !accounts.some(account => account.publicKey === floor.accountId))
           )
             throw new RecoveryDataFileError('account');
-          const content = await encryptRecoveryDataFile(snapshot, filePassword, check);
+          const content = await encryptRecoveryDataFile({ ...snapshot, entries: [] }, filePassword, check);
           check();
           const current = await Vault.recoveryDataAccounts(key, check);
           if (Vault.recoveryDataBinding(current) !== binding) throw new StorageUnavailableError();
