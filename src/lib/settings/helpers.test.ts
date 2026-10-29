@@ -435,6 +435,28 @@ describe('settings helpers', () => {
       }
     );
 
+    it('withholds the marker when the telemetry write is rejected after both operational copies', async () => {
+      mockKvStore[TELEMETRY_STORAGE_KEY] = true;
+      mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
+      for (const key of [AUTO_CONSUME_STORAGE_KEY, DELEGATE_PROOF_STORAGE_KEY, TELEMETRY_STORAGE_KEY]) {
+        localStorage.setItem(key, 'false');
+      }
+      const payloads: Record<string, unknown>[] = [];
+      mockSet = async items => {
+        payloads.push(items);
+        if (TELEMETRY_STORAGE_KEY in items) throw new Error('Telemetry write unavailable');
+        Object.assign(mockKvStore, items);
+      };
+      mirrorBackgroundSettings();
+      await nextTask();
+      expect(mockKvStore[BG_SETTINGS_MIRRORED_KEY]).toBe(false);
+      expect(mockKvStore[AUTO_CONSUME_STORAGE_KEY]).toBe(false);
+      expect(mockKvStore[DELEGATE_PROOF_STORAGE_KEY]).toBe(false);
+      expect(mockKvStore[TELEMETRY_STORAGE_KEY]).toBe(true);
+      expect(payloads).toContainEqual({ [TELEMETRY_STORAGE_KEY]: false });
+      expect(payloads.some(items => items[BG_SETTINGS_MIRRORED_KEY] === true)).toBe(false);
+    });
+
     it('repairs opted-out telemetry when clearing the marker is rejected', async () => {
       mockKvStore[TELEMETRY_STORAGE_KEY] = true;
       mockKvStore[BG_SETTINGS_MIRRORED_KEY] = true;
