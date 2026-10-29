@@ -581,6 +581,15 @@ describe('Welcome network policy', () => {
     await renderWelcome();
     expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: false, showWhilePreparing: true });
   });
+
+  it('recovery skips the test-network notice while the host requires mainnet', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
 });
 
 describe('Welcome — mount & hardware-security check', () => {
