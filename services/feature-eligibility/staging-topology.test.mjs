@@ -99,3 +99,17 @@ test('an unset bearer never permits access', async () => {
   assert.equal(result.status, 403);
   assert.deepEqual(calls, []);
 });
+
+test('an empty HTTP body stream is accepted but a forged nonempty body is rejected', async () => {
+  const first = harness();
+  const empty = new Request('https://staging.example/scenario/cache_reuse', {
+    method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Length': '0' }, body: ''
+  });
+  assert.equal((await worker.fetch(empty, first.env)).status, 200);
+  const second = harness();
+  const forged = new Request('https://staging.example/scenario/cache_reuse', {
+    method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Length': '0' }, body: 'unexpected'
+  });
+  assert.equal((await worker.fetch(forged, second.env)).status, 400);
+  assert.deepEqual(second.calls, []);
+});
