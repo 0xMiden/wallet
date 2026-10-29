@@ -1,0 +1,72 @@
+name: Eligibility workerd topology probe
+on:
+  push:
+    branches: [ci/1894-workerd-topology-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 3278f2f22033bb798ffa74d0008ae81aa81debf7
+      - name: Exercise the real service with local Durable Objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/worker.mjs <<'JS'
+          import { createService } from '../services/feature-eligibility/worker.mjs';
+          const policy = { network: 'testnet', version: 13, features: { earn: true }, swap: { etaUrl: 'https://solver.example' }, geo: { wallet: {}, earn: { 'block NY state': 'yes', 'block UK': 'yes' } } };
+          const fetchImpl = async url => {
+            if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json') return Response.json(policy);
+            if (String(url) === 'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1') return Response.json({ country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
+            throw new Error('Unexpected upstream');
+          };
+          const service = createService({ fetchImpl });
+          export const EligibilityGuard = service.EligibilityGuard;
+          export const CallerEligibilityGuard = service.CallerEligibilityGuard;
+          function request(colo) {
+            const value = new Request('https://example.invalid/v1/eligibility?network=testnet', { headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://wallet.example' } });
+            Object.defineProperty(value, 'cf', { value: { colo } });
+            return value;
+          }
+          export default {
+            async fetch(_request, env) {
+              const allowed = { limit: async () => ({ success: true }) };
+              const serviceEnv = { ...env, CALLER_RATE_LIMIT: allowed, COLO_RATE_LIMIT: allowed };
+              const results = [];
+              for (const colo of ['TST', 'TST', 'ALT']) {
+                const response = await service.fetch(request(colo), serviceEnv);
+                results.push({ status: response.status, body: await response.json() });
+              }
+              const refused = await service.fetch(request('TST'), { ...serviceEnv, CALLER_RATE_LIMIT: { limit: async () => ({ success: false }) }, CALLER_GUARD: { get() { throw new Error('Object must not be reached'); }, idFromName() { throw new Error('Object must not be reached'); } } });
+              return Response.json({ results, refused: { status: refused.status, body: await refused.json() } });
+            }
+          };
+          JS
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-topology-probe","main":"worker.mjs","compatibility_date":"2026-10-20","workers_dev":false,"vars":{"ALLOWED_ORIGINS":"[\"https://wallet.example\"]","MAXMIND_ACCOUNT_ID":"synthetic","MAXMIND_LICENSE_KEY":"synthetic","CALLER_HASH_SECRET":"synthetic-secret-32-characters-minimum","MAXMIND_DAILY_QUERY_LIMIT":"100"},"durable_objects":{"bindings":[{"name":"ELIGIBILITY_GUARD","class_name":"EligibilityGuard"},{"name":"CALLER_GUARD","class_name":"CallerEligibilityGuard"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["EligibilityGuard","CallerEligibilityGuard"]}]}
+          JSON
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18946 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18946/ > proof/response.json; then break; fi
+            sleep 1
+          done
+          node -e "const assert=require('node:assert/strict');const x=require('./proof/response.json');assert.equal(x.results.length,3);for(const r of x.results){assert.equal(r.status,200);assert.equal(r.body.network,'testnet');assert.equal(r.body.version,13);assert.deepEqual(r.body.allowed,{wallet:true,earn:true,swap:true})}assert.deepEqual(x.refused,{status:429,body:{error:'rate_limited'}});console.log('Real Worker and local Durable Objects passed synthetic topology smoke')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eligibility-workerd-topology-probe
+          path: |
+            proof/runtime.log
+            proof/response.json
