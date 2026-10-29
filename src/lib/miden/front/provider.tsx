@@ -176,7 +176,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <WalletStoreProvider>
-      {ready && (
+      {canStartSync && (
         <MidenContextProvider>
           {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
               landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
