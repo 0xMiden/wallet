@@ -217,6 +217,10 @@ export class IntercomClient implements IIntercomClient {
     const requestType = diagnosticRequestType(payload);
     try {
       await this.portReady;
+      // Covers a signal aborted while portReady was pending, once that promise resolves, and one already aborted.
+      if (options?.signal?.aborted) {
+        throw new Error('Aborted');
+      }
       const reqId = this.reqId++;
       const port = this.port;
 

@@ -50,8 +50,8 @@ function getIntercom(): IIntercomClient {
 }
 
 // Helper to make requests to backend
-async function request<T extends WalletRequest>(req: T): Promise<WalletResponse> {
-  const res = await getIntercom().request(req);
+async function request<T extends WalletRequest>(req: T, options?: { signal: AbortSignal }): Promise<WalletResponse> {
+  const res = options ? await getIntercom().request(req, { signal: options.signal }) : await getIntercom().request(req);
   // An adapter that has no `case` for this message type falls through to its
   // `default:` arm and resolves `undefined`. Name the unhandled type instead of
   // letting `'type' in undefined` throw a bare TypeError — that TypeError used to
@@ -74,15 +74,65 @@ function assertResponse(condition: boolean): asserts condition {
   }
 }
 
-async function refreshStateAfterAction(): Promise<MidenState> {
+type PostActionStateAttempt = { kind: 'response'; response: WalletResponse } | { kind: 'error'; error: unknown };
+type PostActionStateWinner = PostActionStateAttempt | { kind: 'deadline' };
+
+const POST_ACTION_STATE_ATTEMPT_MS = 3_000;
+const POST_ACTION_STATE_DEADLINE_ATTEMPTS = 2;
+const POST_ACTION_STATE_UNINITIALIZED_ATTEMPTS = 8;
+
+async function refreshStateAfterAction(): Promise<{ outcome: 'synced'; state: MidenState } | { outcome: 'pending' }> {
   let backoffMs = 250;
+  let deadlineAttempts = 0;
+  let uninitializedAttempts = 0;
+
   for (;;) {
-    const response = await request({ type: WalletMessageType.GetStateRequest });
-    assertResponse(response.type === WalletMessageType.GetStateResponse);
-    if (response.state.backendInitialized !== false) return response.state;
+    const controller = new AbortController();
+    let deadlineRecorded = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Convert to a result before the race so a late rejection is consumed and a late resolution cannot sync.
+    const attempt: Promise<PostActionStateAttempt> = request(
+      { type: WalletMessageType.GetStateRequest },
+      { signal: controller.signal }
+    ).then(
+      (response): PostActionStateAttempt => ({ kind: 'response', response }),
+      (error: unknown): PostActionStateAttempt => ({ kind: 'error', error })
+    );
+    const winner = await new Promise<PostActionStateWinner>(resolve => {
+      timer = setTimeout(() => {
+        // Record the deadline while the request is still pending, and only then abort.
+        deadlineRecorded = true;
+        try {
+          controller.abort();
+        } catch {
+          // A synchronous Error('Aborted') must not clear the deadline or reject the action.
+        }
+        resolve({ kind: 'deadline' });
+      }, POST_ACTION_STATE_ATTEMPT_MS);
+      void attempt.then(result => {
+        if (deadlineRecorded) return;
+        if (timer !== undefined) clearTimeout(timer);
+        resolve(result);
+      });
+    });
+
+    if (winner.kind === 'deadline') {
+      deadlineAttempts += 1;
+      if (deadlineAttempts >= POST_ACTION_STATE_DEADLINE_ATTEMPTS) return { outcome: 'pending' };
+    } else if (winner.kind === 'error') {
+      return { outcome: 'pending' };
+    } else if (winner.response.type !== WalletMessageType.GetStateResponse) {
+      return { outcome: 'pending' };
+    } else if (winner.response.state.backendInitialized !== false) {
+      return { outcome: 'synced', state: winner.response.state };
+    } else {
+      uninitializedAttempts += 1;
+      if (uninitializedAttempts >= POST_ACTION_STATE_UNINITIALIZED_ATTEMPTS) return { outcome: 'pending' };
+    }
+
     const delayMs = backoffMs;
-    await new Promise(resolve => setTimeout(resolve, delayMs));
     backoffMs = Math.min(backoffMs * 2, 3_000);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 }
 
@@ -401,9 +451,11 @@ export const useWalletStore = create<WalletStore>()(
 
       // Pull fresh state right away. The StateUpdated broadcast is advisory and can
       // race the CreateAccount response (extension port reconnect, SW waking, etc.),
-      // leaving consumers that await createAccount — notably CreateAccount.tsx's
-      // length-diff effect — looking at a stale accounts array.
-      get().syncFromBackend(await refreshStateAfterAction());
+      // leaving consumers that await createAccount looking at a stale accounts array.
+      const refresh = await refreshStateAfterAction();
+      if (refresh.outcome === 'pending') return 'pending';
+      get().syncFromBackend(refresh.state);
+      return 'synced';
     },
 
     updateCurrentAccount: async accountPublicKey => {
@@ -458,7 +510,13 @@ export const useWalletStore = create<WalletStore>()(
     removeSeedPhrase: async password => {
       const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
       assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
-      get().syncFromBackend(await refreshStateAfterAction());
+      const refresh = await refreshStateAfterAction();
+      if (refresh.outcome === 'synced') {
+        get().syncFromBackend(refresh.state);
+        return 'synced';
+      }
+      set({ seedPhraseStatus: 'removed' });
+      return 'pending';
     },
     provideRecoverySeed: async (transactionId, mnemonic, action) => {
       const res = await request({

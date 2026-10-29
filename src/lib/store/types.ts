@@ -141,6 +141,9 @@ export interface NoteToastSlice {
   noteToastShownAt: number | null;
 }
 
+/** A refresh after an acknowledged create-account or seed removal. */
+export type PostActionRefreshOutcome = 'synced' | 'pending';
+
 /**
  * Actions for wallet mutations
  */
@@ -171,10 +174,10 @@ export interface WalletActions {
   unlock: (password?: string) => Promise<void>;
 
   // Account actions
-  createAccount: (walletType: WalletType, name?: string) => Promise<void>;
+  createAccount: (walletType: WalletType, name?: string) => Promise<PostActionRefreshOutcome>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  removeSeedPhrase: (password?: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<PostActionRefreshOutcome>;
   provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
   prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
