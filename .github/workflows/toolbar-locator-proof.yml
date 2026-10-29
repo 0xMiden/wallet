@@ -1,0 +1,15 @@
+name: Toolbar locator proof
+on:
+  push:
+    branches: [ci/toolbar-locator-proof-1962]
+permissions:
+  contents: read
+jobs:
+  locator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install image dependency
+        run: sudo apt-get update && sudo apt-get install -y python3-pil
+      - name: Run locator regression
+        run: /usr/bin/python3 -m unittest -v playwright/toolbar/native_bread_button_test.py
