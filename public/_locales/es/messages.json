@@ -4981,6 +4981,34 @@
     "message": "Prueba con otro nombre o pega la URL de una dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
   },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Finanzas en Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Tu dinero, privado por defecto",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Opera, paga y recibe pagos con aplicaciones desarrolladas en Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "Destacado",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Opera con cualquier token, de forma privada",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Encuentra diez ciudades, vence a tus rivales",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Nómina que nadie más puede ver",
+    "englishSource": "Payroll nobody else can see"
+  },
   "minimize": {
     "message": "Minimizar",
     "englishSource": "Minimize"
@@ -5713,6 +5741,10 @@
   "receiveShareCaption": {
     "message": "Envía tu dirección",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "Desde otra red",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "Copiar",
@@ -8545,37 +8577,5 @@
   "arcadePostingPolicy": {
     "message": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
-  },
-  "exploreFeatured": {
-    "message": "Destacado",
-    "englishSource": "Featured"
-  },
-  "exploreFeaturedGeoquizzHeadline": {
-    "message": "Encuentra diez ciudades, vence a tus rivales",
-    "englishSource": "Find ten cities, beat your rivals"
-  },
-  "exploreFeaturedPort0Headline": {
-    "message": "Opera con cualquier token, de forma privada",
-    "englishSource": "Trade any token, privately"
-  },
-  "exploreFeaturedQashHeadline": {
-    "message": "Nómina que nadie más puede ver",
-    "englishSource": "Payroll nobody else can see"
-  },
-  "exploreFinanceHeroDescription": {
-    "message": "Opera, paga y recibe pagos con aplicaciones desarrolladas en Miden.",
-    "englishSource": "Trade, pay and get paid with apps built on Miden."
-  },
-  "exploreFinanceHeroEyebrow": {
-    "message": "Finanzas en Miden",
-    "englishSource": "Finance on Miden"
-  },
-  "exploreFinanceHeroTitle": {
-    "message": "Tu dinero, privado por defecto",
-    "englishSource": "Your money, private by default"
-  },
-  "receiveCrossChainCaption": {
-    "message": "Desde otra red",
-    "englishSource": "From another network"
   }
 }

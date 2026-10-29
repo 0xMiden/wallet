@@ -4975,6 +4975,34 @@
     "message": "试试其他名称，或粘贴 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
   },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden 上的金融",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "您的资金，默认处于私有状态",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "使用基于 Miden 构建的应用程序进行交易、支付和收款。",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "精选",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "私下交易任何代币",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "找出十座城市，击败你的对手",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "薪资记录，他人无法查看",
+    "englishSource": "Payroll nobody else can see"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"
@@ -5707,6 +5735,10 @@
   "receiveShareCaption": {
     "message": "发送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "来自另一个网络",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "复制",
@@ -8538,37 +8570,5 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
-  },
-  "exploreFeatured": {
-    "message": "精选",
-    "englishSource": "Featured"
-  },
-  "exploreFeaturedGeoquizzHeadline": {
-    "message": "找出十座城市，击败你的对手",
-    "englishSource": "Find ten cities, beat your rivals"
-  },
-  "exploreFeaturedPort0Headline": {
-    "message": "私下交易任何代币",
-    "englishSource": "Trade any token, privately"
-  },
-  "exploreFeaturedQashHeadline": {
-    "message": "薪资记录，他人无法查看",
-    "englishSource": "Payroll nobody else can see"
-  },
-  "exploreFinanceHeroDescription": {
-    "message": "使用基于 Miden 构建的应用程序进行交易、支付和收款。",
-    "englishSource": "Trade, pay and get paid with apps built on Miden."
-  },
-  "exploreFinanceHeroEyebrow": {
-    "message": "Miden 上的金融",
-    "englishSource": "Finance on Miden"
-  },
-  "exploreFinanceHeroTitle": {
-    "message": "您的资金，默认处于私有状态",
-    "englishSource": "Your money, private by default"
-  },
-  "receiveCrossChainCaption": {
-    "message": "来自另一个网络",
-    "englishSource": "From another network"
   }
 }
