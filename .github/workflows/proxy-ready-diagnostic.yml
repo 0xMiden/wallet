@@ -1,0 +1,39 @@
+name: Proxy ready timing diagnostic
+on:
+  push:
+    branches: [ci/proxy-ready-diagnostic-1948]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Install reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+      - name: Run unchanged-timeout readiness diagnostic
+        run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --testNamePattern='no deadline \(null\)|demonstrates early ready' --maxWorkers=2 --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-ready-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proxy-ready-results
+          path: ${{ runner.temp }}/proxy-ready-results.json
+          if-no-files-found: warn

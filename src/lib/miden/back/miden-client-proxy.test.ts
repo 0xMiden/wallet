@@ -2129,7 +2129,10 @@ describe('MidenClientProxy — deadline kill', () => {
   });
 
   it('no deadline (null) → no timer, op settles purely on the response', async () => {
+    const phase = (name: string) => process.stderr.write(`READY_PHASE ${Date.now()} ${name} listeners=${fakeChrome.runtime.onMessage.listeners.length} created=${docExists}\n`);
+    phase('load-start');
     const { midenClientProxy } = await loadProxy(true);
+    phase('load-done');
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
@@ -2138,10 +2141,34 @@ describe('MidenClientProxy — deadline kill', () => {
     }));
 
     const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
+    phase('call-started');
     await flush();
+    phase('before-ready');
     fireReady();
+    phase('after-ready');
     const result = await p;
+    phase('response-received');
     expect(result).toBeNull();
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
+  it('demonstrates early ready is lost while document creation is pending', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    let releaseCreate!: () => void;
+    const creating = new Promise<void>(resolve => { releaseCreate = resolve; });
+    fakeChrome.offscreen.createDocument.mockImplementation(async () => { await creating; docExists = true; });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({ ok: true, op_id: env.op_id, resultB64: null, durationMs: 1 }));
+    const p = midenClientProxy.call('syncState', [], { deadlineMs: null });
+    for (let i = 0; i < 50 && fakeChrome.offscreen.createDocument.mock.calls.length === 0; i++) await flush();
+    expect(fakeChrome.offscreen.createDocument).toHaveBeenCalledTimes(1);
+    expect(fakeChrome.runtime.onMessage.listeners).toHaveLength(0);
+    fireReady();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    releaseCreate();
+    for (let i = 0; i < 50 && fakeChrome.runtime.onMessage.listeners.length === 0; i++) await flush();
+    expect(fakeChrome.runtime.onMessage.listeners).toHaveLength(1);
+    fireReady();
+    await expect(p).resolves.toBeNull();
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
 
