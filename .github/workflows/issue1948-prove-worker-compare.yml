@@ -1,0 +1,60 @@
+name: Issue 1948 prove worker retry comparison
+on:
+  push:
+    branches: [ci/1948-prove-worker-compare]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: d3f277eb01525e2baf98d130e1cd44d28d664826
+            file: src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts
+            label: original
+          - source: f5cce26f0a16e082919c42e71b945bbc2f65d7e9
+            file: src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts
+            label: split
+    name: ${{ matrix.label }}
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frozen source
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE"
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+      - name: Run same Guardian retry tests under V8 coverage
+        env:
+          TEST_FILE: ${{ matrix.file }}
+        run: |
+          yarn test:coverage --runInBand --runTestsByPath "$TEST_FILE" --testNamePattern='the apply retry at the plain staged sites' --coverageReporters=json --json --outputFile=coverage/jest-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: guardian-compare-${{ matrix.label }}
+          path: coverage/jest-results.json
+          if-no-files-found: warn
