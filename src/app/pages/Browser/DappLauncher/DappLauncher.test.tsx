@@ -304,6 +304,13 @@ describe('DappLauncher', () => {
     const card = screen.getByTestId('explore-featured-card');
     expect(card).toHaveAttribute('data-dapp-url', 'https://geoquizz.example/');
     expect(within(card).getByText('exploreFeaturedGeoquizzHeadline')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('explore-search-toggle'));
+    fireEvent.change(await screen.findByTestId('dapp-hero-search'), { target: { value: 'GeoQuizz' } });
+    const results = await screen.findByTestId('explore-section-search-results');
+    const match = within(results).getByTestId('dapp-grid-card');
+    expect(match).toHaveAttribute('data-dapp-url', 'https://geoquizz.example/');
+    fireEvent.click(match);
+    expect(onOpen).toHaveBeenLastCalledWith('https://geoquizz.example/');
   });
 
   it('adds no Featured row when the catalog has none of the featured apps', async () => {
