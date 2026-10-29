@@ -1,0 +1,19 @@
+name: Featured fallback search verification
+on:
+  push:
+    branches: [ci/1982-featured-search-green]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - run: test "$(git rev-parse HEAD^)" = d55c43de6403631f8854c5f949ecd31fee08eb47
+      - run: yarn install --frozen-lockfile --network-timeout 120000
+        timeout-minutes: 6
+      - run: yarn jest --runTestsByPath src/app/pages/Browser/DappLauncher/DappLauncher.test.tsx --maxWorkers=2
