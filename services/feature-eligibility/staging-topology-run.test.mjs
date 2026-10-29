@@ -78,3 +78,14 @@ test('invalid run configuration fails closed without a scenario call', async () 
     assert.equal(calls, 0);
   }
 });
+
+test('a restarted controller cannot increase the run budget or extend its lifetime', async () => {
+  for (const changed of [{ expiresAt: 1000, maxRuns: 2 }, { expiresAt: 2000, maxRuns: 1 }]) {
+    const store = storage();
+    let calls = 0;
+    const base = { storage: store, now: () => 100, expiresAt: 1000, maxRuns: 1, runScenario: async () => { calls++; return 'passed'; } };
+    assert.equal((await createRunController(base)(input())).status, 200);
+    assert.equal((await createRunController({ ...base, ...changed })(input())).status, 503);
+    assert.equal(calls, 1);
+  }
+});
