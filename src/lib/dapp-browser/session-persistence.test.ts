@@ -144,6 +144,8 @@ describe('upsertPersistedSession', () => {
     try {
       await upsertPersistedSession(makePersisted('new'));
       expect(store[STORAGE_KEY]).toBe(original);
+      await upsertPersistedSession(makePersisted('new'));
+      expect(JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id)).toEqual(['prior', 'new']);
     } finally {
       warn.mockRestore();
     }
@@ -157,6 +159,8 @@ describe('upsertPersistedSession', () => {
     try {
       await upsertPersistedSession(makePersisted('new'));
       expect(store[STORAGE_KEY]).toBe(original);
+      await upsertPersistedSession(makePersisted('new'));
+      expect(JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id)).toEqual(['prior', 'new']);
     } finally {
       warn.mockRestore();
     }

@@ -132,10 +132,10 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 
 /** Load all persisted sessions. Returns [] when the store is empty or corrupt. */
 export function loadPersistedSessions(): Promise<PersistedSession[]> {
-  return serialize(loadSessions);
+  return serialize(async () => (await loadSessions()) ?? []);
 }
 
-async function loadSessions(): Promise<PersistedSession[]> {
+async function loadSessions(): Promise<PersistedSession[] | undefined> {
   try {
     const { value } = await Preferences.get({ key: STORAGE_KEY });
     if (!value) return [];
@@ -157,7 +157,7 @@ async function loadSessions(): Promise<PersistedSession[]> {
     return retained;
   } catch (error) {
     console.warn('[session-persistence] load failed:', error);
-    return [];
+    return undefined;
   }
 }
 
@@ -182,6 +182,7 @@ async function saveSessions(sessions: PersistedSession[]): Promise<void> {
 export function upsertPersistedSession(session: PersistedSession): Promise<void> {
   return serialize(async () => {
     const existing = await loadSessions();
+    if (existing === undefined) return;
     const deduped = existing.filter(s => s.id !== session.id);
     deduped.push(session);
 
@@ -193,6 +194,7 @@ export function upsertPersistedSession(session: PersistedSession): Promise<void>
 export function removePersistedSession(id: string): Promise<void> {
   return serialize(async () => {
     const existing = await loadSessions();
+    if (existing === undefined) return;
     const next = existing.filter(s => s.id !== id);
     if (next.length !== existing.length) await saveSessions(next);
   });
