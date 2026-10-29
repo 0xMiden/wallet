@@ -136,6 +136,32 @@ describe('upsertPersistedSession', () => {
     expect(loaded[0]!.parkedAt).toBe(200);
   });
 
+  it('does not overwrite parked sessions when a read fails before upsert', async () => {
+    const original = JSON.stringify([makePersisted('prior')]);
+    store[STORAGE_KEY] = original;
+    mockGet.mockRejectedValueOnce(new Error('read failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new'));
+      expect(store[STORAGE_KEY]).toBe(original);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not overwrite parked sessions when normalization fails before upsert', async () => {
+    const original = JSON.stringify([makePersisted('prior')], null, 2);
+    store[STORAGE_KEY] = original;
+    mockSet.mockRejectedValueOnce(new Error('normalization failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new'));
+      expect(store[STORAGE_KEY]).toBe(original);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('preserves other entries when upserting', async () => {
     await upsertPersistedSession(makePersisted('a', 100));
     await upsertPersistedSession(makePersisted('b', 200));
