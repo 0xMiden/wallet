@@ -1,0 +1,117 @@
+name: Eligibility cache scenario workerd proof
+on:
+  push:
+    branches: [ci/1894-cache-storage-trace]
+permissions:
+  contents: read
+jobs:
+  workerd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 99e204eda82dd9f986ef4f998323694dac983ab7
+      - name: Exercise the real service and local Durable Objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/worker.mjs <<'JS'
+          import { createService } from '../services/feature-eligibility/worker.mjs';
+          import { runCacheScenario } from '../services/feature-eligibility/staging-topology.mjs';
+          const policy = { network: 'testnet', version: 13, features: { earn: true }, swap: { etaUrl: 'https://solver.example' }, geo: { wallet: {}, earn: { 'block NY state': 'yes', 'block UK': 'yes' } } };
+          const fixedFetch = (onLookup, onConfig = () => {}) => async url => {
+            if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json') { onConfig(); return Response.json(policy); }
+            if (String(url) === 'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1') {
+              onLookup();
+              return Response.json({ country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
+            }
+            throw new Error('Unexpected upstream');
+          };
+          export class Budget {
+            constructor(state, env) {
+              this.reservations = 0; this.budgetCalls = 0; this.budgetStatus = 0; this.leaseChecks = {}; this.limitType = typeof env.MAXMIND_DAILY_QUERY_LIMIT;
+              this.delegate = new (createService({ fetchImpl: fixedFetch(() => {}) }).EligibilityGuard)(state, env);
+              this.storageTrace = [];
+              const storage = this.delegate.storage;
+              this.delegate.storage = new Proxy(storage, { get: (target, key) => {
+                if (key === 'transaction') return async callback => {
+                  try { this.storageTrace.push('transaction'); return await target.transaction(tx => callback(new Proxy(tx, { get: (inner, prop) => {
+                    if (prop === 'get' || prop === 'put') return async (...args) => { try { this.storageTrace.push(String(prop)); return await inner[prop](...args); } catch (error) { this.storageTrace.push(String(prop) + ':' + error.name); throw error; } };
+                    const value = inner[prop]; return typeof value === 'function' ? value.bind(inner) : value;
+                  } }))); } catch (error) { this.storageTrace.push('transaction:' + error.name); throw error; }
+                };
+                if (key === 'getAlarm' || key === 'setAlarm') return async (...args) => { try { this.storageTrace.push(String(key)); return await target[key](...args); } catch (error) { this.storageTrace.push(String(key) + ':' + error.name); throw error; } };
+                const value = target[key]; return typeof value === 'function' ? value.bind(target) : value;
+              } });
+            }
+            async fetch(request) {
+              if (new URL(request.url).pathname === '/proof-counters') return Response.json({ reservations: this.reservations, budgetCalls: this.budgetCalls, budgetStatus: this.budgetStatus, leaseChecks: this.leaseChecks, limitType: this.limitType, storageTrace: this.storageTrace });
+              this.budgetCalls++; const body = await request.clone().json(); const now = Date.now(); this.leaseChecks = { method: request.method, route: new URL(request.url).pathname, dayMatches: body.day === new Date(now).toISOString().slice(0,10), deadlineValid: Number.isSafeInteger(body.deadline) && body.deadline > now && body.deadline <= now + 10000, leaseIdValid: typeof body.leaseId === 'string' && /^[a-f0-9-]{36}$/.test(body.leaseId), countValid: Number.isInteger(body.count) && body.count >= 1 && body.count <= 10 }; const response = await this.delegate.fetch(request); this.budgetStatus = response.status;
+              if (new URL(request.url).pathname === '/lease' && response.ok) this.reservations++;
+              return response;
+            }
+          }
+          export class Caller {
+            constructor(state, env) {
+              this.lookups = 0;
+              this.writes = 0;
+              this.calls = 0;
+              this.configCalls = 0;
+              this.lastStatus = 0;
+              this.delegate = new (createService({ fetchImpl: fixedFetch(() => { this.lookups++; }, () => { this.configCalls++; }) }).CallerEligibilityGuard)(state, env);
+
+            }
+            async fetch(request) {
+              if (new URL(request.url).pathname === '/proof-counters') return Response.json({ lookups: this.lookups, writes: this.writes, calls: this.calls, configCalls: this.configCalls, lastStatus: this.lastStatus });
+              this.calls++; const result = await this.delegate.fetch(request); this.lastStatus = result.status; return result;
+            }
+          }
+          export default {
+            async fetch(_request, env) {
+              const caller = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:TST'));
+              const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
+              const allowed = { limit: async () => ({ success: true }) };
+              const serviceEnv = { ...env, CALLER_RATE_LIMIT: allowed, COLO_RATE_LIMIT: allowed };
+              const service = createService({ fetchImpl: fixedFetch(() => {}) });
+              const trace = [];
+              const counters = async () => {
+                try {
+                  const a = await (await caller.fetch('https://internal/proof-counters')).json();
+                  const b = await (await budget.fetch('https://internal/proof-counters')).json();
+                  trace.push({ counters: { ...a, ...b } });
+                  return { ...a, ...b };
+                } catch (error) { trace.push({ counterError: String(error).slice(0, 200) }); throw error; }
+              };
+              const result = await runCacheScenario({ service: { fetch: async request => {
+                try { const response = await service.fetch(request, serviceEnv); trace.push({ status: response.status, body: await response.clone().json() }); return response; }
+                catch (error) { trace.push({ serviceError: String(error).slice(0, 200) }); throw error; }
+              } }, counters });
+              return Response.json({ result, counters: await counters(), trace });
+            }
+          };
+          JS
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-cache-proof","main":"worker.mjs","compatibility_date":"2026-10-20","workers_dev":false,"vars":{"ALLOWED_ORIGINS":"[\"https://wallet.example\"]","MAXMIND_ACCOUNT_ID":"synthetic","MAXMIND_LICENSE_KEY":"synthetic","CALLER_HASH_SECRET":"synthetic-secret-32-characters-minimum","MAXMIND_DAILY_QUERY_LIMIT":"100"},"durable_objects":{"bindings":[{"name":"ELIGIBILITY_GUARD","class_name":"Budget"},{"name":"CALLER_GUARD","class_name":"Caller"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["Budget","Caller"]}]}
+          JSON
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18948 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18948/ > proof/response.json; then break; fi
+            sleep 1
+          done
+          node -e "const a=require('node:assert/strict');const x=require('./proof/response.json');console.log(JSON.stringify(x));a.equal(x.trace.filter(v => typeof v.status === 'number').length, 2)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: topology-cache-storage-trace
+          path: |
+            proof/runtime.log
+            proof/response.json
