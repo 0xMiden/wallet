@@ -7,6 +7,8 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
+import { RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
 import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -269,40 +271,50 @@ async function prepare(password, includePrivate) {
     attemptId,
     submitEvidence: [{ attemptId, capturedAt: 1, source: 'stage', ...evidence }]
   });
+  progress('first-evidence-checkpoint');
   await vault.retainTransactionRecovery(syntheticId, { requestBytes, notes: [] }, evidence, attemptId);
-  const journal = await vault.readRecoveryJournal();
-  const retainedAttempt = journal?.entries.find(entry => entry.kind === 'transaction' && entry.id === syntheticId);
-  check('submissionCheckpointed', retainedAttempt?.mayHaveSubmitted === true && retainedAttempt.row?.submitEvidence?.length === 1);
-  check('retainedAccountFloor', journal?.accounts.length === 1);
-  const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
-  check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
-  const journalDigest = await digest(new TextEncoder().encode(JSON.stringify(journal)));
-  await control('state', {
-    accountId: fixture.accountId,
-    noteId: fixture.noteId,
-    includePrivate,
-    sdkStore,
-    feeFaucetId: fixture.feeFaucetId,
-    journalDigest,
-    baselineSequence: journal.sequence
+  const prior = await vault.readRecoveryJournal();
+  const priorAttempt = prior?.entries.find(entry => entry.kind === 'transaction' && entry.id === syntheticId);
+  check('priorAttemptVerified', priorAttempt?.mayHaveSubmitted === true && priorAttempt.row?.submitEvidence?.length === 1);
+  const provider = getStorageProvider();
+  const initialValues = await provider.get(RECOVERY_JOURNAL_KEYS);
+  const initialPointer = initialValues[RECOVERY_JOURNAL_KEYS[2]];
+  check('priorPointerValid', initialPointer?.slot === 0 || initialPointer?.slot === 1);
+  check('priorPointerMatches', initialPointer.sequence === prior.sequence);
+  const priorSlot = RECOVERY_JOURNAL_KEYS[initialPointer.slot];
+  const priorCipher = JSON.stringify(initialValues[priorSlot]);
+  check('priorEncrypted', typeof priorCipher === 'string' && priorCipher.length > 0 && !priorCipher.includes(syntheticId));
+  const secondId = 'disposable-later-attempt';
+  const secondAttempt = 'disposable-later-id';
+  await Repo.transactions.add({
+    id: secondId, accountId: fixture.accountId, type: 'send', status: ITransactionStatus.Unconfirmed,
+    initiatedAt: 2, displayIcon: 'SEND', mayHaveSubmitted: true, attemptId: secondAttempt,
+    submitEvidence: [{ attemptId: secondAttempt, capturedAt: 2, source: 'stage', ...evidence }]
   });
-  progress('orderly-sdk-disposal');
-  await withWasmClientLock(async () => {
-    const wallet = await getMidenClient();
-    await wallet.client.waitForIdle();
-  });
-  await resetMidenClient();
-  vault.retire();
-  vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
-  progress('disposable-sdk-store-loss');
-  await new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(sdkStore);
-    request.onsuccess = resolve;
-    request.onerror = () => reject(new Error('sdk-delete'));
-    request.onblocked = () => reject(new Error('sdk-delete-blocked'));
-  });
-  check('physicalSdkMissing', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  progress('second-evidence-checkpoint');
+  await vault.retainTransactionRecovery(secondId, { requestBytes, notes: [] }, evidence, secondAttempt);
+  const latest = await vault.readRecoveryJournal();
+  check('laterGenerationVerified', latest?.sequence === prior.sequence + 1 && latest.entries.some(entry => entry.kind === 'transaction' && entry.id === secondId));
+  const latestValues = await provider.get(RECOVERY_JOURNAL_KEYS);
+  const latestPointer = latestValues[RECOVERY_JOURNAL_KEYS[2]];
+  check('alternatingSlotsVerified', latestPointer?.slot === 1 - initialPointer.slot && latestPointer.sequence === latest.sequence && JSON.stringify(latestValues[priorSlot]) === priorCipher);
+  const latestPointerText = JSON.stringify(latestPointer);
+  progress('disposable-active-journal-corruption');
+  const activeSlot = RECOVERY_JOURNAL_KEYS[latestPointer.slot];
+  await provider.set({ [activeSlot]: 'disposable-malformed-ciphertext' });
+  progress('read-corrupt-journal');
+  const retained = await vault.readRecoveryJournal();
+  check('lastGoodGenerationRetained', retained?.sequence === prior.sequence && (await digest(new TextEncoder().encode(JSON.stringify(retained)))) === (await digest(new TextEncoder().encode(JSON.stringify(prior))));
+  check('priorEvidenceRetained', retained?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
+  check('journalDamageLatched', getStorageHealth().status === 'unavailable');
+  const serviceBefore = await control('summary', {});
+  progress('refuse-older-generation-resume');
+  const recovered = await vault.recoverStorage();
+  check('olderGenerationDidNotResume', recovered === false && getStorageHealth().status === 'unavailable');
+  const serviceAfter = await control('summary', {});
+  check('noRecoveryNetworkOrSubmission', JSON.stringify(serviceAfter) === JSON.stringify(serviceBefore) && serviceAfter.submitCalls === 0 && serviceAfter.refusedRequests === 0);
+  const finalValues = await provider.get(RECOVERY_JOURNAL_KEYS);
+  check('goodCipherAndPointerUnchanged', JSON.stringify(finalValues[priorSlot]) === priorCipher && JSON.stringify(finalValues[RECOVERY_JOURNAL_KEYS[2]]) === latestPointerText);
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {
