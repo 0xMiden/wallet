@@ -619,6 +619,12 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       }
     },
     (error: unknown) => {
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        clientRole: 'realm_reader'
+      });
       entry.failures += 1;
       const windowMs = computeSyncBackoffMs(entry.failures);
       entry.retryAtMs = monotonicNowMs() + windowMs;
@@ -734,6 +740,7 @@ export class MidenClientInterface {
         operation: 'sdk_initialize',
         stage,
         workerMode: useWorker ? 'enabled' : 'disabled',
+        ...(stage === 'client_create' ? { clientRole: 'primary' } : {}),
         ...wasmStartupEvidence(error)
       });
       throw error;
