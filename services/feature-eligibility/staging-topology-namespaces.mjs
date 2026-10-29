@@ -214,3 +214,68 @@ export async function collectTopologyNamespaces(api, expected) {
     return null;
   }
 }
+
+// Only closed binding metadata leaves this function; this is not an account or deployment ownership check.
+export async function collectTopologySettings(api, ids) {
+  try {
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 10000 ||
+      new Set(ids).size !== ids.length ||
+      !ids.every(id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,63}$/.test(id))
+    )
+      return null;
+    const scan = async () => {
+      const scripts = [];
+      for (const id of ids) {
+        const response = await api(`/workers/scripts/${id}/settings`);
+        if (
+          response?.success !== true ||
+          !Array.isArray(response.errors) ||
+          response.errors.length ||
+          !Array.isArray(response.result?.bindings)
+        )
+          return null;
+        const names = new Set();
+        const bindings = [];
+        for (const entry of response.result.bindings) {
+          if (
+            !entry ||
+            typeof entry.name !== 'string' ||
+            !/^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(entry.name) ||
+            names.has(entry.name) ||
+            typeof entry.type !== 'string' ||
+            !/^[a-z_]{1,64}$/.test(entry.type)
+          )
+            return null;
+          names.add(entry.name);
+          const binding = { name: entry.name, type: entry.type };
+          const fields =
+            entry.type === 'durable_object_namespace'
+              ? ['class_name', 'namespace_id', 'script_name']
+              : entry.type === 'service'
+                ? ['service']
+                : [];
+          for (const field of fields) {
+            if (entry[field] !== undefined) {
+              if (typeof entry[field] !== 'string') return null;
+              const pattern = field === 'namespace_id' ? /^[a-f0-9]{32}$/ : field === 'class_name'
+                ? /^[a-zA-Z_$][a-zA-Z0-9_$]{0,127}$/ : /^[a-zA-Z0-9_-]{1,63}$/;
+              if (!pattern.test(entry[field])) return null;
+              binding[field] = entry[field];
+            }
+          }
+          bindings.push(binding);
+        }
+        scripts.push({ id, bindings });
+      }
+      return scripts;
+    };
+    const first = await scan();
+    if (first === null) return null;
+    const second = await scan();
+    return second !== null && JSON.stringify(first) === JSON.stringify(second) ? first : null;
+  } catch {
+    return null;
+  }
+}
