@@ -4836,25 +4836,35 @@ describe('MidenClientInterface', () => {
   });
 
   it('a build whose URL moved away and back before any read keeps its own window', async () => {
+    const phase = (name: string) => process.stderr.write(`READER_PHASE ${Date.now()} ${name}\n`);
+    phase('test-start');
     let rpcUrl = 'https://rpc-a.example';
     const { createClient, build, waitForBuilds } = deferredCreateClient();
+    phase('import-start');
     const { makeClient, clock } = await importWithReader(createClient, () => rpcUrl);
+    phase('import-done');
     const client = makeClient();
 
     const first = client.getConsumableNotes('mtst1account');
+    phase('first-wait-start');
     await waitForBuilds(1);
+    phase('first-build-seen');
     rpcUrl = 'https://rpc-b.example';
     build(0).reject(new Error('stale build failed'));
     await expect(first).rejects.toThrow('stale build failed');
+    phase('first-rejection-seen');
     // Back on its own URL before any read: the failed build is its key's entry again, so its own window applies. A
     // build that skipped the stamp here would serve its rejection forever.
     rpcUrl = 'https://rpc-a.example';
     clock.now += 29_999;
     await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('stale build failed');
+    phase('cached-rejection-seen');
     expect(createClient).toHaveBeenCalledTimes(1);
     clock.now += 1;
     void client.getConsumableNotes('mtst1account').catch(() => undefined);
+    phase('second-wait-start');
     await waitForBuilds(2);
+    phase('second-build-seen');
   });
 
   it('shares one reader build between concurrent first reads', async () => {

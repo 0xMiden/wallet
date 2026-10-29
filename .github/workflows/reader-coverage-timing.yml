@@ -1,0 +1,25 @@
+name: Reader coverage timing diagnostic
+on:
+  push:
+    branches: [ci/reader-coverage-timing-1948]
+permissions:
+  contents: read
+jobs:
+  reader:
+    runs-on: ubuntu-latest
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run unchanged-timeout reader coverage diagnostic
+        run: yarn jest --coverage --runTestsByPath src/lib/miden/sdk/miden-client-interface.test.ts --maxWorkers=2 --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/reader-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reader-timing
+          path: ${{ runner.temp }}/reader-results.json
+          if-no-files-found: warn
