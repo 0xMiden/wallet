@@ -615,4 +615,6 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 
 ## Review
 
-RED: the two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
+RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
+
+Review found `.15` and `-.15` were left without a leading zero despite the accepted plan. Added both failing cases, then normalized them to `0.15` and `-0.15`. The two named suites now pass all 107 tests; named ESLint passes.
