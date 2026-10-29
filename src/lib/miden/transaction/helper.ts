@@ -1234,7 +1234,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
           // forever while the activity row reads Completed.
           //
-          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // A Completed row arrives here without `resultBytes` after size limiting, or when the reaper
           // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
           // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
           // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
