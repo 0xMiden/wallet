@@ -937,7 +937,7 @@ it.each(['extension', 'mobile'])(
       {
         proposalStep: 'proposal_create',
         proposalCreateApi: 'consume_notes',
-        proposalCreateFamily: 'consume_note_authentication'
+        proposalCreateFamily: 'consume_note_not_verified'
       },
       'stage signing'
     );
