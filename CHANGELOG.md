@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][android] WalletConnect failure reports distinguish known response categories without recording raw wallet errors.
+
 - [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
 
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
