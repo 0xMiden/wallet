@@ -34,6 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C wallet rev-parse HEAD)" = fcf3df17346cb2c87c64a28f2b454c41667e332f
+          mkdir -p wallet/playwright/proofs
           cp -R fixture/playwright/proofs/storage-retained-vault-native wallet/playwright/proofs/
       - name: Install frozen dependencies
         working-directory: wallet
