@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "加入資金並等待資金變為可用。",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "首次收款",
@@ -4975,6 +4975,34 @@
     "message": "試試其他名稱，或貼上 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
   },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden 上的金融服務",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "您的資金，預設為私有",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "透過基於 Miden 建置的應用程式進行交易、付款及收款。",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "精選",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "私下交易任何代幣",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "找出十座城市，擊敗你的對手",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "薪資明細僅本人可見",
+    "englishSource": "Payroll nobody else can see"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"
@@ -5707,6 +5735,10 @@
   "receiveShareCaption": {
     "message": "傳送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "來自另一個網路",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "複製",

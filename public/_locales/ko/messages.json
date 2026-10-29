@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "자금을 추가하고 사용 가능해질 때까지 기다리세요.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "첫 수령",
@@ -4975,6 +4975,34 @@
     "message": "다른 이름을 입력하거나 dApp URL을 붙여 넣으세요.",
     "englishSource": "Try another name, or paste a dApp's URL."
   },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden의 금융",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "귀하의 자금, 기본적으로 비공개로 처리됩니다",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Miden을 기반으로 구축된 앱을 통해 거래하고, 지불하고, 대금을 수령하세요.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "주요 내용",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "어떤 토큰이든 비공개로 거래하세요",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "10개 도시를 찾아내고, 경쟁자들을 제치세요",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "다른 누구도 볼 수 없는 급여 내역",
+    "englishSource": "Payroll nobody else can see"
+  },
   "minimize": {
     "message": "최소화",
     "englishSource": "Minimize"
@@ -5707,6 +5735,10 @@
   "receiveShareCaption": {
     "message": "주소 보내기",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "다른 네트워크에서",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "복사",
