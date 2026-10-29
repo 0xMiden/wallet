@@ -1,10 +1,14 @@
 -- Schema of the wallet-api D1 database.
 -- Every query carries the profile_id from the JWT. A client cannot address another profile.
 
+-- generation: 16 random bytes that the login writes when it creates the profile. A token carries the
+-- generation of the profile it was issued for, so a token from before DELETE /v1/profile cannot read,
+-- write or delete the profile a later login makes again.
 CREATE TABLE profiles (
   profile_id      TEXT PRIMARY KEY,
   sync_public_key BLOB NOT NULL,
   salt            BLOB,
+  generation      BLOB NOT NULL,
   created_at      INTEGER NOT NULL,
   last_seen_at    INTEGER NOT NULL
 );
