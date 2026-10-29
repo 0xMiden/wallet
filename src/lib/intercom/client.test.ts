@@ -183,10 +183,29 @@ describe('IntercomClient', () => {
 
   it('rejects immediately if the signal is already aborted', async () => {
     await flushPromises();
+    const listenersAfterConnect = mockAddListener.mock.calls.length;
     const controller = new AbortController();
     controller.abort();
     await expect(client.request({ action: 'x' }, { signal: controller.signal })).rejects.toThrow('Aborted');
     expect(mockPostMessage).not.toHaveBeenCalled();
+    expect(mockAddListener).toHaveBeenCalledTimes(listenersAfterConnect);
+  });
+
+  it('rejects a signal aborted before the port is ready without sending', async () => {
+    const fresh = new IntercomClient();
+    const controller = new AbortController();
+    controller.abort();
+    const caught = fresh.request({ action: 'x' }, { signal: controller.signal }).then(
+      () => {
+        throw new Error('request resolved');
+      },
+      (error: unknown) => error
+    );
+    await flushPromises();
+    await expect(caught).resolves.toMatchObject({ message: 'Aborted' });
+    expect(mockPostMessage).not.toHaveBeenCalled();
+    expect(ports.every(port => port.listeners.length === 1)).toBe(true);
+    expect(mockAddListener).toHaveBeenCalledTimes(ports.length);
   });
 
   it('abort after port replacement does not throw (cleanup swallows dead-port removeListener)', async () => {
