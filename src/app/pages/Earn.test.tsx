@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 import { EARN_DATA } from 'screens/earn-flow/data';
 import { buildEarnSummary } from 'screens/earn-flow/earn-mapping';
@@ -66,6 +67,8 @@ jest.mock('screens/earn-flow/useEarnPositions', () => ({
   useEarnPositions: jest.fn()
 }));
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 // i18n: the page renders every user-facing string through `t()`. Stub the hook
 // so `t(key)` returns the key verbatim, letting us assert on the stable key
 // instead of the English copy. An interpolated call appends its values
@@ -87,6 +90,7 @@ beforeEach(() => {
   mockFeatureAvailability.mockClear();
   mockHaptic.mockReset();
   mockNavigate.mockReset();
+  jest.mocked(reportUserVisibleError).mockClear();
   mockUseEarnPositions.mockReturnValue(EARN_DATA);
 });
 
@@ -169,6 +173,56 @@ describe('Earn page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards load evidence when the failed Earn tab has no positions', () => {
+    jest.useFakeTimers();
+    try {
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'configuration',
+        earnPositionsLoadOutcome: 'complete_failure'
+      };
+      mockUseEarnPositions.mockReturnValue({
+        summary,
+        positions: [],
+        vaults,
+        isLoading: false,
+        notOnNetwork: false,
+        error: 'boom',
+        errorDiagnostics: evidence,
+        refetch: jest.fn()
+      });
+      render(<Earn />);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('forwards load evidence when the failed Earn tab retains positions', () => {
+    jest.useFakeTimers();
+    try {
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'request',
+        earnPositionsLoadOutcome: 'partial_failure'
+      };
+      mockUseEarnPositions.mockReturnValue({
+        ...EARN_DATA,
+        isLoading: false,
+        notOnNetwork: false,
+        error: 'boom',
+        errorDiagnostics: evidence,
+        refetch: jest.fn()
+      });
+      render(<Earn />);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('says Earn is not on this network, with no error, retry, summary or See all, where the network has none', () => {

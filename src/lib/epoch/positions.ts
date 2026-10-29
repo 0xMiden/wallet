@@ -3,6 +3,7 @@ import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
+import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
 import type { EarnVaultInfo } from './pools-read';
 import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_LIMIT } from './positions-budget';
@@ -123,7 +124,7 @@ export interface EarnPositionsResult {
    * Per-address failures (network / non-2xx / unsuccessful body / an unreadable payload). A failed owner has no
    * positions in this result: carrying what it loaded before is the caller's (see `carryForward`).
    */
-  errors: { owner: string; error: string }[];
+  errors: { owner: string; error: string; stage?: EarnPositionsLoadStage }[];
 }
 
 /**
@@ -148,22 +149,31 @@ const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
  * lowercased form). Pass `accountId` to scope to a single Miden account.
  */
 export async function getEarnDepositEvmAddresses(accountId?: string): Promise<string[]> {
-  const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
-  const seen = new Set<string>();
-  for (const tx of rows) {
-    if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;
-    // These addresses are queried against Epoch's positions service and whatever
-    // comes back is rendered as the user's own position, folded into their total.
-    // A restored row's `evmRecipient` is not this wallet's — it is whatever the
-    // backup recorded — so it would show a stranger's balance as the user's.
-    if (tx.restoredFromBackup) continue;
-    const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
-    const recipient = extra?.evmRecipient?.trim().toLowerCase();
-    if (recipient && EVM_ADDRESS_RE.test(recipient)) {
-      seen.add(recipient);
+  try {
+    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+    const seen = new Set<string>();
+    for (const tx of rows) {
+      if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;
+      // These addresses are queried against Epoch's positions service and whatever
+      // comes back is rendered as the user's own position, folded into their total.
+      // A restored row's `evmRecipient` is not this wallet's — it is whatever the
+      // backup recorded — so it would show a stranger's balance as the user's.
+      if (tx.restoredFromBackup) continue;
+      const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
+      const recipient = extra?.evmRecipient?.trim().toLowerCase();
+      if (recipient && EVM_ADDRESS_RE.test(recipient)) {
+        seen.add(recipient);
+      }
     }
+    return [...seen];
+  } catch (error) {
+    annotateUiProducer(error, 'earnPositionsLoadError', 'notice', {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
+    });
+    throw error;
   }
-  return [...seen];
 }
 
 // A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
@@ -180,22 +190,24 @@ async function fetchPositionsForOwner(
   positionsUrl: string,
   owner: string,
   chains: number[]
-): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string }> {
+): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string; stage?: EarnPositionsLoadStage }> {
   const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
+  let stage: EarnPositionsLoadStage = 'request';
   try {
     return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
-        return { owner, items: [], error: `positions request failed (${res.status})` };
+        return { owner, items: [], error: `positions request failed (${res.status})`, stage };
       }
+      stage = 'response_decode';
       const body: PositionsApiResponse = await res.json();
       if (!body.success || !body.data || !Array.isArray(body.data.items)) {
-        return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
+        return { owner, items: [], error: body.error ?? 'positions request unsuccessful', stage };
       }
       return { owner, items: body.data.items };
     });
   } catch (err) {
-    return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw' };
+    return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw', stage };
   }
 }
 
@@ -287,8 +299,19 @@ export interface FetchEarnPositionsArgs {
  * config names no positions host or no Epoch route, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
-  if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
+  let positionsUrl: string;
+  let routes: EpochRoute[];
+  try {
+    [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
+    if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
+  } catch (error) {
+    annotateUiProducer(error, 'earnPositionsLoadError', 'notice', {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'configuration',
+      earnPositionsLoadOutcome: 'complete_failure'
+    });
+    throw error;
+  }
   const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
@@ -311,10 +334,10 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 
   const positions: EarnPosition[] = [];
-  const errors: { owner: string; error: string }[] = [];
+  const errors: { owner: string; error: string; stage?: EarnPositionsLoadStage }[] = [];
   for (const result of results) {
     if (result.error) {
-      errors.push({ owner: result.owner, error: result.error });
+      errors.push({ owner: result.owner, error: result.error, stage: result.stage });
       continue;
     }
     // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
@@ -323,7 +346,7 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
       positions.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, keeps)));
     } catch (err) {
       console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
-      errors.push({ owner: result.owner, error: 'positions response unreadable' });
+      errors.push({ owner: result.owner, error: 'positions response unreadable', stage: 'position_decode' });
     }
   }
 

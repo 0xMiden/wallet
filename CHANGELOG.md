@@ -3,6 +3,12 @@
 ## 1.17.9 (TBD)
 
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
+- [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
+- [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
+- [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
+- [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
+- [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
+- [CHANGE][all] Crash reports distinguish burn fee, access-check and note-claim failures and retain fixed execution categories through privacy filtering without including financial or authentication data.
 - [CHANGE][android] WalletConnect failure reports distinguish known response categories without recording raw wallet errors.
 
 - [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
@@ -10,6 +16,7 @@
 
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
 
+- [FIX][all] Record bounded retry refusal diagnostics without sending transaction or account details.
 - [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
 - [FIX][all] Distinguish declared-network and genesis-header backup rejection diagnostics without sending backup contents or changing restore behavior.
 - [FIX][ci] Keep slow event delivery from expiring the undelivered-result test before it checks the reported harness fault.
@@ -18,6 +25,8 @@
 - [CHANGE][ci] Bread Signal Explorer can download the open snapshot as markdown.
 - [CHANGE][ci] Bread Signal Explorer is published with the docs site. The page reads a snapshot from its own endpoint; the Sentry token and the crash ledger stay off the site.
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
+- [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
+
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
 ## 1.17.8 (2026-10-27)

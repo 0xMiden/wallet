@@ -113,7 +113,7 @@ describe('OneClickAmounts error reporting', () => {
       />
     );
 
-    expect(useUserVisibleError).toHaveBeenCalledWith('oneClickQuoteUnavailable', 'inline');
+    expect(useUserVisibleError).toHaveBeenCalledWith('oneClickQuoteUnavailable', 'inline', undefined, undefined);
     expect(screen.getByTestId('one-click-route-error')).toBeInTheDocument();
   });
 });

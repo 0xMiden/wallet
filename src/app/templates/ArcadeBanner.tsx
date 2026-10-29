@@ -13,7 +13,8 @@ export const ArcadeBanner: React.FC = () => {
     <PromptCard
       title={t('arcadeTitle')}
       body={t('arcadeHomeDescription')}
-      icon={IconName.Rocket}
+      icon={IconName.Arcade}
+      solidIcon
       actionLabel={t('arcadeExplore')}
       onClick={() => navigate(ARCADE_PATH)}
       data-testid="home-arcade-banner"

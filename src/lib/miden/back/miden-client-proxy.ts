@@ -1665,6 +1665,18 @@ export const midenClientProxy = {
     }
   },
 
+  async importGuardianHistoryP2ideNotes(encoded: string, accountId: string, noteId: string): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await withWasmClientLock(async hold =>
+        (await getMidenClient()).importGuardianHistoryP2ideNotes(encoded, accountId, noteId, hold)
+      );
+      return;
+    }
+    await this.call('importGuardianHistoryP2ideNotes', [encoded, accountId, noteId], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+  },
+
   async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold => (await getMidenClient()).getGuardianResultCommitment(bytes, hold));

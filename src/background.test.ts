@@ -218,11 +218,19 @@ describe('background toolbar fallback and recovery', () => {
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
   it('contains failures while clearing action state and installing fallback', async () => {
-    const chrome = makeChromeStub({}, 'reject', 'reject');
+    const chrome = makeChromeStub({}, 'resolve', 'reject');
     loadBackground({ target: 'chrome', chrome });
     await flush();
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(1, { popup: '' });
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+  it('does not clear the popup when enabling sidebar behavior fails', async () => {
+    const chrome = makeChromeStub({}, 'reject', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+    expect(chrome.action.setPopup).toHaveBeenCalledTimes(1);
+    expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: 'popup.html' });
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
   it('keeps the working sidebar if recording the migration fails', async () => {
