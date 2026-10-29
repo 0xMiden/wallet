@@ -67,9 +67,8 @@ function boundSessions(sessions: PersistedSession[]): PersistedSession[] {
 
 async function cleanEvicted(original: PersistedSession[], retained: PersistedSession[]): Promise<void> {
   const ids = new Set(retained.map(session => session.id));
-  await Promise.all(
-    original.filter(session => !ids.has(session.id)).map(session => removeSnapshotFromDisk(session.id))
-  );
+  const evictedIds = new Set(original.filter(session => !ids.has(session.id)).map(session => session.id));
+  await Promise.all([...evictedIds].map(id => removeSnapshotFromDisk(id)));
 }
 
 /**
@@ -132,18 +131,20 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 
 /** Load all persisted sessions. Returns [] when the store is empty or corrupt. */
 export function loadPersistedSessions(): Promise<PersistedSession[]> {
-  return serialize(async () => (await loadSessions()) ?? []);
+  return serialize(async () => (await loadSessions())?.sessions ?? []);
 }
 
-async function loadSessions(): Promise<PersistedSession[] | undefined> {
+async function loadSessions(): Promise<
+  { sessions: PersistedSession[]; pendingCleanup?: PersistedSession[] } | undefined
+> {
   try {
     const { value } = await Preferences.get({ key: STORAGE_KEY });
-    if (!value) return [];
+    if (!value) return { sessions: [] };
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) {
       console.warn('[session-persistence] stored value is not an array, clearing');
       await clearSessions();
-      return [];
+      return { sessions: [] };
     }
     const sessions = parsed.filter(
       (s): s is PersistedSession =>
@@ -155,11 +156,11 @@ async function loadSessions(): Promise<PersistedSession[] | undefined> {
         await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(retained) });
       } catch (error) {
         console.warn('[session-persistence] normalization failed:', error);
-        return retained;
+        return { sessions: retained, pendingCleanup: sessions };
       }
       await cleanEvicted(sessions, retained);
     }
-    return retained;
+    return { sessions: retained };
   } catch (error) {
     console.warn('[session-persistence] load failed:', error);
     return undefined;
@@ -171,13 +172,13 @@ export function savePersistedSessions(sessions: PersistedSession[]): Promise<voi
   return serialize(() => saveSessions(sessions));
 }
 
-async function saveSessions(sessions: PersistedSession[]): Promise<void> {
+async function saveSessions(sessions: PersistedSession[], pendingCleanup: PersistedSession[] = []): Promise<void> {
   try {
     const retained = boundSessions(sessions);
     const value = JSON.stringify(retained);
     const previous = await Preferences.get({ key: STORAGE_KEY });
     if (previous.value !== value) await Preferences.set({ key: STORAGE_KEY, value });
-    await cleanEvicted(sessions, retained);
+    await cleanEvicted([...sessions, ...pendingCleanup], retained);
   } catch (error) {
     console.warn('[session-persistence] save failed:', error);
   }
@@ -188,10 +189,10 @@ export function upsertPersistedSession(session: PersistedSession): Promise<void>
   return serialize(async () => {
     const existing = await loadSessions();
     if (existing === undefined) return;
-    const deduped = existing.filter(s => s.id !== session.id);
+    const deduped = existing.sessions.filter(s => s.id !== session.id);
     deduped.push(session);
 
-    await saveSessions(deduped);
+    await saveSessions(deduped, existing.pendingCleanup);
   });
 }
 
@@ -200,8 +201,8 @@ export function removePersistedSession(id: string): Promise<void> {
   return serialize(async () => {
     const existing = await loadSessions();
     if (existing === undefined) return;
-    const next = existing.filter(s => s.id !== id);
-    if (next.length !== existing.length) await saveSessions(next);
+    const next = existing.sessions.filter(s => s.id !== id);
+    if (next.length !== existing.sessions.length) await saveSessions(next, existing.pendingCleanup);
   });
 }
 
