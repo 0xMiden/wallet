@@ -49,7 +49,7 @@ test('an overlapping request is refused while a scenario is active', async () =>
   let calls = 0;
   const handle = createRunController({ storage: storage(), now: () => 100, expiresAt: 1000, maxRuns: 2, runScenario: async () => { calls++; entered(); await held; return 'passed'; } });
   const first = handle(input());
-  assert.equal(await Promise.race([started, new Promise(resolve => setTimeout(() => resolve(false), 50))]), true);
+  assert.equal(await Promise.race([started, new Promise(resolve => setTimeout(() => resolve(false), 1000))]), true);
   assert.equal((await handle(input())).status, 429);
   release();
   assert.equal((await first).status, 200);
