@@ -1244,92 +1244,95 @@ describe('crash-report egress', () => {
     }
   );
 
-  it('realNativeRejectionReportsOnlyClosedDiagnosticsOnTheWire', async () => {
-    consentOn();
-    jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
-    const address = `0x${'a1'.repeat(20)}`;
-    const poison = {
-      requestId: 'request-private-123',
-      topic: 'topic-private-456',
-      address,
-      amount: '1234.5678',
-      url: 'https://native-poison.example.invalid/private',
-      hostname: 'native-poison.example.invalid',
-      walletCode: '-32603',
-      requestAge: '123456',
-      text: 'native-private-free-text'
-    };
-    const privateText = Object.values(poison).join(' ');
-    const code =
-      'REOWN_NATIVE_REQUEST_FAILURE:' +
-      JSON.stringify({
-        nativeOrigin: 'wallet_error',
-        walletResponseCode: 'internal_error',
-        requestAge: '120_to_300s',
-        published: 'confirmed',
-        backgrounded: 'yes'
+  it.each(['internal_error', 'provider_unauthorized', 'rpc_limited'])(
+    'real native rejection sends only closed diagnostics for %s',
+    async category => {
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const address = `0x${'a1'.repeat(20)}`;
+      const poison = {
+        requestId: 'request-private-123',
+        topic: 'topic-private-456',
+        address,
+        amount: '1234.5678',
+        url: 'https://native-poison.example.invalid/private',
+        hostname: 'native-poison.example.invalid',
+        walletCode: '-32603',
+        requestAge: '123456',
+        text: 'native-private-free-text'
+      };
+      const privateText = Object.values(poison).join(' ');
+      const code =
+        'REOWN_NATIVE_REQUEST_FAILURE:' +
+        JSON.stringify({
+          nativeOrigin: 'wallet_error',
+          walletResponseCode: category,
+          requestAge: '120_to_300s',
+          published: 'confirmed',
+          backgrounded: 'yes'
+        });
+      const rawError = Object.assign(new Error(`Request expired\n${privateText}`, { cause: new Error(privateText) }), {
+        code,
+        details: `Request expired\n${privateText}`,
+        data: poison
       });
-    const rawError = Object.assign(new Error(`Request expired\n${privateText}`, { cause: new Error(privateText) }), {
-      code,
-      details: `Request expired\n${privateText}`,
-      data: poison
-    });
-    rawError.stack = `Error: ${privateText}\n    at nativeRequest (${poison.url}:123456:1)`;
-    jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
-    let caught: unknown;
-    try {
-      await NativeReown.sendTransaction({ chainId: 1, to: address });
-    } catch (rejection) {
-      caught = rejection;
-    }
-    expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
-    expect(caught).toBe(rawError);
+      rawError.stack = `Error: ${privateText}\n    at nativeRequest (${poison.url}:123456:1)`;
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: address });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
 
-    reportTransactionFailure({
-      type: 'bridged-receive',
-      point: 'bridge_receive_settlement',
-      bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
-      error: caught
-    });
-    await flushEgress();
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
+        error: caught
+      });
+      await flushEgress();
 
-    expect(captured).toHaveLength(1);
-    const events = sentryEvents();
-    expect(events).toHaveLength(1);
-    const event = events[0];
-    if (event === undefined) throw new Error('Expected one Sentry event');
-    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
-      reownNativeOrigin: 'wallet_error',
-      reownWalletResponseCode: 'internal_error',
-      reownRequestAge: '120_to_300s',
-      reownPublished: 'confirmed',
-      reownBackgrounded: 'yes'
-    });
-    expect(objectAt(event, 'tags')).toMatchObject({
-      reown_native_origin: 'wallet_error',
-      reown_wallet_response_code: 'internal_error',
-      reown_request_age: '120_to_300s',
-      reown_published: 'confirmed',
-      reown_backgrounded: 'yes'
-    });
-    const exception = objectAt(event, 'exception');
-    expect(exception.values).toHaveLength(1);
-    if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
-    const value: unknown = exception.values[0];
-    if (typeof value !== 'object' || value === null) throw new Error('Expected a synthetic exception');
-    expect(Reflect.get(value, 'type')).toBe('WalletTransactionFailure');
-    expect(Reflect.get(value, 'value')).toContain('via usdcx; failed at wallet_approve; evm error request_expired');
-    expect(value).not.toHaveProperty('cause');
-    const stacktrace: unknown = Reflect.get(value, 'stacktrace');
-    const frames: unknown =
-      typeof stacktrace === 'object' && stacktrace !== null ? Reflect.get(stacktrace, 'frames') : stacktrace;
-    expect(frames ?? []).toEqual([]);
-    expect(event.fingerprint).toBeUndefined();
-    for (const text of [...Object.values(poison), 'REOWN_NATIVE_REQUEST_FAILURE:', code]) {
-      for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      expect(captured).toHaveLength(1);
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('Expected one Sentry event');
+      expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+        reownNativeOrigin: 'wallet_error',
+        reownWalletResponseCode: category,
+        reownRequestAge: '120_to_300s',
+        reownPublished: 'confirmed',
+        reownBackgrounded: 'yes'
+      });
+      expect(objectAt(event, 'tags')).toMatchObject({
+        reown_native_origin: 'wallet_error',
+        reown_wallet_response_code: category,
+        reown_request_age: '120_to_300s',
+        reown_published: 'confirmed',
+        reown_backgrounded: 'yes'
+      });
+      const exception = objectAt(event, 'exception');
+      expect(exception.values).toHaveLength(1);
+      if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
+      const value: unknown = exception.values[0];
+      if (typeof value !== 'object' || value === null) throw new Error('Expected a synthetic exception');
+      expect(Reflect.get(value, 'type')).toBe('WalletTransactionFailure');
+      expect(Reflect.get(value, 'value')).toContain('via usdcx; failed at wallet_approve; evm error request_expired');
+      expect(value).not.toHaveProperty('cause');
+      const stacktrace: unknown = Reflect.get(value, 'stacktrace');
+      const frames: unknown =
+        typeof stacktrace === 'object' && stacktrace !== null ? Reflect.get(stacktrace, 'frames') : stacktrace;
+      expect(frames ?? []).toEqual([]);
+      expect(event.fingerprint).toBeUndefined();
+      for (const text of [...Object.values(poison), 'REOWN_NATIVE_REQUEST_FAILURE:', code]) {
+        for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      }
+      expect(leaksIn(wireText())).toEqual([]);
     }
-    expect(leaksIn(wireText())).toEqual([]);
-  });
+  );
 
   describe('native request diagnostic omissions', () => {
     const closedCode =

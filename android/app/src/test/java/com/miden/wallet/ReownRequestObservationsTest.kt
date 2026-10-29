@@ -18,6 +18,28 @@ class ReownRequestObservationsTest {
     }
 
     @Test
+    fun categorizesKnownProviderAndRpcErrorsWithoutExposingRawValues() {
+        val cases = listOf(
+            4100 to "provider_unauthorized", 4200 to "method_unsupported",
+            -32601 to "method_unsupported", -32004 to "method_unsupported",
+            4900 to "provider_disconnected", 4901 to "chain_disconnected",
+            4902 to "chain_switch_failed", -32700 to "request_invalid",
+            -32600 to "request_invalid", -32001 to "rpc_unavailable",
+            -32002 to "rpc_unavailable", -32003 to "transaction_rejected",
+            -32005 to "rpc_limited"
+        )
+        for ((code, expected) in cases) {
+            assertEquals(expected, walletResponseCategory(code).wire)
+            val observations = ReownRequestObservations { 0L }
+            val failure = requireNotNull(observations.fail(observations.create(), ReownNativeOrigin.WALLET_ERROR, code))
+            assertTrue(failure.toErrorCode().contains("\"walletResponseCode\":\"$expected\""))
+            assertFalse(failure.toErrorCode().contains(code.toString()))
+        }
+        assertEquals("other", walletResponseCategory(-32000).wire)
+        assertEquals("other", walletResponseCategory(12345).wire)
+    }
+
+    @Test
     fun mapsOnlyNumericWalletCodes() {
         assertEquals(ReownWalletResponseCode.USER_REJECTED, walletResponseCategory(4001))
         assertEquals(ReownWalletResponseCode.INVALID_PARAMS, walletResponseCategory(-32602))
@@ -320,7 +342,11 @@ class ReownRequestObservationsTest {
             ReownNativeOrigin.entries.map { it.wire }
         )
         assertEquals(
-            listOf("user_rejected", "invalid_params", "internal_error", "other"),
+            listOf(
+                "user_rejected", "invalid_params", "internal_error", "provider_unauthorized",
+                "method_unsupported", "provider_disconnected", "chain_disconnected", "chain_switch_failed",
+                "request_invalid", "rpc_unavailable", "transaction_rejected", "rpc_limited", "other"
+            ),
             ReownWalletResponseCode.entries.map { it.wire }
         )
         assertEquals(
