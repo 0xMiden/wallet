@@ -86,8 +86,10 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, headline, onOpen, cl
             light ? 'from-pure-white/55' : 'from-pure-black/45'
           )}
         />
-        <AppName className="relative text-caption-heading font-extrabold opacity-90">{item.name}</AppName>
-        <span className="relative mt-0.5 line-clamp-2 max-w-60 text-title-page">{headline ?? item.tagline}</span>
+        <span className="relative rounded-lg bg-pure-black/90 px-2 py-1 text-pure-white">
+          <AppName className="text-caption-heading font-extrabold">{item.name}</AppName>
+          <span className="mt-0.5 line-clamp-2 max-w-60 text-title-page">{headline ?? item.tagline}</span>
+        </span>
       </span>
       <span className="flex w-full items-center gap-3 px-3.5 py-3">
         <AppIcon url={item.url} name={item.name} icon={item.icon} surface="fill" />
