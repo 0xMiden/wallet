@@ -1,6 +1,11 @@
 import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
-import { readPublicPswapNote, readPswapOrderLineage, readPswapOrderNote } from './pswap-order-note';
+import {
+  GC_SALE_SCRIPT_ROOT,
+  readPublicPswapNote,
+  readPswapOrderLineage,
+  readPswapOrderNote
+} from './pswap-order-note';
 
 const mockGetNotesById = jest.fn();
 const mockGetNullifierCommitHeight = jest.fn();
@@ -61,6 +66,7 @@ interface PswapShape {
   faucet?: string;
   amount?: bigint;
   root?: string;
+  nft?: boolean;
 }
 
 const ORDER_SERIAL = [1n, 42n, 3n, 7n];
@@ -72,7 +78,8 @@ const pswapNote = ({
   storage = ORDER_STORAGE,
   faucet = 'offered',
   amount = 70n,
-  root = 'pswap-root'
+  root = 'pswap-root',
+  nft = false
 }: PswapShape) => ({
   id: () => ({ toString: () => id }),
   script: () => ({ root: () => ({ toHex: () => root }) }),
@@ -82,7 +89,10 @@ const pswapNote = ({
     serialNum: () => ({ toFelts: () => serial.map(felt) }),
     storage: () => ({ items: () => storage.map(felt) })
   }),
-  assets: () => ({ fungibleAssets: () => [{ faucetId: () => ({ toString: () => faucet }), amount: () => amount }] })
+  assets: () => ({
+    fungibleAssets: () => [{ faucetId: () => ({ toString: () => faucet }), amount: () => amount }],
+    nonFungibleAssets: () => (nft ? [{}] : [])
+  })
 });
 
 /** A remainder of the order created in `round`, holding what is left on offer and asked for. */
@@ -726,6 +736,23 @@ describe('readPswapOrderLineage', () => {
 });
 
 describe('overlapping public sale note reads', () => {
+  it('accepts the custom sale root only when requested and keeps standard PSWAP reads separate', async () => {
+    const note = pswapNote({ id: 'custom-sale', root: GC_SALE_SCRIPT_ROOT });
+    commit(note, 120);
+    await expect(readPublicPswapNote('custom-sale')).resolves.toEqual({ kind: 'absent' });
+    await expect(readPublicPswapNote('custom-sale', GC_SALE_SCRIPT_ROOT)).resolves.toMatchObject({
+      kind: 'open',
+      note
+    });
+    commit(pswapNote({ id: 'standard-sale' }), 120);
+    await expect(readPublicPswapNote('standard-sale', GC_SALE_SCRIPT_ROOT)).resolves.toEqual({ kind: 'absent' });
+  });
+
+  it('rejects a custom sale that also carries an NFT', async () => {
+    commit(pswapNote({ id: 'sale-with-nft', root: GC_SALE_SCRIPT_ROOT, nft: true }), 120);
+    await expect(readPublicPswapNote('sale-with-nft', GC_SALE_SCRIPT_ROOT)).resolves.toEqual({ kind: 'absent' });
+  });
+
   it('lets a quote and request build share the same pending note read', async () => {
     const note = pswapNote({ id: 'concurrent-sale' });
     let release!: (value: unknown[]) => void;

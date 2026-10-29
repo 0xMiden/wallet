@@ -77,6 +77,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { applyAfterSubmit } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { buildGcSaleRequest } from './gc-sale-request';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
@@ -86,7 +87,6 @@ import {
   buildSendTransactionRequest,
   canonicalWalletAccountId,
   getBech32AddressFromAccountId,
-  sameWalletAccountId,
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
@@ -102,7 +102,7 @@ import { buildNativeProverCallback } from './native-prover-mobile';
 import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
-import { readPswapOrderNote, readPublicPswapNote } from './pswap-order-note';
+import { readPswapOrderNote } from './pswap-order-note';
 import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
@@ -1786,37 +1786,13 @@ export class MidenClientInterface {
     return request.serialize();
   }
 
-  /**
-   * Build, but do not execute, the fee-aware request that fills `fillAmount` of a public PSWAP sale note with this
-   * account's own vault (an Arcade GC purchase). The note is somebody else's, so it is read on the node, on RPC
-   * clients of the read's own, and the request carries the full note: the SDK's `newPswapConsumeTransactionRequest`
-   * takes the note itself, so a client that never tracked it can fill it (proven on mainnet by
-   * `scripts/dev/gc-sale/buy.mjs`). Refused when the note is spent, absent, not the creator's, or asks less than
-   * the fill: the SDK rejects an overfill, and a fill of the whole request would take the whole offer.
-   */
+  /** Build a GameCoin sale purchase in the caller's WASM lock and Guardian proposal hold. */
   async buildPswapConsumeRequest(
     accountId: string,
     { noteId, fillAmount, creatorAccountId }: PswapConsumeRequestInputs,
     assertLive: AssertLive = noAssertLive
   ): Promise<Uint8Array> {
-    const read = await readPublicPswapNote(noteId);
-    assertLive('after the node note read');
-    if (read.kind === 'spent') throw new Error(`PSWAP sale note ${noteId} is already consumed on chain`);
-    if (read.kind === 'absent') throw new Error(`PSWAP sale note ${noteId} is not a public PSWAP note`);
-    if (!sameWalletAccountId(read.fields.creator, creatorAccountId)) {
-      throw new Error(`PSWAP sale note ${noteId} was not created by account ${creatorAccountId}`);
-    }
-    const requested = read.fields.storage[2] ?? 0n;
-    if (fillAmount < 1n || fillAmount > requested) {
-      throw new Error(`PSWAP sale note ${noteId} asks ${requested}, which a fill of ${fillAmount} cannot meet`);
-    }
-
-    const consumer = walletAccountIdToSdk(accountId);
-    const request = await this.innerClientAccess()._withInnerWebClient(inner =>
-      inner.newPswapConsumeTransactionRequest(read.note, consumer, fillAmount, 0n)
-    );
-    assertLive('after the consume-request build');
-    return request.serialize();
+    return buildGcSaleRequest(this.client, accountId, { noteId, fillAmount, creatorAccountId }, assertLive);
   }
 
   async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
