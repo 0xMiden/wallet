@@ -7,6 +7,8 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
+import { JOURNAL_MAX_ENTRIES, RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
 import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -270,39 +272,39 @@ async function prepare(password, includePrivate) {
     submitEvidence: [{ attemptId, capturedAt: 1, source: 'stage', ...evidence }]
   });
   await vault.retainTransactionRecovery(syntheticId, { requestBytes, notes: [] }, evidence, attemptId);
-  const journal = await vault.readRecoveryJournal();
-  const retainedAttempt = journal?.entries.find(entry => entry.kind === 'transaction' && entry.id === syntheticId);
-  check('submissionCheckpointed', retainedAttempt?.mayHaveSubmitted === true && retainedAttempt.row?.submitEvidence?.length === 1);
-  check('retainedAccountFloor', journal?.accounts.length === 1);
-  const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
-  check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
-  const journalDigest = await digest(new TextEncoder().encode(JSON.stringify(journal)));
-  await control('state', {
-    accountId: fixture.accountId,
-    noteId: fixture.noteId,
-    includePrivate,
-    sdkStore,
-    feeFaucetId: fixture.feeFaucetId,
-    journalDigest,
-    baselineSequence: journal.sequence
-  });
-  progress('orderly-sdk-disposal');
+  progress('capacity-baseline');
+  const prior = await vault.readRecoveryJournal();
+  check('priorAttemptVerified', prior?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
+  const provider = getStorageProvider();
+  const beforeValues = await provider.get(RECOVERY_JOURNAL_KEYS);
+  const beforeCipher = JSON.stringify(beforeValues);
+  const beforeDigest = await digest(new TextEncoder().encode(JSON.stringify(prior)));
+  const notes = Array.from({ length: JOURNAL_MAX_ENTRIES }, (_, index) => ({
+    kind: 'note', id: `disposable-capacity-${index}`, accountId: fixture.accountId,
+    noteFile: new Uint8Array([1]), provenance: 'input'
+  }));
+  check('entryBoundExceededInMemory', notes.length === JOURNAL_MAX_ENTRIES && prior.entries.length > 0 && notes.length + prior.entries.length > JOURNAL_MAX_ENTRIES);
+  const serviceBefore = await control('summary', {});
+  progress('capacity-refusal');
+  let capacityRefused = false;
+  try { await vault.retainRecoveryEntries(notes); }
+  catch (error) { capacityRefused = error instanceof Error && error.message === 'Recovery journal capacity exceeded'; }
+  check('capacityRefused', capacityRefused);
+  check('capacityDidNotPoisonHealth', getStorageHealth().status === 'healthy');
+  const afterValues = await provider.get(RECOVERY_JOURNAL_KEYS);
+  check('allSlotsAndPointerUnchanged', JSON.stringify(afterValues) === beforeCipher);
+  const after = await vault.readRecoveryJournal();
+  const afterDigest = await digest(new TextEncoder().encode(JSON.stringify(after)));
+  check('lastGoodGenerationUnchanged', after?.sequence === prior.sequence && afterDigest === beforeDigest);
+  check('priorEvidenceRetained', after?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
   await withWasmClientLock(async () => {
     const wallet = await getMidenClient();
-    await wallet.client.waitForIdle();
+    const account = await wallet.getAccount(fixture.accountId);
+    check('accountStillReadable', account !== null && account !== undefined);
+    account?.free();
   });
-  await resetMidenClient();
-  vault.retire();
-  vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
-  progress('disposable-sdk-store-loss');
-  await new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(sdkStore);
-    request.onsuccess = resolve;
-    request.onerror = () => reject(new Error('sdk-delete'));
-    request.onblocked = () => reject(new Error('sdk-delete-blocked'));
-  });
-  check('physicalSdkMissing', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  const serviceAfter = await control('summary', {});
+  check('noCapacityNetworkOrSubmission', JSON.stringify(serviceAfter) === JSON.stringify(serviceBefore) && serviceAfter.submitCalls === 0 && serviceAfter.refusedRequests === 0);
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {
