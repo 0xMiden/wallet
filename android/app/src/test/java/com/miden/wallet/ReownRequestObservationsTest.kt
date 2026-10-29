@@ -342,7 +342,11 @@ class ReownRequestObservationsTest {
             ReownNativeOrigin.entries.map { it.wire }
         )
         assertEquals(
-            listOf("user_rejected", "invalid_params", "internal_error", "other"),
+            listOf(
+                "user_rejected", "invalid_params", "internal_error", "provider_unauthorized",
+                "method_unsupported", "provider_disconnected", "chain_disconnected", "chain_switch_failed",
+                "request_invalid", "rpc_unavailable", "transaction_rejected", "rpc_limited", "other"
+            ),
             ReownWalletResponseCode.entries.map { it.wire }
         )
         assertEquals(
