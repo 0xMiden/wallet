@@ -19,6 +19,7 @@ import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
@@ -35,6 +36,7 @@ export interface SendAmountProps {
   isValidAmount: boolean;
   /** Untranslated error key from the send form. */
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /** The values of the error copy's placeholders. */
   errorValues?: Record<string, string>;
   recipientAddress: string;
@@ -64,6 +66,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   isValidAmount,
   error,
   errorValues,
+  errorDiagnostics,
   recipientAddress,
   maxDisabled,
   tokenHeld,
@@ -132,6 +135,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
+        errorDiagnostics={errorDiagnostics}
         showDivider={false}
         data-testid="send-amount-input"
         onValueChange={value => {

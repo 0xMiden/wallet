@@ -62,6 +62,7 @@ import {
   type BridgeReceiveFailureStep,
   walletRaised
 } from 'lib/telemetry/bridge-receive-failure';
+import type { BridgeBalanceBranch, BridgeBalanceStage, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import {
   CIRCLE_USDC_DECIMALS,
@@ -142,6 +143,7 @@ interface BridgeBalance {
   loading: boolean;
   error: string | null;
   errorId?: UserErrorId;
+  errorDiagnostics?: UiEvidenceInput;
 }
 
 interface DepositError {
@@ -181,22 +183,55 @@ const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: tru
 const RPC_TIMEOUT_MS = 15_000;
 const HELD_BALANCE_REREAD_MS = 10_000;
 
-async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
+type BalanceStageObserver = (stage: BridgeBalanceStage) => void;
+
+function recordBalanceStage(observer: BalanceStageObserver | undefined, stage: BridgeBalanceStage): void {
+  try {
+    observer?.(stage);
+  } catch {
+    // Observing a read cannot change its result or rejection.
+  }
+}
+
+function createBalanceEvidence(branch: BridgeBalanceBranch) {
+  let stage: BridgeBalanceStage = 'configuration';
+  return {
+    observe(next: BridgeBalanceStage) {
+      stage = next;
+    },
+    snapshot(): UiEvidenceInput {
+      return { kind: 'bridge_balance_read', bridgeBalanceBranch: branch, bridgeBalanceStage: stage };
+    }
+  };
+}
+
+async function rpcRequest(
+  method: string,
+  params: unknown[],
+  chainId = DEFAULT_CHAIN_ID,
+  observer?: BalanceStageObserver
+): Promise<unknown> {
+  recordBalanceStage(observer, 'configuration');
   const chain = getChain(chainId);
   if (!chain) {
     throw walletRaised(new Error(`RPC is not configured for chain ${chainId}`));
   }
 
   const payload = await withRequestTimeout(RPC_TIMEOUT_MS, async (signal): Promise<RpcResponse> => {
+    recordBalanceStage(observer, 'request_build');
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+    recordBalanceStage(observer, 'request');
     const response = await fetch(chain.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      body,
       signal
     });
+    recordBalanceStage(observer, 'response_decode');
     return response.json();
   });
   if (payload.error) {
+    recordBalanceStage(observer, 'rpc_rejected');
     throw new Error(payload.error.message ?? `RPC ${method} failed`);
   }
   return payload.result;
@@ -215,16 +250,23 @@ function shownBalance({ value, loading }: BridgeBalance, decimals: number): numb
 }
 
 /** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
-async function readCircleUsdcBalance(evmAddress: string, source: UsdcxSourceChain): Promise<bigint> {
+async function readCircleUsdcBalance(
+  evmAddress: string,
+  source: UsdcxSourceChain,
+  observer?: BalanceStageObserver
+): Promise<bigint> {
+  recordBalanceStage(observer, 'input_validation');
   if (!isAddress(evmAddress)) {
     throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
+  recordBalanceStage(observer, 'request_build');
   const data = encodeFunctionData({
     abi: ERC20_BALANCE_OF_ABI,
     functionName: 'balanceOf',
     args: [evmAddress]
   });
-  const result = await rpcRequest('eth_call', [{ to: source.usdc, data }, 'latest'], source.chain.id);
+  const result = await rpcRequest('eth_call', [{ to: source.usdc, data }, 'latest'], source.chain.id, observer);
+  recordBalanceStage(observer, 'value_decode');
   if (!isHex(result)) {
     throw new Error('USDC balanceOf returned no data');
   }
@@ -274,14 +316,22 @@ async function readRemoteDomainRegistered(
 }
 
 /** Read the bridge's own USDC (the token the config names) on Sepolia: `getBalance`, else `balanceOf`. */
-async function readEpochUsdcBalance(evmAddress: string, contract: `0x${string}`, chainId: number): Promise<bigint> {
+async function readEpochUsdcBalance(
+  evmAddress: string,
+  contract: `0x${string}`,
+  chainId: number,
+  observer?: BalanceStageObserver
+): Promise<bigint> {
+  recordBalanceStage(observer, 'input_validation');
   if (!isAddress(evmAddress)) {
     throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
   const read = async (abi: typeof MOCK_USDC_GET_BALANCE_ABI | typeof ERC20_BALANCE_OF_ABI): Promise<bigint> => {
     const functionName = abi[0].name;
+    recordBalanceStage(observer, 'request_build');
     const data = encodeFunctionData({ abi, functionName, args: [evmAddress] });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId);
+    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer);
+    recordBalanceStage(observer, 'value_decode');
     if (!isHex(result)) {
       throw new Error(`USDC ${functionName} returned no data`);
     }
@@ -296,12 +346,20 @@ async function readEpochUsdcBalance(evmAddress: string, contract: `0x${string}`,
 }
 
 /** A registered ERC-20's balance on the AggLayer chain, through the standard `balanceOf`. */
-async function readErc20Balance(evmAddress: string, contract: `0x${string}`, chainId: number): Promise<bigint> {
+async function readErc20Balance(
+  evmAddress: string,
+  contract: `0x${string}`,
+  chainId: number,
+  observer?: BalanceStageObserver
+): Promise<bigint> {
+  recordBalanceStage(observer, 'input_validation');
   if (!isAddress(evmAddress)) {
     throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
+  recordBalanceStage(observer, 'request_build');
   const data = encodeFunctionData({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', args: [evmAddress] });
-  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId);
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer);
+  recordBalanceStage(observer, 'value_decode');
   if (!isHex(result)) {
     throw new Error('ERC-20 balanceOf returned no data');
   }
@@ -349,8 +407,9 @@ function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): Bridge
   return current;
 }
 
-async function readEthBalance(evmAddress: string, chainId: number): Promise<bigint> {
-  const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest'], chainId);
+async function readEthBalance(evmAddress: string, chainId: number, observer?: BalanceStageObserver): Promise<bigint> {
+  const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest'], chainId, observer);
+  recordBalanceStage(observer, 'value_decode');
   return BigInt(result as string);
 }
 
@@ -703,9 +762,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setUsdcBalance(EMPTY_BALANCE);
     if (token !== 'USDC' || usdcPending) return;
     let cancelled = false;
+    const evidence = createBalanceEvidence('fast_usdc');
 
     const usdcRead = evmUsdc
-      ? readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
+      ? readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId, evidence.observe)
       : Promise.reject(new Error('The bridge config names no USDC token.'));
     usdcRead
       .then(value => {
@@ -724,7 +784,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           formatted: '0',
           loading: false,
           error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed'
+          errorId: 'raw_bridge_balance_failed',
+          errorDiagnostics: evidence.snapshot()
         });
       });
 
@@ -738,10 +799,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setCircleUsdcBalance(EMPTY_BALANCE);
     if (usdcxPending) return;
     let cancelled = false;
+    const evidence = createBalanceEvidence('circle_usdc');
 
     const circleRead =
       usdcxAvailable && usdcxSource
-        ? readCircleUsdcBalance(evmAddress, usdcxSource)
+        ? readCircleUsdcBalance(evmAddress, usdcxSource, evidence.observe)
         : Promise.reject(new Error('The bridge config names no USDCx source.'));
     circleRead
       .then(value => {
@@ -760,7 +822,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           formatted: '0',
           loading: false,
           error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed'
+          errorId: 'raw_bridge_balance_failed',
+          errorDiagnostics: evidence.snapshot()
         });
       });
 
@@ -773,11 +836,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     let cancelled = false;
     setEthBalance(EMPTY_BALANCE);
     if (agglayerPending) return;
+    const evidence = createBalanceEvidence('native');
 
     const ethRead =
       agglayerChainId === undefined
         ? Promise.reject(new Error('The bridge config names no AggLayer chain.'))
-        : readEthBalance(evmAddress, agglayerChainId);
+        : readEthBalance(evmAddress, agglayerChainId, evidence.observe);
     ethRead
       .then(value => {
         if (cancelled) return;
@@ -790,7 +854,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           formatted: '0',
           loading: false,
           error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed'
+          errorId: 'raw_bridge_balance_failed',
+          errorDiagnostics: evidence.snapshot()
         });
       });
 
@@ -818,13 +883,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
     const reads = new PQueue({ concurrency: ERC20_BALANCE_READS });
     for (const { contractAddress, decimals } of offered) {
+      const evidence = createBalanceEvidence('registered_erc20');
       void reads.add(() =>
-        readErc20Balance(evmAddress, contractAddress, chainId)
+        readErc20Balance(evmAddress, contractAddress, chainId, evidence.observe)
           .then(value =>
             settle(contractAddress, { value, formatted: formatBalance(value, decimals), loading: false, error: null })
           )
           .catch(err =>
-            settle(contractAddress, { value: null, formatted: '0', loading: false, error: errorMessage(err) })
+            settle(contractAddress, {
+              value: null,
+              formatted: '0',
+              loading: false,
+              error: errorMessage(err),
+              errorDiagnostics: evidence.snapshot()
+            })
           )
       );
     }
@@ -2116,6 +2188,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                       ? selectedBalance.errorId
                       : capHoldErrorId
               }
+              errorDiagnostics={
+                !amountExceedsBalance && error == null && selectedBalance.error != null
+                  ? selectedBalance.errorDiagnostics
+                  : undefined
+              }
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={handleOpenTokenDrawer}
@@ -2181,6 +2258,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setupToken,
       selectedBalance.error,
       selectedBalance.errorId,
+      selectedBalance.errorDiagnostics,
       setupReady,
       slowAvailability,
       tokenSymbol,

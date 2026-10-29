@@ -36,6 +36,7 @@ import { isExtension } from 'lib/platform';
 import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
+import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
 
 import { WalletStore } from './types';
 import { balancePrice } from './utils/balancePrice';
@@ -857,9 +858,12 @@ export const useWalletStore = create<WalletStore>()(
         destinationChainId
       });
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
         ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
-        : { outcome: res.outcome };
+        : res.outcome === 'failed' && failure
+          ? { outcome: 'failed', failure }
+          : { outcome: res.outcome };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
