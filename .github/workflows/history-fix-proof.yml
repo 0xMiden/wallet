@@ -1,0 +1,24 @@
+name: PR 1982 history filter test proof
+on:
+  push:
+    branches: [ci/1982-history-fix-proof]
+permissions:
+  contents: read
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bind source
+        run: git checkout --detach 71c14d96417d6f4cf00c0bcb40a1dc1794c25167 && test "$(git rev-parse HEAD)" = 71c14d96417d6f4cf00c0bcb40a1dc1794c25167
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Test history filter behavior
+        run: yarn jest src/app/pages/AllHistory.test.tsx --runInBand --json --outputFile="$RUNNER_TEMP/history-result.json"
+      - name: Verify tests executed
+        run: node -e 'const d=require(process.env.RUNNER_TEMP+"/history-result.json"); if(!d.success || d.numTotalTests < 1 || d.numFailedTests !== 0) process.exit(1); console.log(`Executed ${d.numTotalTests} tests`);'
