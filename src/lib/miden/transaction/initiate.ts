@@ -654,7 +654,8 @@ const queueConsumeRows = async (
   if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
     outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
   }
-  const tables = outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions] : [Repo.transactions];
+  const tables =
+    outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions, Repo.recoveryDebits] : [Repo.transactions];
   const insertRows = async (): Promise<ConsumeNotesQueueResult | undefined> => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
