@@ -55,7 +55,7 @@ const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | und
 /** Review the selected amount against its quote. A URL without an amount goes back to the amount step. */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { positions, isLoading, error, refetch } = useEarnPositions();
+  const { positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const { search } = useLocation();
   const requested = new URLSearchParams(search).get('amount');
@@ -224,10 +224,10 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         }
       >
         {loadFailed && !found ? (
-          <EarnLoadError onRetry={refetch} className="mt-10" />
+          <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} className="mt-10" />
         ) : pending ? null : (
           <>
-            {loadFailed && <EarnLoadError onRetry={refetch} />}
+            {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
             <EarnHero
               labelId="earn-withdraw-review-amount"
               value={

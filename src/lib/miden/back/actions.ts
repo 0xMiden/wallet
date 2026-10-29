@@ -79,6 +79,7 @@ import {
 import { resolveTelemetryContext } from 'lib/telemetry/context';
 import { sendEvent } from 'lib/telemetry/sink';
 import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
+import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -1151,9 +1152,12 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
   return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
     const estimate = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
     const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
+    const failure = burnFeeFailureOf(estimate);
     return estimate.outcome === 'measured'
       ? { type, outcome: 'measured', feeReserve: estimate.reserve.toString() }
-      : { type, outcome: estimate.outcome };
+      : estimate.outcome === 'failed' && failure
+        ? { type, outcome: 'failed', failure }
+        : { type, outcome: estimate.outcome };
   });
 }
 

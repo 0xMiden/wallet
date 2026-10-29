@@ -15,6 +15,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import HashChip from '../HashChip';
@@ -84,6 +85,7 @@ interface SwapDetailProps {
   isRetryingPayback?: boolean;
   paybackRetryError?: string | null;
   paybackRetryErrorId?: UserErrorId | null;
+  paybackRetryErrorDiagnostics?: Extract<UiEvidenceInput, { kind: 'history_payback_retry' }>;
   onRetryPayback?: () => void;
 }
 
@@ -280,6 +282,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   isRetryingPayback = false,
   paybackRetryError = null,
   paybackRetryErrorId = null,
+  paybackRetryErrorDiagnostics,
   onRetryPayback
 }) => {
   const { t } = useTranslation();
@@ -561,7 +564,13 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </Notice>
           )}
           {paybackRetryError && (
-            <Notice tone="negative" errorId={paybackRetryErrorId} role="alert" data-testid="swap-retry-payback-error">
+            <Notice
+              tone="negative"
+              errorId={paybackRetryErrorId}
+              errorDiagnostics={paybackRetryErrorDiagnostics}
+              role="alert"
+              data-testid="swap-retry-payback-error"
+            >
               {paybackRetryError}
             </Notice>
           )}
