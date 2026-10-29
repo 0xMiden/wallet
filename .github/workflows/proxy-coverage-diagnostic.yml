@@ -1,4 +1,4 @@
-name: Proxy coverage diagnostic
+name: Proxy split coverage proof
 on:
   push:
     branches: [ci/proxy-coverage-diagnostic-1948]
@@ -6,19 +6,37 @@ permissions:
   contents: read
   actions: read
 jobs:
-  proxy:
+  proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, coverage]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       JEST_COVERAGE_SHARD: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify source identity
+      - name: Verify exact split
         run: |
-          git merge-base --is-ancestor ec8d99b9b5f25f1d6d0d157fa00644be9512f047 HEAD
-          git diff --exit-code ec8d99b9b5f25f1d6d0d157fa00644be9512f047 HEAD -- . ":(exclude).github/workflows/proxy-coverage-diagnostic.yml"
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          base = 'ec8d99b9b5f25f1d6d0d157fa00644be9512f047'
+          filename = 'src/lib/miden/back/miden-client-proxy.test.ts'
+          original = subprocess.check_output(['git', 'show', f'{base}:{filename}'], text=True)
+          begin = original.index("describe('MidenClientProxy — flag routing'")
+          cut1 = original.index('// ─── Slice 5a: consumeNoteId', begin)
+          cut2 = original.index('// ─── Slice 6a: dispatchGuardianPipeline', cut1)
+          pre = original[:begin]
+          expected = [pre + original[begin:cut1], pre + original[cut1:cut2], pre + original[cut2:]]
+          files = [filename, 'src/lib/miden/back/miden-client-proxy.writes.test.ts', 'src/lib/miden/back/miden-client-proxy.guardian.test.ts']
+          for filename, content in zip(files, expected):
+              if Path(filename).read_text() != content: raise SystemExit(f'Split differs: {filename}')
+          print('Exact prelude and complete original body verified')
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -37,11 +55,46 @@ jobs:
           tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
-      - name: Run full proxy file with V8 coverage
-        run: yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --maxWorkers=2 --coverageReporters=json --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-results.json"
+      - name: Run baseline or split proof
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          if [ "$MODE" = baseline ]; then
+            git show ec8d99b9b5f25f1d6d0d157fa00644be9512f047:src/lib/miden/back/miden-client-proxy.test.ts > src/lib/miden/back/miden-client-proxy.test.ts
+            yarn jest --no-coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts --maxWorkers=2 --json --outputFile="$RUNNER_TEMP/proxy-results.json"
+          else
+            yarn jest --coverage --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.writes.test.ts src/lib/miden/back/miden-client-proxy.guardian.test.ts --maxWorkers=2 --coverageReporters=json --coverageReporters=text-summary --json --outputFile="$RUNNER_TEMP/proxy-results.json"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: proxy-coverage-results
+          name: proxy-split-${{ matrix.mode }}
           path: ${{ runner.temp }}/proxy-results.json
           if-no-files-found: warn
+  compare:
+    if: always()
+    needs: [proof]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: proxy-split-*
+          path: artifacts
+      - name: Compare executed tests
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from collections import Counter
+          def load(mode):
+              d = json.loads(Path(f'artifacts/proxy-split-{mode}/proxy-results.json').read_text())
+              tests = [a for suite in d['testResults'] for a in suite['assertionResults']]
+              print(mode, 'total', len(tests), 'status', Counter(t['status'] for t in tests))
+              if not tests or any(t['status'] != 'passed' for t in tests): raise SystemExit(f'{mode} is not fully passing')
+              return Counter(t['fullName'] for t in tests)
+          baseline, coverage = load('baseline'), load('coverage')
+          if baseline != coverage:
+              print('missing:', baseline - coverage, 'extra:', coverage - baseline)
+              raise SystemExit('Test names or counts differ')
+          print('All executed test names and counts match')
+          PY
