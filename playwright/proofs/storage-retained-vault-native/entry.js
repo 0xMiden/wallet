@@ -284,7 +284,8 @@ async function prepare(password, includePrivate) {
     sdkStore,
     feeFaucetId: fixture.feeFaucetId,
     journalDigest,
-    baselineSequence: journal.sequence
+    baselineSequence: journal.sequence,
+    walletGeneration: journal.scope.walletGeneration
   });
   progress('orderly-sdk-disposal');
   await withWasmClientLock(async () => {
@@ -294,15 +295,18 @@ async function prepare(password, includePrivate) {
   await resetMidenClient();
   vault.retire();
   vault = undefined;
-  check('deleteOnlySdk', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name);
-  progress('disposable-sdk-store-loss');
+  check('disposableStoresDistinct', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name && Repo.db.name === 'TridentMain');
+  check('walletAndSdkPresentBeforeLoss', (await indexedDB.databases()).some(item => item.name === Repo.db.name) && (await indexedDB.databases()).some(item => item.name === sdkStore));
+  Repo.db.close();
+  progress('disposable-wallet-store-loss');
   await new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(sdkStore);
+    const request = indexedDB.deleteDatabase(Repo.db.name);
     request.onsuccess = resolve;
-    request.onerror = () => reject(new Error('sdk-delete'));
-    request.onblocked = () => reject(new Error('sdk-delete-blocked'));
+    request.onerror = () => reject(new Error('wallet-delete'));
+    request.onblocked = () => reject(new Error('wallet-delete-blocked'));
   });
-  check('physicalSdkMissing', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  check('physicalWalletMissing', !(await indexedDB.databases()).some(item => item.name === Repo.db.name));
+  check('sdkStoreRetained', (await indexedDB.databases()).some(item => item.name === sdkStore));
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {
@@ -311,10 +315,13 @@ async function recover(password) {
   await ensureSdkWasmReady();
   const state = await control('read-state', {});
   await endpoints(state.feeFaucetId);
-  check('sdkMissingBeforeRecovery', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  check('walletMissingBeforeRecovery', !(await indexedDB.databases()).some(item => item.name === Repo.db.name));
+  check('sdkPresentBeforeRecovery', (await indexedDB.databases()).some(item => item.name === sdkStore));
   await initializeStorageHealth();
   vault = await Vault.setup(password);
-  progress('detect-sdk-loss');
+  const retainedAccounts = await vault.fetchAccounts();
+  check('retainedVaultAccountBeforeRecovery', retainedAccounts.length === 1 && retainedAccounts[0].publicKey === state.accountId);
+  progress('detect-wallet-loss');
   check('continuityRefused', (await vault.verifyStorageContinuity(false)) === false);
   check('unavailableAfterLoss', getStorageHealth().status === 'unavailable');
   const before = await vault.readRecoveryJournal();
@@ -322,7 +329,7 @@ async function recover(password) {
     'encryptedJournalSurvived',
     (await digest(new TextEncoder().encode(JSON.stringify(before)))) === state.journalDigest
   );
-  progress('actual-missing-account-recovery');
+  progress('actual-wallet-store-recovery');
   const observed = [];
   const recovered = await vault.recoverStorage(value => {
     observed.push({
@@ -332,7 +339,7 @@ async function recover(password) {
     });
   });
   const service = await control('summary', {});
-  check('missingAccountGuardianBranch', service.guardianReads > 0 && service.accountReads > 0);
+  check('noUnexpectedServiceRequests', service.refusedRequests === 0 && service.submitCalls === 0);
   check(
     'recoveredAccountVerified',
     observed.some(value => value.verifiedAccounts === 1)
@@ -347,6 +354,8 @@ async function recover(password) {
   checks.recovered = recovered === true;
   checks.healthyAfterRecovery = getStorageHealth().status === 'healthy';
   if (recovered) {
+    const marker = await Repo.metadata.get('generation');
+    check('walletGenerationRestored', marker?.generation === state.walletGeneration);
     const row = await Repo.transactions.get('disposable-submitted-attempt');
     check('submissionRestored', row?.status === ITransactionStatus.Unconfirmed && row.mayHaveSubmitted === true &&
       row.restoredFromJournal === true && row.submitEvidence?.length === 1 &&

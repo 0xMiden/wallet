@@ -38,10 +38,10 @@ const phases = new Set([
   'pre-loss-note-read',
   'retained-vault-baseline',
   'orderly-sdk-disposal',
-  'disposable-sdk-store-loss',
+  'disposable-wallet-store-loss',
   'restart-real-vault',
-  'detect-sdk-loss',
-  'actual-missing-account-recovery'
+  'detect-wallet-loss',
+  'actual-wallet-store-recovery'
 ]);
 const checkNames = new Set([
   'endpointBound',
@@ -57,15 +57,20 @@ const checkNames = new Set([
   'baselineEstablished',
   'retainedAccountFloor',
   'retainedPrivateScope',
-  'deleteOnlySdk',
-  'physicalSdkMissing',
-  'sdkMissingBeforeRecovery',
+  'disposableStoresDistinct',
+  'walletAndSdkPresentBeforeLoss',
+  'physicalWalletMissing',
+  'sdkStoreRetained',
+  'walletMissingBeforeRecovery',
+  'sdkPresentBeforeRecovery',
+  'retainedVaultAccountBeforeRecovery',
+  'walletGenerationRestored',
+  'noUnexpectedServiceRequests',
   'continuityRefused',
   'unavailableAfterLoss',
   'learnedEmptyNullifiers',
   'noteHeaderMatchesFixture',
   'encryptedJournalSurvived',
-  'missingAccountGuardianBranch',
   'recoveredAccountVerified',
   'priorRequiredEvidenceRetained',
   'recovered',
@@ -101,7 +106,7 @@ function safeReport(value) {
   return { phase: value.phase, checks };
 }
 for (const includePrivate of [false]) {
-  test('st/main/retained-vault/submitted-attempt', async ({
+  test('st/main/retained-vault/wallet-store-loss', async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
@@ -231,7 +236,9 @@ for (const includePrivate of [false]) {
       report.phase = restored.ok ? restored.value.phase : restored.phase;
       expect(restored.ok, `recover:${report.phase}`).toBe(true);
       report.recover = safeReport(restored.value);
-      expect(report.recover.checks.missingAccountGuardianBranch).toBe(true);
+      expect(report.recover.checks.retainedVaultAccountBeforeRecovery).toBe(true);
+      expect(report.recover.checks.walletGenerationRestored).toBe(true);
+      expect(report.recover.checks.noUnexpectedServiceRequests).toBe(true);
       expect(report.prepare.checks.submissionCheckpointed).toBe(true);
       expect(report.recover.checks.submissionRestored).toBe(true);
       expect(report.recover.checks.unknownReconciledWithoutRetry).toBe(true);
