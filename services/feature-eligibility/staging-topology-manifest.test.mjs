@@ -61,3 +61,9 @@ test('topology manifest rejects accessor-backed options and inventory entries', 
   Object.defineProperty(entries, 0, { enumerable: true, get: () => ({ id: 'worker' }) });
   assert.equal(build({ ...options(), inventory: entries }), null);
 });
+
+test('topology manifest embeds its ownership markers in the deployed configuration', () => {
+  const value = build(options());
+  assert.equal(value?.config.vars.TOPOLOGY_OWNER, value?.ownerMarker);
+  assert.equal(value?.config.vars.TOPOLOGY_CONFIG_SHA, value?.configSha256);
+});
