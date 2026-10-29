@@ -151,7 +151,12 @@ async function loadSessions(): Promise<PersistedSession[] | undefined> {
     );
     const retained = boundSessions(sessions);
     if (JSON.stringify(retained) !== value) {
-      await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(retained) });
+      try {
+        await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(retained) });
+      } catch (error) {
+        console.warn('[session-persistence] normalization failed:', error);
+        return retained;
+      }
       await cleanEvicted(sessions, retained);
     }
     return retained;
