@@ -55,3 +55,22 @@ func webKitFeatureIsEnabled(_ key: String, in preferences: WKPreferences) -> Boo
     let isEnabled = unsafeBitCast(preferences.method(for: isEnabledSelector), to: IsEnabled.self)
     return isEnabled(preferences, isEnabledSelector, feature)
 }
+
+final class ReownCallFailureTests: XCTestCase {
+    func testUnconfiguredNativeRequestsPreserveMessageAndExposePerCallOrigin() throws {
+        let plugin = ReownPlugin()
+        for method in ["request", "sendTransaction"] {
+            var captured: CAPPluginCallError?
+            let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method, options: [:],
+                success: { _, _ in XCTFail("Unconfigured request must reject") },
+                error: { captured = $0 }))
+            if method == "request" {
+                plugin.request(call)
+            } else {
+                plugin.sendTransaction(call)
+            }
+            XCTAssertEqual(captured?.message, "Native Reown is not configured")
+            XCTAssertEqual(captured?.code, "REOWN_IOS_REQUEST_FAILURE:unconfigured")
+        }
+    }
+}
