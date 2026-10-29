@@ -72,8 +72,6 @@ jest.mock('lib/miden/swap/fee-context', () => {
 
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
-import { decodeArg } from './offscreen-codec';
-
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
 // module state the write path increments — so a "read deadline while a write is
