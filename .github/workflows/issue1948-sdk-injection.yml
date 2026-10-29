@@ -1,0 +1,133 @@
+name: Issue1948 SDK-bound desktop build proof
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: Desktop ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=8192
+      FEATURE_ELIGIBILITY_URL: https://eligibility.example/v1/eligibility
+      CARGO_BUILD_JOBS: 2
+      RAYON_NUM_THREADS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 8a90fad610e65d4d0af2cab6992c06e2fc41732a
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Drop unused apt repositories
+        if: runner.os == 'Linux'
+        uses: ./wallet/.github/actions/apt-drop-unused-repos
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources /etc/apt/apt-mirrors.txt 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: bind
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Build desktop web assets
+        timeout-minutes: 20
+        run: |
+          set -uo pipefail
+          cd replay
+          yarn build:desktop 2>&1 | tee ../proof/desktop-web.log
+          status=${PIPESTATUS[0]}
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../proof/desktop-web.log; then exit 1; fi
+          test "$status" -eq 0
+          test -s dist/desktop/desktop.html
+          node - <<'NODE'
+          const fs = require('fs'), path = require('path');
+          const html = fs.readFileSync('dist/desktop/desktop.html', 'utf8');
+          const assets = [...html.matchAll(/(?:src|href)="([^" ]+\.(?:js|css))"/g)].map(m => m[1]).filter(x => !/^(?:https?:)?\/\//.test(x));
+          if (!assets.some(x => x.endsWith('.js')) || !assets.some(x => x.endsWith('.css'))) throw new Error('Missing desktop entry assets');
+          for (const asset of assets) if (!fs.statSync(path.join('dist/desktop', asset.replace(/^\//, ''))).isFile()) throw new Error('Missing desktop entry asset');
+          NODE
+          shasum -a 256 dist/desktop/desktop.html > ../proof/web-output-hashes.txt
+      - name: Check all Tauri Rust targets
+        timeout-minutes: 35
+        run: |
+          set -uo pipefail
+          cd replay/src-tauri
+          cargo check --locked --all-targets 2>&1 | tee ../../proof/tauri-check.log
+          status=${PIPESTATUS[0]}
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../../proof/tauri-check.log; then exit 1; fi
+          test "$status" -eq 0
+      - name: Build unsigned Tauri executable
+        timeout-minutes: 60
+        run: |
+          set -uo pipefail
+          cd replay
+          if [ "$RUNNER_OS" = macOS ]; then target=(--target universal-apple-darwin); bin=src-tauri/target/universal-apple-darwin/release/miden-wallet; else target=(); bin=src-tauri/target/release/miden-wallet; fi
+          ./node_modules/.bin/tauri build --no-bundle "${target[@]}" -- --locked 2>&1 | tee ../proof/tauri-build.log
+          status=${PIPESTATUS[0]}
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../proof/tauri-build.log; then exit 1; fi
+          test "$status" -eq 0
+          test -s "$bin" && test -x "$bin"
+          file "$bin" | tee ../proof/executable-type.txt
+          if [ "$RUNNER_OS" = macOS ]; then lipo -verify_arch arm64 x86_64 "$bin"; else file "$bin" | grep -q ELF; fi
+          shasum -a 256 "$bin" > ../proof/executable-hash.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-desktop-${{ matrix.platform }}
+          path: proof/
+          if-no-files-found: error
