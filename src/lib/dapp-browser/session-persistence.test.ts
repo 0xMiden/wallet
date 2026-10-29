@@ -326,3 +326,34 @@ describe('ordered persistence mutations', () => {
     warning.mockRestore();
   });
 });
+
+describe('Task5 cache mobile sessions', () => {
+  it('enforces the existing eight-session cap during a legacy load and repairs the stored list', async () => {
+    store[STORAGE_KEY] = JSON.stringify(Array.from({ length: 11 }, (_, i) => makePersisted(`dapp-${i}`, i)));
+    const loaded = await loadPersistedSessions();
+    expect(loaded).toHaveLength(8);
+    expect(loaded.some(session => session.id === 'dapp-10')).toBe(true);
+    expect(JSON.parse(store[STORAGE_KEY]!).length).toBe(8);
+  });
+
+  it('bounds whole session bytes without truncating retained URLs or origins', async () => {
+    const active = makePersisted('dapp-active', 100);
+    const oversized = { ...makePersisted('dapp-large'), title: '界'.repeat(6000) };
+    await savePersistedSessions([oversized, active]);
+    const content = store[STORAGE_KEY]!;
+    expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(131_072);
+    const loaded = await loadPersistedSessions();
+    expect(loaded).toEqual([active]);
+    expect(mockRemoveSnapshot).toHaveBeenCalledWith('dapp-large');
+  });
+
+  it('enforces the cap on direct save and suppresses an unchanged serialized save', async () => {
+    const sessions = Array.from({ length: 9 }, (_, i) => makePersisted(`dapp-${i}`, i));
+    await savePersistedSessions(sessions);
+    const first = await loadPersistedSessions();
+    expect(first).toHaveLength(8);
+    mockSet.mockClear();
+    await savePersistedSessions(first);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+});

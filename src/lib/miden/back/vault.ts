@@ -102,13 +102,20 @@ import { createRecoveryCanonicalReads } from '../recovery/canonical-reads';
 import { decodeRecoveryCapture } from '../recovery/capture';
 import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
 import {
+  decryptRecoveryDataFile,
+  encryptRecoveryDataFile,
+  RecoveryDataFileError,
+  type RecoveryDataImportResult
+} from '../recovery/external-file';
+import { mergeExternalRecoveryData } from '../recovery/external-import';
+import {
   readFinancialRecoveryBaseline,
   recoveryDebit,
   readRetainedFinancialEntries,
   verifyFinancialRecoveryEntries
 } from '../recovery/financial';
 import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
-import { RecoveryJournal } from '../recovery/journal';
+import { isRecoveryJournalIntegrityFailure, RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
 import { withRetainedNoteReceipt } from '../recovery/native-note-receipt';
 import {
@@ -155,10 +162,12 @@ import {
   getStorageHealth,
   markStorageUnavailable,
   reportStorageFailure,
+  confirmStorageFailure,
   StorageUnavailableError,
   validateStorageHealth,
   withStorageRecoveryAccess,
-  type StorageRecoveryCapability
+  type StorageRecoveryCapability,
+  type StorageFailureContext
 } from '../storage-health';
 
 // AUTH SCHEME POLICY
@@ -446,8 +455,21 @@ export class Vault {
           !(error instanceof StorageUnavailableError) &&
           getStorageHealth().epoch === epoch &&
           isRealmKeystoreInstalled({ insertKey: this.insertKeySink })
-        )
-          markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+        ) {
+          const context = { backend: 'independent', operation: 'mutate' } satisfies StorageFailureContext;
+          if (isRecoveryJournalIntegrityFailure(error)) {
+            confirmStorageFailure(error, 'journal', context, epoch);
+          } else if (!reportStorageFailure(error, context)) {
+            let name: unknown;
+            try {
+              if (typeof error === 'object' && error !== null) name = Reflect.get(error, 'name');
+            } catch {
+              name = undefined;
+            }
+            if (typeof name !== 'string' || !/abort|cancel|deadline|timeout|poison|network/i.test(name))
+              markStorageUnavailable('journal', context);
+          }
+        }
       }
     );
   }
@@ -1528,6 +1550,16 @@ export class Vault {
     }
   }
 
+  static async hasRetainedCustody(): Promise<boolean> {
+    const [accounts, mnemonic, password, hardware] = await Promise.all([
+      isStored(accountsStrgKey),
+      isStored(mnemonicStrgKey),
+      getPlain<unknown>(VAULT_KEY_PASSWORD_STORAGE_KEY),
+      getPlain<unknown>(VAULT_KEY_HARDWARE_STORAGE_KEY)
+    ]);
+    return accounts || mnemonic || password !== undefined || hardware !== undefined;
+  }
+
   static async isExist() {
     const stored = await isStored(checkStrgKey);
     return stored;
@@ -1554,13 +1586,284 @@ export class Vault {
     return !!passwordVaultKey;
   }
 
+  private static async recoveryDataKey(credential?: string): Promise<CryptoKey> {
+    return credential !== undefined ? Vault.unlockWithPassword(credential) : Vault.getHardwareVaultKey();
+  }
+
+  private static async recoveryDataAccounts(key: CryptoKey, check: () => void): Promise<WalletAccount[]> {
+    let accounts: unknown;
+    try {
+      await fetchAndDecryptOne<unknown>(checkStrgKey, key);
+      check();
+      accounts = await fetchAndDecryptOne(accountsStrgKey, key);
+    } catch (error) {
+      check();
+      if (error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND)
+        throw new RecoveryDataFileError('unavailable');
+      throw error;
+    }
+    check();
+    if (
+      !Array.isArray(accounts) ||
+      accounts.length === 0 ||
+      accounts.length > 256 ||
+      !accounts.every(isWalletAccount) ||
+      accounts.some(account => account.type !== WalletType.Guardian || account.authScheme !== 'ecdsa') ||
+      new Set(accounts.map(account => account.publicKey)).size !== accounts.length
+    )
+      throw new RecoveryDataFileError('account');
+    return accounts;
+  }
+
+  private static recoveryDataBinding(accounts: WalletAccount[]): string {
+    return JSON.stringify(
+      accounts
+        .map(account => ({
+          id: account.publicKey,
+          type: account.type,
+          scheme: account.authScheme,
+          hdIndex: account.hdIndex,
+          hot: account.hotPublicKey,
+          cold: account.coldPublicKey,
+          endpoint: account.guardianEndpoint,
+          operator: account.guardianOperatorCommitment,
+          epoch: account.guardianEpoch ?? 0,
+          rotation: account.requiresHotKeyRotation
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id))
+    );
+  }
+
+  static async exportRecoveryData(
+    filePassword: string,
+    credential?: string,
+    assertCurrent: () => void = () => {}
+  ): Promise<string> {
+    assertCurrent();
+    const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+    const key = await Vault.recoveryDataKey(credential);
+    assertCurrent();
+    const incident = captureStorageRecoveryGuard();
+    const check = () => {
+      assertCurrent();
+      incident();
+      if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network) throw new StorageUnavailableError();
+    };
+    return withRpcTimeout(
+      () =>
+        getAccountsWriteQueue().add(async () => {
+          check();
+          const accounts = await Vault.recoveryDataAccounts(key, check);
+          const binding = Vault.recoveryDataBinding(accounts);
+          const journal = new RecoveryJournal(key, getStorageProvider());
+          const snapshot = await journal.read();
+          check();
+          if (
+            !snapshot ||
+            snapshot.scope.network !== network ||
+            snapshot.accounts.some(floor => !accounts.some(account => account.publicKey === floor.accountId))
+          )
+            throw new RecoveryDataFileError('account');
+          const content = await encryptRecoveryDataFile(snapshot, filePassword, check);
+          check();
+          const current = await Vault.recoveryDataAccounts(key, check);
+          if (Vault.recoveryDataBinding(current) !== binding) throw new StorageUnavailableError();
+          check();
+          return content;
+        }),
+      'recovery data export',
+      { timeoutMs: 30_000, retries: 0 }
+    );
+  }
+
+  static async importRecoveryData(
+    content: string,
+    filePassword: string,
+    expectedEpoch: number,
+    credential?: string,
+    assertCurrent: () => void = () => {},
+    verifyNoop?: (capability: StorageRecoveryCapability) => Promise<boolean>
+  ): Promise<RecoveryDataImportResult & { quarantinedEpoch?: number }> {
+    const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+    const checkOwner = () => {
+      assertCurrent();
+      if (
+        !Number.isSafeInteger(expectedEpoch) ||
+        getStorageHealth().epoch !== expectedEpoch ||
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network
+      )
+        throw new StorageUnavailableError();
+    };
+    checkOwner();
+    const key = await Vault.recoveryDataKey(credential);
+    checkOwner();
+    const incident = captureStorageRecoveryGuard();
+    const check = () => {
+      checkOwner();
+      incident();
+    };
+    const incoming = await decryptRecoveryDataFile(content, filePassword, check);
+    check();
+    if (incoming.scope.network !== network) throw new RecoveryDataFileError('network');
+    let journalMutationAccepted = false;
+    let failed = false;
+    const quarantineAcceptedEvidence = () => {
+      const health = getStorageHealth();
+      if (
+        journalMutationAccepted &&
+        health.status === 'healthy' &&
+        health.epoch === expectedEpoch &&
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` === network
+      )
+        markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
+    };
+    try {
+      const result = await withStorageRecoveryAccess(expectedEpoch, Date.now() + 5000, capability =>
+        getAccountsWriteQueue().add(async () => {
+          const allowed = () => {
+            check();
+            assertStorageRecoveryAllowed(capability);
+          };
+          allowed();
+          const accounts = await Vault.recoveryDataAccounts(key, allowed);
+          const binding = Vault.recoveryDataBinding(accounts);
+          const assertBinding = async () => {
+            allowed();
+            if (Vault.recoveryDataBinding(await Vault.recoveryDataAccounts(key, allowed)) !== binding)
+              throw new StorageUnavailableError();
+            allowed();
+          };
+          const provider = getStorageProvider();
+          const journal = new RecoveryJournal(
+            key,
+            {
+              get: keys => provider.get(keys),
+              set: async items => {
+                await provider.set(items);
+                journalMutationAccepted = true;
+                // A timed-out provider write can still settle after the caller has returned.
+                if (failed) quarantineAcceptedEvidence();
+              }
+            },
+            assertBinding
+          );
+          const retained = await journal.read();
+          allowed();
+          let floor: RecoveryJournalSnapshot | undefined;
+          try {
+            floor = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
+          } catch (error) {
+            if (!(error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND)) throw error;
+          }
+          allowed();
+          if (retained && floor && !sameRecoveryFields(retained.scope, floor.scope)) throw new StorageContinuityError();
+          const target = await Repo.openWalletRecoveryStore(capability);
+          let marker: ReturnType<typeof validateWalletGeneration> | undefined;
+          try {
+            const value: unknown = await target.table('metadata').get('generation');
+            allowed();
+            if (value !== undefined) marker = validateWalletGeneration(value);
+          } finally {
+            target.close();
+          }
+          const observed = await withWasmClientLock(
+            async hold => {
+              allowed();
+              const value = await midenClientProxy.readStorageContinuity(
+                accounts.map(account => account.publicKey),
+                false,
+                capability
+              );
+              assertWasmHoldCurrent(hold, 'after imported recovery scope read');
+              allowed();
+              return value;
+            },
+            { label: 'recovery-data-scope' }
+          );
+          allowed();
+          const trusted = retained?.scope ?? floor?.scope;
+          const scope = trusted ?? {
+            network,
+            walletGeneration: marker?.generation ?? crypto.randomUUID(),
+            sdkGeneration: observed.generation ?? crypto.randomUUID()
+          };
+          if (
+            scope.network !== network ||
+            (marker && marker.origin !== 'fresh' && marker.generation !== scope.walletGeneration) ||
+            (observed.generation !== null && observed.generation !== scope.sdkGeneration)
+          )
+            throw new StorageContinuityError();
+          const accountIds = accounts.map(account => account.publicKey);
+          const baseline = floor
+            ? {
+                ...floor,
+                ...mergeExternalRecoveryData({ ...floor, entries: [] }, { scope, accountIds }, retained),
+                sequence: Math.max(floor.sequence, retained?.sequence ?? 1)
+              }
+            : retained;
+          const merged = mergeExternalRecoveryData(incoming, { scope, accountIds }, baseline);
+          const changed =
+            !retained ||
+            retained.sequence < (floor?.sequence ?? 0) ||
+            !marker ||
+            marker.origin === 'fresh' ||
+            marker.generation !== scope.walletGeneration ||
+            observed.generation !== scope.sdkGeneration ||
+            !sameRecoveryFields(merged, {
+              scope: retained.scope,
+              accounts: retained.accounts,
+              entries: retained.entries
+            });
+          const snapshot = changed
+            ? await journal.update(() => merged, [], {
+                minimumSequence: (floor?.sequence ?? 0) + 1,
+                capability
+              })
+            : retained;
+          allowed();
+          const readback = await journal.read();
+          allowed();
+          if (!snapshot || !sameRecoveryFields(readback, snapshot)) throw new StorageContinuityError();
+          const nextFloor = { ...snapshot, entries: [] };
+          if (!floor || !sameRecoveryFields(floor, nextFloor)) {
+            await withRecoveryStorageLock(async () => {
+              await assertBinding();
+              await encryptAndSaveMany([[recoveryContinuityStrgKey, nextFloor]], key, allowed);
+              allowed();
+              const verified = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
+              allowed();
+              if (!sameRecoveryFields(verified, nextFloor)) throw new StorageContinuityError();
+            });
+          }
+          allowed();
+          await restoreWalletRecoveryGeneration(snapshot, capability);
+          await assertBinding();
+          const primaryVerified =
+            !changed && getStorageHealth().status === 'healthy' && verifyNoop ? await verifyNoop(capability) : false;
+          allowed();
+          return { snapshot, changed, primaryVerified };
+        })
+      );
+      check();
+      if (getStorageHealth().status === 'healthy' && (result.changed || !result.primaryVerified)) {
+        markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
+        return {
+          imported: true,
+          retainedEntries: result.snapshot.entries.length,
+          quarantinedEpoch: getStorageHealth().epoch
+        };
+      }
+      return { imported: true, retainedEntries: result.snapshot.entries.length };
+    } catch (error) {
+      failed = true;
+      quarantineAcceptedEvidence();
+      throw error;
+    }
+  }
+
   /** Verify the configured protector without constructing or adopting another vault. */
   static async verifyProtector(credential?: string): Promise<void> {
-    if (credential !== undefined) {
-      await Vault.unlockWithPassword(credential);
-      return;
-    }
-    await Vault.getHardwareVaultKey();
+    await Vault.recoveryDataKey(credential);
   }
 
   /**

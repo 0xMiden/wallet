@@ -57,6 +57,8 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
 // otherwise hold its address into the next test.
 beforeEach(() => {
   fetchingAddresses.clear();
+  useWalletStore.setState({ storageAvailability: { status: 'healthy', epoch: 0 } });
+  jest.mocked(getNativeAssetIdSync).mockImplementation(() => 'miden-faucet-id');
 });
 
 describe('useAllBalances infinite loop protection', () => {
@@ -125,7 +127,8 @@ describe('useAllBalances infinite loop protection', () => {
     expect(renderCount).toBeLessThan(MAX_RENDERS);
   });
 
-  it('useAllBalances should return empty array when no balances exist without crashing', async () => {
+  it('useAllBalances returns an empty array before native asset discovery', async () => {
+    jest.mocked(getNativeAssetIdSync).mockImplementation(() => null);
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     let finalData: any = null;
@@ -689,6 +692,7 @@ describe('the first read for an address (#1123)', () => {
     useWalletStore.setState({ status: WalletStatus.Locked });
     useWalletStore.getState().syncFromBackend({
       status: WalletStatus.Ready,
+      storageAvailability: { status: 'healthy', epoch: 0 },
       accounts: [account],
       currentAccount: account,
       networks: [],

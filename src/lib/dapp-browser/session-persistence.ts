@@ -38,6 +38,39 @@ const STORAGE_KEY = 'miden.dapp.persistedSessions.v1';
  * in `upsertPersistedSession` — callers don't have to clean up).
  */
 export const MAX_PERSISTED_SESSIONS = 8;
+export const MAX_PERSISTED_SESSION_BYTES = 16_384;
+export const MAX_PERSISTED_SESSIONS_BYTES = 131_072;
+const encoder = new TextEncoder();
+
+function boundSessions(sessions: PersistedSession[]): PersistedSession[] {
+  const byId = new Map<string, PersistedSession>();
+  for (const session of sessions) byId.set(session.id, session);
+  const ordered = [...byId.values()];
+  if (ordered.length > MAX_PERSISTED_SESSIONS) ordered.sort((left, right) => right.parkedAt - left.parkedAt);
+  const retained: PersistedSession[] = [];
+  let bytes = 2;
+  for (const session of ordered) {
+    let next = session;
+    let encoded = encoder.encode(JSON.stringify(next)).byteLength;
+    if (encoded > MAX_PERSISTED_SESSION_BYTES && session.favicon !== null) {
+      next = { ...session, favicon: null };
+      encoded = encoder.encode(JSON.stringify(next)).byteLength;
+    }
+    const total = bytes + encoded + (retained.length > 0 ? 1 : 0);
+    if (encoded > MAX_PERSISTED_SESSION_BYTES || total > MAX_PERSISTED_SESSIONS_BYTES) continue;
+    retained.push(next);
+    bytes = total;
+    if (retained.length === MAX_PERSISTED_SESSIONS) break;
+  }
+  return retained;
+}
+
+async function cleanEvicted(original: PersistedSession[], retained: PersistedSession[]): Promise<void> {
+  const ids = new Set(retained.map(session => session.id));
+  await Promise.all(
+    original.filter(session => !ids.has(session.id)).map(session => removeSnapshotFromDisk(session.id))
+  );
+}
 
 /**
  * What we store per session. Intentionally a subset of `DappSession` —
@@ -112,10 +145,16 @@ async function loadSessions(): Promise<PersistedSession[]> {
       await clearSessions();
       return [];
     }
-    return parsed.filter(
+    const sessions = parsed.filter(
       (s): s is PersistedSession =>
         s && typeof s.id === 'string' && typeof s.url === 'string' && typeof s.origin === 'string'
     );
+    const retained = boundSessions(sessions);
+    if (JSON.stringify(retained) !== value) {
+      await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(retained) });
+      await cleanEvicted(sessions, retained);
+    }
+    return retained;
   } catch (error) {
     console.warn('[session-persistence] load failed:', error);
     return [];
@@ -129,7 +168,11 @@ export function savePersistedSessions(sessions: PersistedSession[]): Promise<voi
 
 async function saveSessions(sessions: PersistedSession[]): Promise<void> {
   try {
-    await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(sessions) });
+    const retained = boundSessions(sessions);
+    const value = JSON.stringify(retained);
+    const previous = await Preferences.get({ key: STORAGE_KEY });
+    if (previous.value !== value) await Preferences.set({ key: STORAGE_KEY, value });
+    await cleanEvicted(sessions, retained);
   } catch (error) {
     console.warn('[session-persistence] save failed:', error);
   }
@@ -142,18 +185,7 @@ export function upsertPersistedSession(session: PersistedSession): Promise<void>
     const deduped = existing.filter(s => s.id !== session.id);
     deduped.push(session);
 
-    if (deduped.length <= MAX_PERSISTED_SESSIONS) {
-      await saveSessions(deduped);
-      return;
-    }
-
-    deduped.sort((a, b) => b.parkedAt - a.parkedAt);
-    const kept = deduped.slice(0, MAX_PERSISTED_SESSIONS);
-    const evicted = deduped.slice(MAX_PERSISTED_SESSIONS);
-    await saveSessions(kept);
-    for (const e of evicted) {
-      void removeSnapshotFromDisk(e.id);
-    }
+    await saveSessions(deduped);
   });
 }
 
