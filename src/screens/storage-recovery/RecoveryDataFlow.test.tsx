@@ -76,6 +76,8 @@ jest.mock('screens/encrypted-file-flow/ExportFileSetNamePassword', () => ({
   __esModule: true,
   default: ({
     passwordValue,
+    description,
+    passwordDescription,
     fileName,
     handlePasswordChange,
     onFileNameChange,
@@ -83,6 +85,8 @@ jest.mock('screens/encrypted-file-flow/ExportFileSetNamePassword', () => ({
     error
   }: ExportFilePasswordProps) => (
     <section data-testid="recovery-file-password-form">
+      <p>{description}</p>
+      <p>{passwordDescription}</p>
       {error && <p role="alert">{error}</p>}
       <input aria-label="recovery-test-file-password" value={passwordValue} onChange={handlePasswordChange} />
       <input aria-label="recovery-test-file-name" value={fileName} onChange={onFileNameChange} />
@@ -277,6 +281,18 @@ describe('Task5 recovery file UI', () => {
     await waitFor(() => expect(screen.queryByText('recoveryDataWrongPassword')).toBeInTheDocument());
     expect(screen.queryByText('smthWentWrong')).not.toBeInTheDocument();
   });
+});
+
+it('uses import-specific guidance when importing recovery data', () => {
+  render(<RecoveryDataFlow mode="import" onClose={jest.fn()} />);
+  expect(screen.getByText('recoveryDataImportDescription')).toBeInTheDocument();
+  expect(screen.queryByText('recoveryDataDescription')).not.toBeInTheDocument();
+});
+
+it('identifies the recovery data file when setting its export password', () => {
+  render(<RecoveryDataFlow mode="export" onClose={jest.fn()} />);
+  expect(screen.getByText('recoveryDataDescription')).toBeInTheDocument();
+  expect(screen.getByText('recoveryDataExportPasswordDescription')).toBeInTheDocument();
 });
 
 it('Task5 recovery hardware file failure does not masquerade as biometric authentication failure', async () => {
