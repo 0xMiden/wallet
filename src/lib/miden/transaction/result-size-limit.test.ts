@@ -58,3 +58,15 @@ it('does not impose the dApp limit on other transaction types', async () => {
   expect(rows[0]?.resultBytes).toBe(resultBytes);
   expect(rows[0]?.resultTooLarge).toBeUndefined();
 });
+
+it.each(['send', 'consume'])('bounds a dApp-owned %s result', async type => {
+  rows[0]!.type = type;
+  rows[0]!.dappOrigins = ['https://example.com'];
+  await updateTransactionStatus('tx', ITransactionStatus.Completed, {
+    transactionId: 'accepted',
+    resultBytes: new Uint8Array(limit + 1)
+  } as never);
+  expect(rows[0]?.resultBytes instanceof Uint8Array).toBe(false);
+  expect(rows[0]?.resultTooLarge).toBe(true);
+  expect(rows[0]?.status).toBe(ITransactionStatus.Completed);
+});
