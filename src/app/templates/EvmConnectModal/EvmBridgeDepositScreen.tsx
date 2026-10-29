@@ -2263,6 +2263,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         circleUsdcAddress={usdcxSource?.usdc}
         // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
+        ethBalanceValue={ethBalance.value}
         ethLoading={ethBalance.loading}
         circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
@@ -2275,6 +2276,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                   token: candidate,
                   name: erc20Label(candidate),
                   balance: balance.formatted,
+                  value: balance.value,
                   loading: balance.loading
                 };
               })

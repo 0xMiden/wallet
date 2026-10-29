@@ -21,6 +21,8 @@ export interface DepositErc20Row {
   /** The row's title and balance unit; the symbol unless the host names it otherwise. */
   name: string;
   balance: string;
+  /** Balance in base units. Null means that the balance is not available. */
+  value: bigint | null;
   loading?: boolean;
 }
 
@@ -41,8 +43,9 @@ export interface EvmBridgeTokenDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selected: DepositToken;
-  /** Native ETH, which bridges only through AggLayer. The row is drawn only when the balance is given. */
+  /** Native ETH uses Agglayer. Show the row only when its base-unit balance is positive. */
   ethBalance?: string;
+  ethBalanceValue?: bigint | null;
   ethLoading?: boolean;
   /**
    * Circle's USDC, which bridges only through Circle xReserve. The row is
@@ -54,7 +57,7 @@ export interface EvmBridgeTokenDrawerProps {
   circleUsdcLoading?: boolean;
   /**
    * The ERC-20s the AggLayer bridge registers on the chosen chain, each bridging through AggLayer alone. Drawn after
-   * ETH and Circle USDC, in the registry's order; absent while the host offers no AggLayer chain.
+   * ETH and Circle USDC, in registry order. Show only tokens with a positive base-unit balance.
    */
   erc20Rows?: DepositErc20Row[];
   /** True while the registered token list could not be read: the drawer says so instead of showing fewer tokens. */
@@ -74,6 +77,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   onOpenChange,
   selected,
   ethBalance,
+  ethBalanceValue,
   ethLoading,
   circleUsdcBalance,
   circleUsdcLabel,
@@ -86,7 +90,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   const prices = useWalletStore(state => state.tokenPrices);
 
   const rows: TokenRow[] = [];
-  if (ethBalance !== undefined) {
+  const balancesLoading = ethLoading || erc20Rows.some(row => row.loading);
+  if (ethBalance !== undefined && ethBalanceValue !== null && ethBalanceValue !== undefined && ethBalanceValue > 0n) {
     rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, loading: ethLoading });
   }
   if (circleUsdcBalance !== undefined) {
@@ -98,7 +103,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       loading: circleUsdcLoading
     });
   }
-  for (const { token, name, balance, loading } of erc20Rows) {
+  for (const { token, name, balance, value, loading } of erc20Rows) {
+    if (value === null || value <= 0n) continue;
     rows.push({
       token: { kind: 'erc20', contractAddress: token.contractAddress },
       name,
@@ -115,49 +121,59 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
         </DrawerHeader>
 
-        {/* One grouped list on the shared `fill`, with the design system's round check on the
-            chosen token — the same picker the send and swap flows draw. */}
-        <ListGroup className="mx-4">
-          {rows.map(({ token, name, logoSymbol, balance, loading }) => (
-            <ListRow
-              accent="receive"
-              key={depositTokenKey(token)}
-              title={name}
-              subtitle={
-                loading ? (
-                  t('loading')
-                ) : (
-                  <div>
-                    {`${balance} ${name}`}
+        <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4" data-testid="bridge-token-scroll">
+          <ListGroup>
+            {rows.map(({ token, name, logoSymbol, balance, loading }) => (
+              <ListRow
+                accent="receive"
+                key={depositTokenKey(token)}
+                title={name}
+                subtitle={
+                  loading ? (
+                    t('loading')
+                  ) : (
                     <div>
-                      <UsdValue
-                        amount={balance}
-                        quote={evmQuote(
-                          prices,
-                          chainId,
-                          typeof token !== 'string'
-                            ? token.contractAddress
-                            : token === 'ETH'
-                              ? '0x0000000000000000000000000000000000000000'
-                              : circleUsdcAddress
-                        )}
-                      />
+                      {`${balance} ${name}`}
+                      <div>
+                        <UsdValue
+                          amount={balance}
+                          quote={evmQuote(
+                            prices,
+                            chainId,
+                            typeof token !== 'string'
+                              ? token.contractAddress
+                              : token === 'ETH'
+                                ? '0x0000000000000000000000000000000000000000'
+                                : circleUsdcAddress
+                          )}
+                        />
+                      </div>
                     </div>
-                  </div>
-                )
-              }
-              avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
-              checked={sameDepositToken(token, selected)}
-              onClick={() => onSelect(token)}
-              data-testid={`bridge-token-${depositTokenKey(token)}`}
-            />
-          ))}
-        </ListGroup>
-        {erc20Unavailable && (
-          <Notice variant="inline" tone="warning" className="mx-4 mt-4" data-testid="bridge-token-list-unavailable">
-            {t('bridgeDepositTokensUnavailable')}
-          </Notice>
-        )}
+                  )
+                }
+                avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
+                checked={sameDepositToken(token, selected)}
+                onClick={() => onSelect(token)}
+                data-testid={`bridge-token-${depositTokenKey(token)}`}
+              />
+            ))}
+          </ListGroup>
+          {erc20Unavailable && (
+            <Notice variant="inline" tone="warning" className="mt-4" data-testid="bridge-token-list-unavailable">
+              {t('bridgeDepositTokensUnavailable')}
+            </Notice>
+          )}
+          {balancesLoading && (
+            <Notice variant="inline" role="status" className="mt-4">
+              {t('loading')}
+            </Notice>
+          )}
+          {rows.length === 0 && !balancesLoading && !erc20Unavailable && (
+            <Notice variant="inline" role="status">
+              {t('bridgeDepositNoTokenBalance')}
+            </Notice>
+          )}
+        </div>
       </DrawerContent>
     </Drawer>
   );

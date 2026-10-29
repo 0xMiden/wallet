@@ -1299,6 +1299,7 @@
   "bridgeDepositProcessing": "Köprü yatırımı onayı",
   "bridgeDepositProcessingDescription": "Cüzdanınızdaki istekleri onaylayın — birden fazla kez sorulabilir — ve kaynak ağ bunları onaylarken bu ekranı açık tutun.",
   "bridgeDepositFailed": "Köprü yatırımı başarısız oldu",
+  "bridgeDepositNoTokenBalance": "Bağlı cüzdanınızda bu ağda pozitif bakiyeye sahip hiçbir token bulunmamaktadır.",
   "bridgeDepositBalanceTooLow": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
   "bridgeDepositBalanceReadFailed": "$network$ ağındaki $token$ bakiyenizi kontrol edilemedi. Hiçbir şey gönderilmedi.",
   "bridgeDepositBalanceCapExceeded": "Bu hesap en fazla $cap$ USD tutabilir. Şu anda $held$ USD tutmaktadır ve bu para yatırma işlemiyle $deposit$ USD eklenecektir. Daha düşük bir tutar girin.",

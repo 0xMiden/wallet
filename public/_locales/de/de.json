@@ -1292,6 +1292,7 @@
   "bridgeDepositProcessing": "Bestätigung der Bridge-Einzahlung",
   "bridgeDepositProcessingDescription": "Bestätigen Sie die Anfragen in Ihrer Wallet – möglicherweise werden Sie mehrmals dazu aufgefordert – und lassen Sie diesen Bildschirm geöffnet, während das Quellnetzwerk die Anfragen bestätigt.",
   "bridgeDepositFailed": "Einzahlung über die Bridge fehlgeschlagen",
+  "bridgeDepositNoTokenBalance": "Ihre verbundene Wallet enthält in diesem Netzwerk keine Token mit einem positiven Guthaben.",
   "bridgeDepositBalanceTooLow": "Ihre verbundene Wallet enthält $balance$ $token$ auf $network$, was weniger ist, als für diese Einzahlung erforderlich ist. Es wurde nichts gesendet.",
   "bridgeDepositBalanceReadFailed": "Ihr $token$-Guthaben auf $network$ konnte nicht überprüft werden. Es wurde nichts gesendet.",
   "bridgeDepositBalanceCapExceeded": "Dieses Konto kann maximal $cap$ USD enthalten. Es enthält $held$ USD, und diese Einzahlung fügt $deposit$ USD hinzu. Geben Sie einen geringeren Betrag ein.",
