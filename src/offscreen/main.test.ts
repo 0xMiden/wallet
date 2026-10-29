@@ -6835,6 +6835,7 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
     const reply = jest.fn();
     expect(capturedListener?.(request, { id: 'wallet-extension' }, reply)).toBe(true);
     await flush();
+    console.log('INTEGRATION_DIAGNOSTIC', JSON.stringify({ imported: imported.mock.calls.length, messages: messages.length, replies: reply.mock.calls, health: health.getStorageHealth().status }));
     return {
       client,
       bytes,
