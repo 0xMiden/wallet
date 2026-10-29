@@ -202,6 +202,7 @@ function resetControl() {
     inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
     inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
     inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
+    inlineImportGuardianHistoryP2ideNotes: jest.fn(async () => undefined),
     inlineDecodeGuardianHistory: jest.fn(async () => ({ __inlineSummary: true })),
     inlineGetGuardianResultCommitment: jest.fn(async () => '0xinlinecommitment'),
     inlineHold: { mock: 'inline-hold' },
@@ -234,6 +235,7 @@ function resetControl() {
       recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
       resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
       decodeGuardianHistory: (...a: any[]) => G.__px.inlineDecodeGuardianHistory(...a),
+      importGuardianHistoryP2ideNotes: G.__px.inlineImportGuardianHistoryP2ideNotes,
       getGuardianResultCommitment: (...a: any[]) => G.__px.inlineGetGuardianResultCommitment(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
@@ -1816,6 +1818,14 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
 
 describe('MidenClientProxy - Guardian history ops', () => {
   it.each([
+    {
+      name: 'importGuardianHistoryP2ideNotes',
+      invoke: (proxy: typeof import('./miden-client-proxy').midenClientProxy) =>
+        proxy.importGuardianHistoryP2ideNotes('summary', 'account', 'note'),
+      inline: () => G.__px.inlineImportGuardianHistoryP2ideNotes,
+      args: () => ['summary', 'account', 'note', G.__px.inlineHold],
+      expected: undefined
+    },
     {
       name: 'decodeGuardianHistory',
       invoke: (proxy: any) => proxy.decodeGuardianHistory('summary'),
