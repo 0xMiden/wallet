@@ -1,0 +1,21 @@
+name: Proposal category validation
+on:
+  push:
+    branches: [ci/ct-wire-green]
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Type check
+        run: yarn ts
+      - name: Lint changed files
+        run: yarn eslint --max-warnings 0 src/lib/telemetry/proposal-create-diagnostics.ts src/lib/telemetry/proposal-create-diagnostics.test.ts src/lib/miden/guardian/proposal-diagnostics.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts
+      - name: Run affected tests
+        run: yarn test --maxWorkers=2 --runTestsByPath src/lib/telemetry/proposal-create-diagnostics.test.ts src/lib/miden/sdk/proposal-create-error-family.test.ts src/lib/miden/guardian/proposal-diagnostics.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/telemetry/crash.test.ts
