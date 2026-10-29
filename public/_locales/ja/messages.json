@@ -228,6 +228,10 @@
     "message": "デバイスキーが更新されました",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "デバイスが追加されました",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "アカウントは安全に保護されています",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "日常的に使用している鍵がローテーションされています。これは、復元されたアカウントが同期を行い、取引を行えるようにするために必要な手順です。",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "このデバイスの追加",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "このデバイスには、同期や取引を行うための専用の日常用キーが割り当てられます。",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "毎日の鍵のローテーションに失敗しました",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "このデバイスからウォレットを削除する",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "このデバイスは、どのようにしてあなたのウォレットに追加すればよいでしょうか？",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "このデバイスには、専用の日常用キーが割り当てられます。アカウントから少額のネットワーク手数料が支払われます。",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "このウォレットにはすでに$count$台のデバイスがあります",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "このウォレットにはすでに1つのデバイスが登録されています",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "このデバイスを追加する",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "このデバイスをメインにする",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "このウォレットからは、その他のすべてのデバイスが削除されます",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "このデバイスにリカバリーフレーズを保存しますか？",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "このデバイスでは、リカバリーフレーズがなくても日常的な取引は可能です。ただし、Guardianの変更や日常的なキーの交換を行う際には、リカバリーフレーズの入力が求められます。取り外す前に、必ず書き留めておいてください。",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "リカバリーフレーズを削除する",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "このデバイスに保管してください",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",

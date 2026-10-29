@@ -228,6 +228,10 @@
     "message": "裝置金鑰已輪替",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "新增裝置",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "帳戶已受保障",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "您的日常金鑰正在進行輪替。這是設定已還原帳戶時所需的步驟，以便該帳戶能夠同步資料並進行交易。",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "新增此裝置",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "此裝置將配有專屬的日常金鑰，以便進行同步與交易。",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "每日金鑰輪替失敗",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "從此裝置移除錢包",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "此裝置應如何加入您的錢包？",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "此裝置會獲得專屬的日常金鑰。帳戶將支付一筆小額網路手續費。",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "您已擁有 $count$ 台配備此錢包的裝置",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "您已擁有 1 台配備此錢包的裝置",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "新增此裝置",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "將此裝置設為主要裝置",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "此錢包中已移除所有其他裝置",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "將恢復短語保留在此裝置上嗎？",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "在該裝置上進行日常交易時無需使用恢復短語。但更換「Guardian」或進行日常金鑰更換時，系統會要求您輸入該短語。請在移除該短語前將其記錄下來。",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "移除恢復短語",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "請將其保留在此裝置上",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "每日金鑰輪替尚未確認",

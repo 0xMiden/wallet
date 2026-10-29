@@ -228,6 +228,10 @@
     "message": "Ключ устройства сгенерирован заново",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "Устройство добавлено",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "Счёт защищён",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "Ваш повседневный ключ подвергается ротации. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Добавление этого устройства",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Это устройство получает свой собственный повседневный ключ, чтобы иметь возможность синхронизироваться и совершать транзакции.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Сбой ежедневной ротации ключей",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Удалить кошелек с этого устройства",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Как это устройство должно подключаться к вашему кошельку?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Это устройство получает свой собственный повседневный ключ. С счета взимается небольшая сетевая комиссия.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "У вас уже есть $count$ устройств с этим кошельком",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "У вас уже есть 1 устройство с этим кошельком",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Добавить это устройство",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Сделать это устройство основным",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Все остальные устройства удаляются из этого кошелька",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Сохранить фразу восстановления на этом устройстве?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Ежедневные транзакции на этом устройстве выполняются без использования фразы восстановления. При смене «Guardian» и повседневной замене ключа вам будет предложено ввести эту фразу. Запишите её, прежде чем удалить.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Удалить фразу восстановления",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Храните его на этом устройстве",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Ежедневная ротация ключей не подтверждена",

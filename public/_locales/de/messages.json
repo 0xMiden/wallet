@@ -228,6 +228,10 @@
     "message": "Geräteschlüssel rotiert",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "Gerät hinzugefügt",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "Konto gesichert",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "Dein Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn du ein wiederhergestelltes Konto einrichtest, damit es synchronisiert werden und Transaktionen durchführen kann.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Hinzufügen dieses Geräts",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Dieses Gerät erhält einen eigenen Alltagsschlüssel, damit es sich synchronisieren und Transaktionen durchführen kann.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Die tägliche Schlüsselrotation ist fehlgeschlagen",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Entfernen Sie die Wallet von diesem Gerät",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Wie sollte dieses Gerät in Ihre Wallet integriert werden?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Dieses Gerät erhält einen eigenen Tages-Schlüssel. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Sie besitzen bereits $count$ Geräte mit dieser Wallet",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Sie besitzen bereits 1 Gerät mit dieser Wallet",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Dieses Gerät hinzufügen",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Jedes andere Gerät wird aus dieser Wallet entfernt",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Die Wiederherstellungsphrase auf diesem Gerät behalten?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Tägliche Transaktionen funktionieren auf diesem Gerät ohne die Wiederherstellungsphrase. Bei Guardian-Änderungen und beim täglichen Schlüsselwechsel werden Sie aufgefordert, diese einzugeben. Notieren Sie sie sich, bevor Sie sie entfernen.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Wiederherstellungsphrase entfernen",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bewahren Sie es auf diesem Gerät auf",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
