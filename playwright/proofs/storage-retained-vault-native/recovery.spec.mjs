@@ -56,12 +56,14 @@ test('st/main/cross-realm-storage-stop', async ({ browser }, testInfo) => {
     checks.abortRejected = cancelled.value.rejected;
     checks.abortLocalHealthy = cancelled.value.healthy;
     checks.abortPeerHealthy = await second.evaluate(() => window.__retainedProof.status() === 'healthy');
+    report.recover = { phase: 'second-realm-ready', checks: { ...checks } };
     expect(checks.abortInjected && checks.abortRejected && checks.abortLocalHealthy && checks.abortPeerHealthy).toBe(true);
     const failed = await invoke(first, 'injectedWalletWrite', 'QuotaExceededError');
     expect(failed.ok).toBe(true);
     checks.quotaInjected = failed.value.injected;
     checks.quotaRejected = failed.value.rejected;
     checks.quotaLocalUnavailable = failed.value.unavailable;
+    report.recover = { phase: 'second-realm-ready', checks: { ...checks } };
     expect(checks.quotaInjected && checks.quotaRejected && checks.quotaLocalUnavailable).toBe(true);
     await second.waitForFunction(() => window.__retainedProof.status() === 'unavailable', null, { timeout: 5000 });
     checks.peerUnavailable = true;
