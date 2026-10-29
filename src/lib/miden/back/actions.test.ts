@@ -2987,6 +2987,51 @@ describe('Task5 recovery file action ownership', () => {
     }
   });
 
+  it('rejects a parked recovery import after its effective network changes before publication', async () => {
+    mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57291', networkName: MIDEN_NETWORK_NAME.LOCALNET };
+    const health = getStorageHealth();
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    const publish = jest.fn();
+    module.Vault.importRecoveryData.mockImplementationOnce(async (_content, _password, _epoch, _credential, check) => {
+      start();
+      await released;
+      check();
+      publish();
+      return { imported: true, retainedEntries: 1 };
+    });
+    const pending = importRecoveryDataFile(
+      'encrypted-disposable-file',
+      'disposable-file-password',
+      health.epoch,
+      'disposable-network-import',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57292', networkName: MIDEN_NETWORK_NAME.LOCALNET };
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+      expect(module.Vault.importRecoveryData).toHaveBeenCalledTimes(1);
+      expect(publish).not.toHaveBeenCalled();
+      expect(getStorageHealth()).toEqual(health);
+    } finally {
+      finish();
+      await observed;
+      mockEndpointOverride = null;
+    }
+  });
+
   it('locking during a parked export retires the late encrypted response', async () => {
     let start!: () => void;
     let finish!: () => void;
