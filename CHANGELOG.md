@@ -5,6 +5,7 @@
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, fills the selected filter chip with the brand orange, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
+- [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
 - [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
 
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
