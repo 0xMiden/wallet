@@ -5,11 +5,13 @@
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
 - [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
 - [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+- [CHANGE][all] Add 25%, 50%, 75% and Max amount shortcuts based on the spendable balance in Swap and Bridge.
 
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
 - [CHANGE][all] Activity history explains saved incoming-note import warnings with fixed reason categories while keeping note contents in storage.
+- [FIX][all] Token price history shows an unavailable state when no market samples are available instead of a fabricated flat line.
 - [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
 - [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
 - [CHANGE][all] Crash reports distinguish burn fee, access-check and note-claim failures and retain fixed execution categories through privacy filtering without including financial or authentication data.

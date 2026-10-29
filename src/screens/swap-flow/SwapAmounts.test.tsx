@@ -119,6 +119,7 @@ jest.mock('../send-flow/SelectAmount', () => ({
         data-testid={`select-amount-${key}`}
         data-embedded={String(props.embedded)}
         data-show-balance-helper={String(props.showBalanceHelper)}
+        data-show-amount-shortcuts={String(props.showAmountShortcuts)}
         data-show-amount-divider={String(props.showAmountDivider)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
@@ -260,6 +261,13 @@ describe('SwapAmounts', () => {
       // logoSymbol overrides come straight from the SwapToken.
       expect(pay).toHaveAttribute('data-logo', 'MIDEN');
       expect(receive).toHaveAttribute('data-logo', 'ETH');
+    });
+
+    it('shows spendable-balance shortcuts only on You Pay', () => {
+      renderComponent();
+
+      expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-show-amount-shortcuts', 'true');
+      expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-show-amount-shortcuts', 'undefined');
     });
 
     it('maps the offer SwapToken to a UIToken carrying the offer balance', () => {
