@@ -1,48 +1,12 @@
 name: Issue 1948 integrated SDK proof
 on:
   push:
-    branches: [ci/1948-integrated-sdk-proof]
+    branches: [ci/1948-integrated-sdk-proof-v2]
 permissions:
   contents: read
+  actions: read
 jobs:
-  sdk:
-    runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: 0xMiden/web-sdk
-          ref: 2a490d684b02ffd963e733eb56095bd07bf3872b
-          persist-credentials: false
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Verify SDK identity
-        run: test "$(git rev-parse HEAD)" = 2a490d684b02ffd963e733eb56095bd07bf3872b
-      - run: pnpm install --no-frozen-lockfile
-      - name: Install Rust and WASM targets
-        run: |
-          rustup update --no-self-update
-          rustup target add wasm32-unknown-unknown
-          rustup install stable --no-self-update
-          rustup target add wasm32-unknown-unknown --toolchain stable
-      - run: ./scripts/install-binaryen.sh
-      - name: Build reviewed SDK
-        run: MIDEN_FAST_BUILD=true pnpm --filter @miden-sdk/miden-sdk run build
-      - name: Package SDK
-        run: |
-          tar -C crates/web-client -czf "$RUNNER_TEMP/sdk505.tgz" package.json dist js
-          sha256sum "$RUNNER_TEMP/sdk505.tgz"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdk505-${{ github.run_id }}
-          path: ${{ runner.temp }}/sdk505.tgz
-          if-no-files-found: error
   wallet:
-    needs: sdk
     runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 90
     env:
@@ -50,21 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 14b44c85a3da5bfbb47f40ffcbdd53c1ff0e932e
+          ref: ab89b3100be69975adc0178de4997d29e6fffb2a
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = 14b44c85a3da5bfbb47f40ffcbdd53c1ff0e932e
+        run: test "$(git rev-parse HEAD)" = ab89b3100be69975adc0178de4997d29e6fffb2a
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
-          name: sdk505-${{ github.run_id }}
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}
       - name: Inject reviewed SDK package
         run: |
-          sha256sum "$RUNNER_TEMP/sdk505.tgz"
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk505.tgz" | sha256sum -c
           rm -rf node_modules/@miden-sdk/miden-sdk
           mkdir -p node_modules/@miden-sdk/miden-sdk
           tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
