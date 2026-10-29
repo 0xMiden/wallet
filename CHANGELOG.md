@@ -6,7 +6,6 @@
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
 
-## 1.17.8 (TBD)
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
 - [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
 - [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
