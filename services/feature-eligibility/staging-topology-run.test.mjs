@@ -55,3 +55,26 @@ test('an overlapping request is refused while a scenario is active', async () =>
   assert.equal((await first).status, 200);
   assert.equal(calls, 1);
 });
+
+test('a failing scenario still consumes budget and permits the next bounded attempt', async () => {
+  let calls = 0;
+  const handle = createRunController({ storage: storage(), now: () => 100, expiresAt: 1000, maxRuns: 2, runScenario: async () => { calls++; if (calls === 1) throw new Error('private'); return 'passed'; } });
+  assert.equal((await handle(input())).status, 503);
+  assert.equal((await handle(input())).status, 200);
+  assert.equal((await handle(input())).status, 429);
+  assert.equal(calls, 2);
+});
+
+test('invalid run configuration fails closed without a scenario call', async () => {
+  for (const options of [
+    { expiresAt: 900101, maxRuns: 2 },
+    { expiresAt: 1000, maxRuns: 21 },
+    { expiresAt: 1000, maxRuns: 0 },
+    { expiresAt: 1000, maxRuns: 1.5 }
+  ]) {
+    let calls = 0;
+    const handle = createRunController({ storage: storage(), now: () => 100, ...options, runScenario: async () => { calls++; return 'passed'; } });
+    assert.equal((await handle(input())).status, 503);
+    assert.equal(calls, 0);
+  }
+});

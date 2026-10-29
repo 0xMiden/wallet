@@ -35,6 +35,41 @@ export default {
   }
 };
 
-export function createRunController() {
-  return async () => reply(503, { error: 'unavailable' });
+export function createRunController({ storage, now = Date.now, expiresAt, maxRuns, runScenario }) {
+  return async request => {
+    const url = new URL(request.url);
+    const match = /^\/scenario\/([a-z_]+)$/.exec(url.pathname);
+    if (request.method !== 'POST' || request.body !== null || url.search || !match || !SCENARIOS.has(match[1])) {
+      return reply(400, { error: 'bad_request' });
+    }
+    if (!Number.isSafeInteger(expiresAt) || !Number.isInteger(maxRuns) || maxRuns < 1 || maxRuns > 20) {
+      return reply(503, { error: 'unavailable' });
+    }
+    try {
+      const admission = await storage.transaction(async transaction => {
+        const current = await transaction.get('run') ?? { count: 0, active: false };
+        const time = now();
+        if (!Number.isSafeInteger(time) || time >= expiresAt || expiresAt - time > 900_000) return 'expired';
+        if (!Number.isSafeInteger(current.count) || current.count < 0 || typeof current.active !== 'boolean') return 'invalid';
+        if (current.active || current.count >= maxRuns) return 'limited';
+        await transaction.put('run', { count: current.count + 1, active: true });
+        return 'accepted';
+      });
+      if (admission === 'limited') return reply(429, { error: 'limited' });
+      if (admission !== 'accepted') return reply(503, { error: 'unavailable' });
+      let outcome;
+      try {
+        outcome = await runScenario(match[1]);
+      } finally {
+        await storage.transaction(async transaction => {
+          const current = await transaction.get('run');
+          if (current?.active === true) await transaction.put('run', { ...current, active: false });
+        });
+      }
+      if (!['passed', 'failed'].includes(outcome) || now() >= expiresAt) return reply(503, { error: 'unavailable' });
+      return reply(200, { scenario: match[1], status: outcome });
+    } catch {
+      return reply(503, { error: 'unavailable' });
+    }
+  };
 }
