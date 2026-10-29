@@ -3,7 +3,13 @@ import test from 'node:test';
 import * as topology from './staging-topology-manifest.mjs';
 
 const build = topology.buildTopologyManifest ?? (() => null);
-const identity = { repository: '0xMiden/wallet', workflowPath: '.github/workflows/feature-eligibility-topology.yml', sourceSha: 'a'.repeat(40), runId: '12345', runAttempt: '1' };
+const identity = {
+  repository: '0xMiden/wallet',
+  workflowPath: '.github/workflows/feature-eligibility-topology.yml',
+  sourceSha: 'a'.repeat(40),
+  runId: '12345',
+  runAttempt: '1'
+};
 const now = Date.UTC(2026, 9, 29);
 const bundle = new Uint8Array([1, 2, 3]);
 const options = () => ({ identity, bundle, now, expiresAt: now + 600_000, maxRuns: 10, inventory: [] });
@@ -16,6 +22,8 @@ test('topology manifest binds fixed run identity, artifact and limits', () => {
   assert.match(value?.ownerMarker ?? '', /^[a-f0-9]{64}$/);
   assert.equal(value?.maxRuns, 10);
   assert.equal(value?.expiresAt, now + 600_000);
+  assert.equal(value?.config.main, 'staging-topology-worker.mjs');
+  assert.equal(Object.isFrozen(value?.config?.vars), true);
   assert.equal(JSON.stringify(value).includes('credential'), false);
 });
 
