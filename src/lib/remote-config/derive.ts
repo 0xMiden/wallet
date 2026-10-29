@@ -11,6 +11,7 @@ import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -483,7 +484,7 @@ const defaultDeps: DeriveDeps = {
 async function midenAccountHex(accountId: string): Promise<string> {
   if (/^0x[0-9a-f]{30}$/i.test(accountId)) return accountId.toLowerCase();
   await ensureSdkWasmReady();
-  return AccountId.fromBech32(accountId).toString().toLowerCase();
+  return accountRefToSdk(accountId).toString().toLowerCase();
 }
 
 async function attempt<T>(read: () => Promise<T>): Promise<Probe<T>> {
