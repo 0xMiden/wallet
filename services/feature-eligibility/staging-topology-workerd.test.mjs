@@ -54,3 +54,12 @@ test('isolated workerd retains lease state through restart and day boundary', as
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'restart_day', status: 'passed' });
 });
+
+test('isolated workerd exercises both native rate limit bindings', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/native_rate', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'native_rate', status: 'passed' });
+});
