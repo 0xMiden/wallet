@@ -5,6 +5,8 @@
 - [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
 - [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
 - [CHANGE][all] Crash reports distinguish burn fee, access-check and note-claim failures and retain fixed execution categories through privacy filtering without including financial or authentication data.
+- [CHANGE][android] WalletConnect failure reports distinguish known response categories without recording raw wallet errors.
+
 - [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
 - [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
 
