@@ -84,7 +84,17 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
-  const results = useMemo(() => searchExploreCatalog(catalog, filter, query), [catalog, filter, query]);
+  const visibleCatalog = useMemo(() => {
+    if (filter !== 'all' || resolveExploreSections(catalog, filter).some(({ section }) => section.kind === 'featured'))
+      return catalog;
+    const itemIds = ALL_FEATURED.flatMap(({ id }) => catalog.items.filter(item => item.id === id).map(item => item.id));
+    if (itemIds.length === 0) return catalog;
+    return {
+      ...catalog,
+      sections: [{ id: 'featured', kind: 'featured' as const, title: t('exploreFeatured'), itemIds }, ...catalog.sections]
+    };
+  }, [catalog, filter, t]);
+  const results = useMemo(() => searchExploreCatalog(visibleCatalog, filter, query), [visibleCatalog, filter, query]);
 
   // The Finance hero's apps: Finance's items in the order its sections show them, each once.
   const financeItems = useMemo(() => {
@@ -106,21 +116,12 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
   // While searching, the sections collapse into one results list (or "No results").
   const sections = useMemo<ResolvedExploreSection[]>(() => {
     if (!searching) {
-      const resolved = resolveExploreSections(catalog, filter);
-      // The All chip opens on a Featured row unless the catalog already publishes one.
-      if (filter !== 'all' || resolved.some(({ section }) => section.kind === 'featured')) return resolved;
-      const items = ALL_FEATURED.flatMap(({ id }) => catalog.items.filter(item => item.id === id));
-      if (items.length === 0) return resolved;
-      const itemIds = items.map(item => item.id);
-      return [
-        { section: { id: 'featured', kind: 'featured', title: t('exploreFeatured'), itemIds }, items },
-        ...resolved
-      ];
+      return resolveExploreSections(visibleCatalog, filter);
     }
     if (results.length === 0) return [];
     const itemIds = results.map(item => item.id);
     return [{ section: { id: 'search-results', kind: 'list', title: t('exploreResults'), itemIds }, items: results }];
-  }, [catalog, filter, searching, results, t]);
+  }, [visibleCatalog, filter, searching, results, t]);
 
   const featuredHeadlines = useMemo(
     () => Object.fromEntries(ALL_FEATURED.map(({ id, headlineKey }) => [id, t(headlineKey)])),
