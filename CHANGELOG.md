@@ -5,6 +5,7 @@
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
 - [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
 - [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+- [CHANGE][all] Include the closed mainnet access-code refusal stage in Sentry diagnostics.
 - [CHANGE][all] Add 25%, 50%, 75% and Max amount shortcuts based on the spendable balance in Swap and Bridge.
 
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
