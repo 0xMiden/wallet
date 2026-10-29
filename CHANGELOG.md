@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
+- [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.
 - [CHANGE][ios] WalletConnect failure reports distinguish known native rejection origins without recording request contents.
 
 - [CHANGE][all] Expired transaction reports retain the originating submit visibility and duration categories when the attempt is unambiguous.
