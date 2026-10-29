@@ -73,6 +73,7 @@ export function validateTopologyNamespaces(pages, expected) {
 
 // The caller must independently establish the complete script list before using this evidence.
 export function validateTopologyBindings(scripts, expected) {
+  const rateIds = expected?.rateNamespaceIds ?? [];
   if (
     !Array.isArray(scripts) ||
     !expected ||
@@ -80,6 +81,9 @@ export function validateTopologyBindings(scripts, expected) {
     !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
     !Array.isArray(expected.scripts) ||
     !Array.isArray(expected.namespaceIds) ||
+    !Array.isArray(rateIds) ||
+    new Set(rateIds).size !== rateIds.length ||
+    !rateIds.every(id => typeof id === 'string' && /^[1-9][0-9]{0,18}$/.test(id)) ||
     !expected.namespaceClasses ||
     typeof expected.namespaceClasses !== 'object' ||
     Array.isArray(expected.namespaceClasses) ||
@@ -99,6 +103,7 @@ export function validateTopologyBindings(scripts, expected) {
     return false;
   const seenScripts = new Set();
   const seenOwned = new Set();
+  const seenRates = new Set();
   const owned = new Set(expected.namespaceIds);
   for (const script of scripts) {
     if (
@@ -117,6 +122,14 @@ export function validateTopologyBindings(scripts, expected) {
       if (entry.type === 'service') {
         if (typeof entry.service !== 'string' || !/^[a-zA-Z0-9_-]{1,63}$/.test(entry.service)) return false;
         if (script.id !== expected.script && entry.service === expected.script) return false;
+        continue;
+      }
+      if (entry.type === 'ratelimit') {
+        if (typeof entry.namespace_id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(entry.namespace_id)) return false;
+        if (rateIds.includes(entry.namespace_id)) {
+          if (script.id !== expected.script || seenRates.has(entry.namespace_id)) return false;
+          seenRates.add(entry.namespace_id);
+        } else if (script.id === expected.script && rateIds.length) return false;
         continue;
       }
       if (entry.type !== 'durable_object_namespace') continue;
@@ -138,7 +151,9 @@ export function validateTopologyBindings(scripts, expected) {
       }
     }
   }
-  return seenScripts.size === expected.scripts.length && seenOwned.size === owned.size;
+  return (
+    seenScripts.size === expected.scripts.length && seenOwned.size === owned.size && seenRates.size === rateIds.length
+  );
 }
 
 // The returned list is evidence only; settings and namespace ownership must still be checked independently.
@@ -321,7 +336,15 @@ export async function observeTopologyRelationships(api, expected) {
     if (settings === null) return null;
     const namespaceIds = records.map(record => record.id);
     const namespaceClasses = Object.fromEntries(records.map(record => [record.id, record.className]));
-    if (!validateTopologyBindings(settings, { script: expected.script, scripts, namespaceIds, namespaceClasses }))
+    if (
+      !validateTopologyBindings(settings, {
+        script: expected.script,
+        scripts,
+        namespaceIds,
+        namespaceClasses,
+        rateNamespaceIds: expected.rateNamespaceIds
+      })
+    )
       return null;
     const finalRecords = await collectTopologyNamespaceRecords(api, expected);
     const finalScripts = await collectTopologyScriptInventory(api);

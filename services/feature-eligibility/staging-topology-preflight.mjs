@@ -91,7 +91,8 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
     if (!first) return null;
     const relationships = await observeTopologyRelationships(api, {
       script: expected.scriptName,
-      classes: expected.config.durable_objects.bindings.map(item => item.class_name)
+      classes: expected.config.durable_objects.bindings.map(item => item.class_name),
+      rateNamespaceIds: expected.config.ratelimits.map(item => item.namespace_id)
     });
     if (relationships?.status !== 'observed') return null;
     const second = await readTarget();
