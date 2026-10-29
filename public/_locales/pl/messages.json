@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Dodaj środki i poczekaj, aż będzie można je wydać.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Pierwszy odbiór",
@@ -4976,6 +4976,34 @@
     "message": "Spróbuj innej nazwy lub wklej adres URL dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
   },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Finanse na Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Twoje pieniądze są domyślnie prywatne",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Handluj, płać i otrzymuj płatności za pomocą aplikacji opartych na platformie Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "Polecane",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Handluj dowolnymi tokenami, prywatnie",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Znajdź dziesięć miast, pokonaj rywali",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Listy płac, których nikt inny nie może zobaczyć",
+    "englishSource": "Payroll nobody else can see"
+  },
   "minimize": {
     "message": "Zminimalizuj",
     "englishSource": "Minimize"
@@ -5709,6 +5737,10 @@
   "receiveShareCaption": {
     "message": "Wyślij swój adres",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "Z innej sieci",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "Kopiuj",
