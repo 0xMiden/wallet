@@ -938,9 +938,10 @@ export interface ITransaction {
   restoredFromJournal?: boolean;
   recoveryDebitAt?: number;
   resultBytes?: Uint8Array;
+  resultTooLarge?: boolean;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
-   * without `resultBytes` carries it only if the result was released; otherwise it never stored one.
+   * without `resultBytes` carries it only if the result was released; a size-limited result is marked separately.
    */
   resultReleasedAt?: number;
   /**

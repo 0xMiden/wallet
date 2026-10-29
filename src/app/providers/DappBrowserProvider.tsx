@@ -1023,7 +1023,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       await Promise.all(
         persisted.map(async p => {
           const dataUrl = await readSnapshotFromDisk(p.id);
-          if (dataUrl) {
+          if (dataUrl && !cancelled) {
             snapshotStoreInternals.setRaw(p.id, dataUrl);
           }
         })

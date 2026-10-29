@@ -98,6 +98,7 @@ function isInsideSendFlow(): boolean {
  */
 export function useSyncTrigger() {
   const status = useWalletStore(s => s.status);
+  const storageStatus = useWalletStore(s => s.storageAvailability.status);
 
   useEffect(() => {
     if (status !== WalletStatus.Ready) return;
@@ -462,5 +463,5 @@ export function useSyncTrigger() {
       immediateSyncListeners.delete(retryNow);
       if (timer) clearTimeout(timer);
     };
-  }, [status]);
+  }, [status, storageStatus]);
 }

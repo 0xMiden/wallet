@@ -12532,8 +12532,11 @@ describe('generateTransaction — Guardian routing', () => {
     const captured = jest.mocked(checkpointTransactionRecovery).mock.calls.find(([id]) => id === txId)?.[1];
     const beforeSubmitNotes = notes ?? (recipient ? [privateOutputNote] : []);
     expect(captured?.notes.map(note => ({ id: note.id, bytes: Array.from(note.noteFile) }))).toEqual(
-      beforeSubmitNotes.map(note => ({ id: note.id().toString(), bytes: Array.from(note.serialize()) }))
+      beforeSubmitNotes
+        .filter(note => note.metadata().noteType() !== NoteType.Public)
+        .map(note => ({ id: note.id().toString(), bytes: Array.from(note.serialize()) }))
     );
+    expect(captured?.notes.some(note => note.id === 'public-output')).toBe(false);
   });
 
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store

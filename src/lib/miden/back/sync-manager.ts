@@ -755,6 +755,7 @@ async function runSync(force: boolean): Promise<void> {
         notes: parsedNotes,
         vaultAssets,
         accountPublicKey: accountPubKey,
+        storageEpoch: healthEpoch,
         balanceSnapshot,
         syncedAt: syncSucceededAt ?? lastPublishedSyncAt
       };

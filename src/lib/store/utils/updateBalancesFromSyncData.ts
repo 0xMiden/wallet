@@ -28,9 +28,13 @@ import { balancePrice } from './balancePrice';
 export async function updateBalancesFromSyncData(
   accountPublicKey: string,
   vaultAssets: SerializedVaultAsset[],
-  snapshot?: BalanceSnapshot
+  snapshot?: BalanceSnapshot,
+  sourceEpoch?: number
 ): Promise<void> {
   const store = useWalletStore.getState();
+  const availability = store.storageAvailability;
+  if (availability.status !== 'healthy' || (sourceEpoch === undefined ? 0 : sourceEpoch) !== availability.epoch) return;
+  const epoch = availability.epoch;
   /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
@@ -106,6 +110,8 @@ export async function updateBalancesFromSyncData(
 
   // Adopted into the store only. The service worker already persisted each record it read, under the
   // current schema; a snapshot an older worker left can still carry the old shape.
+  const currentAvailability = useWalletStore.getState().storageAvailability;
+  if (currentAvailability.status !== 'healthy' || currentAvailability.epoch !== epoch) return;
   if (Object.keys(newMetadatas).length > 0) {
     store.setAssetsMetadata(newMetadatas);
   }

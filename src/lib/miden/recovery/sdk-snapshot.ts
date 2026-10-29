@@ -50,9 +50,18 @@ export function assertRetainedInputRecord(
 
 export async function readSdkGeneration(client: RecoverySdkReader): Promise<string | null> {
   const value = await client.settings.get<unknown>(SDK_GENERATION_KEY);
-  if (value !== null && (typeof value !== 'string' || value.length < 1 || value.length > 128))
+  if (value === null) return null;
+  if (!(Array.isArray(value) || value instanceof Uint8Array) || value.length < 1 || value.length > 512)
     throw new StorageContinuityError();
-  return value;
+  if (!value.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new StorageContinuityError();
+  let generation: string;
+  try {
+    generation = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(value));
+  } catch {
+    throw new StorageContinuityError();
+  }
+  if (generation.length < 1 || generation.length > 128) throw new StorageContinuityError();
+  return generation;
 }
 
 export async function initializeSdkGeneration(
@@ -63,10 +72,13 @@ export async function initializeSdkGeneration(
 ): Promise<void> {
   await withRecoveryStorageLock(async () => {
     assertCurrent();
+    if (generation.length < 1 || generation.length > 128) throw new StorageContinuityError();
+    const encoded = new TextEncoder().encode(generation);
+    if (new TextDecoder('utf-8', { fatal: true }).decode(encoded) !== generation) throw new StorageContinuityError();
     const old = await readSdkGeneration(client);
     assertCurrent();
     if (old !== previousGeneration) throw new StorageContinuityError();
-    if (old !== generation) await client.settings.set(SDK_GENERATION_KEY, generation);
+    if (old !== generation) await client.settings.set(SDK_GENERATION_KEY, Array.from(encoded));
     assertCurrent();
     if ((await readSdkGeneration(client)) !== generation) throw new StorageContinuityError();
     assertCurrent();

@@ -90,7 +90,10 @@ function reader() {
   const list = jest.fn().mockResolvedValue([inputRecord()]);
   const notes = { list, import: jest.fn(), export: jest.fn(), listPage: jest.fn() };
   const client: RecoverySdkReader = {
-    settings: { get: jest.fn().mockResolvedValue('sdk-generation'), set: jest.fn() },
+    settings: {
+      get: jest.fn().mockResolvedValue(Array.from(new TextEncoder().encode('sdk-generation'))),
+      set: jest.fn()
+    },
     accounts: {
       get: jest.fn().mockResolvedValue({
         nonce: () => ({ asInt: () => 4n }),

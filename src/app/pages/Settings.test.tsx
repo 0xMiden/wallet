@@ -268,6 +268,10 @@ jest.mock('app/templates/VerifySeedPhraseFlow', () => ({
   __esModule: true,
   default: () => <div data-testid="verify-seed-flow" />
 }));
+jest.mock('screens/storage-recovery/RecoveryDataSettings', () => ({
+  RecoveryDataSettings: mockLayoutPage('recovery-data-settings')
+}));
+
 jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
   EncryptedFileFlow: () => <div data-testid="encrypted-file-flow" />
 }));
@@ -1176,5 +1180,18 @@ describe('Settings page — encrypted wallet file gate', () => {
     mockWalletState.accounts = [{ type: 'guardian' }, { type: 'on-chain' }];
     view.rerender(<Settings tabSlug={null} />);
     expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+  });
+});
+
+describe('Task5 recovery data settings entry', () => {
+  it('offers recovery data independently from signer wallet-file eligibility', () => {
+    render(<Settings />);
+    expect(screen.queryByTestId('row-recoveryDataTitle')).toHaveAttribute('data-slug', '/settings/recovery-data');
+  });
+
+  it('resolves the recovery-data tab to its own shared flow', () => {
+    render(<Settings tabSlug="recovery-data" />);
+    expect(screen.queryByTestId('recovery-data-settings')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('recoveryDataTitle');
   });
 });
