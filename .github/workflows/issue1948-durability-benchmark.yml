@@ -1,0 +1,33 @@
+name: Issue 1948 disposable durability distribution
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-durability-benchmark-*']
+permissions:
+  contents: read
+jobs:
+  measurement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      WALLET_SOURCE: d7f770061cae4b7fd40c5469eb1976f0cf9dabaf
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d7f770061cae4b7fd40c5469eb1976f0cf9dabaf
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --non-interactive
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+      - name: Measure disposable database commits
+        run: node playwright/proofs/issue1948-durability-benchmark.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: durability-distribution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: durability-distribution.json
+          if-no-files-found: warn
