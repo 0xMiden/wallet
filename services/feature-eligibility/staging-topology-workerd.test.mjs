@@ -18,3 +18,12 @@ test('isolated workerd keeps two colo caches separate', async () => {
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'colo_isolation', status: 'passed' });
 });
+
+test('isolated workerd enforces the shared global budget', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/shared_budget', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'shared_budget', status: 'passed' });
+});
