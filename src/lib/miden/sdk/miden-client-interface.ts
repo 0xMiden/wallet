@@ -663,6 +663,12 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
     (error: unknown) => {
       if (realmReader === entry && ownsReader()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
       active = false;
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        clientRole: 'realm_reader'
+      });
       entry.failures += 1;
       const windowMs = computeSyncBackoffMs(entry.failures);
       entry.retryAtMs = monotonicNowMs() + windowMs;
@@ -831,6 +837,13 @@ export class MidenClientInterface {
     } catch (error) {
       if (ownsClient()) reportStorageFailure(error, { backend: 'sdk', operation: 'open' });
       liveness.disposed = true;
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage,
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        ...(stage === 'client_create' ? { clientRole: 'primary' } : {}),
+        ...wasmStartupEvidence(error)
+      });
       throw error;
     }
   }

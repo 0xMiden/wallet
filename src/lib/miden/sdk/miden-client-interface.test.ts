@@ -298,7 +298,8 @@ describe('MidenClientInterface', () => {
       expect(snapshotCrashDiagnostics(initializationFailure)).toEqual({
         operation: 'sdk_initialize',
         stage: 'client_create',
-        workerMode: useWorker ? 'enabled' : 'disabled'
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        clientRole: 'primary'
       });
     }
     // A trap adds its memory evidence; outside an isolated extension page both read as unavailable.
@@ -309,6 +310,7 @@ describe('MidenClientInterface', () => {
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'enabled',
+      clientRole: 'primary',
       sharedMemoryProbe: 'unavailable',
       extensionViews: 'unavailable'
     });
