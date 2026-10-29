@@ -13,6 +13,7 @@ import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
 import {
   decodeReownNativeFailureCode,
+  decodeReownIOSFailureCode,
   markReownNativeFailure,
   readReownNativeFailure,
   type ReownNativeFailure
@@ -121,13 +122,17 @@ export interface ReownPlugin {
 const rawNativeReown: ReownPlugin = registerPlugin<ReownPlugin>('Reown');
 
 function nativeRequestRejection(rejection: unknown): unknown {
-  if (!isAndroid() || rejection === null || (typeof rejection !== 'object' && typeof rejection !== 'function'))
+  if (
+    (!isAndroid() && !isIOS()) ||
+    rejection === null ||
+    (typeof rejection !== 'object' && typeof rejection !== 'function')
+  )
     return rejection;
 
   try {
     // An inherited code belongs to another answer; getters are not a safe wire envelope.
     const code: unknown = Object.getOwnPropertyDescriptor(rejection, 'code')?.value;
-    const snapshot = decodeReownNativeFailureCode(code);
+    const snapshot = isAndroid() ? decodeReownNativeFailureCode(code) : decodeReownIOSFailureCode(code);
     if (snapshot !== undefined) markReownNativeFailure(rejection, snapshot);
   } catch {
     // Diagnostics must not replace a bridge rejection with an accessor's exception.
