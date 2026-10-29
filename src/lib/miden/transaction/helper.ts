@@ -165,6 +165,8 @@ export function isLockedError(err: unknown): boolean {
   return /wallet is locked|vault is (?:null|locked|unavailable)|not initialized/i.test(msg);
 }
 
+export const MAX_DAPP_RESULT_BYTES = 16 * 1024 * 1024;
+
 /**
  * Update the status of the transaction
  * @param id The id of the transaction to update
@@ -172,8 +174,6 @@ export function isLockedError(err: unknown): boolean {
  *
  * An Unconfirmed row is refused too: its pipeline has stopped, and only the reconciler's writers move it (#1081).
  */
-export const MAX_DAPP_RESULT_BYTES = 16 * 1024 * 1024;
-
 export const updateTransactionStatus = async <K extends keyof ITransaction>(
   id: string,
   status: ITransactionStatus,
@@ -1245,12 +1245,11 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
               // only the local apply failed. It stays an error, since no output exists to return, but
               // says so, or a dApp reading "not sent" asks the user to sign and pay again.
               resolve({
-                errorMessage:
-                  tx.resultTooLarge
-                    ? tx.transactionId
-                      ? `Transaction ${tx.transactionId} was accepted by the network, but its result exceeds the size limit`
-                      : 'Transaction completed, but its result exceeds the size limit'
-                    : tx.resultReleasedAt != null
+                errorMessage: tx.resultTooLarge
+                  ? tx.transactionId
+                    ? `Transaction ${tx.transactionId} was accepted by the network, but its result exceeds the size limit`
+                    : 'Transaction completed, but its result exceeds the size limit'
+                  : tx.resultReleasedAt != null
                     ? RESULT_EXPIRED_MESSAGE
                     : tx.transactionId
                       ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
