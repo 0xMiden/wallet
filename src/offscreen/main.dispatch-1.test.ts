@@ -1936,6 +1936,4 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       jest.useRealTimers();
     }
   });
-
-
 });

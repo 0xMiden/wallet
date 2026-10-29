@@ -20,13 +20,7 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import {
-  encodeArg,
-  OFFSCREEN_SIGN_REQUEST,
-  OFFSCREEN_SUBMIT_GATE,
-  OFFSCREEN_STORAGE_HEALTH
-} from 'lib/miden/back/offscreen-codec';
-import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
+import { encodeArg, OFFSCREEN_SUBMIT_GATE, OFFSCREEN_STORAGE_HEALTH } from 'lib/miden/back/offscreen-codec';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -1896,6 +1890,4 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(resp.errorName).toBe('WasmClientPoisonedError');
     });
   });
-
-
 });

@@ -26,7 +26,6 @@ import {
   OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_STORAGE_HEALTH
 } from 'lib/miden/back/offscreen-codec';
-import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -1640,5 +1639,4 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
     expect(secondResponse.mock.calls[0][0].ok).toBe(true);
   });
-
 });

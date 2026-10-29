@@ -1043,7 +1043,6 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
   });
 });
 
-
 // --- The network this realm runs on comes from the service worker (#1482) ---
 //
 // An offscreen document has no chrome.storage, so it cannot load the endpoint override
