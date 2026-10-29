@@ -76,3 +76,7 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
     }
   };
 }
+
+export async function runCacheScenario() {
+  return 'failed';
+}
