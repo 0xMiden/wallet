@@ -128,6 +128,24 @@ export function isDelegateProofEnabledAsync(): Promise<boolean> {
   return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF, false);
 }
 
+/**
+ * The delegated-proving mirror without the absent-key default. A missing key is
+ * `undefined`. A stored boolean is that boolean. A non-boolean or a thrown read
+ * is false, so an unusable value cannot select remote proving.
+ */
+export async function readMirroredDelegateProof(): Promise<boolean | undefined> {
+  try {
+    const key = DELEGATE_PROOF_STORAGE_KEY;
+    const items = await getStorageProvider().get([key]);
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (!Object.prototype.hasOwnProperty.call(items, key)) return undefined;
+    const value = items[key];
+    return typeof value === 'boolean' ? value : false;
+  } catch {
+    return false;
+  }
+}
+
 export function setAutoConsumeSetting(enabled: boolean) {
   setSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, enabled);
