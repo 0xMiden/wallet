@@ -163,6 +163,39 @@ describe('upsertPersistedSession', () => {
     }
   });
 
+  it('cleans legacy evictions only after the combined upsert is stored', async () => {
+    const legacy = Array.from({ length: 9 }, (_, index) => makePersisted(`legacy${index}`, index));
+    store[STORAGE_KEY] = JSON.stringify(legacy);
+    mockSet.mockRejectedValueOnce(new Error('normalization failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new', 10));
+      const ids = JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id);
+      expect(ids).toContain('new');
+      expect(ids).not.toContain('legacy0');
+      expect(ids).not.toContain('legacy1');
+      expect(mockRemoveSnapshot).toHaveBeenCalledWith('legacy0');
+      expect(mockRemoveSnapshot).toHaveBeenCalledWith('legacy1');
+      expect(mockSet.mock.invocationCallOrder[1]!).toBeLessThan(mockRemoveSnapshot.mock.invocationCallOrder[0]!);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not clean legacy evictions if the combined upsert also fails', async () => {
+    const original = JSON.stringify(Array.from({ length: 9 }, (_, index) => makePersisted(`legacy${index}`, index)));
+    store[STORAGE_KEY] = original;
+    mockSet.mockRejectedValueOnce(new Error('normalization failed')).mockRejectedValueOnce(new Error('upsert failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new', 10));
+      expect(store[STORAGE_KEY]).toBe(original);
+      expect(mockRemoveSnapshot).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('preserves other entries when upserting', async () => {
     await upsertPersistedSession(makePersisted('a', 100));
     await upsertPersistedSession(makePersisted('b', 200));
