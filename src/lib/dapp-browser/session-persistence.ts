@@ -156,7 +156,8 @@ async function loadSessions(): Promise<
         await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(retained) });
       } catch (error) {
         console.warn('[session-persistence] normalization failed:', error);
-        return { sessions: retained, pendingCleanup: sessions };
+        const retainedIds = new Set(retained.map(session => session.id));
+        return { sessions: retained, pendingCleanup: sessions.filter(session => !retainedIds.has(session.id)) };
       }
       await cleanEvicted(sessions, retained);
     }
