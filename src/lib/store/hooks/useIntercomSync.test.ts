@@ -268,3 +268,41 @@ describe('useIntercomSync backend initialization', () => {
     expect(_g.__intSyncTest.walletState.syncFromBackend).not.toHaveBeenCalled();
   });
 });
+
+describe('useIntercomSync initial response ordering', () => {
+  afterEach(() => {
+    _g.__intSyncTest.walletState = {};
+  });
+
+  it('does not overwrite a newer lock notification with an older initial response', async () => {
+    let completeInitial!: (value: unknown) => void;
+    let notify!: (message: { type: WalletMessageType }) => void;
+    const sync = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, syncFromBackend: sync, setSyncStatus: jest.fn() };
+    intercom.request.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          completeInitial = resolve;
+        })
+    );
+    const locked = { ...idleState, status: WalletStatus.Locked, backendInitialized: true };
+    intercom.request.mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: locked });
+    intercom.subscribe.mockImplementation((callback: typeof notify) => {
+      notify = callback;
+      return () => {};
+    });
+    const { unmount } = renderHook(() => useIntercomSync());
+    await act(async () => {
+      notify({ type: WalletMessageType.StateUpdated });
+    });
+    expect(sync).toHaveBeenLastCalledWith(locked);
+    await act(async () => {
+      completeInitial({
+        type: WalletMessageType.GetStateResponse,
+        state: { ...idleState, status: WalletStatus.Ready, backendInitialized: true }
+      });
+    });
+    expect(sync).toHaveBeenLastCalledWith(locked);
+    unmount();
+  });
+});
