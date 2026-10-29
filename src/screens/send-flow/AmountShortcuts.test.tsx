@@ -6,8 +6,8 @@ import { AmountShortcuts } from './AmountShortcuts';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { percent?: number }) =>
-      key === 'amountShortcutPercent' ? `${params?.percent}%` : key === 'max' ? 'Max' : key
+    t: (key: string) => (key === 'max' ? 'Max' : key),
+    i18n: { language: 'de', resolvedLanguage: 'de' }
   })
 }));
 
@@ -15,11 +15,11 @@ it('fills quarter, half, three quarters and Max without exceeding the spendable 
   const onAmountChange = jest.fn();
   render(<AmountShortcuts balance={0.00012345} decimals={8} scaleIsKnown onAmountChange={onAmountChange} />);
 
-  fireEvent.click(screen.getByRole('button', { name: '25%' }));
+  fireEvent.click(screen.getByRole('button', { name: '25 %' }));
   expect(onAmountChange).toHaveBeenLastCalledWith('0.00003086');
-  fireEvent.click(screen.getByRole('button', { name: '50%' }));
+  fireEvent.click(screen.getByRole('button', { name: '50 %' }));
   expect(onAmountChange).toHaveBeenLastCalledWith('0.00006172');
-  fireEvent.click(screen.getByRole('button', { name: '75%' }));
+  fireEvent.click(screen.getByRole('button', { name: '75 %' }));
   expect(onAmountChange).toHaveBeenLastCalledWith('0.00009258');
   fireEvent.click(screen.getByRole('button', { name: 'Max' }));
   expect(onAmountChange).toHaveBeenLastCalledWith('0.00012345');

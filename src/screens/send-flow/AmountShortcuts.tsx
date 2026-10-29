@@ -41,7 +41,7 @@ export const AmountShortcuts: React.FC<AmountShortcutsProps> = ({
   className,
   testIdPrefix = 'amount-shortcut'
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (
     !scaleIsKnown ||
     balance === null ||
@@ -56,6 +56,17 @@ export const AmountShortcuts: React.FC<AmountShortcutsProps> = ({
   const available = new BigNumber(balanceLowerBound(balance, decimals));
   if (available.isNaN() || available.lte(0)) return null;
 
+  const percentLabel = (percent: number) => {
+    try {
+      return new Intl.NumberFormat((i18n.resolvedLanguage ?? i18n.language).replace(/_/g, '-'), {
+        style: 'percent',
+        maximumFractionDigits: 0
+      }).format(percent / 100);
+    } catch {
+      return `${percent}%`;
+    }
+  };
+
   return (
     <div className={`${compact ? '' : 'mt-3'} flex gap-2`} data-testid="amount-shortcuts">
       {PERCENTAGES.map(percent => (
@@ -64,10 +75,10 @@ export const AmountShortcuts: React.FC<AmountShortcutsProps> = ({
           onClick={() => onAmountChange(formatAmount(available.multipliedBy(percent).dividedBy(100), decimals))}
           disabled={disabled}
           className={`flex-1 justify-center ${className ?? ''}`}
-          aria-label={t('amountShortcutPercent', { percent })}
+          aria-label={percentLabel(percent)}
           data-testid={`${testIdPrefix}-${percent}`}
         >
-          {t('amountShortcutPercent', { percent })}
+          {percentLabel(percent)}
         </Pill>
       ))}
       {includeMax && (

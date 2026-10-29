@@ -2138,15 +2138,6 @@
     "message": "提交",
     "englishSource": "Submit"
   },
-  "amountShortcutPercent": {
-    "message": "$percent$",
-    "englishSource": "$percent$%",
-    "placeholders": {
-      "percent": {
-        "content": "$1"
-      }
-    }
-  },
   "max": {
     "message": "马克斯",
     "englishSource": "Max"
