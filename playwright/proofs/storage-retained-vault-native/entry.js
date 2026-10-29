@@ -304,7 +304,9 @@ async function prepare(password, includePrivate) {
   await provider.set({ [activeSlot]: 'disposable-malformed-ciphertext' });
   progress('read-corrupt-journal');
   const retained = await vault.readRecoveryJournal();
-  check('lastGoodGenerationRetained', retained?.sequence === prior.sequence && (await digest(new TextEncoder().encode(JSON.stringify(retained)))) === (await digest(new TextEncoder().encode(JSON.stringify(prior))));
+  const retainedDigest = await digest(new TextEncoder().encode(JSON.stringify(retained)));
+  const priorDigest = await digest(new TextEncoder().encode(JSON.stringify(prior)));
+  check('lastGoodGenerationRetained', retained?.sequence === prior.sequence && retainedDigest === priorDigest);
   check('priorEvidenceRetained', retained?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
   check('journalDamageLatched', getStorageHealth().status === 'unavailable');
   const serviceBefore = await control('summary', {});
