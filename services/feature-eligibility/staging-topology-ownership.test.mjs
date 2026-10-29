@@ -73,3 +73,8 @@ test('live topology evidence is bound to account, markers, content and safe logg
   assert.equal(await observe({ ...input, api: apiFixture({ logging: true }) }), null);
   assert.equal(await observe({ ...input, api: apiFixture({ missingMarker: true }) }), null);
 });
+
+test('observation fixture binds the named script and distinct namespaces', () => {
+  assert.equal(manifest.scriptName, 'miden-elig-topology-12345-1');
+  assert.equal(new Set(rows.map(row => row.id)).size, 4);
+});
