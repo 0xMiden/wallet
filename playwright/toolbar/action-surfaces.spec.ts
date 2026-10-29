@@ -310,6 +310,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(panelCount).toBe(0);
       await persistDiagnostic('warm-sidebar-closed', await sidebarSnapshot());
       activate();
+      await captureEarlyReopen('warm-reopen');
       await verifyWarmReopen();
       await expect.poll(panelCount).toBe(1);
       await capture('settled-warm-reopen');
