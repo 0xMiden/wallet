@@ -70,3 +70,11 @@ test('binding inventory rejects an ambiguous service binding', () => {
   values[1].bindings.push({ name: 'SERVICE', type: 'service' });
   assert.equal(validate(values, expected), false);
 });
+
+test('binding inventory rejects a namespace attached to the wrong owned class', () => {
+  const mapped = { ...expected, namespaceClasses: { [ownedId]: 'EligibilityGuard' } };
+  assert.equal(validate(scripts(), mapped), true);
+  const values = scripts();
+  values[0].bindings[0] = { ...binding, class_name: 'WrongClass' };
+  assert.equal(validate(values, mapped), false);
+});
