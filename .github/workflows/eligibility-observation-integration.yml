@@ -35,8 +35,8 @@ jobs:
           done
           node --test services/feature-eligibility/staging-topology.test.mjs services/feature-eligibility/staging-topology-run.test.mjs services/feature-eligibility/staging-topology-cache.test.mjs services/feature-eligibility/staging-topology-colo.test.mjs services/feature-eligibility/staging-topology-budget.test.mjs services/feature-eligibility/staging-topology-rate.test.mjs services/feature-eligibility/staging-topology-failure.test.mjs services/feature-eligibility/staging-topology-restart.test.mjs services/feature-eligibility/staging-topology-namespaces.test.mjs services/feature-eligibility/staging-topology-bindings.test.mjs services/feature-eligibility/staging-topology-scripts.test.mjs services/feature-eligibility/staging-topology-collect.test.mjs services/feature-eligibility/staging-topology-collect-namespaces.test.mjs services/feature-eligibility/staging-topology-settings.test.mjs services/feature-eligibility/staging-topology-observe.test.mjs services/feature-eligibility/staging-topology-manifest.test.mjs services/feature-eligibility/staging-topology-preflight.test.mjs services/feature-eligibility/staging-topology-manifest-verify.test.mjs services/feature-eligibility/staging-topology-api.test.mjs services/feature-eligibility/staging-topology-api-integration.test.mjs services/feature-eligibility/staging-topology-workerd.test.mjs > proof/result.log 2>&1
           cat proof/result.log
-          grep -F '# tests 94' proof/result.log
-          grep -F '# pass 94' proof/result.log
+          grep -F '# tests 95' proof/result.log
+          grep -F '# pass 95' proof/result.log
           grep -F '# fail 0' proof/result.log
       - uses: actions/upload-artifact@v4
         if: always()
