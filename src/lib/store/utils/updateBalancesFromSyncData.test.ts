@@ -83,16 +83,24 @@ describe('updateBalancesFromSyncData', () => {
   it('does not land an old sync snapshot after storage enters a newer incident', async () => {
     useWalletStore.setState({ balances: {}, storageAvailability: { status: 'healthy', epoch: 8 } });
     let release!: (value: Record<string, never>) => void;
+    let announce!: () => void;
+    const started = new Promise<void>(resolve => {
+      announce = resolve;
+    });
     mockGetTokenMetadataOverrides.mockImplementationOnce(
       () =>
         new Promise(resolve => {
           release = resolve;
+          announce();
         })
     );
-    const read = updateBalancesFromSyncData('account-1', [
-      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
-    ]);
-    while (!release) await Promise.resolve();
+    const read = updateBalancesFromSyncData(
+      'account-1',
+      [{ faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }],
+      undefined,
+      8
+    );
+    await started;
     useWalletStore.setState({
       storageAvailability: {
         status: 'unavailable',
