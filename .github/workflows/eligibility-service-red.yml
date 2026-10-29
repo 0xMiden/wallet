@@ -1,0 +1,34 @@
+name: Eligibility service binding expected red
+on:
+  push:
+    branches: [ci/1894-service-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 905416e96bfe87d78f02ee08e951ac0e897e8928
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-bindings.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 8 - binding inventory rejects an external service reference to the target worker' result.log || exit 1
+          grep -F 'not ok 9 - binding inventory rejects an ambiguous service binding' result.log || exit 1
+          grep -F '# fail 2' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: service-red
+          path: result.log
