@@ -1,0 +1,87 @@
+name: Issue 1948 integrated SDK proof
+on:
+  push:
+    branches: [ci/1948-integrated-sdk-proof]
+permissions:
+  contents: read
+jobs:
+  sdk:
+    runs-on: warp-ubuntu-latest-x64-8x
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xMiden/web-sdk
+          ref: 2a490d684b02ffd963e733eb56095bd07bf3872b
+          persist-credentials: false
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify SDK identity
+        run: test "$(git rev-parse HEAD)" = 2a490d684b02ffd963e733eb56095bd07bf3872b
+      - run: pnpm install --no-frozen-lockfile
+      - name: Install Rust and WASM targets
+        run: |
+          rustup update --no-self-update
+          rustup target add wasm32-unknown-unknown
+          rustup install stable --no-self-update
+          rustup target add wasm32-unknown-unknown --toolchain stable
+      - run: ./scripts/install-binaryen.sh
+      - name: Build reviewed SDK
+        run: MIDEN_FAST_BUILD=true pnpm --filter @miden-sdk/miden-sdk run build
+      - name: Package SDK
+        run: |
+          tar -C crates/web-client -czf "$RUNNER_TEMP/sdk505.tgz" package.json dist js
+          sha256sum "$RUNNER_TEMP/sdk505.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk505-${{ github.run_id }}
+          path: ${{ runner.temp }}/sdk505.tgz
+          if-no-files-found: error
+  wallet:
+    needs: sdk
+    runs-on: warp-ubuntu-latest-x64-8x
+    timeout-minutes: 90
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 14b44c85a3da5bfbb47f40ffcbdd53c1ff0e932e
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify wallet identity
+        run: test "$(git rev-parse HEAD)" = 14b44c85a3da5bfbb47f40ffcbdd53c1ff0e932e
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - name: Inject reviewed SDK package
+        run: |
+          sha256sum "$RUNNER_TEMP/sdk505.tgz"
+          rm -rf node_modules/@miden-sdk/miden-sdk
+          mkdir -p node_modules/@miden-sdk/miden-sdk
+          tar -C node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk505.tgz"
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/index.d.ts
+          test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
+      - name: Full TypeScript check
+        run: yarn tsc --noEmit
+      - name: Recovery and state integration tests
+        run: |
+          mapfile -t tests < <(find src/lib/miden/recovery src/screens/storage-recovery src/lib/store -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+          tests+=(src/lib/miden/back/main.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts src/app/StorageRecoveryPage.test.tsx)
+          printf 'Selected %s suites\n' "${#tests[@]}"
+          test "${#tests[@]}" -gt 6
+          yarn jest --runTestsByPath "${tests[@]}" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wallet1948-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue1948-results.json
+          if-no-files-found: warn
