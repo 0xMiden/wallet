@@ -297,7 +297,7 @@ describe('DappLauncher', () => {
       ],
       sections: catalog.sections.filter(section => section.kind !== 'featured')
     };
-    await renderLauncher();
+    const { onOpen } = await renderLauncher();
 
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
     expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toBeInTheDocument();
