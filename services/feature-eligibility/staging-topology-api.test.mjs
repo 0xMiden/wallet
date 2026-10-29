@@ -139,3 +139,36 @@ test('read adapter returns only the digest of the fixed target module content', 
   });
   assert.deepEqual(await api(path), { sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' });
 });
+
+test('content observation rejects wrong module identity and non-target paths', async () => {
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      new Response('abc', {
+        headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'other.mjs' }
+      })
+  });
+  assert.equal(await api('/workers/scripts/miden-elig-topology-12345-1/content/v2'), null);
+  assert.equal(await api('/workers/scripts/production/content/v2'), null);
+});
+
+test('content observation hashes the sole named multipart module', async () => {
+  const form = new FormData();
+  form.append(
+    'staging-topology-worker.mjs',
+    new Blob(['abc'], { type: 'application/javascript+module' }),
+    'staging-topology-worker.mjs'
+  );
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      new Response(form, {
+        headers: { 'cf-entrypoint': 'staging-topology-worker.mjs' }
+      })
+  });
+  assert.deepEqual(await api('/workers/scripts/miden-elig-topology-12345-1/content/v2'), {
+    sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+  });
+});

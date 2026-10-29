@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const MAX_BYTES = 1_048_576;
 const MAX_CALLS = 500;
 const MAX_DURATION_MS = 120_000;
@@ -7,6 +9,8 @@ const TARGET = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
 
 function pathKind(path) {
   if (path === '/account') return 'account';
+  const content = /^\/workers\/scripts\/([^/]+)\/content\/v2$/.exec(path);
+  if (content && TARGET.test(content[1])) return 'content';
   const scriptSettings = /^\/workers\/scripts\/([^/]+)\/script-settings$/.exec(path);
   if (scriptSettings && TARGET.test(scriptSettings[1])) return 'script-settings';
   const pages = /^\/workers\/(scripts|durable_objects\/namespaces)\?page=([1-9][0-9]{0,2})&per_page=(100|1000)$/.exec(
@@ -36,7 +40,7 @@ function scriptSettingsMetadata(body) {
   return { success: true, errors: [], result };
 }
 
-async function boundedBody(response) {
+async function boundedBytes(response) {
   const length = response.headers.get('content-length');
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_BYTES)) return null;
   if (!response.body) return null;
@@ -57,11 +61,29 @@ async function boundedBody(response) {
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    return bytes;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
+}
+
+async function contentDigest(response) {
+  if (!response.ok || response.headers.get('cf-entrypoint') !== 'staging-topology-worker.mjs') return null;
+  const bytes = await boundedBytes(response);
+  if (bytes === null) return null;
+  const type = response.headers.get('content-type') || '';
+  let moduleBytes = bytes;
+  if (type.startsWith('multipart/form-data;')) {
+    const form = await new Response(bytes, { headers: { 'content-type': type } }).formData();
+    const entries = [...form.entries()];
+    if (entries.length !== 1 || entries[0][0] !== 'staging-topology-worker.mjs') return null;
+    moduleBytes =
+      typeof entries[0][1] === 'string'
+        ? Buffer.from(entries[0][1])
+        : new Uint8Array(await entries[0][1].arrayBuffer());
+  } else if (!/^application\/(javascript|javascript\+module)(;|$)/.test(type)) return null;
+  return { sha256: createHash('sha256').update(moduleBytes).digest('hex') };
 }
 
 function settingsMetadata(body, target) {
@@ -146,7 +168,10 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal
         });
-        const body = await boundedBody(response);
+        if (kind === 'content') return await contentDigest(response);
+        const bytes = await boundedBytes(response);
+        if (bytes === null) return null;
+        const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
         if (
           kind === 'target' &&
           response.status === 404 &&
