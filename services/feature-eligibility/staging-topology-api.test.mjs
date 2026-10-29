@@ -69,3 +69,14 @@ test('read adapter does not start a request after the total deadline', async () 
   assert.equal(await api('/account'), null);
   assert.equal(calls, 0);
 });
+
+test('read adapter strips unrelated setting values while retaining fixed ownership markers', async () => {
+  const path = '/workers/scripts/miden-elig-topology-12345-1/settings';
+  const api = create({ accountId, token, fetchImpl: async () => Response.json({ success: true, errors: [], result: { bindings: [
+    { name: 'PASSWORD', type: 'secret_text', text: 'private-sentinel' },
+    { name: 'TOPOLOGY_OWNER', type: 'plain_text', text: 'a'.repeat(64) }
+  ] } }) });
+  const value = await api(path);
+  assert.equal(JSON.stringify(value).includes('private-sentinel'), false);
+  assert.equal(value?.result?.bindings[1]?.text, 'a'.repeat(64));
+});
