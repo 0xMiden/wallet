@@ -2,7 +2,7 @@ name: Sidebar warm reopen visual evidence
 
 on:
   push:
-    branches: [ci/sidebar-early-render-experiment]
+    branches: [ci/sidebar-hydrated-render-experiment]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 29e22d1461146d37143042dfe2b58bb37fcd9ef7
+          test "$(git rev-parse HEAD^)" = 53930421b52c3ee74cd48d30fae593da17eb9030
           git diff --name-only fc43d4b29e009b8d36e3bb5bf0443ef82141e3b9 HEAD > "$RUNNER_TEMP/changed"
           printf '%s\n' .github/workflows/sidebar-warm-frames.yml playwright/toolbar/action-surfaces.spec.ts src/app/WalletAccessGate.tsx src/lib/miden/front/provider.tsx > "$RUNNER_TEMP/expected"
           diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/changed"

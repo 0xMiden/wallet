@@ -19,6 +19,7 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
+import { useWalletStore } from 'lib/store';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
@@ -76,6 +77,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // build defaults. The /lazy entries perform no top-level await, so a WASM
   // constructor reached before the module has initialized crashes the whole
   // tree with `__wbindgen_malloc` undefined.
+  const hydrated = useWalletStore(state => state.isInitialized);
   const [ready, setReady] = useState(false);
   const [overridesReady, setOverridesReady] = useState(false);
   // A failed start is thrown to the root error boundary, whose screen reports it once and offers Try Again; left
@@ -172,11 +174,12 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   if (startFailure) throw startFailure;
 
   const canStartSync = ready || (isExtension() && overridesReady);
+  const canRender = ready || (isExtension() && overridesReady && hydrated);
   if (!canStartSync) return null;
 
   return (
     <WalletStoreProvider>
-      {canStartSync && (
+      {canRender && (
         <MidenContextProvider>
           {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
               landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
