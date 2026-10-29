@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
@@ -383,6 +383,83 @@ describe('AmountInput', () => {
   });
 
   describe('interaction', () => {
+    it.each([
+      ['00.15', '0.15'],
+      ['00012.34', '12.34'],
+      ['0.', '0.'],
+      ['', ''],
+      ['0.0000', '0.0000']
+    ])('keeps exact decimal text when editing %s', (typed, expected) => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState(typed === '' ? '1' : '');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: typed } });
+      expect(getInput()).toHaveValue(expected);
+      expect(onValueChange).toHaveBeenLastCalledWith(expected || undefined);
+    });
+
+    it('preserves a negative sign and all fractional zeroes without rounding a large integer', () => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            allowNegativeValue
+            maxLength={80}
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: '-00090071992547409931234567890.0000' } });
+      expect(getInput()).toHaveValue('-90071992547409931234567890.0000');
+      expect(onValueChange).toHaveBeenLastCalledWith('-90071992547409931234567890.0000');
+    });
+
+    it('maps a caret inside the removed integer prefix and preserves a fractional selection', async () => {
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            onValueChange={next => setValue(next ?? '')}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      const input = getInput();
+      fireEvent.change(input, { target: { value: '00012.34', selectionStart: 2, selectionEnd: 2 } });
+      expect(input).toHaveValue('12.34');
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(0);
+
+      fireEvent.change(input, { target: { value: '0012.34', selectionStart: 5, selectionEnd: 7 } });
+      expect(input).toHaveValue('12.34');
+      await waitFor(() => expect(input.selectionStart).toBe(3));
+      expect(input.selectionEnd).toBe(5);
+    });
+
     it('fires onValueChange when the user changes the input', () => {
       const onValueChange = jest.fn();
       render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
