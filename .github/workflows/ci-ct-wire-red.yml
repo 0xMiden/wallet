@@ -1,0 +1,17 @@
+name: Proposal category regression proof
+on:
+  push:
+    branches: [ci/ct-wire-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run expected failing category tests
+        run: yarn test --runInBand --runTestsByPath src/lib/telemetry/proposal-create-diagnostics.test.ts
