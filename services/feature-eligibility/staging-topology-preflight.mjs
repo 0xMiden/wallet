@@ -24,6 +24,15 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       inventory: scripts.map(id => ({ id }))
     });
     if (manifest === null || !(await observeTopologyNamespaceAbsence(api, manifest.scriptName))) return null;
+    const target = await api(`/workers/scripts/${manifest.scriptName}/settings`);
+    if (
+      target?.status !== 404 ||
+      target.body?.success !== false ||
+      !Array.isArray(target.body.errors) ||
+      target.body.errors.length !== 1 ||
+      target.body.errors[0]?.code !== 10007
+    )
+      return null;
     return Object.freeze({ status: 'inventory_observed', manifest, deploymentAuthorized: false });
   } catch {
     return null;
