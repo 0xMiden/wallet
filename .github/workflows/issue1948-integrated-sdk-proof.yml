@@ -1,7 +1,7 @@
 name: Issue 1948 integrated SDK proof
 on:
   push:
-    branches: [ci/1948-retained-ack-stage]
+    branches: [ci/1948-integrated-sdk-proof-v4]
 permissions:
   contents: read
   actions: read
@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 349aa33607c661c4fd6ff364e6312ce00b7f9d2b
+          ref: 75a2d680299e637762afaf4566801a35644d9289
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify wallet identity
-        run: test "$(git rev-parse HEAD)" = 349aa33607c661c4fd6ff364e6312ce00b7f9d2b
+        run: test "$(git rev-parse HEAD)" = 75a2d680299e637762afaf4566801a35644d9289
       - uses: ./.github/actions/yarn-install
       - uses: actions/download-artifact@v4
         with:
@@ -38,8 +38,13 @@ jobs:
           test -f node_modules/@miden-sdk/miden-sdk/dist/st/eager.js
       - name: Full TypeScript check
         run: yarn tsc --noEmit
-      - name: Diagnose retained acknowledgement
-        run: yarn jest --runTestsByPath src/offscreen/main.test.ts --runInBand --no-coverage -t 'Task4C3N2 offscreen retained primary acknowledgement' --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
+      - name: Recovery and state integration tests
+        run: |
+          mapfile -t tests < <(find src/lib/miden/recovery src/screens/storage-recovery src/lib/store -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+          tests+=(src/lib/miden/back/main.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts src/app/StorageRecoveryPage.test.tsx)
+          printf 'Selected %s suites\n' "${#tests[@]}"
+          test "${#tests[@]}" -gt 6
+          yarn jest --runTestsByPath "${tests[@]}" --maxWorkers=2 --no-coverage --json --outputFile="$RUNNER_TEMP/issue1948-results.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
