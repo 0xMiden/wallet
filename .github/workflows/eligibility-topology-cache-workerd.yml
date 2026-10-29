@@ -11,11 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: test "$(git rev-parse HEAD^)" = 99e204eda82dd9f986ef4f998323694dac983ab7
+      - run: git checkout --detach 99e204eda82dd9f986ef4f998323694dac983ab7 && test "$(git rev-parse HEAD)" = 99e204eda82dd9f986ef4f998323694dac983ab7
       - name: Exercise the real service and local Durable Objects
         shell: bash
         run: |
@@ -44,6 +44,7 @@ jobs:
               if (new URL(request.url).pathname === '/lease' && response.ok) this.reservations++;
               return response;
             }
+            async alarm() { return this.delegate.alarm(); }
           }
           export class Caller {
             constructor(state, env) {
@@ -63,6 +64,7 @@ jobs:
               if (new URL(request.url).pathname === '/proof-counters') return Response.json({ lookups: this.lookups, writes: this.writes });
               return this.delegate.fetch(request);
             }
+            async alarm() { return this.delegate.alarm(); }
           }
           export default {
             async fetch(_request, env) {
