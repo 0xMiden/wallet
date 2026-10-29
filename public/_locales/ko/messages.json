@@ -228,6 +228,10 @@
     "message": "기기 키가 갱신되었습니다",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "장치 추가됨",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "계정 보안 유지",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "일상용 키가 교체되고 있습니다. 이는 복구된 계정을 설정할 때 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "이 장치 추가",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "이 기기는 동기화 및 거래를 수행할 수 있도록 전용 일상용 키를 할당받게 됩니다.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "일일 키 로테이션에 실패했습니다",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "이 기기에서 지갑 제거",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "이 기기는 지갑에 어떻게 연결되어야 합니까?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "이 기기에는 매일 고유한 키가 할당됩니다. 계좌에서 소액의 네트워크 수수료가 지불됩니다.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "이 지갑에는 이미 $count$대의 기기가 연결되어 있습니다.",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "이 지갑에는 이미 1개의 기기가 연결되어 있습니다.",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "이 장치를 추가하세요",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "이 기기를 기본 기기로 설정하세요",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "이 지갑에서는 그 외의 모든 기기가 제거됩니다.",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "이 기기에 복구 문구를 보관하시겠습니까?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "이 기기에서는 복구 문구 없이도 일상적인 거래가 가능합니다. 가디언(Guardian) 변경이나 일상적인 키 교체 시에는 복구 문구를 입력하라는 메시지가 표시됩니다. 복구 문구를 제거하기 전에 반드시 기록해 두십시오.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "복구 문구 삭제",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "이 기기에 보관하십시오",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "매일 키 교체는 확인되지 않음",

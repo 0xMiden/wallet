@@ -228,6 +228,10 @@
     "message": "Cihaz anahtarı değiştirildi",
     "englishSource": "Device key rotated"
   },
+  "guardianHistoryDeviceAdded": {
+    "message": "Cihaz eklendi",
+    "englishSource": "Device added"
+  },
   "guardianHistoryAccountSecured": {
     "message": "Hesap güvence altında",
     "englishSource": "Account secured"
@@ -3701,6 +3705,14 @@
     "message": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılmış bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Bu cihazın eklenmesi",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Bu cihaz, senkronizasyon yapabilmek ve işlem gerçekleştirebilmek için kendine ait bir günlük anahtar alıyor.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Günlük anahtar rotasyonu başarısız oldu",
     "englishSource": "Everyday key rotation failed"
@@ -3748,6 +3760,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Cüzdanı bu cihazdan kaldırın",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Bu cihaz cüzdanınıza nasıl eklenmelidir?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Bu cihaz, her gün kendine ait bir anahtar alır. Hesaptan küçük bir ağ ücreti ödenir.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Bu cüzdanla zaten $count$ adet cihazınız var",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Bu cüzdanla zaten 1 cihazınız var",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Bu cihazı ekleyin",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Bu cihazı ana cihaz olarak ayarlayın",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Bu cüzdandan diğer tüm cihazlar kaldırılır",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Kurtarma ifadesini bu cihazda saklayacak mısınız?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Bu cihazda günlük işlemler kurtarma ifadesi olmadan da gerçekleştirilebilir. Guardian'da değişiklik yapıldığında ve günlük anahtar değiştirme işlemlerinde bu ifadenin girilmesi istenir. Cihazı kaldırmadan önce bu ifadeyi bir yere not edin.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Kurtarma ifadesini kaldırın",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bu cihazda saklayın",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
