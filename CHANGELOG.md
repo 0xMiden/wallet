@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+
 - [CHANGE][android] WalletConnect failure reports distinguish known response categories without recording raw wallet errors.
 
 - [FIX][all] Settings recovery honors opt-outs through unavailable storage and partial copies, and untrusted proving mirrors select local proving. Queued-wait diagnostics stay bound to the current retry.

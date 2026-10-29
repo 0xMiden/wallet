@@ -28,10 +28,30 @@ it('publishes the latest block header category without raw error data', () => {
 it.each(['consume_note_authentication', 'multisig_auth_args_missing', 'sdk_auth_header_read'])(
   'rejects the filtered legacy wire category %s',
   family => {
-    expect(validateProposalCreateDiagnostics({ proposalCreateApi: 'consume_notes', proposalCreateFamily: family }))
-      .toBeUndefined();
+    expect(
+      validateProposalCreateDiagnostics({ proposalCreateApi: 'consume_notes', proposalCreateFamily: family })
+    ).toBeUndefined();
   }
 );
+
+it.each([
+  'consume_note_missing',
+  'consume_note_not_verified',
+  'consume_metadata_oversize',
+  'multisig_required_args_missing',
+  'bound_block_not_declared',
+  'summary_layout_unsupported',
+  'sdk_input_note_read',
+  'sdk_account_read',
+  'sdk_latest_block_header_read',
+  'sdk_protocol_config_read',
+  'sdk_request_build',
+  'unmatched',
+  'unreadable'
+])('accepts the closed wire category %s', family => {
+  const pair = { proposalCreateApi: 'consume_notes', proposalCreateFamily: family };
+  expect(validateProposalCreateDiagnostics(pair)).toEqual(pair);
+});
 
 it('replaces reused root evidence, rejects structural/cause injection and requires the complete closed pair', () => {
   const error = new Error('failed to get account: private');
