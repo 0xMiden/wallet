@@ -1633,6 +1633,19 @@ describe('waitForTransactionCompletion — error subscription', () => {
     });
   });
 
+  it('tells the dApp an accepted transaction result exceeded the size limit', async () => {
+    txStore.push({
+      id: 'tx-oversized',
+      status: ITransactionStatus.Completed,
+      transactionId: '0xabc',
+      resultTooLarge: true
+    });
+    const result = await waitForTransactionCompletion('tx-oversized');
+    expect(result).toEqual({
+      errorMessage: 'Transaction 0xabc was accepted by the network, but its result exceeds the size limit'
+    });
+  });
+
   it('resolves with the error message when deserializing the result throws', async () => {
     const sdk = require('@miden-sdk/miden-sdk/lazy');
     const original = sdk.TransactionResult.deserialize;
