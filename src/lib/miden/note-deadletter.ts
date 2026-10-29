@@ -233,9 +233,8 @@ export async function getNoteDeadletterSummary(): Promise<NoteDeadletterSummary>
   const present = new Set<NoteDeadletterReasonSummary>();
   for (const note of notes) present.add(isNoteDeadletterReason(note.reason) ? note.reason : 'unavailable');
 
-  const reasons: NoteDeadletterReasonSummary[] = ['transport', 'malformed', 'rejected'].filter(reason =>
-    present.has(reason)
-  );
+  const knownReasons: NoteDeadletterReason[] = ['transport', 'malformed', 'rejected'];
+  const reasons: NoteDeadletterReasonSummary[] = knownReasons.filter(reason => present.has(reason));
   if (present.has('unavailable')) reasons.push('unavailable');
   return { count: notes.length, reasons };
 }
