@@ -316,6 +316,18 @@ async function prepare(password, includePrivate) {
   check('quotaFaultInjected', injected === 1 && quotaRefused);
   const health = getStorageHealth();
   progress(health.status === 'unavailable' ? (health.reason === 'quota' && health.backend === 'independent' ? 'quota-independent-latched' : 'quota-other-latched') : 'quota-health-not-latched');
+  const diagnosticReason = ['quota', 'backing-store', 'continuity', 'journal'].includes(health.reason) ? health.reason : 'other';
+  const diagnosticBackend = ['wallet', 'sdk', 'independent'].includes(health.backend) ? health.backend : 'other';
+  let diagnosticPreserved = 'error';
+  try {
+    const valuesUnchanged = JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS)) === beforeCipher;
+    const snapshot = await vault.readRecoveryJournal();
+    const sameGeneration = snapshot?.sequence === prior.sequence && await digest(new TextEncoder().encode(JSON.stringify(snapshot))) === priorDigest;
+    const priorPresent = snapshot?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true;
+    const secondAbsent = snapshot?.entries.every(entry => entry.kind !== 'transaction' || entry.id !== secondId) === true;
+    diagnosticPreserved = [valuesUnchanged, sameGeneration, priorPresent, secondAbsent].map(value => value ? '1' : '0').join('');
+  } catch {}
+  progress(`quota-observed-${diagnosticReason}-${diagnosticBackend}-${diagnosticPreserved}`);
   check('independentQuotaLatched', health.status === 'unavailable' && health.reason === 'quota' && health.backend === 'independent');
   progress('quota-preservation-check');
   check('encryptedSlotsAndPointerUnchanged', JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS)) === beforeCipher);
