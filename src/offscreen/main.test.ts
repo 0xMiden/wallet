@@ -6836,7 +6836,7 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
     const reply = jest.fn();
     expect(capturedListener?.(request, { id: 'wallet-extension' }, reply)).toBe(true);
     await flush();
-    if (!messages.length && !contextChange && !expired) throw new Error('ACK_TRACE ' + JSON.stringify({ imported: imported.mock.calls.length, replies: reply.mock.calls, health: health.getStorageHealth().status }));
+    if (!messages.length && !contextChange && !expired) throw new Error('ACK_TRACE ' + JSON.stringify({ imported: imported.mock.calls.length, decoded: G.__off.deserializeAcquiredNoteFile.mock.calls.length, listed: list.mock.calls.length, settings: settings.get.mock.calls.length, replies: reply.mock.calls, health: health.getStorageHealth().status }));
     return {
       client,
       bytes,
