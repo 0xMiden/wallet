@@ -57,7 +57,15 @@ test('read adapter retains only a valid target-script absence receipt', async ()
 test('read adapter does not start a request after the total deadline', async () => {
   let calls = 0;
   const times = [0, 119_999, 120_000];
-  const api = create({ accountId, token, now: () => times.shift() ?? 120_000, fetchImpl: async () => { calls++; return Response.json({ success: true }); } });
+  const api = create({
+    accountId,
+    token,
+    now: () => times.shift() ?? 120_000,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({ success: true });
+    }
+  });
   assert.equal(await api('/account'), null);
   assert.equal(calls, 0);
 });

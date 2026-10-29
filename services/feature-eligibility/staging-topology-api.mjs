@@ -49,7 +49,7 @@ async function boundedBody(response) {
 }
 
 // This adapter only reads fixed provider paths; its output alone cannot authorize any mutation.
-export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now = Date.now } = {}) {
+export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now = () => performance.now() } = {}) {
   if (
     typeof accountId !== 'string' ||
     !/^[a-f0-9]{32}$/.test(accountId) ||
@@ -65,9 +65,11 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
   return async path => {
     const kind = typeof path === 'string' ? pathKind(path) : null;
     if (!kind || calls >= MAX_CALLS || now() >= deadline) return null;
+    const remaining = deadline - now();
+    if (!Number.isFinite(remaining) || remaining <= 0) return null;
     calls++;
     const controller = new AbortController();
-    const timeoutMs = Math.min(CALL_TIMEOUT_MS, Math.max(0, deadline - now()));
+    const timeoutMs = Math.min(CALL_TIMEOUT_MS, remaining);
     let timer;
     try {
       const work = async () => {
