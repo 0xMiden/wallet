@@ -53,3 +53,8 @@ test('namespace collection rejects identity changes between scans', async () => 
 test('namespace collection rejects provider errors', async () => {
   assert.equal(await collect(async () => ({ success: false, errors: [] }), expected), null);
 });
+
+test('namespace collection retains the class paired with each owned identity', async () => {
+  const collectRecords = topology.collectTopologyNamespaceRecords ?? (() => null);
+  assert.deepEqual(await collectRecords(async () => page(rows()), expected), rows().map(row => ({ id: row.id, className: row.class })));
+});
