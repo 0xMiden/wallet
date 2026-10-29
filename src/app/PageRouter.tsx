@@ -157,7 +157,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         // Idle), or a just-created wallet held by the onboarding finishing mark
         // (app/onboarding-finish): show the loading spinner, NOT onboarding or Home.
         case 'loading':
-          return <RootSuspenseFallback />;
+          return <RootSuspenseFallback data-testid="wallet-route-loading" />;
 
         case 'welcome':
           return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
@@ -183,7 +183,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <Unlock />;
 
         case 'loading':
-          return <RootSuspenseFallback />;
+          return <RootSuspenseFallback data-testid="wallet-route-loading" />;
 
         default:
           return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;

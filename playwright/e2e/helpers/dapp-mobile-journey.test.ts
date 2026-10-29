@@ -46,6 +46,7 @@ import {
 } from './dapp-mobile-journey';
 import { answerSheet, denyOpenSheet } from './dapp-mobile-sheet';
 import {
+  accountAddressAfterCreate,
   accountRows,
   createAccount,
   foregroundOrigin,
@@ -643,6 +644,18 @@ describe('mobile journey hooks and setup', () => {
       })
     );
     expect(journey.memo.size).toBe(0);
+  });
+
+  it('classifies a created account and a stale list after createAccount', () => {
+    const before = ['mtst1old'];
+    const stale = [{ publicKey: 'mtst1old' }];
+    expect(accountAddressAfterCreate(before, [{ publicKey: 'mtst1old' }, { publicKey: 'mtst1new' }], 'synced')).toEqual(
+      { address: 'mtst1new' }
+    );
+    expect(accountAddressAfterCreate(before, stale, 'pending')).toBe('wait');
+    expect(accountAddressAfterCreate(before, stale, 'synced')).toBe('missing');
+    expect(source('playwright/e2e/helpers/wallet-page.ts')).toContain('account list has not landed');
+    expect(source('playwright/e2e/helpers/dapp-mobile-wallet.ts')).toContain('account list has not landed');
   });
 
   it('does not select an account after creation outlives the quiesce deadline', async () => {
