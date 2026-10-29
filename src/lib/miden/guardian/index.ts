@@ -9,9 +9,11 @@ import {
   executeForSummaryAtTip,
   type ProposalMetadata,
   type TransactionProposal,
-  type Proposal
+  type Proposal,
+  type SyncStateResult
 } from '@openzeppelin/miden-multisig-client';
 
+import { signalGuardianStateAdopted } from 'lib/backup/adopt-signal';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -66,6 +68,19 @@ import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
 export { isGuardianAuthRejection } from './auth-facts';
+
+/**
+ * The commitment of the multisig's copy of the account, or null when it cannot
+ * be read. A trap is not a failed read: it goes to the lock, which retires the client.
+ */
+function localAccountCommitment(multisig: Multisig): string | null {
+  try {
+    return multisig.account.to_commitment().toHex();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return null;
+  }
+}
 
 /**
  * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
@@ -862,11 +877,24 @@ export class MultisigService {
         // to GUARDIAN_REQUEST_TIMEOUT_MS, so one unresponsive guardian holds the
         // whole app's WASM access for that minute once per retry in this loop; the
         // ceiling bounds the hold as a whole.
-        await withWasmClientLock(() => this.multisig.syncState(), {
-          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-          label: 'guardian-sync'
-        });
+        const adopted = await withWasmClientLock(
+          async hold => {
+            // The SDK does not say whether it overwrote the local account, so compare the
+            // commitment of the local copy before and after the sync (architecture doc 10).
+            const before = localAccountCommitment(this.multisig);
+            const result: SyncStateResult | undefined = await this.multisig.syncState();
+            // Only a Guardian-sourced result can overwrite local. The sync parked: an evicted
+            // hold reads nothing more, since its caller already saw the eviction.
+            if (result?.source !== 'guardian' || getCurrentWasmLockHold() !== hold) return false;
+            const after = localAccountCommitment(this.multisig);
+            return after !== null && after !== before;
+          },
+          { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }
+        );
         this.syncRetryCount = 0; // Reset retry count on successful sync
+        // Outside the hold: a newer state from the Guardian means another device made a
+        // transaction, so the backup reads the history. Never throws, never waits.
+        if (adopted) signalGuardianStateAdopted();
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

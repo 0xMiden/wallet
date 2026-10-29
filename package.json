@@ -275,6 +275,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.0.1",
     "@chromatic-com/storybook": "^1.5.0",
+    "@cloudflare/workers-types": "5.20261019.1",
     "@miden-sdk/miden-wallet-adapter-react": "0.17.0",
     "@miden-sdk/react": "0.17.5",
     "@miden-sdk/vite-plugin": "0.17.0",

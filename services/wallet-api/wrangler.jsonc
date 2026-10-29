@@ -1,0 +1,37 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "miden-wallet-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "DEPLOYMENT_REVISION": "unknown"
+  },
+  // JWT_SIGNING_KEY is a secret. Set it with `wrangler secret put JWT_SIGNING_KEY`. Do not put it in vars.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "miden-wallet-api",
+      // Placeholder. Run `wrangler d1 create miden-wallet-api` and put the returned database_id here.
+      // Local `wrangler dev` and `wrangler d1 migrations apply --local` work with this placeholder.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ratelimits": [
+    // Limits POST /v1/auth/nonce and POST /v1/auth/login per caller address.
+    // Placeholder namespace_id. Use an integer that no other rate limit binding in the account uses.
+    { "name": "AUTH_RATE_LIMIT", "namespace_id": "189403", "simple": { "limit": 30, "period": 60 } },
+    // Limits every authenticated route per profile. Reads and writes count on separate keys
+    // (`read:<profileId>`, `write:<profileId>`); a batch write costs one unit per 10 entries.
+    // Placeholder namespace_id, as above.
+    { "name": "STORAGE_RATE_LIMIT", "namespace_id": "189404", "simple": { "limit": 120, "period": 60 } }
+  ]
+}

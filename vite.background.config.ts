@@ -404,6 +404,8 @@ export default defineConfig({
     // Explore catalog E2E source; see vite.extension.config.ts.
     'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
     'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
+    // Encrypted-backup service base URL (lib/backup/api-client.ts). Empty disables the backup.
+    'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
     'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(

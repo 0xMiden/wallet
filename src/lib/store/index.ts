@@ -316,6 +316,15 @@ export const useWalletStore = create<WalletStore>()(
         lastSyncedAt: Date.now()
       });
 
+      // The encrypted backup reads its storage index on unlock (architecture doc 7.3). Here, after the
+      // unlock's queue task ended, never inside it: a peer's account rename waits on that same queue.
+      // A popup that opens on an unlocked service worker turns Ready too, which is its foreground.
+      if (justBecameReady) {
+        get()
+          .refreshBackup('unlock')
+          .catch(err => console.warn('[syncFromBackend] the backup refresh on unlock failed:', err));
+      }
+
       // Immediately fetch balances when wallet becomes Ready (before any React effects).
       // Through the store action: with nothing on screen it queues for the WASM lock rather
       // than skipping, and called here it holds the lock before the first sync tick can, so an
@@ -729,6 +738,18 @@ export const useWalletStore = create<WalletStore>()(
         expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
+    },
+
+    refreshBackup: async reason => {
+      const res = await request({ type: WalletMessageType.BackupRefreshRequest, reason });
+      assertResponse(res.type === WalletMessageType.BackupRefreshResponse);
+      return res.outcome;
+    },
+
+    deleteBackup: async () => {
+      const res = await request({ type: WalletMessageType.BackupDeleteProfileRequest });
+      assertResponse(res.type === WalletMessageType.BackupDeleteProfileResponse);
+      return res.outcome;
     },
 
     checkGuardianDrift: async accountPublicKey => {

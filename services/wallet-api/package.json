@@ -1,0 +1,9 @@
+{
+  "name": "miden-wallet-api",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker for the encrypted wallet backup. Wrangler bundles the dependencies at deploy.",
+  "dependencies": {
+    "@noble/curves": "1.9.7"
+  }
+}

@@ -104,6 +104,10 @@ export enum WalletMessageType {
   MarkHotKeyRotatedOutResponse = 'MARK_HOT_KEY_ROTATED_OUT_RESPONSE',
   RetireRotatedOutHotKeyRequest = 'RETIRE_ROTATED_OUT_HOT_KEY_REQUEST',
   RetireRotatedOutHotKeyResponse = 'RETIRE_ROTATED_OUT_HOT_KEY_RESPONSE',
+  BackupRefreshRequest = 'BACKUP_REFRESH_REQUEST',
+  BackupRefreshResponse = 'BACKUP_REFRESH_RESPONSE',
+  BackupDeleteProfileRequest = 'BACKUP_DELETE_PROFILE_REQUEST',
+  BackupDeleteProfileResponse = 'BACKUP_DELETE_PROFILE_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
@@ -1097,6 +1101,47 @@ export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
 }
 
 /**
+ * The event that asks for an encrypted-backup refresh (wallet-api). Each event
+ * reads only its own features: `unlock` and `foreground` read the storage index
+ * and every changed feature, `address-book` the contacts, `activity-open` and
+ * `guardian-adopt` the history, and `transaction-completed` uploads the history.
+ */
+export type BackupRefreshReason =
+  | 'unlock'
+  | 'foreground'
+  | 'address-book'
+  | 'activity-open'
+  | 'guardian-adopt'
+  | 'transaction-completed';
+
+/**
+ * What a backup refresh did. `disabled` (off mainnet or no base URL), `locked`
+ * and `no-sync-key` are normal states; `failed` is logged in the backend;
+ * `updated` means local data changed or the server acknowledged a change.
+ */
+export type BackupRefreshOutcome = 'disabled' | 'locked' | 'no-sync-key' | 'failed' | 'unchanged' | 'updated';
+
+export interface BackupRefreshRequest extends WalletMessageBase {
+  type: WalletMessageType.BackupRefreshRequest;
+  reason: BackupRefreshReason;
+}
+
+export interface BackupRefreshResponse extends WalletMessageBase {
+  type: WalletMessageType.BackupRefreshResponse;
+  outcome: BackupRefreshOutcome;
+}
+
+/** Delete the backup profile and every entry on the server, then the local backup records. */
+export interface BackupDeleteProfileRequest extends WalletMessageBase {
+  type: WalletMessageType.BackupDeleteProfileRequest;
+}
+
+export interface BackupDeleteProfileResponse extends WalletMessageBase {
+  type: WalletMessageType.BackupDeleteProfileResponse;
+  outcome: BackupRefreshOutcome;
+}
+
+/**
  * Make this device the account's main one again: drop the rotated-out hot key
  * and flag the account for a hot-key rotation (`requiresHotKeyRotation`), which
  * `HotKeyRotationGate` then runs. Refused unless the stored `hotPublicKey` is
@@ -1387,6 +1432,8 @@ export type WalletRequest =
   | SetGuardianSyncStatusRequest
   | MarkHotKeyRotatedOutRequest
   | RetireRotatedOutHotKeyRequest
+  | BackupRefreshRequest
+  | BackupDeleteProfileRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
@@ -1465,6 +1512,8 @@ export type WalletResponse =
   | SetGuardianSyncStatusResponse
   | MarkHotKeyRotatedOutResponse
   | RetireRotatedOutHotKeyResponse
+  | BackupRefreshResponse
+  | BackupDeleteProfileResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse

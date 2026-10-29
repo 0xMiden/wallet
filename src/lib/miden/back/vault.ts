@@ -19,6 +19,8 @@ import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
+import type { BackupMergeRecords } from 'lib/backup/state';
+import { deriveSyncSecretKey, isValidSyncSecretKey, signSyncMessage, syncPublicKeyHex } from 'lib/backup/sync-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -188,7 +190,9 @@ enum StorageEntity {
   CurrentAccPubKey = 'curraccpubkey',
   Accounts = 'accounts',
   Settings = 'settings',
-  OwnMnemonic = 'ownmnemonic'
+  OwnMnemonic = 'ownmnemonic',
+  SyncSecretKey = 'syncsecretkey',
+  BackupMerge = 'backupmerge'
 }
 
 const checkStrgKey = createStorageKey(StorageEntity.Check);
@@ -213,6 +217,12 @@ const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey)
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+// The encrypted-backup sync key (lib/backup/sync-key.ts), derived from the phrase on first use and kept under the
+// vault key, so the backup goes on after the phrase is removed from the device.
+const syncSecretKeyStrgKey = createStorageKey(StorageEntity.SyncSecretKey);
+// The backup's plaintext merge records (lib/backup/state.ts): account names and the contacts base. They
+// name the user's contacts, so they live under the vault key like the settings they describe.
+const backupMergeStrgKey = createStorageKey(StorageEntity.BackupMerge);
 
 // Leading byte of a serialized SDK `Signature` for the ECDSA (secp256k1) scheme. Guardian hot
 // keys are always ECDSA, and `signHotDigest`/`signWord` strip this tag; signData re-prepends it so
@@ -409,6 +419,9 @@ export class Vault {
           )
           .count();
         if (pending) throw new PublicError(getMessage('seedRemovalBusy'));
+        // The backup sync key is derived from the phrase. Store it before the phrase
+        // leaves this device, so the backup continues to work after the removal.
+        await this.withSyncSecretKey(() => undefined);
         record = { status: 'removing', recoveryPublicKeys };
         await encryptAndSaveMany([[seedRemovalStrgKey, record]], this.vaultKey);
         onStarted?.();
@@ -2733,6 +2746,62 @@ export class Vault {
           return evmAccount.signMessage({ message: { raw: operation.messageHex } });
       }
     });
+  }
+
+  /**
+   * The compressed public key of the backup sync key, as lowercase hex, or null
+   * when this wallet has no sync key (no stored phrase and no stored sync key).
+   */
+  async syncPublicKey(): Promise<string | null> {
+    return this.withSyncSecretKey(syncPublicKeyHex);
+  }
+
+  /**
+   * Sign `message` with the backup sync key (compact, over SHA-256 of the
+   * message). Returns null when this wallet has no sync key. The key never
+   * leaves this method.
+   */
+  async signWithSyncKey(message: string): Promise<Uint8Array | null> {
+    return this.withSyncSecretKey(secret => signSyncMessage(secret, message));
+  }
+
+  /** The stored backup merge records, as stored (the caller parses them), or undefined when there are none. */
+  async fetchBackupMergeRecords(): Promise<unknown> {
+    return withError('Failed to fetch the backup merge records', async () => {
+      if (!(await isStored(backupMergeStrgKey))) return undefined;
+      return fetchAndDecryptOne<unknown>(backupMergeStrgKey, this.vaultKey);
+    });
+  }
+
+  async saveBackupMergeRecords(records: BackupMergeRecords): Promise<void> {
+    return withError('Failed to save the backup merge records', async () => {
+      await encryptAndSaveMany([[backupMergeStrgKey, records]], this.vaultKey);
+    });
+  }
+
+  /**
+   * Give the sync secret key to `use` and zero it after. The key is read from
+   * its own vault entry. When that entry does not exist and the phrase is
+   * stored, the key is derived from the phrase and saved first.
+   */
+  private async withSyncSecretKey<T>(use: (secret: Uint8Array) => T): Promise<T | null> {
+    let secretHex: string | null = null;
+    if (await isStored(syncSecretKeyStrgKey)) {
+      secretHex = await fetchAndDecryptOne<string>(syncSecretKeyStrgKey, this.vaultKey);
+    } else if ((await this.fetchSeedPhraseStatus()) === 'stored') {
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, this.vaultKey);
+      const derived = deriveSyncSecretKey(mnemonic);
+      secretHex = bytesToHex(derived);
+      derived.fill(0);
+      await encryptAndSaveMany([[syncSecretKeyStrgKey, secretHex]], this.vaultKey);
+    }
+    if (secretHex === null || !/^[0-9a-f]{64}$/.test(secretHex)) return null;
+    const secret = new Uint8Array(Buffer.from(secretHex, 'hex'));
+    try {
+      return isValidSyncSecretKey(secret) ? use(secret) : null;
+    } finally {
+      secret.fill(0);
+    }
   }
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
