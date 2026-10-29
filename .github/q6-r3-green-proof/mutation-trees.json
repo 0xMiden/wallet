@@ -1,0 +1,145 @@
+[
+  {
+    "number": 1,
+    "path": "src/lib/miden/back/sync-manager.ts",
+    "file_hunk": 2,
+    "source_tree": "2d1d9288988f79a3c448ebdf09cd68d0fad9dc57",
+    "blob": "0e4b44328714ca1950b51cf2fe18711f96a8a735",
+    "sha256": "cd7747107504b5dee11c62d683d9514409b0e84bda56f1ed4c0a8d401a5d6e55",
+    "hunk_sha256": "a9aa84b624ecad203464f60b3613084ed0bbe9a7f68ddd5ffc7b80242cd5ff01",
+    "kind": "structural",
+    "prediction": "readMirroredDelegateProof"
+  },
+  {
+    "number": 2,
+    "path": "src/lib/miden/back/sync-manager.ts",
+    "file_hunk": 3,
+    "source_tree": "6cad4b62140f0b6970355cc0a2f140507a8e6400",
+    "blob": "003374e0beb48afca3871c1bd51daae707410c95",
+    "sha256": "f697727d4ea87360727d06202e47546871ffc36914e69d193dd63fb2351e20bd",
+    "hunk_sha256": "f1e7d274d29b0ee0cdf1b7b56a5262cf76887fb91a0f3e0d7d9a1b9fa6431dfc",
+    "kind": "structural",
+    "prediction": "settlementDelegate"
+  },
+  {
+    "number": 3,
+    "path": "src/lib/miden/back/sync-manager.ts",
+    "file_hunk": 4,
+    "source_tree": "62bc3be624e703e56cbd98f88e96a26d3684e493",
+    "blob": "7e9d1f48e3884162383171ca9656df58b81d99f3",
+    "sha256": "39f6621e617b281f4be721aa3304475ff21a061f61bc1ccb978b4ea0d6e3ee47",
+    "hunk_sha256": "afa19d12dacb61de618d89e8179a5e07ff83455e755f39c505e21690a0712b48",
+    "kind": "functional",
+    "prediction": "unpublished present mirror false and saved choice true"
+  },
+  {
+    "number": 4,
+    "path": "src/lib/miden/transaction/index.ts",
+    "file_hunk": 2,
+    "source_tree": "9eb47d342d352c5a5d7d7197914eb743bf159332",
+    "blob": "ae4a4932893c688ddddfc7fc34ff87946e407cd9",
+    "sha256": "ddcc95b3b8d68f8046e4b73b8def3e6472231907f09dd71d2a1494387aeb59cd",
+    "hunk_sha256": "a4ae317ec347fc54ad8bdf46e327d0374ccf4d22857577c2249cad1942e8d13f",
+    "kind": "structural",
+    "prediction": "queueSightingAt"
+  },
+  {
+    "number": 5,
+    "path": "src/lib/miden/transaction/index.ts",
+    "file_hunk": 3,
+    "source_tree": "968ec34ee5d9c4ac006becde88613383fc0a6b5e",
+    "blob": "255ff82a4f4a1f1e00cec6781c07f3788c0e0fa0",
+    "sha256": "f88abd852c1b08400dd8c45eec97aff7d882ebcb1b448735bc17b5b4235453a5",
+    "hunk_sha256": "e102824530c999dbb3d9922810da82d72b22fa716b1bc42bd3c62b139380bf24",
+    "kind": "functional",
+    "prediction": "stored label belongs to another incarnation"
+  },
+  {
+    "number": 6,
+    "path": "src/lib/miden/transaction/index.ts",
+    "file_hunk": 4,
+    "source_tree": "c33ee09948f55db2c1c1151eec8e2b91de3f17d2",
+    "blob": "0e3219a7b827669f66b06a194c6947ec262a0ffb",
+    "sha256": "422a6f93a8ef524818669fe46625e3cbb47008b912f242ed35e6dec06915144e",
+    "hunk_sha256": "44f68f172ebbfac0d98248b170b5842109587084170c20c15d228558053836af",
+    "kind": "functional",
+    "prediction": "captured before cancel and Retry"
+  },
+  {
+    "number": 7,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 2,
+    "source_tree": "a137d25c968e0374a8d6d1efc6642684deb13c39",
+    "blob": "cc5c734cae07a877aa120d94566c7413cb37d2a3",
+    "sha256": "42df3acda825047da475aabb150d158ab3b92b325e70ee4b8fe918a2e13a44e3",
+    "hunk_sha256": "95794d83c164360f8f7050c3053f0ca3debd9995197548eac8a0491b00409b79",
+    "kind": "structural",
+    "prediction": "readMirroredDelegateProof"
+  },
+  {
+    "number": 8,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 3,
+    "source_tree": "819a8ec70a3f13e1c8f1fc806648f1aa1d799a1f",
+    "blob": "4bcdfaaf0f754579829c68e95ab9d4b5bacfc1ce",
+    "sha256": "7857805478ef33a0f873eb85e540a81de1d27d9a0802734b6526b4a7954dccec",
+    "hunk_sha256": "029044be7dbdc57e28bea07a2e8aae4c7f79308ef74015ae22f3cc486d66c08b",
+    "kind": "structural",
+    "prediction": "complete"
+  },
+  {
+    "number": 9,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 4,
+    "source_tree": "bde6489122fbf5ed2b5c30ef1371193ce5d29c36",
+    "blob": "34cc1753fa13d5c73ea40395d92ed440b06d0ac3",
+    "sha256": "ffbf80469b54eebe9c058cc08a8f419804e2561a2b6543c485c6f32ef63fbdda",
+    "hunk_sha256": "f8f36327d2086f0191f778ca90fa76a2e5bea8c0bb5bffb70ced3405020e2f58",
+    "kind": "functional",
+    "prediction": "repairs opted-out telemetry"
+  },
+  {
+    "number": 10,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 5,
+    "source_tree": "46fa79d5bd7ff3e46033844d8d7c33ab3bcb1304",
+    "blob": "a6b11b04016ef6cbc6a2c357ab5415e74589af6a",
+    "sha256": "c66457c8346c89b1252f015ee6a09272b501e96f5d6572cb2087d782baf4f648",
+    "hunk_sha256": "bb5c1e792858f6373aec695326fc57bb597d2f88e35d233abbeb0d2e1b825456",
+    "kind": "functional",
+    "prediction": "operational write"
+  },
+  {
+    "number": 11,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 6,
+    "source_tree": "6dcacf119de5f50049e3bc7c792b489322ca1827",
+    "blob": "070aa90785a6554172fe1f0514bee63ff617c655",
+    "sha256": "11f549c043b4d689a16510b264c31db7db6040c3d6148e64c14ec9e161b7fe6d",
+    "hunk_sha256": "2bebb7270b09ea40332f6fb4dafdf3b1f863af7fd4a4183ea659f0c6f331d18f",
+    "kind": "functional",
+    "prediction": "withholds the marker when the telemetry write is rejected"
+  },
+  {
+    "number": 12,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 7,
+    "source_tree": "1a3254f2cfcc6f6fa7370645d30ddffbd9772db9",
+    "blob": "f7ed0c39a4b2c2db9eb56cd52cf5cedfbe1b01f1",
+    "sha256": "166ef607f74610ac4e3e1b2a651c7089b8b20965a37c699b3db5a6b2448e768c",
+    "hunk_sha256": "f20e71e9fe797effe39aaf5884aa5e1d40904bad8d1805d26d7641ed402aab97",
+    "kind": "functional",
+    "prediction": "mirrorBackgroundSettings sets the marker so the SW may act"
+  },
+  {
+    "number": 13,
+    "path": "src/lib/settings/helpers.ts",
+    "file_hunk": 8,
+    "source_tree": "99c8d2b5591affb57c3822a4d59bd1bb313ff99c",
+    "blob": "cd7fd101dac99d9eda856cab2a087c385796b102",
+    "sha256": "12d92bb1102e3b3d7425b6ddf770ad5d4432b744aaeab6e5d01bbf0b0a343194",
+    "hunk_sha256": "e7df4313657898ed0efd1eb3346f536700369e0650951efe391e6851a3737417",
+    "kind": "functional",
+    "prediction": "operational entry read"
+  }
+]

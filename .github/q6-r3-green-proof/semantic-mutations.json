@@ -1,0 +1,52 @@
+[
+  {
+    "name": "reader-absent-false",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "return undefined;",
+    "new": "return false;",
+    "reader_region": true,
+    "prediction": "returns undefined when the delegate key is absent",
+    "source_tree": "d2205c63408f8c53364f03be26165d412894ee6e",
+    "sha256": "536675dd65a19beaa9e5109f4de2aa93ad9a20b8895e4b122326c4454a88185c"
+  },
+  {
+    "name": "reader-booleans-inverted",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "typeof value === 'boolean' ? value : false",
+    "new": "typeof value === 'boolean' ? !value : false",
+    "reader_region": true,
+    "prediction": "returns a stored false",
+    "source_tree": "311a5310faeb68ca6292b3cb494bad42583a3c7b",
+    "sha256": "d1c3e368905e639056b4bcb535db6fc2cdbfe0dbd4262702a24c1454e8aceb20"
+  },
+  {
+    "name": "reader-invalid-true",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "typeof value === 'boolean' ? value : false",
+    "new": "typeof value === 'boolean' ? value : true",
+    "reader_region": true,
+    "prediction": "non-boolean read",
+    "source_tree": "07e15a2383d8b7ab27e44e1f58b965911b628210",
+    "sha256": "2a10fab004144c6afefb97ae4115b2254cf829b0851c4ae4da8f6e0d16f29833"
+  },
+  {
+    "name": "reader-error-true",
+    "path": "src/lib/settings/helpers.ts",
+    "old": "return false;",
+    "new": "return true;",
+    "reader_region": true,
+    "prediction": "thrown provider read",
+    "source_tree": "74e34ba5eea9afc3212c3b692e70262eee1b48de",
+    "sha256": "a320a9bc5d8c35d79367a924b42d531c74138cfb201cb2fbfdfc9379dd793250"
+  },
+  {
+    "name": "consumer-stale-true-pass-through",
+    "path": "src/lib/miden/back/sync-manager.ts",
+    "old": "settlementDelegate = present === undefined ? undefined : false;",
+    "new": "settlementDelegate = present;",
+    "reader_region": false,
+    "prediction": "unpublished present mirror true and saved choice false",
+    "source_tree": "59b2f26d2d033e7bf7461d171ff2af954b45a0f7",
+    "sha256": "9cebda874f353894e97845b77c25072c6477771d18b83995a5041c6758dd5c16"
+  }
+]

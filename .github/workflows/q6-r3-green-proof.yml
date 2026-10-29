@@ -1,0 +1,49 @@
+name: Queue and settings green and mutation proof
+on:
+  push:
+    branches: [ci/q6-r3-green-mutation-proof-20261029]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind immutable proof source
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/q6-r3-green-evidence"
+          git rev-parse HEAD > "$RUNNER_TEMP/q6-r3-green-evidence/workflow-sha.txt"
+          test "$(git rev-parse HEAD^)" = 3dfd9ec6936bdc8d730eeb4eb06ca9d1aebf1c13
+          cp -R .github/q6-r3-green-proof "$RUNNER_TEMP/q6-r3-green-packet"
+          cp "$RUNNER_TEMP/q6-r3-green-packet/"* "$RUNNER_TEMP/q6-r3-green-evidence/"
+          git checkout --detach 3dfd9ec6936bdc8d730eeb4eb06ca9d1aebf1c13
+          test "$(git rev-parse HEAD^{tree})" = 17b7dc5ff8ec75e730c3189d98ec14d16e4924d7
+          python3 -m py_compile "$RUNNER_TEMP/q6-r3-green-packet/"*.py
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee "$RUNNER_TEMP/q6-r3-green-evidence/install.log"
+      - name: Full typecheck and strict named lint
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit 2>&1 | tee "$RUNNER_TEMP/q6-r3-green-evidence/typecheck.log"
+          yarn eslint src/lib/miden/transaction/index.ts src/lib/settings/helpers.ts src/lib/settings/helpers.test.ts src/lib/miden/back/sync-manager.ts src/lib/miden/back/sync-manager.test.ts src/lib/miden/transaction/transaction-failure-sentry.integration.test.ts --max-warnings 0 2>&1 | tee "$RUNNER_TEMP/q6-r3-green-evidence/lint.log"
+      - name: Baseline325, installed thirteen hunks, five semantic mutations, closing325
+        env:
+          PROOF_EVIDENCE: ${{ runner.temp }}/q6-r3-green-evidence
+        run: python3 "$RUNNER_TEMP/q6-r3-green-packet/proof.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q6-r3-green-mutation-proof
+          path: ${{ runner.temp }}/q6-r3-green-evidence
+          if-no-files-found: error
