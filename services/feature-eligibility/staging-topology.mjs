@@ -1,4 +1,4 @@
-const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget', 'rate_refusal']);
+const SCENARIOS = new Set(['cache_reuse', 'colo_isolation', 'shared_budget', 'rate_refusal', 'failure_behavior']);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -211,6 +211,29 @@ export async function runRateScenario({ service, counters }) {
       if (response.status !== 429 || body?.error !== 'rate_limited' ||
           response.headers.get('Retry-After') !== (refusal === 'caller' ? '60' : '10') ||
           after?.objects !== before.objects) return 'failed';
+    }
+    return 'passed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function runFailureScenario({ service, counters }) {
+  try {
+    const initial = await counters();
+    if (!Number.isSafeInteger(initial?.attempts) || initial.attempts < 0) return 'failed';
+    for (const mode of ['overload', 'retryable']) {
+      const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
+        headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://wallet.example' }
+      });
+      Object.defineProperty(request, 'cf', { value: { colo: 'TST' } });
+      const response = await service.fetch(request, mode);
+      const body = await response.json();
+      const current = await counters();
+      if (mode === 'overload') {
+        if (response.status !== 503 || body?.error !== 'overloaded' || response.headers.get('Retry-After') !== '30' ||
+            current?.attempts !== initial.attempts + 1) return 'failed';
+      } else if (!response.ok || body?.ready !== true || current?.attempts !== initial.attempts + 3) return 'failed';
     }
     return 'passed';
   } catch {

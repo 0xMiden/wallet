@@ -1,5 +1,5 @@
 import { createService } from './worker.mjs';
-import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario, runRateScenario } from './staging-topology.mjs';
+import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario, runFailureScenario, runRateScenario } from './staging-topology.mjs';
 
 const policy = {
   network: 'testnet',
@@ -108,6 +108,26 @@ export class TopologyControl {
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
+      if (name === 'failure_behavior') {
+        let attempts = 0;
+        const adapter = {
+          fetch: (request, mode) => {
+            let current = 0;
+            const guard = {
+              idFromName: () => 'fixed',
+              get: () => ({ fetch: async () => {
+                attempts++;
+                current++;
+                if (mode === 'overload') throw Object.assign(new Error('synthetic overload'), { overloaded: true });
+                if (current === 1) throw Object.assign(new Error('synthetic retry'), { retryable: true });
+                return Response.json({ ready: true });
+              } })
+            };
+            return service.fetch(request, { ...serviceEnv, CALLER_GUARD: guard });
+          }
+        };
+        return runFailureScenario({ service: adapter, counters: async () => ({ attempts }) });
+      }
       if (name === 'rate_refusal') {
         let objects = 0;
         const monitored = namespace => ({
