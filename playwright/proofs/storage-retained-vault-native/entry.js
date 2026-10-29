@@ -9,7 +9,7 @@ import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
-import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { applyEndpointOverride, getEffectiveRpcUrl, loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
@@ -259,6 +259,8 @@ let crossRealmWallet;
 async function attach(password) {
   guard();
   progress('second-realm-setup');
+  await loadEndpointOverrides();
+  check('secondRealmLocalEndpoint', getEffectiveRpcUrl() === location.origin);
   await ensureSdkWasmReady();
   await initializeStorageHealth();
   check('secondRealmInitiallyHealthy', getStorageHealth().status === 'healthy');
