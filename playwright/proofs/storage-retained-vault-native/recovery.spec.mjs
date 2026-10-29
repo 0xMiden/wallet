@@ -105,8 +105,8 @@ function safeReport(value) {
   }
   return { phase: value.phase, checks };
 }
-for (const includePrivate of [false]) {
-  test('st/main/retained-vault/wallet-store-loss', async ({
+for (const includePrivate of [false, true]) {
+  test(`st/main/retained-vault/wallet-store-loss/${includePrivate ? 'private' : 'account'}`, async ({
     browser
   }, testInfo) => {
     const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
