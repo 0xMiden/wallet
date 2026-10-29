@@ -1,0 +1,80 @@
+name: Issue 1948 disposable wallet recovery browser
+on:
+  push:
+    branches: [ci/1948-wallet-recovery-browser]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      RAYON_NUM_THREADS: 2
+      WALLET_MATRIX_MODE: st
+      WALLET_MATRIX_BUILD_ROOT: ${{ github.workspace }}/builds
+      RECOVERY_PROOF_BUILD_ROOT: ${{ github.workspace }}/builds
+      RECOVERY_PROOF_RESULTS: ${{ github.workspace }}/results.json
+      WALLET_MATRIX_OUTPUT_DIR: ${{ github.workspace }}/test-results
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fixture
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: wallet
+          ref: fcf3df17346cb2c87c64a28f2b454c41667e332f
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify source and install fixture
+        run: |
+          set -euo pipefail
+          test "$(git -C wallet rev-parse HEAD)" = fcf3df17346cb2c87c64a28f2b454c41667e332f
+          cp -R fixture/playwright/proofs/storage-retained-vault-native wallet/playwright/proofs/
+      - uses: ./wallet/.github/actions/yarn-install
+        with:
+          working-directory: wallet
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk505-40842248402
+          run-id: 40842248402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sdk
+      - name: Inject exact reviewed SDK
+        run: |
+          echo "3b2dc2765947b8d1ad064735d4bf08ccd100fc312c2901419220ebb721207905  $RUNNER_TEMP/sdk/sdk505.tgz" | sha256sum -c
+          rm -rf wallet/node_modules/@miden-sdk/miden-sdk
+          mkdir -p wallet/node_modules/@miden-sdk/miden-sdk
+          tar -C wallet/node_modules/@miden-sdk/miden-sdk -xzf "$RUNNER_TEMP/sdk/sdk505.tgz"
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-recovery-producer-binary-40783300967-1
+          run-id: 40783300967
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/producer
+      - name: Verify disposable fixture producer
+        run: |
+          echo "b86128e63f0e8bbdeb6a3a29c443a48c79a94ed173d59264179c1dde62476f50  $RUNNER_TEMP/producer/wallet-recovery-native-fixtures" | sha256sum -c
+          chmod 700 "$RUNNER_TEMP/producer/wallet-recovery-native-fixtures"
+      - name: Install Chromium
+        working-directory: wallet
+        run: yarn playwright install --with-deps chromium
+      - name: Build and exercise disposable recovery
+        working-directory: wallet
+        env:
+          RECOVERY_FIXTURE_PRODUCER: ${{ runner.temp }}/producer/wallet-recovery-native-fixtures
+        run: |
+          set -euo pipefail
+          yarn vite build --config playwright/proofs/storage-retained-vault-native/vite.config.mts
+          test -s "$WALLET_MATRIX_BUILD_ROOT/st/index.html"
+          yarn playwright test --config playwright/proofs/storage-retained-vault-native/playwright.config.mts --retries=0 --workers=1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wallet1948-browser-${{ github.run_id }}
+          path: results.json
+          if-no-files-found: warn
