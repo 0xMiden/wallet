@@ -98,6 +98,11 @@ export function validateTopologyBindings(scripts, expected) {
     for (const entry of script.bindings) {
       if (!entry || typeof entry.name !== 'string' || !entry.name || typeof entry.type !== 'string' || !entry.type)
         return false;
+      if (entry.type === 'service') {
+        if (typeof entry.service !== 'string' || !/^[a-zA-Z0-9_-]{1,63}$/.test(entry.service)) return false;
+        if (script.id !== expected.script && entry.service === expected.script) return false;
+        continue;
+      }
       if (entry.type !== 'durable_object_namespace') continue;
       if (
         typeof entry.class_name !== 'string' ||
