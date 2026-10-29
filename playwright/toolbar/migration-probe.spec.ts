@@ -333,6 +333,8 @@ for (const theme of ['dark'] as const) {
       activate();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
       await migrationState('popup-cleared');
+      // Hold the browser in the pre-migration behavior while leaving popup cleared.
+      await worker.evaluate(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }));
       execFileSync('xdotool', ['key', 'Escape'], { timeout: 10000 });
       await expect
         .poll(() =>
@@ -342,6 +344,16 @@ for (const theme of ['dark'] as const) {
         )
         .toBe(0);
       await migrationState('popup-closed-before-click');
+      activate();
+      await migrationState('held-behavior-after-click');
+      await expect.poll(panelCount).toBe(0);
+      const held = await worker.evaluate(async () => ({
+        behavior: await chrome.sidePanel.getPanelBehavior(),
+        panelCount: (await chrome.runtime.getContexts({})).filter(item => item.contextType === 'SIDE_PANEL').length
+      }));
+      expect(held).toEqual({ behavior: { openPanelOnActionClick: false }, panelCount: 0 });
+      await worker.evaluate(() => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }));
+      await migrationState('behavior-released');
       activate();
       await migrationState('after-second-click');
       try {
