@@ -8,9 +8,6 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { getMidenClient, resetMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { nativeStorageName } from 'lib/miden/sdk/native-storage-policy';
-import { RECOVERY_JOURNAL_KEYS } from 'lib/miden/recovery/journal';
-import { decryptRecoveryDataFile, RECOVERY_DATA_FILE_MAX_BYTES } from 'lib/miden/recovery/external-file';
-import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { getWasmOrThrow, NoteAcquisitionRetentionError } from '@miden-sdk/miden-sdk/lazy';
 import { initializeStorageHealth, getStorageHealth } from 'lib/miden/storage-health';
 import { applyEndpointOverride, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -280,48 +277,45 @@ async function prepare(password, includePrivate) {
     submitEvidence: [{ attemptId, capturedAt: 1, source: 'stage', ...evidence }]
   });
   await vault.retainTransactionRecovery(syntheticId, { requestBytes, notes: [] }, evidence, attemptId);
-  progress('external-file-baseline');
-  const prior = await vault.readRecoveryJournal();
-  check('priorAttemptVerified', prior?.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1) === true);
-  const provider = getStorageProvider();
-  const before = JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS));
-  const floorKey = await digest(new TextEncoder().encode('vault_recoverycontinuity'));
-  const beforeFloor = JSON.stringify((await provider.get([floorKey]))[floorKey]);
-  check('independentFloorPresent', typeof beforeFloor === 'string' && beforeFloor.length > 0);
-  const filePassword = crypto.randomUUID();
-  progress('external-file-export');
-  const content = await Vault.exportRecoveryData(filePassword, password);
-  progress('external-file-export-returned');
-  check('encryptedFileBounded', new TextEncoder().encode(content).length <= RECOVERY_DATA_FILE_MAX_BYTES && !content.includes(syntheticId) && !content.includes(attemptId));
-  progress('external-file-ciphertext-verified');
-  const opened = await decryptRecoveryDataFile(content, filePassword);
-  progress('external-file-decrypt-returned');
-  check('correctPasswordRoundTrip', (await digest(new TextEncoder().encode(JSON.stringify(opened)))) === (await digest(new TextEncoder().encode(JSON.stringify(prior)))));
-  progress('external-file-wrong-password');
-  let wrongPasswordRefused = false;
-  try { await Vault.importRecoveryData(content, filePassword + '-wrong', getStorageHealth().epoch, password); }
-  catch (error) { wrongPasswordRefused = error instanceof Error && error.name === 'RecoveryDataFileError' && error.code === 'password'; }
-  check('wrongPasswordRefused', wrongPasswordRefused);
-  check('wrongPasswordUnchanged', JSON.stringify(await provider.get(RECOVERY_JOURNAL_KEYS)) === before && getStorageHealth().status === 'healthy');
-  progress('disposable-journal-store-loss');
-  await provider.remove(RECOVERY_JOURNAL_KEYS);
-  const missing = await provider.get(RECOVERY_JOURNAL_KEYS);
-  check('onlyJournalKeysMissing', RECOVERY_JOURNAL_KEYS.every(key => missing[key] === undefined) && (await indexedDB.databases()).some(item => item.name === Repo.db.name) && (await indexedDB.databases()).some(item => item.name === sdkStore));
-  check('independentFloorSurvived', JSON.stringify((await provider.get([floorKey]))[floorKey]) === beforeFloor);
-  check('missingJournalRefused', (await vault.verifyStorageContinuity(false)) === false && getStorageHealth().status === 'unavailable');
-  const incident = getStorageHealth();
-  progress('external-file-import');
-  const imported = await Vault.importRecoveryData(content, filePassword, incident.epoch, password);
-  check('encryptedFileImported', imported.imported === true);
-  check('importDidNotResume', getStorageHealth().status === 'unavailable' && getStorageHealth().epoch === incident.epoch);
-  const retained = await vault.readRecoveryJournal();
-  check('importedScopeAndEvidence', retained?.scope.network === prior.scope.network && retained.scope.walletGeneration === prior.scope.walletGeneration && retained.scope.sdkGeneration === prior.scope.sdkGeneration && retained.sequence >= prior.sequence && retained.entries.some(entry => entry.kind === 'transaction' && entry.id === syntheticId && entry.mayHaveSubmitted === true && entry.row?.submitEvidence?.length === 1));
-  progress('external-file-bounded-recovery');
-  check('boundedRecoverySucceeded', (await vault.recoverStorage()) === true && getStorageHealth().status === 'healthy');
-  const restored = await Repo.transactions.get(syntheticId);
-  check('syntheticEvidenceRestored', restored?.status === ITransactionStatus.Unconfirmed && restored.mayHaveSubmitted === true && restored.submitEvidence?.length === 1 && restored.requestBytes?.length === 3 && restored.requestBytes.every((value, index) => value === [1, 2, 3][index]));
-  const summary = await control('summary', {});
-  check('noSubmissionOrRefusal', summary.submitCalls === 0 && summary.refusedRequests === 0);
+  const journal = await vault.readRecoveryJournal();
+  const retainedAttempt = journal?.entries.find(entry => entry.kind === 'transaction' && entry.id === syntheticId);
+  check('submissionCheckpointed', retainedAttempt?.mayHaveSubmitted === true && retainedAttempt.row?.submitEvidence?.length === 1);
+  check('retainedAccountFloor', journal?.accounts.length === 1);
+  const inputs = journal.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input');
+  check('retainedPrivateScope', includePrivate ? inputs.some(entry => entry.format === 'full') : inputs.length === 0);
+  const journalDigest = await digest(new TextEncoder().encode(JSON.stringify(journal)));
+  await control('state', {
+    accountId: fixture.accountId,
+    noteId: fixture.noteId,
+    includePrivate,
+    sdkStore,
+    feeFaucetId: fixture.feeFaucetId,
+    journalDigest,
+    baselineSequence: journal.sequence,
+    walletGeneration: journal.scope.walletGeneration
+  });
+  progress('orderly-sdk-disposal');
+  await withWasmClientLock(async () => {
+    const wallet = await getMidenClient();
+    await wallet.client.waitForIdle();
+  });
+  await resetMidenClient();
+  vault.retire();
+  vault = undefined;
+  check('disposableStoresDistinct', sdkStore === (await nativeStorageName(location.origin)) && sdkStore !== Repo.db.name && Repo.db.name === 'TridentMain');
+  check('bothStoresPresentBeforeLoss', (await indexedDB.databases()).some(item => item.name === Repo.db.name) && (await indexedDB.databases()).some(item => item.name === sdkStore));
+  Repo.db.close();
+  progress('disposable-dual-store-loss');
+  for (const name of [sdkStore, Repo.db.name]) {
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(name);
+      request.onsuccess = resolve;
+      request.onerror = () => reject(new Error('disposable-delete'));
+      request.onblocked = () => reject(new Error('disposable-delete-blocked'));
+    });
+  }
+  const remaining = await indexedDB.databases();
+  check('bothStoresMissing', !remaining.some(item => item.name === sdkStore || item.name === Repo.db.name));
   return { phase, checks: { ...checks } };
 }
 async function recover(password) {
@@ -330,10 +324,13 @@ async function recover(password) {
   await ensureSdkWasmReady();
   const state = await control('read-state', {});
   await endpoints(state.feeFaucetId);
-  check('sdkMissingBeforeRecovery', !(await indexedDB.databases()).some(item => item.name === sdkStore));
+  const missing = await indexedDB.databases();
+  check('bothMissingBeforeRecovery', !missing.some(item => item.name === sdkStore || item.name === Repo.db.name));
   await initializeStorageHealth();
   vault = await Vault.setup(password);
-  progress('detect-sdk-loss');
+  const retainedAccounts = await vault.fetchAccounts();
+  check('retainedVaultAccountBeforeRecovery', retainedAccounts.length === 1 && retainedAccounts[0].publicKey === state.accountId);
+  progress('detect-dual-store-loss');
   check('continuityRefused', (await vault.verifyStorageContinuity(false)) === false);
   check('unavailableAfterLoss', getStorageHealth().status === 'unavailable');
   const before = await vault.readRecoveryJournal();
@@ -341,7 +338,7 @@ async function recover(password) {
     'encryptedJournalSurvived',
     (await digest(new TextEncoder().encode(JSON.stringify(before)))) === state.journalDigest
   );
-  progress('actual-missing-account-recovery');
+  progress('actual-dual-store-recovery');
   const observed = [];
   const recovered = await vault.recoverStorage(value => {
     observed.push({
@@ -366,6 +363,8 @@ async function recover(password) {
   checks.recovered = recovered === true;
   checks.healthyAfterRecovery = getStorageHealth().status === 'healthy';
   if (recovered) {
+    const marker = await Repo.metadata.get('generation');
+    check('walletGenerationRestored', marker?.generation === state.walletGeneration);
     const row = await Repo.transactions.get('disposable-submitted-attempt');
     check('submissionRestored', row?.status === ITransactionStatus.Unconfirmed && row.mayHaveSubmitted === true &&
       row.restoredFromJournal === true && row.submitEvidence?.length === 1 &&
