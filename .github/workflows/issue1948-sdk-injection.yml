@@ -1,0 +1,125 @@
+name: Issue1948 SDK-bound build and i18n proof
+on:
+  push:
+    branches: ['ci/1948-sdk-injection-*']
+permissions:
+  contents: read
+jobs:
+  proof:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [chrome, mobile, i18n]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=8192
+      FEATURE_ELIGIBILITY_URL: https://eligibility.example/v1/eligibility
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: e8c54960de06b2b4e3df47f61b76aa11c65d9b23
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py bind --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-bind.log
+      - name: packages
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py packages --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-packages.log
+      - name: inject
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py inject --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-inject.log
+      - name: generate-lock
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py generate-lock --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-generate-lock.log
+      - name: replay
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py replay --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-replay.log
+      - name: identities
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-injection.py identities --config controller/.github/ci/issue1948-sdk-injection-inputs.json 2>&1 | tee proof/stage-identities.log
+      - name: Build or lint
+        timeout-minutes: 30
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -uo pipefail
+          cd replay
+          case "$TARGET" in
+            chrome) command=(yarn build:chrome) ;;
+            mobile) command=(yarn build:mobile) ;;
+            i18n) command=(yarn lint:i18n) ;;
+            *) exit 1 ;;
+          esac
+          "${command[@]}" 2>&1 | tee ../proof/command.log
+          status=${PIPESTATUS[0]}
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' ../proof/command.log; then
+            echo 'Command output contains errors' >&2
+            exit 1
+          fi
+          test "$status" -eq 0
+      - name: Verify build outputs
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cd replay
+          if [ "$TARGET" = chrome ]; then
+            test -s dist/chrome_unpacked/manifest.json
+            test -s dist/chrome.zip
+            node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const manifest = JSON.parse(fs.readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
+          for (const value of [manifest.background?.service_worker, manifest.action?.default_popup]) {
+            if (typeof value !== 'string' || !fs.statSync(path.join('dist/chrome_unpacked', value)).isFile()) throw new Error('Missing manifest entry');
+          }
+          NODE
+            shasum -a 256 dist/chrome_unpacked/manifest.json dist/chrome.zip > ../proof/output-hashes.txt
+          elif [ "$TARGET" = mobile ]; then
+            test -s dist/mobile/index.html
+            node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const html = fs.readFileSync('dist/mobile/index.html', 'utf8');
+          const assets = [...html.matchAll(/(?:src|href)="([^" ]+\.(?:js|css))"/g)].map(match => match[1]).filter(asset => !/^(?:https?:)?\/\//.test(asset));
+          if (!assets.some(asset => asset.endsWith('.js')) || !assets.some(asset => asset.endsWith('.css'))) throw new Error('Missing mobile script or stylesheet reference');
+          for (const asset of assets) if (!fs.statSync(path.join('dist/mobile', asset.replace(/^\//, ''))).isFile()) throw new Error('Missing mobile entry asset');
+          NODE
+            shasum -a 256 dist/mobile/index.html > ../proof/output-hashes.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-build-i18n-${{ matrix.target }}
+          path: proof/
+          if-no-files-found: error
