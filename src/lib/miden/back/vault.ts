@@ -466,7 +466,7 @@ export class Vault {
             } catch {
               name = undefined;
             }
-            if (typeof name !== 'string' || !/abort|cancel|deadline|timeout|poison|network/i.test(name))
+            if (typeof name !== 'string' || !/cancel|deadline|timeout|poison|network/i.test(name))
               markStorageUnavailable('journal', context);
           }
         }
