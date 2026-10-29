@@ -1,0 +1,181 @@
+name: iOS eligibility Origin observation
+on:
+  push:
+    branches: [ci/1894-ios-origin]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  observe:
+    name: dApp Browser (iOS)
+    runs-on: macos-26-xlarge
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: 120
+    env:
+      E2E_NETWORK: testnet
+      MIDEN_E2E_TEST: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      # idb lets the harness tap "Allow" on the native notification-permission alert
+      # (system-alerts.ts), which lives outside the WebView and otherwise covers the dApp
+      # slot in every paint check. Same install as e2e-blockchain.yml: fb-idb needs
+      # Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's 3.14). This
+      # suite needs idb: its create_wallet step fails when the prompt is not answered,
+      # and the error names why (idb-unavailable carries idb's own last error).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
+      # Fresh-create + boot of custom simulators hangs multi-minute then
+      # errors on macos-26 runners. Pin the test harness to preinstalled
+      # Xcode sims by writing .device-pair.json before globalSetup reads it.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      # Kick the cold boot off NOW so it overlaps the ~25-minute app build.
+      # First boot of an iOS 26 runtime on a cold runner takes many minutes
+      # (dyld shared-cache build); booting only in playwright's globalSetup
+      # left the suite racing a half-booted simulator, where simctl
+      # install/launch hang for the full test timeout. `simctl boot` is
+      # asynchronous - globalSetup's bootstatus gate later confirms
+      # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          # On a cold runner CoreSimulatorService may not respond ("Unable
+          # to boot the Simulator. launchd failed to respond",
+          # SimLaunchHostService code 4) - retry with backoff. If retries
+          # exhaust, the service is wedged, and a wedged CoreSimulatorService
+          # breaks MORE than booting: xcodebuild stops seeing any simulator
+          # destinations, so the build step would fail 25 minutes later
+          # anyway (observed). Restart the service once; if the subsystem
+          # still can't boot, fail the job HERE - minutes in, clearly
+          # attributed, and cheap to rerun.
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            return 1
+          }
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) - see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here - xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
+
+      - name: Build iOS app
+        # Same SwiftPM-cache self-heal as e2e-blockchain.yml: on a failed build,
+        # wipe the corrupt cache + derived data and retry once.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
+
+      - name: Run dApp browser E2E (iOS)
+        # --retries=2 absorbs the CDP "no pages found" / degraded-CoreSimulator
+        # hiccups the other iOS jobs see. Each retry re-installs and re-launches
+        # from scratch, so a transient runner fault gets a clean attempt.
+        run: yarn playwright test --config playwright.ios.origin.config.ts --retries=0
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-browser-ios-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
