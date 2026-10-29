@@ -1,5 +1,12 @@
 import { createService } from './worker.mjs';
-import topology, { createRunController, runBudgetScenario, runCacheScenario, runColoScenario, runFailureScenario, runRateScenario } from './staging-topology.mjs';
+import topology, {
+  createRunController,
+  runBudgetScenario,
+  runCacheScenario,
+  runColoScenario,
+  runFailureScenario,
+  runRateScenario
+} from './staging-topology.mjs';
 
 const policy = {
   network: 'testnet',
@@ -25,8 +32,14 @@ function syntheticEnv(env) {
 
 function fixedFetch(onLookup) {
   return async url => {
-    if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json') return Response.json(policy);
-    if (['https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1', 'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.2'].includes(String(url))) {
+    if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json')
+      return Response.json(policy);
+    if (
+      [
+        'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1',
+        'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.2'
+      ].includes(String(url))
+    ) {
       onLookup();
       return Response.json({ country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
     }
@@ -63,25 +76,34 @@ export class CallerEligibilityGuard {
   constructor(state, env) {
     this.lookups = 0;
     this.writes = 0;
-    const service = createService({ fetchImpl: fixedFetch(() => { this.lookups++; }) });
+    const service = createService({
+      fetchImpl: fixedFetch(() => {
+        this.lookups++;
+      })
+    });
     this.delegate = new service.CallerEligibilityGuard(state, syntheticEnv(env));
     const storage = this.delegate.storage;
     this.delegate.storage = new Proxy(storage, {
       get: (target, key) => {
         if (key === 'transaction') {
-          return callback => target.transaction(tx => callback(new Proxy(tx, {
-            get: (inner, property) => {
-              if (property === 'put') {
-                return async (name, value) => {
-                  const result = await inner.put(name, value);
-                  if (name.startsWith('caller:')) this.writes++;
-                  return result;
-                };
-              }
-              const value = inner[property];
-              return typeof value === 'function' ? value.bind(inner) : value;
-            }
-          })));
+          return callback =>
+            target.transaction(tx =>
+              callback(
+                new Proxy(tx, {
+                  get: (inner, property) => {
+                    if (property === 'put') {
+                      return async (name, value) => {
+                        const result = await inner.put(name, value);
+                        if (name.startsWith('caller:')) this.writes++;
+                        return result;
+                      };
+                    }
+                    const value = inner[property];
+                    return typeof value === 'function' ? value.bind(inner) : value;
+                  }
+                })
+              )
+            );
         }
         const value = target[key];
         return typeof value === 'function' ? value.bind(target) : value;
@@ -115,13 +137,15 @@ export class TopologyControl {
             let current = 0;
             const guard = {
               idFromName: () => 'fixed',
-              get: () => ({ fetch: async () => {
-                attempts++;
-                current++;
-                if (mode === 'overload') throw Object.assign(new Error('synthetic overload'), { overloaded: true });
-                if (current === 1) throw Object.assign(new Error('synthetic retry'), { retryable: true });
-                return Response.json({ ready: true });
-              } })
+              get: () => ({
+                fetch: async () => {
+                  attempts++;
+                  current++;
+                  if (mode === 'overload') throw Object.assign(new Error('synthetic overload'), { overloaded: true });
+                  if (current === 1) throw Object.assign(new Error('synthetic retry'), { retryable: true });
+                  return Response.json({ ready: true });
+                }
+              })
             };
             return service.fetch(request, { ...serviceEnv, CALLER_GUARD: guard });
           }
@@ -131,8 +155,14 @@ export class TopologyControl {
       if (name === 'rate_refusal') {
         let objects = 0;
         const monitored = namespace => ({
-          idFromName: name => { objects++; return namespace.idFromName(name); },
-          get: id => { objects++; return namespace.get(id); }
+          idFromName: name => {
+            objects++;
+            return namespace.idFromName(name);
+          },
+          get: id => {
+            objects++;
+            return namespace.get(id);
+          }
         });
         const rateEnv = {
           ...serviceEnv,
@@ -140,11 +170,12 @@ export class TopologyControl {
           ELIGIBILITY_GUARD: monitored(env.ELIGIBILITY_GUARD)
         };
         const adapter = {
-          fetch: (request, refusal) => service.fetch(request, {
-            ...rateEnv,
-            CALLER_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'caller' }) },
-            COLO_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'colo' }) }
-          })
+          fetch: (request, refusal) =>
+            service.fetch(request, {
+              ...rateEnv,
+              CALLER_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'caller' }) },
+              COLO_RATE_LIMIT: { limit: async () => ({ success: refusal !== 'colo' }) }
+            })
         };
         return runRateScenario({ service: adapter, counters: async () => ({ objects }) });
       }
@@ -163,8 +194,8 @@ export class TopologyControl {
         return runColoScenario({ service: { fetch: request => service.fetch(request, serviceEnv) }, counters });
       }
       const counters = async () => ({
-        ...await (await caller.fetch('https://topology.internal/proof-counters')).json(),
-        ...await (await budget.fetch('https://topology.internal/proof-counters')).json()
+        ...(await (await caller.fetch('https://topology.internal/proof-counters')).json()),
+        ...(await (await budget.fetch('https://topology.internal/proof-counters')).json())
       });
       return runCacheScenario({ service: { fetch: request => service.fetch(request, serviceEnv) }, counters });
     };

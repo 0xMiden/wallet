@@ -10,7 +10,7 @@ function fixture({ retryOverload = false, skipRetry = false } = {}) {
     counters: async () => ({ attempts }),
     service: {
       async fetch(_request, mode) {
-        attempts += mode === 'overload' ? (retryOverload ? 2 : 1) : (skipRetry ? 1 : 2);
+        attempts += mode === 'overload' ? (retryOverload ? 2 : 1) : skipRetry ? 1 : 2;
         return mode === 'overload'
           ? Response.json({ error: 'overloaded' }, { status: 503, headers: { 'Retry-After': '30' } })
           : Response.json({ ready: true });

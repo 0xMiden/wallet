@@ -19,7 +19,9 @@ async function emptyBody(request) {
         }
         return false;
       })(),
-      new Promise(resolve => { timer = setTimeout(() => resolve(false), 1000); })
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve(false), 1000);
+      })
     ]);
   } catch {
     return false;
@@ -47,7 +49,9 @@ export default {
 
     try {
       const control = env.TOPOLOGY_CONTROL.get(env.TOPOLOGY_CONTROL.idFromName('run-v1'));
-      const result = await control.fetch(new Request(`https://topology.internal/scenario/${match[1]}`, { method: 'POST' }));
+      const result = await control.fetch(
+        new Request(`https://topology.internal/scenario/${match[1]}`, { method: 'POST' })
+      );
       if (!result.ok) return reply(503, { error: 'unavailable' });
       const value = await result.json();
       if (value?.scenario !== match[1] || !['passed', 'failed'].includes(value.status)) {
@@ -72,13 +76,17 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
     }
     try {
       const admission = await storage.transaction(async transaction => {
-        const current = await transaction.get('run') ?? { count: 0, active: false, expiresAt, maxRuns };
+        const current = (await transaction.get('run')) ?? { count: 0, active: false, expiresAt, maxRuns };
         const time = now();
         if (!Number.isSafeInteger(time) || time >= expiresAt || expiresAt - time > 900_000) return 'expired';
         if (
-          !Number.isSafeInteger(current.count) || current.count < 0 || typeof current.active !== 'boolean' ||
-          current.expiresAt !== expiresAt || current.maxRuns !== maxRuns
-        ) return 'invalid';
+          !Number.isSafeInteger(current.count) ||
+          current.count < 0 ||
+          typeof current.active !== 'boolean' ||
+          current.expiresAt !== expiresAt ||
+          current.maxRuns !== maxRuns
+        )
+          return 'invalid';
         if (current.active || current.count >= maxRuns) return 'limited';
         await transaction.put('run', { ...current, count: current.count + 1, active: true });
         return 'accepted';
@@ -122,8 +130,17 @@ export async function runCacheScenario({ service, counters }) {
     const firstBody = await first.json();
     const secondBody = await second.json();
     const expected = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } };
-    if (JSON.stringify(firstBody) !== JSON.stringify(expected) || JSON.stringify(secondBody) !== JSON.stringify(expected)) return 'failed';
-    if (!['lookups', 'writes', 'reservations'].every(key => afterMiss[key] === before[key] + 1 && afterHit[key] === afterMiss[key])) return 'failed';
+    if (
+      JSON.stringify(firstBody) !== JSON.stringify(expected) ||
+      JSON.stringify(secondBody) !== JSON.stringify(expected)
+    )
+      return 'failed';
+    if (
+      !['lookups', 'writes', 'reservations'].every(
+        key => afterMiss[key] === before[key] + 1 && afterHit[key] === afterMiss[key]
+      )
+    )
+      return 'failed';
     return 'passed';
   } catch {
     return 'failed';
@@ -138,7 +155,8 @@ export async function runColoScenario({ service, counters }) {
     Object.defineProperty(request, 'cf', { value: { colo } });
     return request;
   };
-  const valid = value => value && ['IAD', 'FRA', 'reservations'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
+  const valid = value =>
+    value && ['IAD', 'FRA', 'reservations'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
   try {
     const before = await counters();
     const first = await service.fetch(fixedRequest('IAD'));
@@ -147,9 +165,23 @@ export async function runColoScenario({ service, counters }) {
     const afterSecond = await counters();
     if (![before, afterFirst, afterSecond].every(valid) || !first.ok || !second.ok) return 'failed';
     const expected = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } };
-    if (JSON.stringify(await first.json()) !== JSON.stringify(expected) || JSON.stringify(await second.json()) !== JSON.stringify(expected)) return 'failed';
-    if (afterFirst.IAD !== before.IAD + 1 || afterFirst.FRA !== before.FRA || afterFirst.reservations !== before.reservations + 1) return 'failed';
-    if (afterSecond.IAD !== afterFirst.IAD || afterSecond.FRA !== afterFirst.FRA + 1 || afterSecond.reservations !== afterFirst.reservations + 1) return 'failed';
+    if (
+      JSON.stringify(await first.json()) !== JSON.stringify(expected) ||
+      JSON.stringify(await second.json()) !== JSON.stringify(expected)
+    )
+      return 'failed';
+    if (
+      afterFirst.IAD !== before.IAD + 1 ||
+      afterFirst.FRA !== before.FRA ||
+      afterFirst.reservations !== before.reservations + 1
+    )
+      return 'failed';
+    if (
+      afterSecond.IAD !== afterFirst.IAD ||
+      afterSecond.FRA !== afterFirst.FRA + 1 ||
+      afterSecond.reservations !== afterFirst.reservations + 1
+    )
+      return 'failed';
     return 'passed';
   } catch {
     return 'failed';
@@ -163,14 +195,17 @@ export async function runBudgetScenario({ budget, counters, now = Date.now }) {
       if (!Number.isSafeInteger(value) || value < 0 || value > 16) throw new Error('Invalid staging count');
       return value;
     };
-    const send = (path, fields) => budget.fetch(new Request(`https://eligibility.internal/${path}`, {
-      method: 'POST',
-      body: JSON.stringify({ day: new Date(now()).toISOString().slice(0, 10), deadline: now() + 5000, ...fields })
-    }));
+    const send = (path, fields) =>
+      budget.fetch(
+        new Request(`https://eligibility.internal/${path}`, {
+          method: 'POST',
+          body: JSON.stringify({ day: new Date(now()).toISOString().slice(0, 10), deadline: now() + 5000, ...fields })
+        })
+      );
     let count = await readCount();
     if (count >= 16) return 'failed';
     const reserve = await send('reserve', {});
-    if (!reserve.ok || (await reserve.json())?.reserved !== true || await readCount() !== count + 1) return 'failed';
+    if (!reserve.ok || (await reserve.json())?.reserved !== true || (await readCount()) !== count + 1) return 'failed';
     count++;
     for (let index = 0; count < 16 && index < 4; index++) {
       const leaseId = `00000000-0000-4000-8000-00000000000${index}`;
@@ -178,19 +213,25 @@ export async function runBudgetScenario({ budget, counters, now = Date.now }) {
       if (!lease.ok) return 'failed';
       const body = await lease.json();
       const granted = Math.min(4, 16 - count);
-      if (body?.reserved !== true || body.count !== granted || await readCount() !== count + granted) return 'failed';
+      if (body?.reserved !== true || body.count !== granted || (await readCount()) !== count + granted) return 'failed';
       count += granted;
       if (index === 0) {
         const duplicate = await send('lease', { leaseId, count: 4 });
         const duplicateBody = await duplicate.json();
-        if (!duplicate.ok || duplicateBody?.reserved !== true || duplicateBody.count !== granted || await readCount() !== count) return 'failed';
+        if (
+          !duplicate.ok ||
+          duplicateBody?.reserved !== true ||
+          duplicateBody.count !== granted ||
+          (await readCount()) !== count
+        )
+          return 'failed';
         const mismatch = await send('lease', { leaseId, count: 3 });
-        if (mismatch.ok || await readCount() !== count) return 'failed';
+        if (mismatch.ok || (await readCount()) !== count) return 'failed';
       }
     }
     if (count !== 16) return 'failed';
     const denied = await send('reserve', {});
-    return !denied.ok && await readCount() === 16 ? 'passed' : 'failed';
+    return !denied.ok && (await readCount()) === 16 ? 'passed' : 'failed';
   } catch {
     return 'failed';
   }
@@ -208,9 +249,13 @@ export async function runRateScenario({ service, counters }) {
       const response = await service.fetch(request, refusal);
       const body = await response.json();
       const after = await counters();
-      if (response.status !== 429 || body?.error !== 'rate_limited' ||
-          response.headers.get('Retry-After') !== (refusal === 'caller' ? '60' : '10') ||
-          after?.objects !== before.objects) return 'failed';
+      if (
+        response.status !== 429 ||
+        body?.error !== 'rate_limited' ||
+        response.headers.get('Retry-After') !== (refusal === 'caller' ? '60' : '10') ||
+        after?.objects !== before.objects
+      )
+        return 'failed';
     }
     return 'passed';
   } catch {
@@ -231,8 +276,13 @@ export async function runFailureScenario({ service, counters }) {
       const body = await response.json();
       const current = await counters();
       if (mode === 'overload') {
-        if (response.status !== 503 || body?.error !== 'overloaded' || response.headers.get('Retry-After') !== '30' ||
-            current?.attempts !== initial.attempts + 1) return 'failed';
+        if (
+          response.status !== 503 ||
+          body?.error !== 'overloaded' ||
+          response.headers.get('Retry-After') !== '30' ||
+          current?.attempts !== initial.attempts + 1
+        )
+          return 'failed';
       } else if (!response.ok || body?.ready !== true || current?.attempts !== initial.attempts + 3) return 'failed';
     }
     return 'passed';

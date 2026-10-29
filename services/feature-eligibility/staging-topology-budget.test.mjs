@@ -36,7 +36,12 @@ function harness({ split = false, duplicateBypasses = false } = {}) {
       return Response.json({ reserved: true, count: granted });
     }
   };
-  return { budget, now: () => Date.parse('2026-10-29T00:00:00Z'), counters: async () => ({ count }), stats: () => ({ count, reserveCount, leaseCount }) };
+  return {
+    budget,
+    now: () => Date.parse('2026-10-29T00:00:00Z'),
+    counters: async () => ({ count }),
+    stats: () => ({ count, reserveCount, leaseCount })
+  };
 }
 
 test('budget scenario shares one cap across reserve and lease paths', async () => {

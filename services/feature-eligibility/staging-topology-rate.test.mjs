@@ -10,10 +10,13 @@ function fixture({ wrongStatus = false, objectTouched = false } = {}) {
   const service = {
     async fetch(_request, refusal) {
       if (objectTouched) touched++;
-      return Response.json({ error: 'rate_limited' }, {
-        status: wrongStatus ? 503 : 429,
-        headers: { 'Retry-After': refusal === 'caller' ? '60' : '10' }
-      });
+      return Response.json(
+        { error: 'rate_limited' },
+        {
+          status: wrongStatus ? 503 : 429,
+          headers: { 'Retry-After': refusal === 'caller' ? '60' : '10' }
+        }
+      );
     }
   };
   return { service, counters: async () => ({ objects: touched }) };
