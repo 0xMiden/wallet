@@ -1,0 +1,53 @@
+name: Sentry RE native response expected red
+on:
+  push:
+    branches: [ci/sentry-re-red-v2]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = e17f95095587ee11a88a3b884ad542734f0ebf6a
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - name: Install JUnit
+        run: sudo apt-get update && sudo apt-get install -y junit4
+      - name: Verify native functional regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          kotlinc android/app/src/main/java/com/miden/wallet/ReownRequestObservations.kt android/app/src/test/java/com/miden/wallet/ReownRequestObservationsTest.kt -cp /usr/share/java/junit4.jar -include-runtime -d "$RUNNER_TEMP/reown-tests.jar"
+          set +e
+          (cd android/app && java -cp "$RUNNER_TEMP/reown-tests.jar:/usr/share/java/junit4.jar:/usr/share/java/hamcrest-core.jar" org.junit.runner.JUnitCore com.miden.wallet.ReownRequestObservationsTest) > "$RUNNER_TEMP/native-red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/native-red.log"
+          test "$status" -ne 0
+          grep -F 'Tests run: 9,  Failures: 1' "$RUNNER_TEMP/native-red.log"
+          grep -F 'categorizesKnownProviderAndRpcErrorsWithoutExposingRawValues' "$RUNNER_TEMP/native-red.log"
+          grep -F 'expected:<[provider_unauthorized]> but was:<[other]>' "$RUNNER_TEMP/native-red.log"
+  decoder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = e17f95095587ee11a88a3b884ad542734f0ebf6a
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: ./.github/actions/yarn-install
+      - name: Verify decoder functional regression
+        shell: bash
+        run: |
+          set +e
+          yarn jest src/lib/walletconnect/native-request-failure.test.ts --runInBand --no-coverage > "$RUNNER_TEMP/decoder-red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/decoder-red.log"
+          test "$status" -ne 0
+          grep -F 'retains the closed native wallet response category provider_unauthorized' "$RUNNER_TEMP/decoder-red.log"
+          grep -F '"walletResponseCode": "other"' "$RUNNER_TEMP/decoder-red.log"
