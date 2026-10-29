@@ -1,0 +1,23 @@
+name: Featured text contrast verification
+on:
+  push:
+    branches: [ci/1982-contrast-green]
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: test "$(git rev-parse HEAD^)" = 788cfe1a8f07f6e0a7df7343daf4e16cde0983b8
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: ./.github/actions/yarn-install
+      - run: npx playwright install --with-deps chromium
+      - name: Verify contrast
+        run: yarn playwright test --config playwright.contrast-proof.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: featured-contrast-green, path: test-results/contrast-proof/, if-no-files-found: error }
