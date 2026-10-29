@@ -37,13 +37,27 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
       const named = new Map(bindings.map(binding => [binding.name, binding]));
       if (
         named.size !== bindings.length ||
-        named.size !== Object.keys(expected.config.vars).length + expected.config.durable_objects.bindings.length + 1
+        named.size !==
+          Object.keys(expected.config.vars).length +
+            expected.config.durable_objects.bindings.length +
+            expected.config.ratelimits.length +
+            1
       )
         return null;
       for (const [name, text] of Object.entries(expected.config.vars)) {
         if (named.get(name)?.type !== 'plain_text' || named.get(name)?.text !== text) return null;
       }
       if (named.get('TOPOLOGY_BEARER')?.type !== 'secret_text') return null;
+      for (const rate of expected.config.ratelimits) {
+        const actual = named.get(rate.name);
+        if (
+          actual?.type !== 'ratelimit' ||
+          actual.namespace_id !== rate.namespace_id ||
+          actual.simple?.limit !== rate.simple.limit ||
+          actual.simple?.period !== rate.simple.period
+        )
+          return null;
+      }
       for (const binding of expected.config.durable_objects.bindings) {
         if (
           named.get(binding.name)?.type !== 'durable_object_namespace' ||

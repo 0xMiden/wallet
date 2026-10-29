@@ -142,6 +142,17 @@ function settingsMetadata(body, target) {
         value[field] = entry[field];
       }
     }
+    if (entry.type === 'ratelimit') {
+      if (
+        typeof entry.namespace_id !== 'string' ||
+        !/^[1-9][0-9]{0,18}$/.test(entry.namespace_id) ||
+        !Number.isSafeInteger(entry.simple?.limit) ||
+        !Number.isSafeInteger(entry.simple?.period)
+      )
+        return null;
+      value.namespace_id = entry.namespace_id;
+      value.simple = { limit: entry.simple.limit, period: entry.simple.period };
+    }
     if (
       target &&
       ['TOPOLOGY_OWNER', 'TOPOLOGY_CONFIG_SHA', 'TOPOLOGY_SOURCE', 'TOPOLOGY_RUN_UNTIL', 'TOPOLOGY_RUN_MAX'].includes(

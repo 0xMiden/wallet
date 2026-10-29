@@ -77,6 +77,15 @@ export function buildTopologyManifest(options = {}) {
     const identityCopy = Object.fromEntries(
       ['repository', 'runAttempt', 'runId', 'sourceSha', 'workflowPath'].map(key => [key, identity[key]])
     );
+    const rateNamespace = binding =>
+      (BigInt(`0x${digest(encode({ identity: identityCopy, binding })).slice(0, 13)}`) + 1n).toString();
+    const callerNamespace = rateNamespace('TOPOLOGY_CALLER_RATE');
+    const coloNamespace = rateNamespace('TOPOLOGY_COLO_RATE');
+    if (
+      callerNamespace === coloNamespace ||
+      [callerNamespace, coloNamespace].some(id => ['189401', '189402'].includes(id))
+    )
+      return null;
     const config = {
       name: scriptName,
       main: 'staging-topology-worker.mjs',
@@ -91,6 +100,10 @@ export function buildTopologyManifest(options = {}) {
         TOPOLOGY_RUN_MAX: String(maxRuns),
         TOPOLOGY_SOURCE: identity.sourceSha
       },
+      ratelimits: [
+        { name: 'TOPOLOGY_CALLER_RATE', namespace_id: callerNamespace, simple: { limit: 4, period: 60 } },
+        { name: 'TOPOLOGY_COLO_RATE', namespace_id: coloNamespace, simple: { limit: 4, period: 10 } }
+      ],
       durable_objects: {
         bindings: classes.map(name => ({
           name:

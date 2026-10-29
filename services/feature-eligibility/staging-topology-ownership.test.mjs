@@ -45,6 +45,7 @@ function apiFixture({ changedDigest = false, logging = false, missingMarker = fa
   for (const [name, text] of Object.entries(manifest.config.vars))
     if (!(missingMarker && name === 'TOPOLOGY_OWNER')) bindings.push({ name, type: 'plain_text', text });
   bindings.push({ name: 'TOPOLOGY_BEARER', type: 'secret_text' });
+  for (const rate of manifest.config.ratelimits) bindings.push({ ...rate, type: 'ratelimit' });
   return async path => {
     if (path === '/account') return { success: true, errors: [], result: { id: accountId } };
     if (path === '/workers/scripts?page=1&per_page=100') return page([{ id: manifest.scriptName }], 100);
