@@ -1,0 +1,70 @@
+name: Sidebar candidate mutation detail
+on:
+  push:
+    branches: [ci/sidebar-mutation-detail]
+permissions:
+  contents: read
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bind frozen candidate
+        run: |
+          test "$(git rev-parse HEAD^)" = 82e1d2279410714a2f46d241916f6ee45157d09d
+          git checkout --detach 82e1d2279410714a2f46d241916f6ee45157d09d
+          test "$(git rev-parse HEAD^{tree})" = cfbd8dcce78dc5909feb9bce4ea36f41761a0bbd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Obtain pinned Council mutation script
+        run: |
+          git clone --no-checkout https://github.com/WiktorStarczewski/review-council.git "$RUNNER_TEMP/council"
+          git -C "$RUNNER_TEMP/council" checkout --detach b76ca7c6ec1b8b86c54b8df91bea27866ab07424
+          cp "$RUNNER_TEMP/council/plugins/review-council/scripts/rev-mutate.sh" "$RUNNER_TEMP/rev-mutate.sh"
+          echo '32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc  '"$RUNNER_TEMP/rev-mutate.sh" | sha256sum -c -
+      - name: Measure frozen candidate hunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --mixed HEAD^
+          git diff --full-index --binary > "$RUNNER_TEMP/candidate.patch"
+          echo 'a5c0b3adbec8d94e2811fdb5535a71ff85fb7a5966995284a818406cce61a1b5  '"$RUNNER_TEMP/candidate.patch" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/session" proof
+          printf "REV_ROOT='%s'\n" "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/session/scope.env"
+          printf '{"phase":"fix"}\n' > "$RUNNER_TEMP/session/state.json"
+          cat > "$RUNNER_TEMP/measure.sh" <<'SH'
+          #!/bin/bash
+          set +e
+          n=$(cat "$RUNNER_TEMP/invocation-count" 2>/dev/null || echo 0)
+          n=$((n + 1))
+          echo "$n" > "$RUNNER_TEMP/invocation-count"
+          out="$GITHUB_WORKSPACE/proof/invocation-$n"
+          mkdir -p "$out"
+          git diff --full-index --binary | sha256sum > "$out/diff.sha256"
+          type_status=0
+          for f in src/lib/store/types.ts playwright/e2e/helpers/wallet-page.ts; do
+            if [ "$(git hash-object "$f")" != "$(git rev-parse "82e1d2279410714a2f46d241916f6ee45157d09d:$f")" ]; then
+              yarn tsc --noEmit > "$out/typecheck.log" 2>&1
+              type_status=$?
+              break
+            fi
+          done
+          yarn jest --runTestsByPath src/lib/store/index.test.ts src/lib/intercom/client.test.ts src/app/templates/VerifySeedPhraseFlow.test.tsx src/lib/miden/front/client.test.tsx playwright/e2e/helpers/dapp-mobile-journey.test.ts --maxWorkers=2 > "$out/jest.log" 2>&1
+          jest_status=$?
+          printf 'typecheck=%s\njest=%s\n' "$type_status" "$jest_status" > "$out/status.txt"
+          cat "$out/typecheck.log" 2>/dev/null || true
+          cat "$out/jest.log"
+          [ "$type_status" -eq 0 ] && [ "$jest_status" -eq 0 ]
+          SH
+          bash "$RUNNER_TEMP/rev-mutate.sh" "$RUNNER_TEMP/session" 'bash "$RUNNER_TEMP/measure.sh"' 2>&1 | tee proof/mutation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sidebar-mutation-detail
+          path: proof/
+          if-no-files-found: warn
