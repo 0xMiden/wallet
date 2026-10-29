@@ -27,3 +27,12 @@ test('isolated workerd enforces the shared global budget', async () => {
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { scenario: 'shared_budget', status: 'passed' });
 });
+
+test('isolated workerd refuses rate limits before object access', async () => {
+  const result = await fetch('http://127.0.0.1:18949/scenario/rate_refusal', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer synthetic-test-only-bearer' }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { scenario: 'rate_refusal', status: 'passed' });
+});
