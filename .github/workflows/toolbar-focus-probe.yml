@@ -1,0 +1,95 @@
+name: Toolbar focus diagnostic
+
+on:
+  push:
+    branches: [ci/toolbar-focus-probe-1962]
+
+permissions:
+  contents: read
+
+jobs:
+  native-toolbar:
+    name: Native toolbar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.head_ref || github.sha }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Start ordinary wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_NETWORKS: testnet,mainnet
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'false'
+
+      - name: Build chrome
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+
+      - name: Verify the built extension manifest
+        run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+
+      - name: Install native action and screenshot tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
+
+      - name: Install Playwright Browsers
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      - name: Run native toolbar regressions
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8551/testnet.json > "$RUNNER_TEMP/toolbar-fixture-config.json"
+          trap 'curl --fail --silent --show-error -X POST -H "Content-Type: application/json" --data-binary @"$RUNNER_TEMP/toolbar-fixture-config.json" http://127.0.0.1:8551/_fixture/config' EXIT
+          node --input-type=module <<'JS'
+          const response = await fetch('http://127.0.0.1:8551/testnet.json');
+          if (!response.ok) throw new Error('Fixture config unavailable');
+          const document = await response.json();
+          document.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };
+          const saved = await fetch('http://127.0.0.1:8551/_fixture/config', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)
+          });
+          if (!saved.ok) throw new Error('Fixture config refused');
+          const active = await fetch('http://127.0.0.1:8551/testnet.json');
+          if (!active.ok) throw new Error('Toolbar fixture config unavailable');
+          const policy = await active.json();
+          if (policy.mainnetCountdown?.enabled !== true || policy.mainnetCountdown.launchAt !== document.mainnetCountdown.launchAt) {
+            throw new Error('Toolbar fixture must retain the enabled future countdown');
+          }
+          const mainnet = await fetch('http://127.0.0.1:8551/mainnet.json');
+          if (!mainnet.ok || (await mainnet.json()).network !== 'mainnet') throw new Error('Toolbar Mainnet policy unavailable');
+          JS
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar playwright/toolbar/focus-probe.spec.ts'
+
+      - name: Upload native toolbar evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-toolbar-evidence
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
