@@ -17,6 +17,10 @@ export const USD_SCALE = 1_000_000n;
  */
 export const PRICE_MAX_AGE_SECONDS = 600;
 
+export const PRICE_CACHE_MAX_ENTRIES = 256;
+export const PRICE_CACHE_MAX_BYTES = 65_536;
+const encoder = new TextEncoder();
+
 const PRICE_CACHE_STORAGE_KEY = 'usd_price_cache';
 const CANONICAL_PRICE = /^(0|[1-9]\d*)$/;
 
@@ -40,12 +44,50 @@ export const toPriceMicro = (price: number): bigint | undefined => {
   return micro > 0n ? micro : undefined;
 };
 
-const readCache = async (): Promise<UsdPriceCache> => {
+const readCacheState = async (): Promise<{ cache: UsdPriceCache; present: boolean }> => {
   try {
-    return (await fetchFromStorage<UsdPriceCache>(PRICE_CACHE_STORAGE_KEY)) ?? {};
+    const cache = await fetchFromStorage<UsdPriceCache>(PRICE_CACHE_STORAGE_KEY);
+    if (typeof cache !== 'object' || cache === null || Array.isArray(cache)) return { cache: {}, present: false };
+    return { cache, present: true };
   } catch {
-    return {};
+    return { cache: {}, present: false };
   }
+};
+
+const readCache = async (): Promise<UsdPriceCache> => (await readCacheState()).cache;
+
+const stablePrices = (cache: UsdPriceCache): string =>
+  JSON.stringify(
+    Object.entries(cache)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([symbol, entry]) => [
+        symbol,
+        entry &&
+          Object.entries(entry)
+            .filter(([, value]) => value !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+      ])
+  );
+
+const boundedPrices = (cache: UsdPriceCache, now: number, preferred: ReadonlySet<string>): UsdPriceCache => {
+  const entries = Object.entries(cache)
+    .filter(([symbol]) => cachedPriceMicro(cache, symbol, now) !== undefined)
+    .sort(
+      ([leftSymbol, left], [rightSymbol, right]) =>
+        Number(preferred.has(rightSymbol)) - Number(preferred.has(leftSymbol)) || right.fetchedAt - left.fetchedAt
+    );
+  const retained: [string, CachedUsdPrice][] = [];
+  let bytes = 2;
+  for (const [symbol, entry] of entries) {
+    const value = { priceMicro: entry.priceMicro, fetchedAt: entry.fetchedAt };
+    const nextBytes =
+      bytes + encoder.encode(JSON.stringify({ [symbol]: value })).byteLength - 2 + (retained.length > 0 ? 1 : 0);
+    if (nextBytes > PRICE_CACHE_MAX_BYTES) continue;
+    retained.push([symbol, value]);
+    bytes = nextBytes;
+    if (retained.length === PRICE_CACHE_MAX_ENTRIES) break;
+  }
+  return Object.fromEntries(retained);
 };
 
 let cacheWrite: Promise<UsdPriceCache> = Promise.resolve({});
@@ -62,19 +104,24 @@ const mergeIntoCache = (
 };
 
 const mergePrices = async (prices: TokenPrices, now: number, requested: readonly string[]): Promise<UsdPriceCache> => {
-  const cache = await readCache();
+  const stored = await readCacheState();
+  const cache = { ...stored.cache };
+  const accepted = new Set<string>();
   for (const [symbol, info] of Object.entries(prices)) {
     if (!requested.includes(symbol) && !isCoveredSymbol(symbol)) continue;
     const priceMicro = toPriceMicro(info.price);
     if (priceMicro === undefined) continue;
     cache[symbol] = { priceMicro: priceMicro.toString(), fetchedAt: now };
+    accepted.add(symbol);
   }
+  const bounded = boundedPrices(cache, now, accepted);
+  if (stored.present && stablePrices(stored.cache) === stablePrices(bounded)) return bounded;
   try {
-    await putToStorage(PRICE_CACHE_STORAGE_KEY, cache);
+    await putToStorage(PRICE_CACHE_STORAGE_KEY, bounded);
   } catch {
     // A cache that cannot be written is a slower next read, never a wrong verdict.
   }
-  return cache;
+  return bounded;
 };
 
 /** Write-through used by the foreground provider so the backend rarely has to fetch. */

@@ -1728,7 +1728,7 @@ export class MidenClientInterface {
     };
     check();
     try {
-      const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
+      const { advanceRecoveryChain, restoreSdkRecovery } = await import('../recovery/sdk-restore');
       check();
       await restoreSdkRecovery(
         this.client,
@@ -1746,7 +1746,8 @@ export class MidenClientInterface {
                 check,
                 importNote
               )
-          : undefined
+          : undefined,
+        target => advanceRecoveryChain(this.client, target, check)
       );
       check();
     } catch (error) {

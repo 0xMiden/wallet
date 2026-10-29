@@ -104,10 +104,15 @@ jest.mock('lib/platform', () => ({
 const mockWriteFile = jest.fn();
 const mockShare = jest.fn();
 
+const mockDeleteRecoveryFile = jest.fn(async (..._args: unknown[]) => undefined);
+
 jest.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
-  Filesystem: { writeFile: (...args: unknown[]) => mockWriteFile(...args) }
+  Filesystem: {
+    deleteFile: (...args: unknown[]) => mockDeleteRecoveryFile(...args),
+    writeFile: (...args: unknown[]) => mockWriteFile(...args)
+  }
 }));
 
 jest.mock('@capacitor/share', () => ({
@@ -714,6 +719,49 @@ describe('ExportFileComplete', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       dwellForError();
       expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Task5 recovery file delivery', () => {
+    const preparedContent = JSON.stringify({ format: 'miden-recovery-data', ciphertext: 'disposable' });
+
+    it('delivers the already encrypted recovery content without reading a wallet backup or re-encrypting it', async () => {
+      mockIsMobile.mockReturnValue(true);
+      renderComponent({ preparedContent, fileKind: 'recovery-data' });
+      await waitFor(() => expect(mockWriteFile).toHaveBeenCalledTimes(1));
+      expect(mockExportWalletBackupMaterial).not.toHaveBeenCalled();
+      expect(mockGenerateKey).not.toHaveBeenCalled();
+      expect(mockWriteFile).toHaveBeenCalledWith(expect.objectContaining({ data: preparedContent }));
+    });
+
+    it('re-shares the same prepared file after cancellation without a second export, encryption or write', async () => {
+      mockIsMobile.mockReturnValue(true);
+      mockShare.mockRejectedValueOnce(new Error('Share cancelled'));
+      renderComponent({ preparedContent, fileKind: 'recovery-data' });
+      fireEvent.click(await screen.findByRole('button', { name: 'encryptedWalletFileSaveAgain' }));
+      await waitFor(() => expect(mockShare).toHaveBeenCalledTimes(2));
+      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+      expect(mockExportWalletBackupMaterial).not.toHaveBeenCalled();
+      expect(mockGenerateKey).not.toHaveBeenCalled();
+    });
+
+    it('a prepared file write finishing after unmount opens no share sheet and cleans its cache file', async () => {
+      mockIsMobile.mockReturnValue(true);
+      let finish!: (result: { uri: string }) => void;
+      mockWriteFile.mockImplementationOnce(
+        () =>
+          new Promise<{ uri: string }>(resolve => {
+            finish = resolve;
+          })
+      );
+      const view = renderComponent({ preparedContent, fileKind: 'recovery-data' });
+      await waitFor(() => expect(mockWriteFile).toHaveBeenCalledTimes(1));
+      view.unmount();
+      await act(async () => {
+        finish({ uri: 'cache://disposable-recovery-file' });
+      });
+      expect(mockShare).not.toHaveBeenCalled();
+      expect(mockDeleteRecoveryFile).toHaveBeenCalledTimes(1);
     });
   });
 });

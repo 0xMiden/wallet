@@ -8,12 +8,14 @@ const _g = globalThis as any;
 _g.__providerTest = {
   isExtension: false,
   ready: true,
+  availability: 'healthy',
   getMidenClientCalls: 0
 };
 
 // Read while the provider's imports load, which runs before the state above is assigned.
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__providerTest?.isExtension ?? false,
+  isDesktop: () => false,
   isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false
 }));
 
@@ -30,7 +32,10 @@ jest.mock('lib/store/WalletStoreProvider', () => ({
 
 jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
-  useMidenContext: () => ({ ready: (globalThis as any).__providerTest.ready })
+  useMidenContext: () => ({
+    ready: (globalThis as any).__providerTest.ready,
+    storageAvailability: { status: (globalThis as any).__providerTest.availability }
+  })
 }));
 
 jest.mock('./assets', () => ({
@@ -54,7 +59,7 @@ jest.mock('lib/prices', () => ({
 }));
 
 jest.mock('components/NoteToastProvider', () => ({
-  NoteToastProvider: () => null
+  NoteToastProvider: () => <div data-testid="note-toast-provider" />
 }));
 
 jest.mock('./useSyncTrigger', () => ({
@@ -85,6 +90,7 @@ import { MidenProvider, STORAGE_PRELOAD_BUDGET_MS } from './provider';
 beforeEach(() => {
   _g.__providerTest.isExtension = false;
   _g.__providerTest.ready = true;
+  _g.__providerTest.availability = 'healthy';
   _g.__providerTest.getMidenClientCalls = 0;
   mockPreloadStorage.mockClear();
 });
@@ -99,6 +105,34 @@ describe('MidenProvider', () => {
     // The provider renders null until the ensureSdkWasmReady() gate
     // resolves (one microtask with the mock) — await the appearance.
     expect(await findByText('child-content')).toBeDefined();
+  });
+
+  it('keeps recovery children mounted while storage is unavailable and resumes ready providers when healthy', async () => {
+    _g.__providerTest.availability = 'unavailable';
+    const { findByText, queryByTestId, rerender } = render(
+      <MidenProvider>
+        <div>recovery-content</div>
+      </MidenProvider>
+    );
+    expect(await findByText('recovery-content')).toBeDefined();
+    expect(queryByTestId('note-toast-provider')).toBeNull();
+
+    _g.__providerTest.availability = 'healthy';
+    rerender(
+      <MidenProvider>
+        <div>recovery-content</div>
+      </MidenProvider>
+    );
+    expect(queryByTestId('note-toast-provider')).not.toBeNull();
+
+    _g.__providerTest.availability = 'unavailable';
+    rerender(
+      <MidenProvider>
+        <div>recovery-content</div>
+      </MidenProvider>
+    );
+    expect(queryByTestId('note-toast-provider')).toBeNull();
+    expect(await findByText('recovery-content')).toBeDefined();
   });
 
   it('renders children when not ready (skips token providers)', async () => {
