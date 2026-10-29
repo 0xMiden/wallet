@@ -109,3 +109,36 @@ test('account-bound preparation requires an explicit provider absence receipt', 
     null
   );
 });
+
+test('account-bound preparation refuses an existing script with a colliding rate namespace', async () => {
+  const { buildTopologyManifest } = await import('./staging-topology-manifest.mjs');
+  const input = options(null);
+  const manifest = buildTopologyManifest({
+    identity,
+    bundle: input.bundle,
+    now,
+    expiresAt: input.expiresAt,
+    maxRuns: input.maxRuns,
+    inventory: []
+  });
+  assert.ok(manifest);
+  const base = provider();
+  const api = async path =>
+    path === '/workers/scripts/other-worker/settings'
+      ? {
+          success: true,
+          errors: [],
+          result: {
+            bindings: [
+              {
+                name: 'OTHER_RATE',
+                type: 'ratelimit',
+                namespace_id: manifest.config.ratelimits[0].namespace_id,
+                simple: { limit: 4, period: 60 }
+              }
+            ]
+          }
+        }
+      : base(path);
+  assert.equal(await prepare(options(api)), null);
+});
