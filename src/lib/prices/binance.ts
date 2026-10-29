@@ -294,7 +294,7 @@ export function listedFiatValue(
   scaleIsKnown: boolean
 ): number | undefined {
   const price = listedPrice(prices, symbol);
-  if (!scaleIsKnown || !(price > 0) || !(balance > 0)) return undefined;
+  if (!scaleIsKnown || !(price > 0) || !Number.isFinite(balance) || balance < 0) return undefined;
   return balance * price;
 }
 
