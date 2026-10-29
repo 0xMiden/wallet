@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createRecoveryService } from './service.mjs';
 
-test('st/main/retained-vault/encrypted-external-file', async ({ browser }, testInfo) => {
+test('st/main/retained-vault/journal-provider-quota', async ({ browser }, testInfo) => {
   const binary = process.env.RECOVERY_FIXTURE_PRODUCER;
   if (!binary) throw new Error('producer-required');
   const service = await createRecoveryService(resolve(process.env.RECOVERY_PROOF_BUILD_ROOT || 'proof-dist/retained'), binary);
@@ -12,7 +12,7 @@ test('st/main/retained-vault/encrypted-external-file', async ({ browser }, testI
   const report = { schema: 1, includePrivate: false, stage: 'initial', prepare: null, recover: null, outsideRequests: 0, phase: 'initial', service: null,
     workerEvents: { started: 0, closed: 0, assetRequests: 0, assetFailures: 0, assetNotFound: 0 },
     storageEvents: { open: 0, upgrade: 0, blocked: 0, success: 0, error: 0, txStart: 0, txComplete: 0, txAbort: 0, txError: 0, sdkTxStart: 0, sdkTxComplete: 0, otherTxStart: 0, otherTxComplete: 0, nativeMarker: 0, nativeOpen: 0, nativeDatabasesStart: 0, nativeDatabasesEnd: 0, nativeHeartbeat: 0 } };
-  const phases = new Set(['initial','wasm-ready','genuine-chain-bootstrap','generated-protocol-fixtures','producer-response','endpoint-override','native-store-name','native-wasm-lookup','native-error-class','native-acquisition-gate','native-resolver','native-distinct-store','sdk-generated-request-images','real-password-protector','pre-loss-native-fixture','pre-loss-import','pre-loss-lock','pre-loss-client','sdk-create-worker','sdk-create-other','sdk-create-returned','sdk-factory-worker-available','sdk-factory-worker-absent','sdk-factory-returned','sdk-wasm-client-enter','sdk-wasm-client-returned','sdk-native-create-enter','sdk-native-create-returned','pre-loss-account-insert','pre-loss-account-read','retained-vault-baseline','external-file-baseline','external-file-export','external-file-export-returned','external-file-ciphertext-verified','external-file-decrypt-returned','external-file-wrong-password','disposable-journal-store-loss','external-file-import','external-file-bounded-recovery']);
+  const phases = new Set(['initial','wasm-ready','genuine-chain-bootstrap','generated-protocol-fixtures','producer-response','endpoint-override','native-store-name','native-wasm-lookup','native-error-class','native-acquisition-gate','native-resolver','native-distinct-store','sdk-generated-request-images','real-password-protector','pre-loss-native-fixture','pre-loss-import','pre-loss-lock','pre-loss-client','sdk-create-worker','sdk-create-other','sdk-create-returned','sdk-factory-worker-available','sdk-factory-worker-absent','sdk-factory-returned','sdk-wasm-client-enter','sdk-wasm-client-returned','sdk-native-create-enter','sdk-native-create-returned','pre-loss-account-insert','pre-loss-account-read','retained-vault-baseline','journal-quota-baseline','journal-quota-checkpoint']);
   try {
     await context.route('**/*', route => {
       if (new URL(route.request().url()).origin !== service.origin) { report.outsideRequests++; return route.abort(); }
