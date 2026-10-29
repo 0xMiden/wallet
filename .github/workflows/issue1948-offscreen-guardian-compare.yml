@@ -50,7 +50,8 @@ jobs:
       - name: Run same Guardian retry tests under V8 coverage
         env:
           TEST_FILE: ${{ matrix.file }}
-        run: yarn test:coverage --runInBand --runTestsByPath "$TEST_FILE" --testNamePattern='guardianPipeline: an apply' --coverageReporters=json --json --outputFile=coverage/jest-results.json
+        run: |
+          yarn test:coverage --runInBand --runTestsByPath "$TEST_FILE" --testNamePattern='guardianPipeline: an apply' --coverageReporters=json --json --outputFile=coverage/jest-results.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
