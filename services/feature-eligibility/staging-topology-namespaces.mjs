@@ -155,3 +155,29 @@ export function readTopologyScriptInventory(pages) {
   }
   return ids.length === total ? ids : null;
 }
+
+export async function collectTopologyScriptInventory(api) {
+  try {
+    const scan = async () => {
+      const pages = [];
+      let totalPages = 1;
+      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+        const response = await api(`/workers/scripts?page=${pageNumber}&per_page=100`);
+        if (pageNumber === 1) {
+          totalPages = response?.result_info?.total_pages;
+          if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > 100) return null;
+        }
+        pages.push(response);
+      }
+      return readTopologyScriptInventory(pages);
+    };
+    const first = await scan();
+    if (first === null) return null;
+    const second = await scan();
+    return second !== null && first.length === second.length && first.every((id, index) => id === second[index])
+      ? first
+      : null;
+  } catch {
+    return null;
+  }
+}
