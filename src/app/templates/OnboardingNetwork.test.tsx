@@ -366,3 +366,29 @@ it('leaves a fresh page on the saved network after an unmarked page prepared mai
   expect(screen.getByTestId('flow')).toHaveTextContent('false');
   expect(mockApply).not.toHaveBeenCalled();
 });
+
+it('shows the invite welcome during preparation and blocks later steps until mainnet is ready', async () => {
+  mockRequired = false;
+  let finishApply = () => {};
+  mockApply.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        finishApply = resolve;
+      })
+  );
+  const view = render(
+    <OnboardingNetwork requireInviteOnly showWhilePreparing>
+      {content}
+    </OnboardingNetwork>
+  );
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+  view.rerender(<OnboardingNetwork requireInviteOnly>{content}</OnboardingNetwork>);
+  expect(screen.getByTestId('flow').parentElement).toHaveClass('pointer-events-none');
+  expect(screen.getByRole('status')).toBeInTheDocument();
+
+  await act(async () => finishApply());
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  expect(screen.getByTestId('flow').parentElement).not.toHaveClass('pointer-events-none');
+});

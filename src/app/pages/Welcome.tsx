@@ -841,7 +841,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'select-import-type':
         beginOnboardingFlow('import');
         resetFlowState();
-        // Welcome's recover, and the no-code sheet's. On a test network the import flow waits
+        // Start recovery from Welcome. On a test network the import flow waits
         // behind the network notice (#875).
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
@@ -1381,10 +1381,14 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 };
 
-const WelcomePage: FC = () => (
-  <OnboardingNetwork>
-    {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
-  </OnboardingNetwork>
-);
+const WelcomePage: FC = () => {
+  const { hash } = useLocation();
+
+  return (
+    <OnboardingNetwork requireInviteOnly={!hasDeveloperNetworkChoice()} showWhilePreparing={!hash}>
+      {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
+    </OnboardingNetwork>
+  );
+};
 
 export default WelcomePage;
