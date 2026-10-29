@@ -1,0 +1,32 @@
+name: PR 1982 featured contrast observation
+on:
+  push:
+    branches: [ci/1982-contrast-visual]
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact product source
+        run: |
+          test "$(git rev-parse HEAD^)" = 9e55263db46ea229b03f41f97e04559ed457113a
+          git diff --name-only 9e55263db46ea229b03f41f97e04559ed457113a HEAD > "$RUNNER_TEMP/changed"
+          printf '%s\n' .github/workflows/featured-contrast-proof.yml playwright.contrast-proof.config.ts playwright/visual/arcade/contrast-proof.spec.ts playwright/visual/arcade/main.tsx > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/changed"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - run: npx playwright install --with-deps chromium
+      - run: yarn playwright test --config playwright.contrast-proof.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: featured-contrast-observation
+          path: test-results/contrast-proof/
+          if-no-files-found: error
