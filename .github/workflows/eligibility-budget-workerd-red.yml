@@ -1,0 +1,54 @@
+name: Eligibility budget workerd expected red
+on:
+  push:
+    branches: [ci/1894-budget-workerd-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: git checkout --detach 4373265d7f02e0b04038d15e0e965d11d1373180 && test "$(git rev-parse HEAD)" = 4373265d7f02e0b04038d15e0e965d11d1373180
+      - name: Verify the missing shared budget scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > proof/wrangler.jsonc <<'JSON'
+          {"name":"eligibility-staging-proof","main":"../services/feature-eligibility/staging-topology-worker.mjs","compatibility_date":"2026-10-20","workers_dev":false,"vars":{"TOPOLOGY_BEARER":"synthetic-test-only-bearer","TOPOLOGY_RUN_UNTIL":"REPLACE_UNTIL","TOPOLOGY_RUN_MAX":"3"},"durable_objects":{"bindings":[{"name":"TOPOLOGY_CONTROL","class_name":"TopologyControl"},{"name":"ELIGIBILITY_GUARD","class_name":"EligibilityGuard"},{"name":"CALLER_GUARD","class_name":"CallerEligibilityGuard"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["TopologyControl","EligibilityGuard","CallerEligibilityGuard"]}]}
+          JSON
+          sed -i "s/REPLACE_UNTIL/$(node -e 'console.log(Date.now()+600000)')/" proof/wrangler.jsonc
+          npm install --prefix proof --no-save --ignore-scripts wrangler@4.151.3
+          proof/node_modules/.bin/wrangler dev --local --config proof/wrangler.jsonc --port 18949 > proof/runtime.log 2>&1 &
+          runtime_pid=$!
+          trap 'kill "$runtime_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent http://127.0.0.1:18949/ > /dev/null; then break; fi
+            sleep 1
+          done
+          set +e
+          node --test services/feature-eligibility/staging-topology-workerd.test.mjs > proof/result.log 2>&1
+          status=$?
+          set -e
+          cat proof/result.log
+          test "$status" -ne 0
+          grep -F 'ok 1 - isolated workerd cache scenario proves the real service miss and hit' proof/result.log
+          grep -F 'ok 2 - isolated workerd keeps two colo caches separate' proof/result.log
+          grep -F 'not ok 3 - isolated workerd enforces the shared global budget' proof/result.log
+          grep -F '400 !== 200' proof/result.log
+          grep -F '# fail 1' proof/result.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eligibility-budget-workerd-red
+          path: |
+            proof/runtime.log
+            proof/result.log
+            proof/wrangler.jsonc
