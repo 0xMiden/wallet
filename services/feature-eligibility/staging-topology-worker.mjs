@@ -1,5 +1,5 @@
 import { createService } from './worker.mjs';
-import topology, { createRunController, runCacheScenario } from './staging-topology.mjs';
+import topology, { createRunController, runCacheScenario, runColoScenario } from './staging-topology.mjs';
 
 const policy = {
   network: 'testnet',
@@ -17,7 +17,7 @@ function syntheticEnv(env) {
     MAXMIND_ACCOUNT_ID: 'synthetic',
     MAXMIND_LICENSE_KEY: 'synthetic',
     CALLER_HASH_SECRET: 'synthetic-secret-32-characters-minimum',
-    MAXMIND_DAILY_QUERY_LIMIT: '8',
+    MAXMIND_DAILY_QUERY_LIMIT: '16',
     CALLER_RATE_LIMIT: allowed,
     COLO_RATE_LIMIT: allowed
   };
@@ -26,7 +26,7 @@ function syntheticEnv(env) {
 function fixedFetch(onLookup) {
   return async url => {
     if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json') return Response.json(policy);
-    if (String(url) === 'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1') {
+    if (['https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1', 'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.2'].includes(String(url))) {
       onLookup();
       return Response.json({ country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
     }
@@ -99,11 +99,21 @@ export class CallerEligibilityGuard {
 
 export class TopologyControl {
   constructor(state, env) {
-    const scenario = async () => {
+    const scenario = async name => {
       const caller = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:TST'));
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
+      if (name === 'colo_isolation') {
+        const iad = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:IAD'));
+        const fra = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:FRA'));
+        const counters = async () => ({
+          IAD: (await (await iad.fetch('https://topology.internal/proof-counters')).json()).lookups,
+          FRA: (await (await fra.fetch('https://topology.internal/proof-counters')).json()).lookups,
+          reservations: (await (await budget.fetch('https://topology.internal/proof-counters')).json()).reservations
+        });
+        return runColoScenario({ service: { fetch: request => service.fetch(request, serviceEnv) }, counters });
+      }
       const counters = async () => ({
         ...await (await caller.fetch('https://topology.internal/proof-counters')).json(),
         ...await (await budget.fetch('https://topology.internal/proof-counters')).json()

@@ -4,13 +4,14 @@ import test from 'node:test';
 import { runColoScenario } from './staging-topology.mjs';
 
 function harness({ sharedCache = false } = {}) {
-  const counts = { TST: 0, ALT: 0, reservations: 0 };
+  const counts = { IAD: 0, FRA: 0, reservations: 0 };
   const cached = new Set();
   return {
     counts,
     counters: async () => ({ ...counts }),
     service: {
       async fetch(request) {
+        assert.equal(request.headers.get('CF-Connecting-IP'), '192.0.2.2');
         const colo = request.cf.colo;
         const key = sharedCache ? 'shared' : colo;
         if (!cached.has(key)) {
@@ -27,12 +28,12 @@ function harness({ sharedCache = false } = {}) {
 test('colo scenario requires independent misses in two fixed colos', async () => {
   const fixture = harness();
   assert.equal(await runColoScenario(fixture), 'passed');
-  assert.deepEqual(fixture.counts, { TST: 1, ALT: 1, reservations: 2 });
+  assert.deepEqual(fixture.counts, { IAD: 1, FRA: 1, reservations: 2 });
 });
 
 test('colo scenario refuses a cache shared across colos', async () => {
   const fixture = harness({ sharedCache: true });
   assert.equal(await runColoScenario(fixture), 'failed');
-  assert.equal(fixture.counts.TST, 1);
-  assert.equal(fixture.counts.ALT, 0);
+  assert.equal(fixture.counts.IAD, 1);
+  assert.equal(fixture.counts.FRA, 0);
 });

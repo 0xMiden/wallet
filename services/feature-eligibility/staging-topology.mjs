@@ -1,4 +1,4 @@
-const SCENARIOS = new Set(['cache_reuse']);
+const SCENARIOS = new Set(['cache_reuse', 'colo_isolation']);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -130,6 +130,28 @@ export async function runCacheScenario({ service, counters }) {
   }
 }
 
-export async function runColoScenario() {
-  return 'failed';
+export async function runColoScenario({ service, counters }) {
+  const fixedRequest = colo => {
+    const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
+      headers: { 'CF-Connecting-IP': '192.0.2.2', Origin: 'https://wallet.example' }
+    });
+    Object.defineProperty(request, 'cf', { value: { colo } });
+    return request;
+  };
+  const valid = value => value && ['IAD', 'FRA', 'reservations'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
+  try {
+    const before = await counters();
+    const first = await service.fetch(fixedRequest('IAD'));
+    const afterFirst = await counters();
+    const second = await service.fetch(fixedRequest('FRA'));
+    const afterSecond = await counters();
+    if (![before, afterFirst, afterSecond].every(valid) || !first.ok || !second.ok) return 'failed';
+    const expected = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } };
+    if (JSON.stringify(await first.json()) !== JSON.stringify(expected) || JSON.stringify(await second.json()) !== JSON.stringify(expected)) return 'failed';
+    if (afterFirst.IAD !== before.IAD + 1 || afterFirst.FRA !== before.FRA || afterFirst.reservations !== before.reservations + 1) return 'failed';
+    if (afterSecond.IAD !== afterFirst.IAD || afterSecond.FRA !== afterFirst.FRA + 1 || afterSecond.reservations !== afterFirst.reservations + 1) return 'failed';
+    return 'passed';
+  } catch {
+    return 'failed';
+  }
 }
