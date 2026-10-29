@@ -384,3 +384,34 @@ it.each(['request_construction_error', 'request_call_error'])(
     });
   }
 );
+
+it.each([
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited'
+])('retains the closed native wallet response category %s without raw fields', category => {
+  const { decodeReownNativeFailureCode } =
+    jest.requireActual<typeof import('./native-request-failure')>('./native-request-failure');
+  const envelope =
+    'REOWN_NATIVE_REQUEST_FAILURE:' +
+    JSON.stringify({
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: category,
+      requestAge: 'unknown',
+      published: 'unobserved',
+      rawCode: -32003,
+      message: 'private'
+    });
+  expect(decodeReownNativeFailureCode(envelope)).toEqual({
+    nativeOrigin: 'wallet_error',
+    walletResponseCode: category,
+    requestAge: 'unknown',
+    published: 'unobserved'
+  });
+});
