@@ -5,7 +5,12 @@ import * as topology from './staging-topology-namespaces.mjs';
 const validate = topology.validateTopologyBindings ?? (() => false);
 const target = 'miden-elig-topology-123-1';
 const ownedId = '00000000000000000000000000000001';
-const expected = { script: target, namespaceIds: [ownedId], namespaceClasses: { [ownedId]: 'EligibilityGuard' }, scripts: [target, 'other-worker'] };
+const expected = {
+  script: target,
+  namespaceIds: [ownedId],
+  namespaceClasses: { [ownedId]: 'EligibilityGuard' },
+  scripts: [target, 'other-worker']
+};
 const binding = {
   name: 'GUARD',
   type: 'durable_object_namespace',
@@ -77,4 +82,11 @@ test('binding inventory rejects a namespace attached to the wrong owned class', 
   const values = scripts();
   values[0].bindings[0] = { ...binding, class_name: 'WrongClass' };
   assert.equal(validate(values, mapped), false);
+});
+
+test('binding inventory rejects another worker sharing an owned rate namespace', () => {
+  const values = scripts();
+  values[0].bindings.push({ name: 'RATE', type: 'ratelimit', namespace_id: '12345' });
+  values[1].bindings.push({ name: 'RATE_OTHER', type: 'ratelimit', namespace_id: '12345' });
+  assert.equal(validate(values, { ...expected, rateNamespaceIds: ['12345'] }), false);
 });
