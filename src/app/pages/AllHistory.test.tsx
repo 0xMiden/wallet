@@ -320,10 +320,9 @@ describe('AllHistory', () => {
     expect(row).toHaveClass('px-4', 'py-1');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('transfer')).toHaveAttribute('aria-checked', 'false');
-    // The selection rides the bottom nav's raised bubble in the accent tint, with an
-    // `accent-tint-ink` label; the rest are outlined pills on the page.
-    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'shadow-raised');
-    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-accent-tint-ink');
+    // The selected tab-root filter uses the solid brand bubble and label.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-primary', 'shadow-raised');
+    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-accent-brand-on');
     expect(bubbleIn(getFilterButton('transfer'))).toBeNull();
     expect(getFilterButton('transfer')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });
