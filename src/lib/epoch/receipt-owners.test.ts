@@ -120,6 +120,21 @@ function fixture(resourceLockRequired = true, batch = false, forced = false) {
     } else if (url.pathname === '/reportFill') body = { success: true };
     else if (url.pathname === '/miden-recipient')
       body = { midenP2IDRecipientAccountId: PREPARED_RECIPIENT, midenMinReclaimBlocks: 1000 };
+    else if (url.pathname === '/health')
+      body = {
+        status: 'healthy',
+        allocatorAddresses: { [sepolia.id]: PREPARED_OWNER, 999999999: PREPARED_OWNER },
+        arbiterAddresses: { [sepolia.id]: PREPARED_OWNER, 999999999: PREPARED_OWNER },
+        compactAddresses: { [sepolia.id]: PREPARED_OWNER, 999999999: PREPARED_OWNER },
+        compactLockResetPeriod: 0,
+        compactLockScope: 0,
+        compactExpirySeconds: 3600,
+        compactExpiryBufferSeconds: 300,
+        midenRecallBufferBlocks: 250,
+        midenVirtualChainId: 999999999,
+        midenTestnetVirtualChainId: 999999999,
+        midenMainnetVirtualChainId: 999999998
+      };
     else throw new Error(`Unexpected allocator path ${url.pathname}`);
     return {
       ok: true,
