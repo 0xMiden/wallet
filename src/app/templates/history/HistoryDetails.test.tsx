@@ -5187,18 +5187,18 @@ describe('user-visible history action errors', () => {
     fireEvent.click(screen.getByTestId('history-retry-button'));
     await flush();
     expect(screen.getByTestId('history-retry-error')).toHaveTextContent(text);
-    if (id === 'raw_history_retry_failed') {
-      await act(async () => {
-        jest.advanceTimersByTime(1000);
-      });
-      expect(mockReportUserVisibleError).toHaveBeenCalledWith(id, 'inline', {
-        kind: 'history_retry',
-        retryNoticeOrigin: 'history_primary',
-        pendingRetryReason: 'unexpected'
-      });
-    } else {
-      await expectErrorAfterDwell(id, 'inline');
-    }
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    const args =
+      id === 'raw_history_retry_failed'
+        ? [
+            id,
+            'inline',
+            { kind: 'history_retry', retryNoticeOrigin: 'history_primary', pendingRetryReason: 'unexpected' }
+          ]
+        : [id, 'inline'];
+    expect(mockReportUserVisibleError).toHaveBeenCalledWith(...args);
   });
 
   it('reports the primary retry reason owned by the displayed error after dwell', async () => {

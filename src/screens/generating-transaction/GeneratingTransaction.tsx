@@ -390,7 +390,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
             isRetrying={isRetrying}
             retryError={retryError?.text}
             retryErrorId={retryError && retryError.transactionId === active?.id ? retryError.id : null}
-            retryErrorDiagnostics={retryError && retryError.transactionId === active?.id ? retryError.diagnostics : undefined}
+            retryErrorDiagnostics={
+              retryError && retryError.transactionId === active?.id ? retryError.diagnostics : undefined
+            }
           />
         )}
       </div>
@@ -419,7 +421,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   retryErrorDiagnostics
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
-  useUserVisibleError(!showSuccessReceipt && retryError ? retryErrorId : null, 'inline', undefined, retryErrorDiagnostics);
+  useUserVisibleError(
+    !showSuccessReceipt && retryError ? retryErrorId : null,
+    'inline',
+    undefined,
+    retryErrorDiagnostics
+  );
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);

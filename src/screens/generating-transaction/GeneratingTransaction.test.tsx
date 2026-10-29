@@ -1895,16 +1895,16 @@ describe('user-visible transaction errors', () => {
       const text =
         kind === 'fee' ? mockFeeCopy : kind === 'raw' ? 'private retry https://private.invalid 123' : 'smthWentWrong';
       expect(container.querySelector('[role="alert"]')?.textContent).toBe(text);
-      if (kind === 'raw') {
-        act(() => jest.advanceTimersByTime(1000));
-        expect(reportUserVisibleError).toHaveBeenCalledWith('raw_transaction_retry_failed', 'inline', {
-          kind: 'transaction_retry',
-          retryNoticeOrigin: 'status_screen',
-          pendingRetryReason: 'unexpected'
-        });
-      } else {
-        expectDwell(kind === 'fee' ? 'insufficientFeeAsset' : 'smthWentWrong', 'inline');
-      }
+      act(() => jest.advanceTimersByTime(1000));
+      const args =
+        kind === 'raw'
+          ? [
+              'raw_transaction_retry_failed',
+              'inline',
+              { kind: 'transaction_retry', retryNoticeOrigin: 'status_screen', pendingRetryReason: 'unexpected' }
+            ]
+          : [kind === 'fee' ? 'insufficientFeeAsset' : 'smthWentWrong', 'inline'];
+      expect(reportUserVisibleError).toHaveBeenCalledWith(...args);
     }
   );
 });
