@@ -600,3 +600,19 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - The extension confirmation and shared mobile/desktop modal now use the same note-flow DTO. The mobile/desktop request takes it from the existing dry run, without repeating execution.
 - Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
 - Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
+
+# Issue #2035 - normalize redundant leading zeroes
+
+- [x] Read the issue brief and latest main source.
+- [x] Create an isolated worktree and install dependencies with Node 22.
+- [x] Write and self-review the private spec and implementation plan.
+- [x] Add failing exact-string and caret tests.
+- [x] Implement normalization without Number coercion.
+- [x] Verify token/USD behavior, named suites, TypeScript and named ESLint.
+- [ ] Run repository-wide lint, i18n and prover-pin gates in CI; capture both-theme UI evidence.
+- [ ] Complete independent review, commit, push and watch exact-head CI.
+- [ ] Merge only after the pre-merge check passes.
+
+## Review
+
+RED: the two named suites ran 104 tests, with six expected failures for redundant integer zeroes and caret behavior. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.

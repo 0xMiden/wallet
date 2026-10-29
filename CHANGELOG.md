@@ -7,6 +7,7 @@
 - [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
 
 - [CHANGE][all] Distinguish primary and realm-reader SDK client creation failures in crash diagnostics without sending raw error details.
+- [FIX][all] Remove redundant leading zeroes from amount edits while preserving exact decimal text and cursor placement.
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
 - [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
 - [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
