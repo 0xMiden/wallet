@@ -1,0 +1,34 @@
+name: Eligibility namespace collection expected red
+on:
+  push:
+    branches: [ci/1894-collect-namespaces-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: test "$(git rev-parse HEAD^)" = 176b67461b0830bb875ee8410b34e7e9f4177cc4
+      - name: Verify functional run bound regressions
+        shell: bash
+        run: |
+          set +e
+          node --test services/feature-eligibility/staging-topology-collect-namespaces.test.mjs > result.log 2>&1
+          status=$?
+          cat result.log
+          test "$status" -ne 0 || exit 1
+          grep -F 'not ok 1 - namespace collection repeats fixed-path inventory and returns matching identities' result.log || exit 1
+          grep -F 'ok 3 - namespace collection rejects provider errors' result.log || exit 1
+          grep -F '# fail 1' result.log || exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collect-red
+          path: result.log
