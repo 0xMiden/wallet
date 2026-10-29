@@ -90,10 +90,9 @@ it('owns how the filter row looks: the page passes items and a selection, nothin
   const rest = screen.getByRole('radio', { name: 'Sent' });
 
   expect(selected).toHaveAttribute('aria-checked', 'true');
-  // The bottom nav's raised bubble over the selection, solid brand orange with a white label (a
-  // design call: white on the accent is 3:1); an outlined pill for everything else.
-  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'shadow-raised');
-  expect(selected).toHaveClass('text-accent-brand-on');
+  // The selected tint and ink maintain text contrast; other pills remain outlined.
+  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'shadow-raised');
+  expect(selected).toHaveClass('text-accent-tint-ink');
   expect(rest.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   expect(rest).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
 });
