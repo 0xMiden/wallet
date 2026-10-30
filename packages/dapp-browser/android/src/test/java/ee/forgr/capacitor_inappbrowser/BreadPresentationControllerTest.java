@@ -2245,7 +2245,7 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() {
+    public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() throws Exception {
         openMorph(false);
         reveal();
         ImageButton capsule = ReflectionHelpers.getField(controller, "back");
