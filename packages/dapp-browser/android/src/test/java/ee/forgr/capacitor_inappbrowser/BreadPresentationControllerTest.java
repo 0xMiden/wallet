@@ -333,7 +333,7 @@ public class BreadPresentationControllerTest {
         assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
     }
 
-    @Test public void warmDialogIsNotAuthPresentable() {
+    @Test @Config(sdk = 28) public void warmDialogIsNotAuthPresentable() {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
         WebViewRegistry.getShared().register("target", target);
@@ -345,7 +345,7 @@ public class BreadPresentationControllerTest {
         assertFalse("a warmed dialog must not present auth", auth.presentable.getAsBoolean());
     }
 
-    @Test public void managedCloseDuringWarmupHidesBeforeTheClose() throws Exception {
+    @Test @Config(sdk = 28) public void managedCloseDuringWarmupHidesBeforeTheClose() throws Exception {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
         WebViewRegistry.getShared().register("target", target);
