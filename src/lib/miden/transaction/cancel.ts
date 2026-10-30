@@ -57,6 +57,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
+import { hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
 import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
@@ -332,7 +333,8 @@ export const cancelTransaction = async (
       error,
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
       submitLegMs: submitLegMs(committed, returnedAtMs),
-      ...expiryWait(committed)
+      ...expiryWait(committed),
+      ...submitApproach(committed)
     });
   }
 
@@ -452,10 +454,7 @@ export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHidden
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageSec = nowMs / 1000 - row.initiatedAt;
   if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
-  const hidden = hiddenSecondsSince(row.initiatedAt, nowMs);
-  if (!Number.isFinite(hidden) || hidden < 0) return 'unavailable';
-  if (hidden === 0) return 'none';
-  return hidden * 2 >= ageSec ? 'half_or_more' : 'under_half';
+  return hiddenShareBucket(hiddenSecondsSince(row.initiatedAt, nowMs), ageSec);
 };
 
 const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
@@ -592,7 +591,8 @@ export const markTransactionUnconfirmed = async (
       error,
       outcome: 'unconfirmed',
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
-      submitLegMs: submitLegMs(committed, returnedAtMs)
+      submitLegMs: submitLegMs(committed, returnedAtMs),
+      ...submitApproach(committed)
     });
   }
   notifyBackgroundTransactionNotConfirmed();

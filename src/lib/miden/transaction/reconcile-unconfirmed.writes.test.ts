@@ -322,6 +322,8 @@ describe('the never-committed write (#1081)', () => {
       priorError,
       proofWaitBlocks: 3,
       expiryWindowBlocks: 600,
+      submitApproachHidden: 'not_measured',
+      proofWindow: 'over_180_blocks',
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));

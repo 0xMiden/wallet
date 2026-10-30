@@ -27,6 +27,7 @@ import {
 } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
+import { submitApproach } from './submit-approach-diagnostics';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -317,6 +318,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
         : {}),
       ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
       ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
+      ...submitApproach(failed),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     };
     if (judgement.neverCommittedBy === 'expired') annotateProofWaitAvailability(failure, availability);

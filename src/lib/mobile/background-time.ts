@@ -43,6 +43,7 @@ interface HiddenInterval {
 let hiddenIntervals: HiddenInterval[] = [];
 let hiddenSince: number | null = null;
 let installed = false;
+let installedAtMs: number | null = null;
 
 // Running time, on the monotonic clock and kept apart from the epoch-ms
 // intervals above, which `Date.now()` corrections can skew: the frozen total,
@@ -235,11 +236,17 @@ export function isBackgroundTimeTrackingInstalled(): boolean {
   return installed;
 }
 
+/** Whether this run was already recording at `sinceMs`, epoch ms; its intervals say nothing about what came before. */
+export function wasRecordingHiddenTimeAt(sinceMs: number): boolean {
+  return installedAtMs !== null && installedAtMs <= sinceMs;
+}
+
 export function initBackgroundTimeTracking(): void {
   if (installed) return;
   /* istanbul ignore next -- defensive no-DOM/SSR guard; unreachable under the jsdom test env */
   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
   installed = true;
+  installedAtMs = Date.now();
   const monoNow = markNow();
 
   // Seed the open interval if we start up already hidden (e.g. a background
@@ -277,4 +284,5 @@ export function __resetBackgroundTimeForTest(): void {
   lastMarkHidden = false;
   hiddenStartedAt = null;
   installed = false;
+  installedAtMs = null;
 }
