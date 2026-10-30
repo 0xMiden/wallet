@@ -234,9 +234,14 @@ export class TopologyControl {
         };
         return runWiredRateScenario({
           service: { fetch: request => service.fetch(request, boundEnv) },
-          counters: async () => ({ objects }),
-          onFailure: (stage, status, objects) =>
-            console.error(`topology wired_rate failed at ${stage} status=${status ?? 'none'} objects=${objects ?? 'unknown'}`)
+          counters: async () => ({
+            objects,
+            budgetCount: (await (await budget.fetch('https://topology.internal/proof-budget')).json()).count
+          }),
+          onFailure: (stage, status, objects, budgetCount) =>
+            console.error(
+              `topology wired_rate failed at ${stage} status=${status ?? 'none'} objects=${objects ?? 'unknown'} budget=${budgetCount ?? 'unknown'}`
+            )
         });
       }
       if (name === 'rate_refusal') {
