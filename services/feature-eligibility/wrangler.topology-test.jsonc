@@ -15,8 +15,8 @@
     "TOPOLOGY_RUN_MAX": "7"
   },
   "ratelimits": [
-    { "name": "TOPOLOGY_CALLER_RATE", "namespace_id": "189410", "simple": { "limit": 2, "period": 60 } },
-    { "name": "TOPOLOGY_COLO_RATE", "namespace_id": "189411", "simple": { "limit": 5, "period": 10 } }
+    { "name": "TOPOLOGY_CALLER_RATE", "namespace_id": "189410", "simple": { "limit": 4, "period": 60 } },
+    { "name": "TOPOLOGY_COLO_RATE", "namespace_id": "189411", "simple": { "limit": 4, "period": 10 } }
   ],
   "durable_objects": {
     "bindings": [

@@ -40,6 +40,20 @@ async function waitUntilReady(child, url) {
   throw new Error('workerd did not become ready within 45 seconds');
 }
 
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const finish = exited => {
+      clearTimeout(timer);
+      child.removeListener('exit', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once('exit', onExit);
+  });
+}
+
 async function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   try {
@@ -47,14 +61,13 @@ async function stop(child) {
   } catch (error) {
     if (error.code !== 'ESRCH') throw error;
   }
-  await Promise.race([once(child, 'exit'), new Promise(resolve => setTimeout(resolve, 5000))]);
-  if (child.exitCode === null) {
+  if (!(await waitForExit(child, 5000))) {
     try {
       process.kill(-child.pid, 'SIGKILL');
     } catch (error) {
       if (error.code !== 'ESRCH') throw error;
     }
-    await once(child, 'exit');
+    if (!(await waitForExit(child, 5000))) throw new Error('workerd did not stop after SIGKILL');
   }
 }
 
