@@ -5,7 +5,11 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import {
+  clearPersistedSeenNoteIds,
+  persistSeenNoteIds,
+  retainLatestSeenNoteIds
+} from 'lib/miden/back/note-checker-storage';
 import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -1235,10 +1239,7 @@ export const useWalletStore = create<WalletStore>()(
       const newNoteIds = currentNoteIds.filter(id => !seenNoteIds.has(id));
 
       if (newNoteIds.length > 0) {
-        const updatedSeenNotes = new Set(seenNoteIds);
-        for (const id of newNoteIds) {
-          updatedSeenNotes.add(id);
-        }
+        const updatedSeenNotes = retainLatestSeenNoteIds([...seenNoteIds, ...newNoteIds]);
         // Every new note is recorded as seen, but only one the user has to claim by hand shows the
         // toast: a note first listed while the wallet was claiming it must not toast later, when a fee
         // or setting change makes it manual (#811).

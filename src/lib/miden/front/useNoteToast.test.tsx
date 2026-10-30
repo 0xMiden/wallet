@@ -64,6 +64,7 @@ jest.mock('lib/settings/helpers', () => ({
 const mockGetPersistedSeenNoteIds = jest.fn();
 const mockPersistSeenNoteIds = jest.fn();
 jest.mock('lib/miden/back/note-checker-storage', () => ({
+  retainLatestSeenNoteIds: jest.requireActual('lib/miden/back/note-checker-storage').retainLatestSeenNoteIds,
   getPersistedSeenNoteIds: () => mockGetPersistedSeenNoteIds(),
   persistSeenNoteIds: (...args: unknown[]) => mockPersistSeenNoteIds(...args)
 }));
@@ -124,6 +125,29 @@ describe('useNoteToastMonitor', () => {
     await waitFor(() => {
       expect(mockGetPersistedSeenNoteIds).toHaveBeenCalled();
     });
+  });
+
+  it('keeps async hydration within the cap when the live store is already full', async () => {
+    _g.__noteToastTest.isExtension = true;
+    _g.__noteToastTest.claimableNotes = undefined;
+    const currentIds = new Set(Array.from({ length: 4096 }, (_, index) => `current-${index}`));
+    let walletState = { seenNoteIds: currentIds };
+    _g.__noteToastTest.setState.mockImplementation((update: any) => {
+      walletState = {
+        ...walletState,
+        ...(typeof update === 'function' ? update(walletState) : update)
+      };
+    });
+    mockGetPersistedSeenNoteIds.mockResolvedValueOnce(new Set(['persisted-old']));
+
+    renderHook(() => useNoteToastMonitor('pk-1'));
+
+    await waitFor(() => expect(_g.__noteToastTest.setState).toHaveBeenCalledTimes(1));
+
+    expect(walletState.seenNoteIds.size).toBe(4096);
+    expect(walletState.seenNoteIds.has('persisted-old')).toBe(false);
+    expect(walletState.seenNoteIds.has('current-0')).toBe(true);
+    expect(walletState.seenNoteIds.has('current-4095')).toBe(true);
   });
 
   it('passes an auto-consumed native note as seen but never as notifiable (#811)', async () => {

@@ -24,6 +24,7 @@ import {
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
+import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from './storage-health';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -2086,6 +2087,30 @@ describe('wallet storage rejection boundaries', () => {
       expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_limits', 'mutate'));
     } finally {
       await dispose(target);
+    }
+  });
+
+  it('guards recovery-debit mutations after health changes inside an open transaction', async () => {
+    const target = database();
+    try {
+      await target.open();
+      const failure = await rejection(() =>
+        target.transaction('rw', target.table(Table.RecoveryDebits), async () => {
+          markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+          await target.table<import('./recovery/types').RecoveryDebitEntry, string>(Table.RecoveryDebits).put({
+            kind: 'debit',
+            id: 'debit-1',
+            accountId: 'account-1',
+            initiatedAt: 1
+          });
+        })
+      );
+
+      expect(failure).toMatchObject({ name: 'StorageUnavailableError' });
+      expect(snapshotCrashDiagnostics(failure)).toEqual(pair('wallet_transactions', 'mutate'));
+    } finally {
+      await dispose(target);
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
     }
   });
 });

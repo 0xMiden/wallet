@@ -31,13 +31,12 @@ jest.mock('webextension-polyfill', () => ({
 }));
 
 import {
+  MAX_SEEN_NOTE_IDS,
   clearPersistedSeenNoteIds,
   getPersistedSeenNoteIds,
   mergeAndPersistSeenNoteIds,
   persistSeenNoteIds
 } from './note-checker-storage';
-
-const MAX_SEEN_NOTE_IDS = 4096;
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__nckTest.storage)) delete _g.__nckTest.storage[k];

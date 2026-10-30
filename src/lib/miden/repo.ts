@@ -421,6 +421,7 @@ export async function openWalletRecoveryStore(capability: StorageRecoveryCapabil
 function walletTableOwner(name: string): StorageOwner | undefined {
   if (name === Table.Transactions) return 'wallet_transactions';
   if (name === Table.SpendingLimits) return 'wallet_limits';
+  if (name === Table.RecoveryDebits) return 'wallet_transactions';
   return undefined;
 }
 

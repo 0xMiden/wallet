@@ -1016,6 +1016,49 @@ jest.mock('./StorageRecoveryPage', () => ({
 }));
 
 describe('Task5 availability recovery navigation', () => {
+  it('routes a quota failure during database open to storage recovery', async () => {
+    const [{ createSchemaFor }, { getStorageAvailability }, { default: Dexie }] = await Promise.all([
+      import('lib/miden/repo'),
+      import('lib/miden/storage-health'),
+      import('dexie')
+    ]);
+    const target = createSchemaFor(`storage-open-quota-${Date.now()}`);
+    const factory = Dexie.dependencies.indexedDB;
+    if (factory === undefined) throw new Error('fake-indexeddb is unavailable');
+    const originalOpen = factory.open;
+    const failure = new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    const open = jest.spyOn(factory, 'open').mockImplementation(function (this: IDBFactory, name, version) {
+      if (name === target.name) throw failure;
+      return originalOpen.call(this, name, version);
+    });
+
+    try {
+      await expect(target.open()).rejects.toBeDefined();
+
+      const storageAvailability = getStorageAvailability();
+      expect(storageAvailability).toMatchObject({
+        status: 'unavailable',
+        reason: 'quota',
+        backend: 'wallet',
+        operation: 'open'
+      });
+
+      const view = renderAt('/', { ready: false, locked: false, hydrated: true });
+      mockMiden = {
+        ...mockMiden,
+        storageAvailability,
+        state: { ...mockMiden.state, storageAvailability }
+      };
+      view.rerender(<PageRouter />);
+
+      expect(screen.getByTestId('storage-recovery-page')).toBeInTheDocument();
+    } finally {
+      open.mockRestore();
+      target.close();
+      await Dexie.delete(target.name);
+    }
+  });
+
   it.each(['/developer-settings', '/settings/network-endpoints'])(
     'keeps the existing authenticated network route %s available without a wallet page layer',
     pathname => {
