@@ -3,6 +3,8 @@
 ## 1.17.9 (TBD)
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
+- [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
+
 - [CHANGE][all] Move the mainnet endpoints from the `cedar` hosts to the `mainnet` hosts (RPC, prover, note transport, explorer and the Agglayer bridge indexer).
 - [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
 - [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
