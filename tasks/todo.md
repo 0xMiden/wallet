@@ -616,5 +616,6 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Compare the failing setup with the existing `openMorph()` fixture.
 - [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
 - [x] Advance Robolectric Choreographer frames in the expanded-animation assertion; advancing only the main looper does not render frames.
-- [ ] Commit and push the clock correction, then watch all exact-head checks.
-- [ ] Complete the required Council review and send the final behavior/SHA to the #1956 owner.
+- [x] Restore the saved accessibility importance after the hide operation changes the dialog decor.
+- [ ] Commit and push the restoration-order fix, then watch all exact-head checks.
+- [ ] Complete the independent direct review and send the final behavior/SHA to the #1956 owner.

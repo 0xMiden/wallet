@@ -493,6 +493,7 @@ final class BreadPresentationController {
         warmAddedWindowFlags = 0;
         if (hide && !state.surfaceVisibility() && state.phase() != BreadPresentationState.Phase.CLOSED) {
             owner.applyPresentationVisibility(false);
+            decor.setImportantForAccessibility(warmAccessibilityImportance);
         }
     }
 
