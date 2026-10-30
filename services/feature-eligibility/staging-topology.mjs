@@ -119,12 +119,12 @@ export function createRunController({ storage, now = Date.now, expiresAt, maxRun
   };
 }
 
-export async function runCacheScenario({ service, counters }) {
+export async function runCacheScenario({ service, counters, colo = 'TST' }) {
   const fixedRequest = () => {
     const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
       headers: { 'CF-Connecting-IP': '192.0.2.1', Origin: 'https://wallet.example' }
     });
-    Object.defineProperty(request, 'cf', { value: { colo: 'TST' } });
+    Object.defineProperty(request, 'cf', { value: { colo } });
     return request;
   };
   const validCounters = value =>
@@ -156,7 +156,7 @@ export async function runCacheScenario({ service, counters }) {
   }
 }
 
-export async function runColoScenario({ service, counters }) {
+export async function runColoScenario({ service, counters, colos = { IAD: 'IAD', FRA: 'FRA' } }) {
   const fixedRequest = colo => {
     const request = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
       headers: { 'CF-Connecting-IP': '192.0.2.2', Origin: 'https://wallet.example' }
@@ -168,9 +168,9 @@ export async function runColoScenario({ service, counters }) {
     value && ['IAD', 'FRA', 'reservations'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
   try {
     const before = await counters();
-    const first = await service.fetch(fixedRequest('IAD'));
+    const first = await service.fetch(fixedRequest(colos.IAD));
     const afterFirst = await counters();
-    const second = await service.fetch(fixedRequest('FRA'));
+    const second = await service.fetch(fixedRequest(colos.FRA));
     const afterSecond = await counters();
     if (![before, afterFirst, afterSecond].every(valid) || !first.ok || !second.ok) return 'failed';
     const expected = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } };

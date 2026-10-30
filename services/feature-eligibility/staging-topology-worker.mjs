@@ -180,7 +180,6 @@ export class RestartProof {
 export class TopologyControl {
   constructor(state, env) {
     const scenario = async name => {
-      const caller = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:TST'));
       const budget = env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName('global-v1'));
       const service = createService({ fetchImpl: fixedFetch(() => {}) });
       const serviceEnv = syntheticEnv(env);
@@ -280,20 +279,35 @@ export class TopologyControl {
         return runBudgetScenario({ budget, counters });
       }
       if (name === 'colo_isolation') {
-        const iad = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:IAD'));
-        const fra = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName('cache:FRA'));
+        const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
+        const iadColo = `IAD${suffix}`;
+        const fraColo = `FRA${suffix}`;
+        const iad = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName(`cache:${iadColo}`));
+        const fra = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName(`cache:${fraColo}`));
         const counters = async () => ({
           IAD: (await (await iad.fetch('https://topology.internal/proof-counters')).json()).lookups,
           FRA: (await (await fra.fetch('https://topology.internal/proof-counters')).json()).lookups,
           reservations: (await (await budget.fetch('https://topology.internal/proof-counters')).json()).reservations
         });
-        return runColoScenario({ service: { fetch: request => service.fetch(request, serviceEnv) }, counters });
+        return runColoScenario({
+          service: { fetch: request => service.fetch(request, serviceEnv) },
+          counters,
+          colos: { IAD: iadColo, FRA: fraColo }
+        });
       }
-      const counters = async () => ({
-        ...(await (await caller.fetch('https://topology.internal/proof-counters')).json()),
-        ...(await (await budget.fetch('https://topology.internal/proof-counters')).json())
-      });
-      return runCacheScenario({ service: { fetch: request => service.fetch(request, serviceEnv) }, counters });
+      if (name === 'cache_reuse') {
+        const colo = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
+        const caller = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName(`cache:${colo}`));
+        const counters = async () => ({
+          ...(await (await caller.fetch('https://topology.internal/proof-counters')).json()),
+          ...(await (await budget.fetch('https://topology.internal/proof-counters')).json())
+        });
+        return runCacheScenario({
+          service: { fetch: request => service.fetch(request, serviceEnv) },
+          counters,
+          colo
+        });
+      }
     };
     this.handle = createRunController({
       storage: state.storage,

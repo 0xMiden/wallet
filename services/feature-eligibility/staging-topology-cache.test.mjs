@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { runCacheScenario } from './staging-topology.mjs';
+import { CallerEligibilityGuard, EligibilityGuard, TopologyControl } from './staging-topology-worker.mjs';
 
 function harness({ cacheWorks = true, writesOnHit = false, status = 200 } = {}) {
   let lookups = 0;
@@ -48,4 +49,86 @@ test('cache scenario fails when a service request does not succeed', async () =>
   const fixture = harness({ status: 503 });
   assert.equal(await runCacheScenario(fixture), 'failed');
   assert.ok(fixture.calls.length > 0);
+});
+
+class MemoryStorage {
+  values = new Map();
+  queue = Promise.resolve();
+  writes = 0;
+
+  async get(key) {
+    return structuredClone(this.values.get(key));
+  }
+
+  async put(key, value) {
+    this.writes += 1;
+    this.values.set(key, structuredClone(value));
+  }
+
+  async delete(keys) {
+    this.writes += 1;
+    for (const key of Array.isArray(keys) ? keys : [keys]) this.values.delete(key);
+  }
+
+  async list({ prefix = '', startAfter = '', limit = 128 } = {}) {
+    return new Map(
+      [...this.values]
+        .filter(([key]) => key.startsWith(prefix) && key > startAfter)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(0, limit)
+    );
+  }
+
+  async setAlarm(value) {
+    this.writes += 1;
+    this.alarm = value;
+  }
+
+  async getAlarm() {
+    return this.alarm ?? null;
+  }
+
+  transaction(callback) {
+    const result = this.queue.then(() => callback(this));
+    this.queue = result.catch(() => {});
+    return result;
+  }
+}
+
+function namespace(Class, env) {
+  const instances = new Map();
+  return {
+    idFromName: name => name,
+    get(id) {
+      let stub = instances.get(id);
+      if (!stub) {
+        const object = new Class({ storage: new MemoryStorage(), id: { name: id } }, env);
+        stub = {
+          fetch: (input, init) => object.fetch(input instanceof Request ? input : new Request(input, init))
+        };
+        instances.set(id, stub);
+      }
+      return stub;
+    }
+  };
+}
+
+function admittedController() {
+  const env = {
+    TOPOLOGY_RUN_UNTIL: String(Date.now() + 10 * 60 * 1000),
+    TOPOLOGY_RUN_MAX: '2'
+  };
+  env.CALLER_GUARD = namespace(CallerEligibilityGuard, env);
+  env.ELIGIBILITY_GUARD = namespace(EligibilityGuard, env);
+  return new TopologyControl({ storage: new MemoryStorage() }, env);
+}
+
+test('a second admitted cache reuse is another cold miss', async () => {
+  const control = admittedController();
+  const first = await control.fetch(new Request('https://topology.internal/scenario/cache_reuse', { method: 'POST' }));
+  const second = await control.fetch(new Request('https://topology.internal/scenario/cache_reuse', { method: 'POST' }));
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).status, 'passed');
+  assert.equal(second.status, 200);
+  assert.equal((await second.json()).status, 'passed');
 });
