@@ -1515,10 +1515,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const failure = usdcxDepositError(err);
         setSlowError(failure);
         setSlowStatus('failed');
+        const failureStep = usdcxFailureStep(err, step);
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: failureSource(usdcxFailureStep(err, step), err)
+          failure: failureSource(
+            failureStep,
+            err,
+            failureStep === 'wallet_approve' || failureStep === 'wallet_deposit'
+              ? nativeReownAvailable
+                ? 'native_reown'
+                : 'wagmi'
+              : undefined
+          )
         }).catch(() => undefined);
       }
     },
