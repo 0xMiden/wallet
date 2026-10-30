@@ -292,9 +292,14 @@ export async function runRateScenario({ service, counters }) {
 }
 
 export async function runWiredRateScenario({ service, counters, onFailure = () => {} }) {
-  const failed = (stage, status) => {
+  const failed = async (stage, status) => {
+    let objects;
     try {
-      onFailure(stage, status);
+      const current = await counters();
+      objects = Number.isSafeInteger(current?.objects) ? current.objects : undefined;
+    } catch {}
+    try {
+      onFailure(stage, status, objects);
     } catch {}
     return 'failed';
   };
