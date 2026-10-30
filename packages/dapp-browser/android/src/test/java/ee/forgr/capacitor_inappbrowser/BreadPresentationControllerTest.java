@@ -259,6 +259,64 @@ public class BreadPresentationControllerTest {
         verify(options.getPluginCall()).resolve();
     }
 
+    @Test public void prepareMorphWarmsOnlyRequestedHiddenDialogUntilExpandedOrExpired() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = controller;
+        BreadPresentationState.Phase parked = targetPresentation.state.phase();
+        WebViewRegistry.getShared().register("target", target);
+
+        open(true, true, "default", false);
+        WebViewDialog other = dialog;
+        WebViewRegistry.getShared().register("other", other);
+
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall unknown = mock(PluginCall.class);
+        when(unknown.getString("id")).thenReturn("missing");
+        plugin.prepareMorph(unknown);
+        assertFalse(target.isShowing());
+        assertFalse(other.isShowing());
+
+        PluginCall warm = mock(PluginCall.class);
+        when(warm.getString("id")).thenReturn("target");
+        when(warm.getInt("durationMs")).thenReturn(600);
+        plugin.prepareMorph(warm);
+
+        assertTrue("only the requested hidden presentation should warm", target.isShowing());
+        assertEquals(View.INVISIBLE, target.getWindow().getDecorView().getVisibility());
+        assertEquals(parked, targetPresentation.state.phase());
+        assertFalse(other.isShowing());
+        verify(warm).resolve();
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertTrue(target.isShowing());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertTrue(target.isShowing());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertTrue(target.isShowing());
+
+        BreadMorphCard card = new BreadMorphCard(new RectF(20, 20, 220, 160), 18);
+        assertTrue("an expand should take ownership of the warm dialog", targetPresentation.morph(
+            "expanded", card, 0, 0, "target", (int) targetPresentation.state.policyRevision(), 1));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
+        assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
+        BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
+        assertEquals(1f, morph.progress(), 0.01f);
+
+        target.forceClose();
+        WebViewRegistry.getShared().remove("target");
+        target.forceClose();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
+        assertFalse("a stale timeout must not affect a replacement registered under the same id", target.isShowing());
+        WebViewDialog replacement = mock(WebViewDialog.class);
+        WebViewRegistry.getShared().register("target", replacement);
+        assertSame(replacement, WebViewRegistry.getShared().get("target"));
+        other.forceClose();
+    }
+
     @After public void tearDown() {
         if (dialog != null) dialog.forceClose();
         WebViewRegistry.getShared().clear();
