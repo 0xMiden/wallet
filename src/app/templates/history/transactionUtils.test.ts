@@ -931,22 +931,31 @@ describe('bridgeRowDisplay', () => {
     expect(quoted('0.00')).toBe('0');
   });
 
-  it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
+  it.each(['NEAR', 'WBTC', 'USDC', 'ETH', 'MIDEN'])(
+    'uses %s on both sides of an Agglayer withdrawal without an output symbol',
+    token => {
+      expect(
+        bridgeRowDisplay(
+          UNLOADED,
+          bridgeEntry({ token, amount: '1.2', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        )
+      ).toEqual({
+        inSymbol: token,
+        outSymbol: token,
+        inLabel: token,
+        outLabel: token,
+        outAmount: '1.2',
+        providerLabel: 'Agglayer',
+        network: 'Sepolia',
+        status: 'confirmed'
+      });
+    }
+  );
+
+  it('keeps the saved Agglayer output symbol', () => {
     expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
-      )
-    ).toEqual({
-      inSymbol: 'MIDEN',
-      outSymbol: 'ETH',
-      inLabel: 'MIDEN',
-      outLabel: 'ETH',
-      outAmount: '7',
-      providerLabel: 'Agglayer',
-      network: 'Sepolia',
-      status: 'confirmed'
-    });
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'WETH', bridgeProvider: 'agglayer', bridgeOutputSymbol: 'ETH' }))
+    ).toMatchObject({ inSymbol: 'WETH', outSymbol: 'ETH', outLabel: 'ETH' });
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
