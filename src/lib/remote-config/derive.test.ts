@@ -23,6 +23,7 @@ import {
   type DerivedBridgeConfig,
   type DerivedChainConfig,
   type DeriveDeps,
+  EPOCH_NATIVE_TOKEN,
   type EvmReads
 } from './derive';
 import { parseStoredDerived } from './derived-snapshot';
@@ -637,6 +638,35 @@ describe('the Epoch token faucets', () => {
         midenAccountHex: jest.fn(async () => Promise.reject(new Error('not an account id')))
       })
     ).resolves.toEqual({ USDC: undefined, WETH: undefined, USDT: undefined });
+  });
+
+  it('reads the native coin at the zero address with no contract read, at its key and 18 decimals', async () => {
+    const reads = sepoliaReads({ hasCode: jest.fn(async () => false) });
+    const withNative: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {
+        sepolia: {
+          chainId: SEPOLIA,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: EPOCH_NATIVE_TOKEN, outputs: [] } }
+            }
+          }
+        }
+      }
+    };
+    const derived = await deriveBridgeConfig(
+      withNative,
+      deps({ evm: () => reads, tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', '0xeth']])) })
+    );
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.ETH).toEqual({
+      state: 'ok',
+      value: { symbol: 'ETH', decimals: 18, midenFaucetId: '0xeth' }
+    });
+    expect(reads.hasCode).not.toHaveBeenCalledWith(EPOCH_NATIVE_TOKEN);
+    expect(reads.erc20).not.toHaveBeenCalled();
   });
 });
 

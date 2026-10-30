@@ -540,20 +540,41 @@ async function readTokenFaucets(io: DeriveDeps, network: string): Promise<Map<st
   }
 }
 
+/** The address an Epoch route names the chain's native coin with, as the Epoch allocator quotes it. */
+export const EPOCH_NATIVE_TOKEN = '0x0000000000000000000000000000000000000000';
+
 /**
- * An Epoch token's ERC-20 read, with the Miden faucet it settles into: the document's output for it, else the
+ * An Epoch token's read: the native coin has no contract, so it takes the document's key as its symbol and the
+ * decimals the chain registry gives its native currency; any other token is read as an ERC-20.
+ */
+function probeEpochTokenMetadata(
+  reads: EvmReads | null,
+  chainId: number,
+  symbol: string,
+  token: EpochTokenConfig
+): Promise<Probe<TokenMetadata>> {
+  const native = token.contractAddress.toLowerCase() === EPOCH_NATIVE_TOKEN;
+  if (!reads || !native) return probeErc20(reads, token.contractAddress);
+  const chain = getChain(chainId);
+  if (!chain) return Promise.resolve({ state: 'skipped' });
+  return Promise.resolve({ state: 'ok', value: { symbol, decimals: chain.nativeCurrency.decimals } });
+}
+
+/**
+ * An Epoch token's read, with the Miden faucet it settles into: the document's output for it, else the
  * token-list's faucet for its Miden symbol (its key when the document names none). A faucet that cannot be resolved
  * leaves the read without one; it never fails the read.
  */
 async function probeEpochToken(
   reads: EvmReads | null,
+  chainId: number,
   config: BridgeConfig,
   symbol: string,
   token: EpochTokenConfig,
   tokenFaucets: Promise<Map<string, string>>,
   io: DeriveDeps
 ): Promise<Probe<EpochTokenRead>> {
-  const read = await probeErc20(reads, token.contractAddress);
+  const read = await probeEpochTokenMetadata(reads, chainId, symbol, token);
   if (read.state !== 'ok') return read;
   const listed = epochTokenFaucetId(config, token) ?? (await tokenFaucets).get(token.midenSymbol ?? symbol);
   if (listed === undefined) return read;
@@ -716,7 +737,7 @@ export async function deriveBridgeConfig(
       Object.fromEntries(
         Object.entries(chain.bridges.epoch?.tokens ?? {}).map(([symbol, token]) => [
           symbol,
-          probeEpochToken(evmReads.get(chain.chainId) ?? null, config, symbol, token, tokenFaucets, io)
+          probeEpochToken(evmReads.get(chain.chainId) ?? null, chain.chainId, config, symbol, token, tokenFaucets, io)
         ])
       )
     ])

@@ -43,6 +43,7 @@
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 - [CHANGE][all] An Epoch route of the bridge config lists any number of EVM tokens, each settling into the token-list faucet of its `midenSymbol`; faucet IDs use the shared account parser, a Fast send arrives as the route's token for the sent Miden token, and Polygon and Robinhood Chain are supported chains.
+- [CHANGE][all] An Epoch route of the bridge config lists any number of EVM tokens, each settling into the token-list faucet of its `midenSymbol`, and names the chain's native coin (native ETH, POL) at the zero address; a Fast send arrives as the route's token for the sent Miden token, and Polygon and Robinhood Chain are supported chains.
 
 ## 1.17.8 (2026-10-27)
 
