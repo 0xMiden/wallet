@@ -19,6 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -504,6 +505,12 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit
+    // tag itself.
+    if (resp.errorName === 'StaleProofError') {
+      reject(new StaleProofError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {

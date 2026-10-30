@@ -24,6 +24,7 @@ import {
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { MAX_PROOF_REEXECUTIONS } from 'lib/miden/guardian/proof-freshness';
 import {
   clearGuardianAccountLocks,
   getGuardianCandidate,
@@ -56,6 +57,7 @@ import {
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
+  STALE_PROOF_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -81,6 +83,7 @@ import {
   LANDED_CONFIRM_POLL_MS,
   failInterruptedTransactions,
   markBridgedSendFailed,
+  requeueFailedTransaction,
   SESSION_STARTED_AT
 } from './index';
 import { keptCandidateHoldUntil } from './verdict-rules';
@@ -5163,6 +5166,189 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     }
   );
+
+  describe('a proof the chain keeps outrunning (#2060)', () => {
+    const REF_BLOCK = 1_000;
+    const PAST_THE_WINDOW = REF_BLOCK + FEE_POLICY_WINDOW_BLOCKS;
+
+    let warnSpy: jest.SpyInstance;
+    let errorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      resetConnectivityState();
+      mockPlatformIsMobile = true;
+      mockReadChainTip.mockImplementation(async () => PAST_THE_WINDOW);
+    });
+
+    afterEach(() => {
+      mockReadChainTip.mockImplementation(async () => 0);
+      mockPlatformIsMobile = false;
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    /** A send whose every execution proves on the same reference block, so no re-execution can catch up. */
+    const arrangeSend = (txId: string, delegateTransaction: boolean) => {
+      const tx = {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction
+      };
+      txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+      const abandonCandidate = jest.fn(async () => {});
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate,
+        sync: jest.fn(async () => {})
+      });
+      const client = makeClientApi(makeResult());
+      client.transactions.prove.mockImplementation(async () => proofOnRefBlock(REF_BLOCK));
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      return { tx, abandonCandidate, client };
+    };
+
+    const run = (tx: object) =>
+      generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+    const withNavigatorLocks = async (body: () => Promise<void>) => {
+      const nav = globalThis.navigator as unknown as Record<string, unknown>;
+      Object.defineProperty(nav, 'locks', {
+        value: { request: (_n: string, _o: unknown, cb: (lock: object) => unknown) => cb({}) },
+        writable: true,
+        configurable: true
+      });
+      try {
+        await body();
+      } finally {
+        delete nav.locks;
+      }
+    };
+
+    it.each([
+      ['delegated', true],
+      ['local', false]
+    ])(
+      '%s: ends Failed with nothing sent, its candidate abandoned and Retry open',
+      async (label, delegateTransaction) => {
+        const txId = `send-guardian-stale-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+
+        await run(tx);
+
+        expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1 + MAX_PROOF_REEXECUTIONS);
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1 + MAX_PROOF_REEXECUTIONS);
+        expect(client.syncChain).toHaveBeenCalledTimes(1 + MAX_PROOF_REEXECUTIONS);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+
+        const stored = txStore.find(row => row.id === txId)!;
+        expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving', error: STALE_PROOF_ERROR });
+        expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        expect(stored.submitEvidence ?? []).toEqual([]);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+        // A stale proof is no prover failure: nothing requeues it behind a prover banner.
+        expect(getConnectivityState().prover.active).toBe(false);
+
+        await withNavigatorLocks(() => requeueFailedTransaction(txId));
+        expect(stored.status).toBe(ITransactionStatus.Queued);
+      }
+    );
+
+    it('stays on the proving stage through a re-execution', async () => {
+      const txId = 'send-guardian-stale-stage';
+      const { tx, client } = arrangeSend(txId, true);
+      const stages: unknown[] = [];
+      const execute = client.transactions.executeRequest.getMockImplementation()!;
+      client.transactions.executeRequest.mockImplementation(async (...args) => {
+        stages.push(txStore.find(row => row.id === txId)?.stage);
+        return execute(...args);
+      });
+
+      await run(tx);
+
+      expect(stages).toEqual(['executing', 'proving', 'proving']);
+    });
+
+    it.each([
+      ['a stale', PAST_THE_WINDOW],
+      ['a fresh', REF_BLOCK]
+    ])('stops %s proof on an eviction during the tip read, before any further WASM call', async (label, tip) => {
+      const txId = `send-guardian-evicted-reading-tip-${label}`;
+      const { tx, abandonCandidate, client } = arrangeSend(txId, true);
+      let answerTip!: (tip: number) => void;
+      let signalTipRead!: () => void;
+      const tipReadStarted = new Promise<void>(resolve => {
+        signalTipRead = resolve;
+      });
+      mockReadChainTip.mockImplementation(
+        () =>
+          new Promise<number>(resolve => {
+            answerTip = resolve;
+            signalTipRead();
+          })
+      );
+      const lockRace = installWasmLockAbortRace();
+
+      const pending = run(tx).catch(() => {});
+      try {
+        await tipReadStarted;
+        lockRace.abort(new WasmClientPoisonedError('watchdog', new Error('mock watchdog eviction')));
+        await pending;
+        const callsAtEviction = client.syncChain.mock.calls.length;
+        answerTip(tip);
+        await lockRace.settleDetached();
+
+        expect(client.syncChain).toHaveBeenCalledTimes(callsAtEviction);
+        expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      } finally {
+        lockRace.restore();
+      }
+
+      // It never reached its submit call, so its candidate goes back rather than waiting out the Guardian.
+      expect(abandonCandidate).toHaveBeenCalledWith(5);
+      const stored = txStore.find(row => row.id === txId);
+      expect(stored?.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+      // The kill route's own entry is expected; what this attempt proved is not, since it never reached its crossing.
+      const entries = (stored?.submitEvidence ?? []) as ISubmitEvidence[];
+      expect(entries.filter(entry => entry.source === 'stage' || entry.refBlock !== undefined)).toEqual([]);
+    });
+
+    it('sends the proof as before when the tip cannot be read', async () => {
+      const txId = 'send-guardian-tip-unreadable';
+      const { tx, client } = arrangeSend(txId, true);
+      mockReadChainTip.mockImplementation(async () => {
+        throw new Error('node down');
+      });
+
+      await run(tx);
+
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    });
+  });
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

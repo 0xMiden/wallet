@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -101,7 +102,8 @@ const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcom
   ['user_cancelled', 'cancelled'],
   ['interrupted_on_startup', 'interrupted'],
   ['stuck_reaped', 'timeout'],
-  ['queued_expired', 'timeout']
+  ['queued_expired', 'timeout'],
+  ['stale_proof', 'timeout']
 ]);
 
 const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: string): DiagnosticEndOutcome =>
@@ -111,7 +113,9 @@ const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
-    : REPORTED_WALLET_REASONS.get(error);
+    : isStaleProofError(error)
+      ? 'stale_proof'
+      : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)

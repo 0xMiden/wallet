@@ -1,5 +1,6 @@
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
@@ -34,6 +35,11 @@ export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try ag
 // A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
 export const SUBMIT_CROSSING_UNRECORDED_ERROR =
   'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
+
+// A proof that kept going stale stops before its submit (#2060), so nothing reached the network and Retry is safe.
+export const STALE_PROOF_ERROR =
+  'The network window for this transaction closed before it could be sent, so nothing was sent and no funds moved. ' +
+  'Please try again.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
@@ -657,6 +663,9 @@ function classifyTransactionError(
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
   if (isSubmitCrossingUnrecorded(error)) {
     return SUBMIT_CROSSING_UNRECORDED_ERROR;
+  }
+  if (isStaleProofError(error)) {
+    return STALE_PROOF_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

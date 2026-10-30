@@ -1,6 +1,7 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
@@ -24,6 +25,7 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
+  STALE_PROOF_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -582,6 +584,37 @@ describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
         })
       )
     ).toBe(false);
+  });
+});
+
+describe('a proof that kept going stale (#2060)', () => {
+  it.each([
+    ['at the stage that reads as a prover failure, delegated', 'proving', true],
+    ['at the stage that reads as a prover failure, local', 'proving', false],
+    ['on an extension row, whose stage stays at sending', 'sending', true]
+  ] as const)('never blames the prover %s', (_label, stage, delegated) => {
+    expect(resolveTransactionErrorMessage(new StaleProofError(), stage, delegated)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('reads the same through a wrapper', () => {
+    const wrapped = new Error('wrapped', { cause: new StaleProofError() });
+    expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('lets a kill in the chain win, since that pipeline may still submit', () => {
+    const killed = new WasmClientPoisonedError('watchdog', new StaleProofError());
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('tells the user nothing went out and to try again', () => {
+    expect(STALE_PROOF_ERROR).toMatch(/nothing was sent and no funds moved/);
+    expect(STALE_PROOF_ERROR).toMatch(/try again/);
+  });
+
+  it('reads as Failed, not Not confirmed', () => {
+    expect(isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR })).toBe(
+      false
+    );
   });
 });
 

@@ -63,6 +63,11 @@ jest.mock('lib/miden-chain/native-asset', () => ({
     return true;
   })
 }));
+// A tip read runs on an RpcClient of its own, outside the client this suite fakes.
+jest.mock('lib/miden/sdk/pswap-order-note', () => ({
+  ...jest.requireActual('lib/miden/sdk/pswap-order-note'),
+  readChainTip: (...a: any[]) => (globalThis as any).__off.readChainTip(...a)
+}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
@@ -377,6 +382,7 @@ function resetControl() {
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
     deserializeTxResult: jest.fn(() => ({ __txResult: true })),
+    readChainTip: jest.fn(async () => 0),
     // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
@@ -4716,6 +4722,173 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
     }
   );
+
+  describe('guardianPipeline: a proof past its submit window (#2060)', () => {
+    const FEE_POLICY_WINDOW_BLOCKS = 20;
+    const proofOnBlock = (refBlock: number) => ({
+      refBlockNumber: () => refBlock,
+      expirationBlockNumber: () => refBlock + FEE_POLICY_WINDOW_BLOCKS
+    });
+
+    /** Every worker prove comes back on the next of `refBlocks`, the last repeating; `events` lists what crossed. */
+    const arrange = async (refBlocks: number[], tip: number) => {
+      await loadModule();
+      const events: string[] = [];
+      const gates: any[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          events.push('gate');
+          return { ok: true };
+        }
+        return undefined;
+      });
+      const proofs = refBlocks.map(proofOnBlock);
+      let proved = 0;
+      mockProveTransport.prove.mockImplementation(async () => {
+        proved += 1;
+        return { proven: new Uint8Array([1]), durationMs: 1 };
+      });
+      G.__off.deserializeProof = jest.fn(() => proofs[Math.min(proved, proofs.length) - 1]);
+      G.__off.readChainTip = jest.fn(async () => tip);
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        events.push('execute');
+        return { result: retryableResult(), id: { toHex: () => '0xlanded' } };
+      });
+      G.__off.guardianSubmitProven = jest.fn(async () => {
+        events.push('submit');
+        return { apply: jest.fn(async () => {}) };
+      });
+      return { events, gates, proofs };
+    };
+
+    afterEach(() => {
+      mockProveTransport.prove.mockImplementation(async () => ({ proven: new Uint8Array([1, 2, 3]), durationMs: 42 }));
+    });
+
+    it('re-executes a stale proof at a later tip and sends only the fresh one', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_018], 1_018);
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(2);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+      // A re-execution posts no stage: the row stays on 'proving', as on the inline leaf.
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'gate', 'submit']);
+      expect(gates).toHaveLength(1);
+      expect(gates[0].evidence).toMatchObject({ refBlock: 1_018, expirationBlock: 1_038 });
+      expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+    });
+
+    it('gives up before its gate, tagged, once the re-executions are spent', async () => {
+      const { events } = await arrange([1_000], 1_100);
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'execute']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
+      ['a stale', 1_100],
+      ['a fresh', 1_000]
+    ])('stops %s proof on an eviction during the tip read, before its gate', async (_label, tip) => {
+      const { events } = await arrange([1_000], 1_100);
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      let answerTip!: (tip: number) => void;
+      G.__off.readChainTip = jest.fn(
+        () =>
+          new Promise<number>(resolve => {
+            answerTip = resolve;
+          })
+      );
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await flush();
+      expect(G.__off.readChainTip).toHaveBeenCalledTimes(1);
+
+      miden.__evictHolder();
+      answerTip(tip);
+      await flush();
+
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['executing', 'execute', 'proving']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+      expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+    });
+
+    it('sends the proof as before when the tip cannot be read', async () => {
+      const { events, proofs } = await arrange([1_000], 1_100);
+      G.__off.readChainTip = jest.fn(async () => {
+        throw new Error('node down');
+      });
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'submit']);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[0]);
+    });
+
+    it('reads no tip for a proof with no expiration', async () => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.readChainTip).not.toHaveBeenCalled();
+    });
+
+    it('re-proves remotely on a delegated write and submits only the fresh proof', async () => {
+      await arrange([1_000], 1_018);
+      const submits: jest.Mock[] = [];
+      let refBlock = 1_000;
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        const proof = proofOnBlock(refBlock);
+        refBlock = 1_018;
+        const submit = jest.fn(async () => ({ apply: jest.fn(async () => {}) }));
+        submits.push(submit);
+        return {
+          result: retryableResult(),
+          id: { toHex: () => '0xlanded' },
+          prove: jest.fn(async (options: unknown) => {
+            G.__off.guardianProveCalls.push(options);
+            return { proof, submit };
+          })
+        };
+      });
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.guardianProveCalls).toHaveLength(2);
+      expect(submits[0]).not.toHaveBeenCalled();
+      expect(submits[1]).toHaveBeenCalledTimes(1);
+    });
+  });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
     await loadModule();

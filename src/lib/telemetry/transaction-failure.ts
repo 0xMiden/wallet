@@ -79,7 +79,8 @@ export const FAILURE_REASONS = [
   'consume_not_landed',
   'consume_landed_external',
   'note_invalid',
-  'never_committed'
+  'never_committed',
+  'stale_proof'
 ] as const;
 
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */

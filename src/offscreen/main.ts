@@ -80,6 +80,7 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
+import { withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
@@ -103,6 +104,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
   extractLanded,
   extractSdkErrorCode,
@@ -563,6 +565,15 @@ type DispatchContext = {
   settled: boolean;
 };
 
+/** One execute and prove of a guardian leaf, ready for its submit. */
+type GuardianLeafAttempt = {
+  txResult: sdk.TransactionResult;
+  // The delegated branch submits its own proof; a worker proof goes back through `submitProven` with the result it was
+  // made from.
+  submit: () => Promise<sdk.TransactionSubmission>;
+  evidence: SubmitEvidenceFields;
+};
+
 // A write's arguments decoded before its leaf runs: a failure here is before the submit by construction (#1081).
 function decodeBeforeSubmit<T>(decode: () => T): T {
   try {
@@ -1017,135 +1028,143 @@ const DISPATCH: Record<string, DispatchFn> = {
       recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
       // Overlaps the worker's WASM load and pool start with execute and its sign.
       if (!delegateTransaction) proveWorker.prewarm();
-      // Declared outside the pre-submit try below, because the submit, its evidence read and the apply use them.
-      let executedTx;
-      let txResult: sdk.TransactionResult;
-      // The delegated branch submits its own proof; a worker proof goes back through
-      // `submitProven` with the result it was made from.
-      let submit: () => Promise<sdk.TransactionSubmission>;
-      let proven: sdk.ProvenTransaction;
+      // Declared outside the pre-submit try below, because the submit and the apply use it.
+      let attempt: GuardianLeafAttempt;
       try {
         const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
         postStageEvent(context, 'executing');
-        recordProveTiming('guardianPipeline preparing current tip');
-        await prepareGuardianTipExecution(client.client, tr, () =>
-          assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
-        );
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
-        recordProveTiming('guardianPipeline calling executeRequest at current tip');
-        execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
-        executedTx = await client.client.transactions.executeRequest(accountId, tr);
-        recordProveTiming('guardianPipeline executeRequest returned; proving');
-        // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
-        // brackets below cover proving, not this), so a node that accepts and never
-        // answers is evicted here - and an eviction abandons this callback rather than
-        // stopping it, so what resumes would prove and submit with no mutex held,
-        // alongside the successor that legitimately holds it. Checked at each of the two
-        // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
-        // that already reached the network.
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
-        postStageEvent(context, 'proving');
-        txResult = executedTx.result;
-        // Reported from here as well as from the two inline copies, because on the
-        // extension THIS is the copy that runs: every guardian leaf type is offscreen
-        // routable and the flag defaults on, so instrumenting only the inline path
-        // left guardian operations contributing nothing to prover health on the build
-        // almost everyone uses.
-        const proveStartedAt = performance.now();
-        if (!delegateTransaction) {
-          recordProveTiming('guardianPipeline proving in the prove worker');
-          // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
-          // this hold, and an eviction cancels the worker (#775, #945).
-          try {
-            const proof = await proveInWorker(txResult, hold);
-            proven = proof;
-            submit = () => client.client.transactions.submitProven(proof, txResult);
-            reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
-          } catch (proveError) {
-            reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
-            throw proveError;
-          }
-        } else {
-          try {
-            // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
-            // the inline `runGuardianPipeline` (transaction/index.ts) and
-            // `MidenClientInterface.newTransaction` already carry. It was missed here, and
-            // here is the copy that actually runs on Chrome: the service-worker bundle
-            // DEFAULTS `MIDEN_USE_OFFSCREEN_CLIENT` to 'true', so a guardian write takes
-            // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
-            // dead code on the shipping path. Two independent failures rode on that:
-            //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
-            //      requires an initialized client and so never dispatches from one that
-            //      never called createClient() - the remote prover logs no request at all
-            //      and the await never settles (#718).
-            //   2. There was no client-side ceiling, unlike both fixed call sites, so
-            //      nothing could convert that silence into the rejection the local
-            //      fallback below needs. The write simply held the offscreen WASM mutex
-            //      until the SW's write deadline killed the whole document.
-            // Safe to bound here in the strongest sense available, exactly as inline: this
-            // pipeline drives execute/prove/submit itself, so the deadline provably
-            // expires BEFORE any submit and the local re-prove cannot broadcast twice.
-            // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
-            // `proveDelegated`'s freeze retry: the extension never starts the running-time
-            // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
-            // never grows in this realm and a retry could never fire.
-            const delegatedProver = remoteProver();
-            recordProveTiming(
-              `guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`
-            );
-            const provenTx = await withDelegatedProveTimeout(
-              executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-              'Delegated guardian prove'
-            );
-            proven = provenTx.proof;
-            submit = () => provenTx.submit();
-            reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
-            clearConnectivityIssue('prover');
-          } catch (proveError) {
-            // Same rule as the inline pipeline: the delegated prove was this hold's
-            // longest parking await, and the fallback is a WASM call on `executedTx`,
-            // itself a borrow of the client's RefCell. An eviction while the delegated
-            // prove was parked leaves this catch running on an abandoned callback, so
-            // ownership is re-checked BEFORE the re-prove, not only after it. Still
-            // pre-submit - nothing has been broadcast.
-            assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
-            // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped
-            // client.
-            if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
-            console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-            // Marked HERE, in the realm that watched the prove fail, and not left to
-            // the worker's catch. That catch gates its own `markConnectivityIssue`
-            // on the row's stage being `proving`, which only the inline leaf ever
-            // stamps: this one reports no stages back at all, so the row is still
-            // frozen at `sending` and the gate cannot fire. On the default build
-            // that gate covers nothing, and a prover that failed only on guardian
-            // operations would produce no `service_prover` event from anywhere.
-            //
-            // Same realm marks and clears, so the outage gets a duration rather
-            // than a start with no end.
-            if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-            recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
+        const executeAndProve = async (reexecuting: boolean): Promise<GuardianLeafAttempt> => {
+          recordProveTiming('guardianPipeline preparing current tip');
+          await prepareGuardianTipExecution(client.client, tr, () =>
+            assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
+          );
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+          recordProveTiming('guardianPipeline calling executeRequest at current tip');
+          execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
+          const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+          recordProveTiming('guardianPipeline executeRequest returned; proving');
+          // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
+          // brackets below cover proving, not this), so a node that accepts and never
+          // answers is evicted here - and an eviction abandons this callback rather than
+          // stopping it, so what resumes would prove and submit with no mutex held,
+          // alongside the successor that legitimately holds it. Checked at each of the two
+          // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
+          // that already reached the network.
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
+          // A re-execution stays on 'proving', as the inline pipeline does.
+          if (!reexecuting) postStageEvent(context, 'proving');
+          const txResult = executedTx.result;
+          let submit: GuardianLeafAttempt['submit'];
+          let proven: sdk.ProvenTransaction;
+          // Reported from here as well as from the two inline copies, because on the
+          // extension THIS is the copy that runs: every guardian leaf type is offscreen
+          // routable and the flag defaults on, so instrumenting only the inline path
+          // left guardian operations contributing nothing to prover health on the build
+          // almost everyone uses.
+          const proveStartedAt = performance.now();
+          if (!delegateTransaction) {
+            recordProveTiming('guardianPipeline proving in the prove worker');
+            // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
+            // this hold, and an eviction cancels the worker (#775, #945).
             try {
               const proof = await proveInWorker(txResult, hold);
               proven = proof;
               submit = () => client.client.transactions.submitProven(proof, txResult);
-              reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
-            } catch (fallbackError) {
-              reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
-              throw fallbackError;
+              reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
+            } catch (proveError) {
+              reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
+              throw proveError;
+            }
+          } else {
+            try {
+              // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
+              // the inline `runGuardianPipeline` (transaction/index.ts) and
+              // `MidenClientInterface.newTransaction` already carry. It was missed here, and
+              // here is the copy that actually runs on Chrome: the service-worker bundle
+              // DEFAULTS `MIDEN_USE_OFFSCREEN_CLIENT` to 'true', so a guardian write takes
+              // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
+              // dead code on the shipping path. Two independent failures rode on that:
+              //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
+              //      requires an initialized client and so never dispatches from one that
+              //      never called createClient() - the remote prover logs no request at all
+              //      and the await never settles (#718).
+              //   2. There was no client-side ceiling, unlike both fixed call sites, so
+              //      nothing could convert that silence into the rejection the local
+              //      fallback below needs. The write simply held the offscreen WASM mutex
+              //      until the SW's write deadline killed the whole document.
+              // Safe to bound here in the strongest sense available, exactly as inline: this
+              // pipeline drives execute/prove/submit itself, so the deadline provably
+              // expires BEFORE any submit and the local re-prove cannot broadcast twice.
+              // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
+              // `proveDelegated`'s freeze retry: the extension never starts the running-time
+              // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
+              // never grows in this realm and a retry could never fire.
+              const delegatedProver = remoteProver();
+              recordProveTiming(
+                `guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`
+              );
+              const provenTx = await withDelegatedProveTimeout(
+                executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+                'Delegated guardian prove'
+              );
+              proven = provenTx.proof;
+              submit = () => provenTx.submit();
+              reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+              clearConnectivityIssue('prover');
+            } catch (proveError) {
+              // Same rule as the inline pipeline: the delegated prove was this hold's
+              // longest parking await, and the fallback is a WASM call on `executedTx`,
+              // itself a borrow of the client's RefCell. An eviction while the delegated
+              // prove was parked leaves this catch running on an abandoned callback, so
+              // ownership is re-checked BEFORE the re-prove, not only after it. Still
+              // pre-submit - nothing has been broadcast.
+              assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
+              // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped
+              // client.
+              if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
+              console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+              // Marked HERE, in the realm that watched the prove fail, and not left to
+              // the worker's catch. That catch gates its own `markConnectivityIssue`
+              // on the row's stage being `proving`, which only the inline leaf ever
+              // stamps: this one reports no stages back at all, so the row is still
+              // frozen at `sending` and the gate cannot fire. On the default build
+              // that gate covers nothing, and a prover that failed only on guardian
+              // operations would produce no `service_prover` event from anywhere.
+              //
+              // Same realm marks and clears, so the outage gets a duration rather
+              // than a start with no end.
+              if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
+              recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
+              try {
+                const proof = await proveInWorker(txResult, hold);
+                proven = proof;
+                submit = () => client.client.transactions.submitProven(proof, txResult);
+                reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+              } catch (fallbackError) {
+                reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+                throw fallbackError;
+              }
             }
           }
-        }
-        recordProveTiming('guardianPipeline prove returned; submitting');
-        // The prove is the longest await in the pipeline - delegated over the network or
-        // local under a relaxed ceiling - so the same question has to be asked again.
-        // Still pre-submit: nothing has been broadcast at this point.
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
+          recordProveTiming('guardianPipeline prove returned; submitting');
+          // The prove is the longest await in the pipeline - delegated over the network or
+          // local under a relaxed ceiling - so the same question has to be asked again.
+          // Still pre-submit: nothing has been broadcast at this point.
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
+          return {
+            txResult,
+            submit,
+            evidence: readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+          };
+        };
+        attempt = await withFreshProof({
+          executeAndProve,
+          expirationBlockOf: proven => proven.evidence.expirationBlock,
+          readTip: readChainTip,
+          assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip')
+        });
         // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-        await passSubmitGate(
-          context,
-          readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
-        );
+        await passSubmitGate(context, attempt.evidence);
         // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
         if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
@@ -1154,7 +1173,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         // own shape: markErrorBeforeSubmit never tags one.
         throw markErrorBeforeSubmit(preSubmitError);
       }
-      const submittedTx = await submit();
+      const submittedTx = await attempt.submit();
       recordProveTiming('guardianPipeline submit returned; applying');
       // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
       // the write, so a failed local apply is retried in this hold while that is safe, and one that
@@ -1162,13 +1181,13 @@ const DISPATCH: Record<string, DispatchFn> = {
       // does not, so each failed attempt names the store's reason on the harness's own record.
       await applyAfterSubmit({
         apply: () => submittedTx.apply(),
-        result: txResult,
+        result: attempt.txResult,
         readLocalAccount: accountId => client.client.accounts.get(accountId),
         holdIsCurrent: () => getCurrentWasmLockHold() === hold,
         onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
       });
       recordProveTiming('guardianPipeline apply returned');
-      return executedTx.result.serialize() as Uint8Array;
+      return attempt.txResult.serialize() as Uint8Array;
     } catch (error) {
       annotateTransactionExecution(error, execution);
       throw error;

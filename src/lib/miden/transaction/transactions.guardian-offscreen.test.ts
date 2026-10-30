@@ -56,11 +56,12 @@
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
-import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
+import { isUnconfirmedFailure, STALE_PROOF_ERROR, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -710,6 +711,41 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
   });
+
+  it.each([
+    ['a plain send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }],
+    [
+      'a send with its bytes pinned',
+      { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', requestBytes: new Uint8Array([4, 4]) }
+    ]
+  ])(
+    'a stale proof from the offscreen leaf ends %s Failed with its candidate abandoned and Retry open (#2060)',
+    async (label, row) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValue(new StaleProofError());
+      const id = `on-stale-${label}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      const stored = txStore.find(r => r.id === id) as unknown as ITransaction;
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(stored).toMatchObject({ status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR });
+      expect(stored.mayHaveSubmitted).toBeUndefined();
+      expect(stored.submitEvidence ?? []).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+      );
+      expect(isUnconfirmedFailure(stored)).toBe(false);
+
+      const restoreLocks = installNavigatorLocks();
+      try {
+        await requeueFailedTransaction(id);
+      } finally {
+        restoreLocks();
+      }
+      expect(stored.status).toBe(ITransactionStatus.Queued);
+    }
+  );
 
   it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
     // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits

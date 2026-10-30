@@ -4351,6 +4351,24 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
     expect(hasErrorBeforeSubmit(await untagged)).toBe(false);
   });
 
+  it('rebuilds a stale proof as its class, tagged, so the row keeps its copy (#2060)', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    const { isStaleProofError } = await import('lib/miden/guardian/proof-freshness');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'stale',
+      errorName: 'StaleProofError'
+    }));
+    const failed = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const error = await failed;
+    expect(isStaleProofError(error)).toBe(true);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
   it('never tags a rebuilt eviction', async () => {
     const { __test } = await loadProxy(true);
     const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');

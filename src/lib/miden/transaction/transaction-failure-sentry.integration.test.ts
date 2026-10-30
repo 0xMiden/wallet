@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import * as Repo from 'lib/miden/repo';
 import { captureCrash } from 'lib/telemetry/crash';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
@@ -167,6 +168,7 @@ describe('committed terminal transaction failure reports', () => {
     ['the queue expiry', TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
     ['the node check of an unconsumed note', TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
     ['the node check of an invalid note', INVALID_NOTE_ERROR, 'note_invalid'],
+    ['a proof that kept going stale', new StaleProofError(), 'stale_proof'],
     ['the rotation gate', new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR), 'rotation_key_pending'],
     [
       'the rotation claim of a vanished note',
