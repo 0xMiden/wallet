@@ -2,6 +2,7 @@
 
 ## 1.17.9 (TBD)
 
+- [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
 - [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
 
 - [CHANGE][all] Distinguish primary and realm-reader SDK client creation failures in crash diagnostics without sending raw error details.

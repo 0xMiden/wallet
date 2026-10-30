@@ -339,10 +339,11 @@ jest.mock('lib/shared/types', () => ({
 // The network notice only shows on a test network; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 let mockDeveloperChoice = false;
+const mockHasDeveloperNetworkChoice = jest.fn(() => mockDeveloperChoice);
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => mockTestNetworkKey,
-  hasDeveloperNetworkChoice: () => mockDeveloperChoice
+  hasDeveloperNetworkChoice: () => mockHasDeveloperNetworkChoice()
 }));
 
 // The code a switch to mainnet carried to the code step; the code step itself reads it.
@@ -567,6 +568,7 @@ afterEach(() => {
 describe('Welcome network policy', () => {
   it('delegates launch policy and keeps Welcome visible only without a route hash', async () => {
     await renderWelcome();
+    expect(mockHasDeveloperNetworkChoice).not.toHaveBeenCalled();
     expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
 
     await dispatch({ id: 'choose-protection' });
