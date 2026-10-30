@@ -104,6 +104,57 @@ it('reports other for a cause that names no library error', () => {
   );
 });
 
+it('keeps the wallet request client within its closed values', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'wallet_deposit', requestClient: 'unlisted' } as never)).toContain(
+    'wallet request client other'
+  );
+});
+
+it('omits the wallet request client outside an approve or deposit request', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', requestClient: 'wagmi' })).not.toContain(
+    'wallet request client'
+  );
+});
+
+it('reports the Fast solve request client', () => {
+  const native = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'native_reown',
+    cause: REFUSED_FAST_DEPOSIT
+  });
+  const wagmi = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'wagmi',
+    cause: REFUSED_FAST_DEPOSIT
+  });
+  const unlisted = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'unlisted',
+    cause: REFUSED_FAST_DEPOSIT
+  } as never);
+  const unset = reportBridge({ route: 'epoch', step: 'epoch_solve', cause: REFUSED_FAST_DEPOSIT });
+
+  expect(native).toContain('failed at epoch_solve; wallet request client native_reown; evm error user_rejected');
+  expect(native).toContain('wallet request client native_reown');
+  expect(wagmi).toContain('wallet request client wagmi');
+  expect(unlisted).toContain('wallet request client other');
+  expect(unset).not.toContain('wallet request client');
+  for (const message of [native, wagmi, unlisted, unset])
+    expect(containsSeedMaterial(message, englishWordlist)).toBe(false);
+});
+
+it('names epoch_solve in the Fast solve request client policy line', () => {
+  const policyLine = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8')
+    .split('\n')
+    .find(line => line.includes('Only inbound bridge failures') && line.includes('wallet request client'));
+
+  expect(policyLine).toContain('`wallet_approve`, `wallet_deposit` or `epoch_solve` carry wallet request client');
+  expect(policyLine).toContain('wallet request client (`native_reown`, `wagmi`)');
+});
+
 const OWN_WORDS = 'The Fast route has no quoted deposit.';
 
 it('reports no answer for a cause the wallet raised itself that wraps none', () => {
