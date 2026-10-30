@@ -345,6 +345,15 @@ jest.mock('../sdk/miden-client', () => {
   };
 });
 
+// A tip read runs on an RpcClient of its own, so a test sets the chain's height here. Both spellings of the path, as
+// for miden-client above; 0 leaves every proof in this file that carries no expiration unjudged.
+const mockReadChainTip = jest.fn(async (): Promise<number> => 0);
+jest.mock('lib/miden/sdk/pswap-order-note', () => jest.requireMock('../sdk/pswap-order-note'));
+jest.mock('../sdk/pswap-order-note', () => ({
+  ...jest.requireActual('../sdk/pswap-order-note'),
+  readChainTip: () => mockReadChainTip()
+}));
+
 // The Guardian custom-proposal build now reads the chain's fee faucet to commit
 // fee conversion info into the request's auth args. Mocked to a fixed id so the
 // argument assertions below can pin that it is actually passed through.
@@ -5045,6 +5054,115 @@ describe('generateTransaction — Guardian routing', () => {
     expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
     expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
   });
+
+  // On mainnet a proof expires 20 blocks after its reference block whatever delta the request asked for, and the node
+  // refuses one once `expiration <= tip + 2` (#2060).
+  const FEE_POLICY_WINDOW_BLOCKS = 20;
+  const NODE_ADMISSION_SLACK_BLOCKS = 2;
+  const proofOnRefBlock = (refBlock: number) => ({
+    proved: true,
+    nullifiers: () => [],
+    refBlockNumber: () => refBlock,
+    refBlockCommitment: () => ({ toHex: () => `0x${'cd'.repeat(32)}` }),
+    expirationBlockNumber: () => refBlock + FEE_POLICY_WINDOW_BLOCKS
+  });
+
+  /**
+   * A delegated guardian send on mobile whose first execute outlasts `blocksLostInExecute` blocks. A proof's reference
+   * block is the height the last tip sync reached, so only an execution after a new sync can prove fresh.
+   */
+  async function guardianSendOnMovingChain(txId: string, blocksLostInExecute: number) {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockPlatformIsMobile = true;
+    try {
+      const result = makeResult();
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      });
+
+      let chainTip = 1_000;
+      let syncedTip = chainTip;
+      mockReadChainTip.mockImplementation(async () => chainTip);
+      const client = makeClientApi(result);
+      client.syncChain.mockImplementation(async () => {
+        syncedTip = chainTip;
+      });
+      const execute = client.transactions.executeRequest.getMockImplementation()!;
+      client.transactions.executeRequest.mockImplementationOnce(async (...args) => {
+        chainTip += blocksLostInExecute;
+        return execute(...args);
+      });
+      const proofs: ReturnType<typeof proofOnRefBlock>[] = [];
+      client.transactions.prove.mockImplementation(async () => {
+        const proof = proofOnRefBlock(syncedTip);
+        proofs.push(proof);
+        return proof;
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: true
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      return { client, result, proofs };
+    } finally {
+      mockReadChainTip.mockImplementation(async () => 0);
+      mockPlatformIsMobile = false;
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  }
+
+  it.each([
+    ['at', FEE_POLICY_WINDOW_BLOCKS - NODE_ADMISSION_SLACK_BLOCKS],
+    ['past', FEE_POLICY_WINDOW_BLOCKS + 10]
+  ])(
+    'Guardian send (mobile): a proof %s the node`s limit is never submitted, and its fresh proof is, once (#2060)',
+    async (position, blocksLostInExecute) => {
+      const txId = `send-guardian-proof-${position}-node-limit`;
+      const { client, result, proofs } = await guardianSendOnMovingChain(txId, blocksLostInExecute);
+      const [staleProof, freshProof] = proofs;
+
+      expect(client.transactions.submitProven).not.toHaveBeenCalledWith(staleProof, result);
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(2);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledWith(freshProof, result);
+      expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    }
+  );
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

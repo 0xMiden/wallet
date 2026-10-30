@@ -158,6 +158,33 @@ const makeTx = (overrides: Record<string, any> = {}) => ({
   ...overrides
 });
 
+const networkRefusal =
+  'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+
+const checkableEntry = {
+  attemptId: 'a1',
+  capturedAt: 1_700_000_000,
+  source: 'stage',
+  transactionId: '0x01',
+  initialCommitment: '0x02',
+  finalCommitment: '0x03',
+  initialNonce: '4',
+  outputNoteIds: ['0x05'],
+  nullifiers: [],
+  refBlock: 100,
+  refBlockCommitment: '0x06'
+};
+
+// A row the node refused after its crossing ends Failed, while the reconciler still judges what it recorded (#2060).
+const refusedAfterCrossing = (entry: Record<string, unknown>) =>
+  makeTx({
+    status: ITransactionStatus.Failed,
+    stage: 'submitting',
+    mayHaveSubmitted: true,
+    error: networkRefusal,
+    submitEvidence: [entry]
+  });
+
 describe('GeneratingTransactionPage interval driver', () => {
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -259,7 +286,7 @@ describe('GeneratingTransactionPage interval driver', () => {
   });
 
   describe('the unconfirmed reconciler (#1081)', () => {
-    const platform: { isExtension: jest.Mock } = jest.requireMock('lib/platform');
+    const platform: { isExtension: jest.Mock; isMobile: jest.Mock } = jest.requireMock('lib/platform');
     const ticks = async (count: number) => {
       const root = createRoot(document.createElement('div'));
       await act(async () => {
@@ -278,6 +305,7 @@ describe('GeneratingTransactionPage interval driver', () => {
 
     afterEach(() => {
       platform.isExtension.mockReturnValue(false);
+      platform.isMobile.mockReturnValue(false);
     });
 
     it('fires on the page`s own tick while its row is Unconfirmed, since the sync tick skips this page', async () => {
@@ -294,6 +322,13 @@ describe('GeneratingTransactionPage interval driver', () => {
       mockRowState = { row: makeTx({ status }), loaded: true };
       await ticks(2);
       expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('fires on the page`s own tick on mobile while a Failed row still awaits a verdict (#2060)', async () => {
+      platform.isMobile.mockReturnValue(true);
+      mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(3);
     });
 
     it('does not fire on the extension, whose service worker reconciles after its own sync', async () => {
@@ -757,8 +792,6 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  const networkRefusal =
-    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
   const submitDeadline =
     'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: request to Miden node timed out; the node may be under heavy load';
 
@@ -791,6 +824,37 @@ describe('GeneratingTransactionPage container effects', () => {
     });
     expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
+  });
+
+  describe('a refused row whose candidate the Guardian still holds (#2060)', () => {
+    const heldRow = () =>
+      refusedAfterCrossing({ ...checkableEntry, candidateKept: true, capturedAt: Math.floor(Date.now() / 1000) - 60 });
+
+    it('shows Retry disabled before any tap', async () => {
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(buttonLabelled(container, 'retry')).toBeTruthy();
+        expect(buttonLabelled(container, 'retry')).toBeDisabled();
+        expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('does not say the network refused it and to try again', async () => {
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+      } finally {
+        act(() => root.unmount());
+      }
+    });
   });
 
   it('explains a dropped connection and a missing answer without calling the transaction failed', async () => {
@@ -928,19 +992,6 @@ describe('GeneratingTransactionPage container effects', () => {
   });
 
   describe('an Unconfirmed row (#1081)', () => {
-    const checkableEntry = {
-      attemptId: 'a1',
-      capturedAt: 1_700_000_000,
-      source: 'stage',
-      transactionId: '0x01',
-      initialCommitment: '0x02',
-      finalCommitment: '0x03',
-      initialNonce: '4',
-      outputNoteIds: ['0x05'],
-      nullifiers: [],
-      refBlock: 100,
-      refBlockCommitment: '0x06'
-    };
     const unconfirmedRow = (entry: Record<string, unknown> = checkableEntry) =>
       makeTx({
         status: ITransactionStatus.Unconfirmed,

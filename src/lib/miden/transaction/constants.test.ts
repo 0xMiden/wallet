@@ -10,6 +10,7 @@ import {
   ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
+  guardianHoldRetryMessage,
   INVALID_NOTE_ERROR,
   isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
@@ -581,6 +582,15 @@ describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
         })
       )
     ).toBe(false);
+  });
+});
+
+describe('guardianHoldRetryMessage (#2060)', () => {
+  // AM and PM are no zone, and a runner in UTC has no offset to print, so a bare GMT or UTC has to pass.
+  const NAMES_A_ZONE = /\b(?:(?:GMT|UTC)(?:[+-]\d{1,2}(?::\d{2})?)?|(?![AP]M\b)[A-Z]{2,5})\b/;
+
+  it('names an explicit zone or UTC offset', () => {
+    expect(guardianHoldRetryMessage(Math.floor(Date.now() / 1000) + 600)).toMatch(NAMES_A_ZONE);
   });
 });
 
