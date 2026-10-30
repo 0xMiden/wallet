@@ -63,6 +63,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { runWithBackgroundExecution } from 'lib/mobile/background-execution';
 import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
@@ -4880,7 +4881,9 @@ export const generateTransactionsLoop = async (
   // Call safely to cancel transaction and unlock records if something goes wrong
   beginAttemptInThisRealm(nextTransaction.id);
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
+    await runWithBackgroundExecution(() =>
+      generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider)
+    );
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
