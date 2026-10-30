@@ -34,7 +34,13 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
-import { isStaleProofError, withFreshProof } from 'lib/miden/guardian/proof-freshness';
+import {
+  isFailedReexecution,
+  isStaleProofError,
+  markFailedReexecution,
+  type ProofPass,
+  withFreshProof
+} from 'lib/miden/guardian/proof-freshness';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
@@ -1744,13 +1750,15 @@ const generateTransactionWithProvider = async (
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
       // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081), and neither is a proof
-      // that kept going stale, whose copy tells the user to retry (#2060).
+      // that kept going stale, whose copy tells the user to retry, nor a re-execution that failed before it proved
+      // (#2060).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
         !isStaleProofError(error) &&
+        !isFailedReexecution(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -2509,13 +2517,19 @@ const runGuardianPipeline = async (
     // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
     assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-    const executeAndProve = async (reexecuting: boolean) => {
+    const executeAtTip = async () => {
       await prepareGuardianTipExecution(midenClient.client, tr, () =>
         assertStillHoldingLock(hold, 'while preparing tip execution')
       );
       assertStillHoldingLock(hold, 'before executing at the tip');
       execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
-      const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+      return midenClient.client.transactions.executeRequest(accountId, tr);
+    };
+    const executeAndProve = async ({ reexecuting, proveLocally, delegatedProveFailed }: ProofPass) => {
+      // Marked only here: a stage the offscreen copy posts never authors the row's stage, so it has none to misread.
+      const executedTx = await executeAtTip().catch((error: unknown) => {
+        throw reexecuting ? markFailedReexecution(error) : error;
+      });
       // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
       // during `executeRequest` (a network round trip on the normal ceiling) abandons
       // this callback instead of stopping it, and mobile/desktop run THIS copy - the
@@ -2523,7 +2537,7 @@ const runGuardianPipeline = async (
       if (!reexecuting) await setStage('proving');
       assertStillHoldingLock(hold, 'before proving');
       let provenTx;
-      if (!delegateTransaction) {
+      if (!delegateTransaction || proveLocally) {
         // Local (non-delegated) proving. The guardian pipeline drives the raw
         // client directly, whose default local prover is the single-threaded
         // WASM one - which on iOS WKWebView runs on the main thread and freezes
@@ -2614,6 +2628,7 @@ const runGuardianPipeline = async (
             throw proveError;
           }
           console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          delegatedProveFailed();
           // The outage the fallback is covering for. `proveWithFallback` marks this
           // too, and without it a prover failing only on guardian operations would
           // raise no banner and produce no `service_prover` event.

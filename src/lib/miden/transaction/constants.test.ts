@@ -1,7 +1,7 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
-import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { markFailedReexecution, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
@@ -614,6 +614,36 @@ describe('a proof that kept going stale (#2060)', () => {
   it('reads as Failed, not Not confirmed', () => {
     expect(isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR })).toBe(
       false
+    );
+  });
+});
+
+describe('a sync or execute that failed on a re-execution (#2060)', () => {
+  it.each([
+    ['a dropped request, delegated', 'Failed to fetch', true],
+    ['a dropped request, local', 'Failed to fetch', false],
+    ['a timeout, delegated', 'sync timeout', true],
+    ['a timeout, local', 'sync timeout', false]
+  ])('keeps its own words at the proving stage: %s', (_label, message, delegated) => {
+    const failure = markFailedReexecution(new Error(message));
+    expect(resolveTransactionErrorMessage(failure, 'proving', delegated)).toBe(formatRawTransactionError(failure));
+  });
+
+  it('keeps the kernel copy a failed execute earns', () => {
+    const shortfall = new Error('the amount of the asset in the vault is less than the amount to remove');
+    expect(resolveTransactionErrorMessage(markFailedReexecution(shortfall), 'proving', true)).toBe(
+      TRANSACTION_VAULT_SHORTFALL_ERROR
+    );
+  });
+
+  it('leaves a kill as a kill, since that pipeline may still submit', () => {
+    const killed = markFailedReexecution(new WasmClientPoisonedError('watchdog', new Error('evicted')));
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('leaves every other failure at the proving stage to the prover', () => {
+    expect(resolveTransactionErrorMessage(new Error('Failed to fetch'), 'proving', true)).toBe(
+      REMOTE_PROVER_FAILED_ERROR
     );
   });
 });

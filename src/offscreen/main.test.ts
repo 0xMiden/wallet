@@ -4784,6 +4784,89 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
     });
 
+    const initialCommitmentOf = (execution: number) => `0xinitial${execution}`;
+
+    /** A result that says which execution it came from. */
+    const resultOfExecution = (execution: number) => {
+      const base = retryableResult();
+      return {
+        serialize: () => new Uint8Array([execution]),
+        executedTransaction: () => ({
+          ...base.executedTransaction(),
+          id: () => ({ toHex: () => `0xexecution${execution}` }),
+          initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => initialCommitmentOf(execution) }) })
+        })
+      };
+    };
+
+    /**
+     * Each execution hands out its own result. The first apply fails, and a retried apply goes ahead only on the
+     * commitment of the result it was handed, so the store holds the second execution's.
+     */
+    const arrangeResults = () => {
+      const results: ReturnType<typeof resultOfExecution>[] = [];
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        const result = resultOfExecution(results.length);
+        results.push(result);
+        return { result, id: { toHex: () => '0xlanded' } };
+      });
+      const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+      G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+      G.__off.clientAccountsGet = jest.fn(async () => ({
+        to_commitment: () => ({ toHex: () => initialCommitmentOf(1) })
+      }));
+      return { results, apply };
+    };
+
+    const expectFreshExecutionCarriedThrough = ({ results, apply }: ReturnType<typeof arrangeResults>, reply: any) => {
+      expect(reply.ok).toBe(true);
+      expect(results).toHaveLength(2);
+      expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][1]).toBe(results[1]);
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(Array.from(Buffer.from(reply.resultB64, 'base64'))).toEqual([1]);
+    };
+
+    it('pairs a worker proof with its own execution through the submit, the apply and the reply', async () => {
+      const { proofs } = await arrange([1_000, 1_018], 1_018);
+      const arranged = arrangeResults();
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expectFreshExecutionCarriedThrough(arranged, sendResponse.mock.calls[0][0]);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+    });
+
+    it('pairs a fallback proof with its own execution, and keeps off the prover that failed', async () => {
+      const { proofs } = await arrange([1_000, 1_018], 1_018);
+      const arranged = arrangeResults();
+      const executeRequest = G.__off.guardianExecuteRequest;
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => ({
+        ...(await executeRequest(...args)),
+        prove: jest.fn(async (options: unknown) => {
+          G.__off.guardianProveCalls.push(options);
+          throw new Error('remote prover did not answer');
+        })
+      }));
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expectFreshExecutionCarriedThrough(arranged, sendResponse.mock.calls[0][0]);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+      // One wait on the remote prover: the fallback proved the first pass, and the second went straight to the worker.
+      expect(G.__off.guardianProveCalls).toHaveLength(1);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    });
+
     it('gives up before its gate, tagged, once the re-executions are spent', async () => {
       const { events } = await arrange([1_000], 1_100);
       const sendResponse = jest.fn();
@@ -4887,6 +4970,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(G.__off.guardianProveCalls).toHaveLength(2);
       expect(submits[0]).not.toHaveBeenCalled();
       expect(submits[1]).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).not.toHaveBeenCalled();
     });
   });
 

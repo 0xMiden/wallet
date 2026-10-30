@@ -1,6 +1,6 @@
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
-import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
@@ -683,13 +683,15 @@ function classifyTransactionError(
   // a failed on-device prove was misreported as a remote timeout.
   // Guardian txs stamp an explicit 'proving' stage BEFORE submit, so a failure
   // there is provably pre-submit — safe to reassure "no funds moved".
-  if (stage === 'proving') {
+  // A re-execution's sync or execute also fails at that stage, and no prover ran (#2060).
+  const proverRan = !isFailedReexecution(error);
+  if (proverRan && stage === 'proving') {
     return delegateTransaction ? REMOTE_PROVER_FAILED_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
   // Non-Guardian txs surface a prover timeout under the broad 'sending' stage,
   // which spans execute→prove→submit — so we can't guarantee pre-submit. Use the
   // hedged timeout copy for the remote case rather than a false safety claim.
-  if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
+  if (proverRan && stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
   const kernelFailureCopy = deterministicKernelFailureCopy(raw);

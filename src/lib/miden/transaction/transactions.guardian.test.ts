@@ -53,7 +53,9 @@ import {
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
   isUnconfirmedFailure,
+  LOCAL_PROVER_FAILED_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
+  REMOTE_PROVER_FAILED_ERROR,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
@@ -5274,6 +5276,146 @@ describe('generateTransaction — Guardian routing', () => {
         expect(stored.status).toBe(ITransactionStatus.Queued);
       }
     );
+
+    it('re-executes straight to the local prover once a delegated prove failed in the attempt', async () => {
+      const txId = 'send-guardian-remote-failed-then-stale';
+      const { tx, client } = arrangeSend(txId, true);
+      const fresh = proofOnRefBlock(PAST_THE_WINDOW);
+      client.transactions.prove
+        .mockImplementationOnce(async () => {
+          throw new Error('remote prover did not answer');
+        })
+        .mockImplementationOnce(async () => proofOnRefBlock(REF_BLOCK))
+        .mockImplementationOnce(async () => fresh);
+
+      await run(tx);
+
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(2);
+      expect(client.transactions.prove.mock.calls.map(([, options]) => options)).toEqual([
+        {},
+        { prover: 'callback-prover' },
+        { prover: 'callback-prover' }
+      ]);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven.mock.calls[0]?.[0]).toBe(fresh);
+      expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('asks the remote prover again on a re-execution when it never failed', async () => {
+      const { tx, client } = arrangeSend('send-guardian-remote-kept', true);
+      client.transactions.prove.mockImplementationOnce(async () => proofOnRefBlock(REF_BLOCK));
+      client.transactions.prove.mockImplementationOnce(async () => proofOnRefBlock(PAST_THE_WINDOW));
+
+      await run(tx);
+
+      expect(client.transactions.prove.mock.calls.map(([, options]) => options)).toEqual([{}, {}]);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    });
+
+    it('pairs the fresh proof with its own execution through the submit, the apply and the row', async () => {
+      const txId = 'send-guardian-fresh-pairing';
+      const { tx, client } = arrangeSend(txId, true);
+      const apply = jest.fn(async () => {});
+      apply.mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+      // A retried apply goes ahead only on the commitment of the result it was handed: the store holds the fresh one.
+      const results = ['0xstale', '0xfresh'].map(hash => {
+        const result = makeResult();
+        const executed = result.executedTransaction();
+        return {
+          ...result,
+          executedTransaction: () => ({
+            ...executed,
+            id: () => ({ toHex: () => hash }),
+            accountId: () => 'guardian-acc',
+            initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => `${hash}-initial` }) })
+          })
+        };
+      });
+      const proofs = [proofOnRefBlock(REF_BLOCK), proofOnRefBlock(PAST_THE_WINDOW)];
+      let executions = 0;
+      client.transactions.executeRequest.mockImplementation(async () => {
+        const index = executions++;
+        const [result, proof] = [results[index]!, proofs[index]!];
+        return {
+          id: result.executedTransaction().id(),
+          result,
+          prove: async () => ({
+            proof,
+            result,
+            submit: async () => ({ ...(await client.transactions.submitProven(proof, result)), result, apply })
+          })
+        } as never;
+      });
+      const accounts = { get: jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xfresh-initial' }) })) };
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: Object.assign(client, { accounts })
+      });
+
+      await run(tx);
+
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledWith(proofs[1], results[1]);
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(txStore.find(row => row.id === txId)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        transactionId: '0xfresh'
+      });
+    });
+
+    describe('a re-execution that fails before it proves', () => {
+      const FAILURE = 'Failed to fetch';
+      const failingStep = (client: ReturnType<typeof arrangeSend>['client'], step: 'sync' | 'execute') => {
+        if (step === 'sync') {
+          client.syncChain.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error(FAILURE));
+          return;
+        }
+        const execute = client.transactions.executeRequest.getMockImplementation()!;
+        client.transactions.executeRequest.mockImplementationOnce(execute).mockRejectedValueOnce(new Error(FAILURE));
+      };
+
+      it.each([
+        ['delegated', 'sync', true, REMOTE_PROVER_FAILED_ERROR],
+        ['delegated', 'execute', true, REMOTE_PROVER_FAILED_ERROR],
+        ['local', 'sync', false, LOCAL_PROVER_FAILED_ERROR],
+        ['local', 'execute', false, LOCAL_PROVER_FAILED_ERROR]
+      ] as const)('%s, at the %s: no prover banner, no prover copy, no prover requeue', async (...args) => {
+        const [label, step, delegateTransaction, proverCopy] = args;
+        const txId = `send-guardian-reexecution-${step}-failed-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+        failingStep(client, step);
+
+        await run(tx);
+
+        const stored = txStore.find(row => row.id === txId)!;
+        expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving' });
+        expect(stored.error).not.toBe(proverCopy);
+        expect(stored.error).toContain(FAILURE);
+        expect(getConnectivityState().prover.active).toBe(false);
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+      });
+
+      it('leaves a prove that fails on a re-execution to the prover arms', async () => {
+        const txId = 'send-guardian-reexecution-prove-failed';
+        const { tx, client } = arrangeSend(txId, false);
+        client.transactions.prove
+          .mockImplementationOnce(async () => proofOnRefBlock(REF_BLOCK))
+          .mockImplementationOnce(async () => {
+            throw new Error('native prover failed');
+          });
+
+        await run(tx);
+
+        expect(txStore.find(row => row.id === txId)).toMatchObject({
+          status: ITransactionStatus.Failed,
+          error: LOCAL_PROVER_FAILED_ERROR
+        });
+      });
+    });
 
     it('stays on the proving stage through a re-execution', async () => {
       const txId = 'send-guardian-stale-stage';

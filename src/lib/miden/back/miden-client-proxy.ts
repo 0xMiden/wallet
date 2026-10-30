@@ -258,6 +258,10 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * the strength of a CI timing would trade a visible CI failure for an invisible
  * production hang, which is the one thing this knob exists to prevent.
  *
+ * One op can run its execute and prove more than once: a Guardian leaf executes
+ * again when a proof goes stale before its submit, and `withFreshProof` stops it at
+ * `PROOF_ATTEMPT_BUDGET_MS` so that ends as a failed row, not a kill here (#2060).
+ *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *
  *   slowest legitimate write  <  override  <  Playwright per-test timeout (300s,

@@ -2479,6 +2479,12 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
 // than hanging timer-less until SW eviction. `markOpStarted` REPLACES the backstop
 // with the real deadline.
 describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', () => {
+  it('leaves a Guardian leaf time to submit after its last stale-proof pass (#2060)', async () => {
+    const { __test } = await loadProxy(true);
+    const { PROOF_ATTEMPT_BUDGET_MS } = await import('lib/miden/guardian/proof-freshness');
+    expect(__test.writeDeadlineMs() - PROOF_ATTEMPT_BUDGET_MS).toBeGreaterThanOrEqual(15_000);
+  });
+
   it('a queued critical write (no OFFSCREEN_OP_STARTED yet) is NOT killed while it waits below the backstop', async () => {
     // Case (c): a write legitimately queued behind slow ops for less than the
     // backstop must NOT be false-killed — the exact bug arm-on-start fixed.

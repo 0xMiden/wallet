@@ -80,7 +80,7 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
-import { withFreshProof } from 'lib/miden/guardian/proof-freshness';
+import { type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
@@ -1033,7 +1033,11 @@ const DISPATCH: Record<string, DispatchFn> = {
       try {
         const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
         postStageEvent(context, 'executing');
-        const executeAndProve = async (reexecuting: boolean): Promise<GuardianLeafAttempt> => {
+        const executeAndProve = async ({
+          reexecuting,
+          proveLocally,
+          delegatedProveFailed
+        }: ProofPass): Promise<GuardianLeafAttempt> => {
           recordProveTiming('guardianPipeline preparing current tip');
           await prepareGuardianTipExecution(client.client, tr, () =>
             assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
@@ -1062,7 +1066,7 @@ const DISPATCH: Record<string, DispatchFn> = {
           // left guardian operations contributing nothing to prover health on the build
           // almost everyone uses.
           const proveStartedAt = performance.now();
-          if (!delegateTransaction) {
+          if (!delegateTransaction || proveLocally) {
             recordProveTiming('guardianPipeline proving in the prove worker');
             // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
             // this hold, and an eviction cancels the worker (#775, #945).
@@ -1123,6 +1127,7 @@ const DISPATCH: Record<string, DispatchFn> = {
               // client.
               if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
               console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+              delegatedProveFailed();
               // Marked HERE, in the realm that watched the prove fail, and not left to
               // the worker's catch. That catch gates its own `markConnectivityIssue`
               // on the row's stage being `proving`, which only the inline leaf ever

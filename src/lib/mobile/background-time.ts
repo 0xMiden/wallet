@@ -197,7 +197,9 @@ export function frozenMs(): number {
  * fire never calls back on trust: it re-reads the clock, which measures the
  * freeze it woke from, and with at least 1 ms left calls `onRearm(leftMs)` and
  * re-arms for that remainder. Under 1 ms it calls back, since no timer lands
- * closer than that.
+ * closer than that. One pulse of a measured freeze stays running time (see
+ * `markNow`), so a deadline of `RUNNING_PULSE_MS` or less that a freeze crosses
+ * still expires on resume.
  */
 export function setRunningTimeout(callback: () => void, ms: number, onRearm?: (leftMs: number) => void): () => void {
   const startedAt = runningNow();
