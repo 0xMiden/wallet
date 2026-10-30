@@ -333,6 +333,56 @@ public class BreadPresentationControllerTest {
         assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
     }
 
+    @Test public void warmDialogIsNotAuthPresentable() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+
+        assertWarmupActive(target, controller);
+        BreadAuthController auth = ReflectionHelpers.getField(target, "auth");
+        assertNotNull(auth);
+        assertFalse("a warmed dialog must not present auth", auth.presentable.getAsBoolean());
+    }
+
+    @Test public void managedCloseDuringWarmupHidesBeforeTheClose() throws Exception {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+        assertWarmupActive(target, controller);
+
+        List<JSObject> requests = new ArrayList<>();
+        target.configureManagedClose("target", new JSObject().put("token", "lifetime"), requests::add);
+        target.requestClose(() -> {});
+
+        assertEquals(1, requests.size());
+        assertFalse("a warm close is not a visible page", requests.get(0).getBoolean("visible"));
+        assertFalse("a warm close hides before it is managed", target.isShowing());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+        assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
+    }
+
+    @Test public void warmCooldownDuringManagedCloseStaysConcealed() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+        assertWarmupActive(target, controller);
+
+        target.configureManagedClose("target", new JSObject().put("token", "lifetime"), ignored -> {});
+        ManagedHostClose managed = target.managedClose();
+        ReflectionHelpers.setField(managed, "requestId", "in-flight");
+        assertTrue(target.managedClosing());
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+
+        View decor = target.getWindow().getDecorView();
+        assertEquals("a warm cooldown must not uncover a managed close", View.INVISIBLE, decor.getVisibility());
+        int warmFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals(warmFlags, target.getWindow().getAttributes().flags & warmFlags);
+    }
+
     @Test public void prepareMorphCooldownCannotTouchReplacementAfterClose() {
         open(true, true, "default", false);
         WebViewDialog original = dialog;
