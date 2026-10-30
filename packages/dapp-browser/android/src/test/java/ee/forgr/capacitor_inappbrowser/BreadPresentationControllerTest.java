@@ -268,6 +268,10 @@ public class BreadPresentationControllerTest {
         WebViewDialog target = dialog;
         BreadPresentationController targetPresentation = controller;
         BreadPresentationState.Phase parked = targetPresentation.state.phase();
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        assertTrue("target decor starts exposed to accessibility",
+            targetAccessibilityImportance != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         WebViewRegistry.getShared().register("target", target);
         assertSame(target, WebViewRegistry.getShared().get("target"));
         assertWarmupEligible(target, targetPresentation);
@@ -293,6 +297,8 @@ public class BreadPresentationControllerTest {
         plugin.prepareMorph(warm);
 
         assertWarmupActive(target, targetPresentation);
+        assertEquals("a warm dialog hides its decor from accessibility",
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, targetDecor.getImportantForAccessibility());
         assertEquals(parked, targetPresentation.state.phase());
         assertFalse(other.isShowing());
         assertFalse(ReflectionHelpers.<Boolean>getField(otherPresentation, "warmed"));
@@ -312,6 +318,13 @@ public class BreadPresentationControllerTest {
         assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
         BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
         assertEquals(1f, morph.progress(), 0.01f);
+        assertEquals("an expanded warmup leaves the decor visible", View.VISIBLE, targetDecor.getVisibility());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("an expanded warmup clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("an expanded warmup restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
         other.forceClose();
     }
 
@@ -319,6 +332,10 @@ public class BreadPresentationControllerTest {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
         BreadPresentationController targetPresentation = ReflectionHelpers.getField(target, "presentation");
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        assertTrue("target decor starts exposed to accessibility",
+            targetAccessibilityImportance != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         WebViewRegistry.getShared().register("target", target);
         assertSame(target, WebViewRegistry.getShared().get("target"));
         assertWarmupEligible(target, targetPresentation);
@@ -330,7 +347,13 @@ public class BreadPresentationControllerTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
         assertFalse(ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
         assertFalse("the unclaimed warm dialog cools down at 750 ms", target.isShowing());
-        assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
+        assertEquals(View.GONE, targetDecor.getVisibility());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("a warm cooldown clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("a warm cooldown restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
     }
 
     @Test @Config(sdk = 28) public void warmDialogIsNotAuthPresentable() {
