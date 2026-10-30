@@ -42,7 +42,7 @@ import { createMidenAssetMetadataResolver, fetchOneClickAssets } from 'lib/one-c
 import { useOneClickConfig } from 'lib/one-click/config';
 import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
-import { quoteExpiryMs } from 'lib/prices/amount';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { geoFeatureGate } from 'lib/remote-config/availability';
 import { readMidenFaucetMetadata } from 'lib/remote-config/derive';
@@ -126,12 +126,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const prices = useWalletStore(state => state.tokenPrices);
   const offerUsdQuote = tokenQuote(prices, offerToken.faucetId, offerToken.symbol);
   useQuoteClock(quoteExpiryMs(offerUsdQuote));
+  const offerPriceReady = usdQuoteStatus(offerUsdQuote) === 'ready';
   const minimumError = swapMinimumError(offerAmount, offerUsdQuote);
   // The last edited side anchors the quote; its opposite side is derived.
   const [requestEdited, setRequestEdited] = useState(false);
-  const requestUsdQuote = tokenQuote(prices, requestToken.faucetId, requestToken.symbol);
-  useQuoteClock(quoteExpiryMs(requestUsdQuote));
-  const quoteMinimumError = requestEdited ? swapMinimumError(requestAmount, requestUsdQuote) : minimumError;
   const [expirySeconds, setExpirySeconds] = useState(String(DEFAULT_EXPIRY_SECONDS));
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SWAP_SLIPPAGE_BPS);
   const [autoConsume, setAutoConsume] = useState(true);
@@ -270,7 +268,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
     requestAmount: requestExceedsPrecision ? '' : requestAmount,
     requestEdited,
     slippageBps,
-    enabled: !sameToken && pairListed && quoteMinimumError === undefined,
+    enabled: !sameToken && pairListed && (requestEdited ? offerPriceReady : minimumError === undefined),
     active: pageActive && onSwapRoute
   });
   const { quoteNow } = swapQuote;
@@ -819,7 +817,12 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const statusMessage = useMemo<{ text: string; isError: boolean; errorId: UserErrorId } | undefined>(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true, errorId: 'swapSameToken' };
     if (!pairListed) return { text: t('swapPairNotListed'), isError: true, errorId: 'swapPairNotListed' };
-    const amountMinimumError = requestEdited && !hasOfferAmount ? quoteMinimumError : minimumError;
+    const amountMinimumError =
+      requestEdited && offerAmount === ''
+        ? offerPriceReady
+          ? undefined
+          : 'swapMinimumPriceUnavailable'
+        : minimumError;
     if ((hasOfferAmount || (requestEdited && hasRequestAmount)) && amountMinimumError) {
       return { text: t(amountMinimumError), isError: true, errorId: amountMinimumError };
     }
@@ -837,8 +840,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({
     sameToken,
     pairListed,
     hasOfferAmount,
+    offerAmount,
     minimumError,
-    quoteMinimumError,
+    offerPriceReady,
     requestEdited,
     hasRequestAmount,
     quoteUnavailable,
