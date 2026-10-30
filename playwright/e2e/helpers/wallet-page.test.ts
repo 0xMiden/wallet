@@ -786,29 +786,25 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
     ]);
   });
 
-  it('recovers a mainnet account through the no-code sheet, with no network notice', async () => {
+  it('recovers a mainnet account from Welcome, with no network notice', async () => {
     document.body.innerHTML = [
       '<div data-testid="onboarding-welcome"></div>',
       '<button data-testid="onboarding-no-code"></button>',
-      '<button data-testid="no-code-sheet-recover"></button>',
+      '<button id="import-link"></button>',
       '<div data-testid="import-select-type"></div>',
       '<button data-testid="import-type-seed-phrase"></button>',
       '<div data-testid="import-seed-phrase"></div>'
     ].join('');
     const log: string[] = [];
     await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
-    expect(log).toEqual([
-      'click [data-testid="onboarding-no-code"]',
-      'click [data-testid="no-code-sheet-recover"]',
-      'click [data-testid="import-type-seed-phrase"]'
-    ]);
+    expect(log).toEqual(['click #import-link', 'click [data-testid="import-type-seed-phrase"]']);
   });
 
   it('does not leave the unselected import control waiting', async () => {
     document.body.innerHTML = [
       '<div data-testid="onboarding-welcome"></div>',
       '<button data-testid="onboarding-no-code"></button>',
-      '<button data-testid="no-code-sheet-recover"></button>',
+      '<button id="import-link"></button>',
       '<div data-testid="import-select-type"></div>',
       '<button data-testid="import-type-seed-phrase"></button>',
       '<div data-testid="import-seed-phrase"></div>'
@@ -818,16 +814,12 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
     await new ChromeWalletPage(
       pageRecording(
         log,
-        new Set(['#import-link', '[data-testid="onboarding-network-notice-acknowledge"]']),
+        new Set(['[data-testid="onboarding-no-code"]', '[data-testid="onboarding-network-notice-acknowledge"]']),
         pending
       ),
       'test'
     ).openImportSeedPhraseScreen();
     expect(pending).toEqual([]);
-    expect(log).toEqual([
-      'click [data-testid="onboarding-no-code"]',
-      'click [data-testid="no-code-sheet-recover"]',
-      'click [data-testid="import-type-seed-phrase"]'
-    ]);
+    expect(log).toEqual(['click #import-link', 'click [data-testid="import-type-seed-phrase"]']);
   });
 });
