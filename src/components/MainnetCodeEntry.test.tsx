@@ -126,7 +126,18 @@ it.each([
             { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'unrecorded', uiFailureKind: 'unknown' }
           ]
         ]
-      : [[id, 'inline']];
+      : failure === 'rejected'
+        ? [
+            [
+              id,
+              'inline',
+              {
+                kind: 'mainnet_access_code_rejection',
+                mainnetAccessCodeRejectionOrigin: 'eligibility_check'
+              }
+            ]
+          ]
+        : [[id, 'inline']];
   expect(mockReport.mock.calls).toEqual(expected);
   act(() => jest.advanceTimersByTime(1000));
   expect(mockReport.mock.calls).toEqual(expected);
@@ -138,7 +149,13 @@ it('reports a registration refusal already displayed when the entry opens', () =
   act(() => jest.advanceTimersByTime(999));
   expect(mockReport.mock.calls).toEqual([]);
   act(() => jest.advanceTimersByTime(1));
-  expect(mockReport.mock.calls).toEqual([['mainnetAccessCodeRejected', 'inline']]);
+  expect(mockReport.mock.calls).toEqual([
+    [
+      'mainnetAccessCodeRejected',
+      'inline',
+      { kind: 'mainnet_access_code_rejection', mainnetAccessCodeRejectionOrigin: 'registration_redemption' }
+    ]
+  ]);
 });
 
 it('does not report empty entry, hint, pending check or granted success', async () => {
