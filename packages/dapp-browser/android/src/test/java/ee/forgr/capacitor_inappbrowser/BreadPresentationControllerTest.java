@@ -1615,6 +1615,50 @@ public class BreadPresentationControllerTest {
         assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
     }
 
+    @Test @Config(shadows = PaintWebView.class)
+    public void warmNavigationKeepsAcceptedPageAsAnInertCoverWithoutAuthorizingTheNewDocument() throws Exception {
+        openMorph(false);
+        reveal();
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
+        long acceptedNavigation = controller.state.navigationGeneration();
+
+        controller.navigate();
+
+        assertTrue("Warm navigation keeps the accepted page's dialog shown", dialog.isShowing());
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        assertEquals("The accepted image covers the preparing document", View.VISIBLE, proxy.getVisibility());
+        assertNotNull("The retained cover has an accepted frame", proxy.getDrawable());
+        assertEquals(1f, proxy.getAlpha(), 0f);
+        assertEquals(255, proxy.getImageAlpha());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, proxy.getImportantForAccessibility());
+        assertEquals("Warm navigation does not replace the page with a loading cover", View.GONE, cover.getVisibility());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        assertTrue(controller.state.navigationGeneration() > acceptedNavigation);
+        assertFalse(controller.state.proxyUsable());
+        assertFalse(controller.state.effectiveVisibility());
+        assertFalse(controller.state.canReveal(controller.state.generation()));
+        assertFalse(controller.state.authorizes(true, "doc", "doc", acceptedNavigation));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void firstOpenWithoutAnAcceptedFrameKeepsTheLoadingCover() throws Exception {
+        openMorph(false);
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        View spinner = ReflectionHelpers.getField(controller, "spinner");
+
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        assertEquals(View.VISIBLE, cover.getVisibility());
+        assertEquals(1f, cover.getAlpha(), 0f);
+        assertEquals(View.VISIBLE, spinner.getVisibility());
+        assertNotEquals(View.VISIBLE, proxy.getVisibility());
+        assertFalse(controller.state.proxyUsable());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+    }
+
     private BreadMorphCard card() {
         int[] at = new int[2];
         root.getLocationInWindow(at);

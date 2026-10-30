@@ -265,6 +265,52 @@ public class BreadPresentationStateTest {
         assertFalse(state.proxyUsable());
     }
 
+    @Test public void acceptedFrameRetainsSurfaceAcrossNavigationWithoutGrantingNewDocumentAuthority() {
+        BreadPresentationState state = ready();
+        state.painted(state.generation());
+        state.captureProxy();
+        long acceptedNavigation = state.navigationGeneration();
+        assertTrue(state.proxyUsable());
+
+        state.navigate(10);
+
+        assertTrue("An accepted frame keeps the preparing surface available", state.surfaceVisibility());
+        assertFalse("An old frame cannot serve as the new document's morph proxy", state.proxyUsable());
+        assertFalse("An old frame cannot acknowledge the new document's policy", state.effectiveVisibility());
+        assertFalse(state.canReveal(state.generation()));
+        assertFalse(state.authorizes(true, "doc", "doc", acceptedNavigation));
+        assertEquals(BreadPresentationState.Phase.PREPARING, state.phase());
+    }
+
+    @Test public void failedWarmNavigationCannotRetainTheAcceptedFrame() {
+        BreadPresentationState state = ready();
+        state.painted(state.generation());
+        state.captureProxy();
+        state.navigate(10);
+        assertTrue("Warm preparation starts with the accepted frame available", state.surfaceVisibility());
+
+        state.fail();
+
+        assertFalse("Failure removes retained surface ownership", state.surfaceVisibility());
+        assertFalse(state.proxyUsable());
+        assertFalse(state.effectiveVisibility());
+        assertEquals(BreadPresentationState.Phase.ERROR, state.phase());
+    }
+
+    @Test public void droppingTheAcceptedFrameRemovesWarmSurfaceOwnership() {
+        BreadPresentationState state = ready();
+        state.painted(state.generation());
+        state.captureProxy();
+        state.navigate(10);
+        assertTrue("Warm preparation starts with the accepted frame available", state.surfaceVisibility());
+
+        state.dropProxy();
+
+        assertFalse("A discarded image cannot keep the preparing surface available", state.surfaceVisibility());
+        assertFalse(state.proxyUsable());
+        assertFalse(state.effectiveVisibility());
+    }
+
     @Test public void hiddenRequestCancelsMotion() {
         BreadPresentationState state = ready();
         assertTrue(state.beginMotion(BreadPresentationState.Motion.EXPANDING));
