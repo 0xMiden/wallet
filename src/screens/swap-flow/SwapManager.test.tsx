@@ -660,9 +660,8 @@ describe('SwapFlow / SwapManager', () => {
     jest.useFakeTimers();
     try {
       const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
-      const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>(
-        'lib/i18n/numbers'
-      );
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       mockStringToBigInt.mockImplementation(stringToBigInt);
       mockFormatBigInt.mockImplementation(formatBigInt);
       mockUseSwapQuote.mockImplementation(useSwapQuote);
@@ -688,9 +687,8 @@ describe('SwapFlow / SwapManager', () => {
     jest.useFakeTimers();
     try {
       const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
-      const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>(
-        'lib/i18n/numbers'
-      );
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       mockStringToBigInt.mockImplementation(stringToBigInt);
       mockFormatBigInt.mockImplementation(formatBigInt);
       mockUseSwapQuote.mockImplementation(useSwapQuote);
@@ -738,9 +736,8 @@ describe('SwapFlow / SwapManager', () => {
     jest.useFakeTimers();
     try {
       const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
-      const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>(
-        'lib/i18n/numbers'
-      );
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       mockStringToBigInt.mockImplementation(stringToBigInt);
       mockFormatBigInt.mockImplementation(formatBigInt);
       mockQuotesBySymbol = { AAA: mockWalletState.tokenPrices.AAA };
