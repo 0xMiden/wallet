@@ -631,7 +631,9 @@ describe('SwapFlow / SwapManager', () => {
     jest.useFakeTimers();
     try {
       const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockStringToBigInt.mockImplementation(stringToBigInt);
       mockQuoteSwap.mockResolvedValue(quoteAt('2', 5n, {}, { offeredAmount: 1n }));
       renderFlow();
       setOffer('0.99');
@@ -1331,6 +1333,13 @@ describe('SwapFlow / SwapManager', () => {
         jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
       mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
+      mockWalletState.tokenPrices = {
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+      };
+      mockSwapQuoteResult = {
+        loading: false,
+        quote: quoteAt('2', 5n, {}, { offeredAmount: 61_500_000n })
+      };
       mockStringToBigInt.mockImplementation(stringToBigInt);
       mockFormatBigInt.mockImplementation(formatBigInt);
       renderFlow();
@@ -1982,6 +1991,9 @@ describe('SwapFlow / SwapManager', () => {
       mockFormatBigInt.mockImplementation((amount, decimals) => String(Number(amount) / 10 ** decimals));
       mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 20n, {}, { offeredAmount: 5n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
+      mockWalletState.tokenPrices = {
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+      };
       renderFlow();
       setOffer('0.5');
       setRequest('3');
@@ -2168,6 +2180,7 @@ describe('SwapFlow / SwapManager', () => {
 
   it('navigates to the review step from the amounts CTA', () => {
     renderFlow();
+    setOffer('10');
     fireEvent.click(screen.getByTestId('sa-confirm'));
     expect(mockNav.navigateTo).toHaveBeenCalledWith('ReviewSwap');
   });
