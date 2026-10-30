@@ -37,6 +37,8 @@ import {
   persistSeenNoteIds
 } from './note-checker-storage';
 
+const MAX_SEEN_NOTE_IDS = 4096;
+
 beforeEach(() => {
   for (const k of Object.keys(_g.__nckTest.storage)) delete _g.__nckTest.storage[k];
   jest.clearAllMocks();
@@ -54,6 +56,18 @@ describe('getPersistedSeenNoteIds', () => {
     const result = await getPersistedSeenNoteIds();
     expect(Array.from(result).sort()).toEqual(['n1', 'n2', 'n3']);
   });
+
+  it('keeps only the newest IDs when stored history exceeds the cap', async () => {
+    const ids = Array.from({ length: MAX_SEEN_NOTE_IDS + 1 }, (_, index) => `seen-${index}`);
+    _g.__nckTest.storage['miden_seen_note_ids'] = ids;
+
+    const result = await getPersistedSeenNoteIds();
+
+    expect(result.size).toBe(MAX_SEEN_NOTE_IDS);
+    expect(result.has('seen-0')).toBe(false);
+    expect(result.has('seen-1')).toBe(true);
+    expect(result.has(`seen-${MAX_SEEN_NOTE_IDS}`)).toBe(true);
+  });
 });
 
 describe('persistSeenNoteIds', () => {
@@ -65,6 +79,17 @@ describe('persistSeenNoteIds', () => {
   it('persists an empty set as an empty array', async () => {
     await persistSeenNoteIds(new Set());
     expect(_g.__nckTest.storage['miden_seen_note_ids']).toEqual([]);
+  });
+
+  it('recycles the oldest IDs before writing an oversized set', async () => {
+    const ids = new Set(Array.from({ length: MAX_SEEN_NOTE_IDS + 1 }, (_, index) => `seen-${index}`));
+
+    await persistSeenNoteIds(ids);
+
+    const stored = _g.__nckTest.storage['miden_seen_note_ids'] as string[];
+    expect(stored).toHaveLength(MAX_SEEN_NOTE_IDS);
+    expect(stored[0]).toBe('seen-1');
+    expect(stored.at(-1)).toBe(`seen-${MAX_SEEN_NOTE_IDS}`);
   });
 });
 
@@ -85,6 +110,16 @@ describe('mergeAndPersistSeenNoteIds', () => {
     _g.__nckTest.storage['miden_seen_note_ids'] = ['n1'];
     const newIds = await mergeAndPersistSeenNoteIds(['n1']);
     expect(newIds).toEqual([]);
+  });
+
+  it('persists only the newest current IDs when the consumable set exceeds the cap', async () => {
+    const ids = Array.from({ length: MAX_SEEN_NOTE_IDS + 1 }, (_, index) => `seen-${index}`);
+
+    const newIds = await mergeAndPersistSeenNoteIds(ids);
+
+    expect(newIds).toHaveLength(MAX_SEEN_NOTE_IDS + 1);
+    expect(_g.__nckTest.storage['miden_seen_note_ids']).toHaveLength(MAX_SEEN_NOTE_IDS);
+    expect((_g.__nckTest.storage['miden_seen_note_ids'] as string[])[0]).toBe('seen-1');
   });
 });
 
