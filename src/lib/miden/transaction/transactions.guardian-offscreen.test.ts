@@ -2875,6 +2875,19 @@ describe('the pin is per attempt and retires on a tagged failure (#1081)', () =>
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
 
+  it('a retired pin leaves the requeue arms open (#2060)', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    // A pin counted as a crossing would close every arm and end this row Failed.
+    const stored = txStore.find(r => r.id === 'pin-retire');
+    expect(stored?.status).toBe(ITransactionStatus.Queued);
+    expect(stored?.lastDeferral).toBe('guardian_unauthorized');
+  });
+
   it('a request that cannot serialize is never pinned', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const row = {

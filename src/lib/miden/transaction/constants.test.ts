@@ -732,6 +732,9 @@ describe('a node that gave the leaf no usable answer (#2060)', () => {
   const UNAVAILABLE = 'Miden node is unavailable; check that the node is running and reachable';
   const INTERNAL = 'Miden node returned an internal error; this is likely a node-side issue';
   const HEADER_MISSING = 'grpc-status header missing, mapped from HTTP status code';
+  // idxdb-store's `await_js_value`. wasm-bindgen's Debug prints the rejection's name, message and stack, and Dexie
+  // words an aborted transaction 'AbortError: <cause's name> <cause's message>'.
+  const STORE_REJECTED = 'database-related non-query error: failed to apply state sync: ';
 
   it.each([
     ['the SDK naming an unavailable node', `${REQUEST}${UNAVAILABLE}`],
@@ -750,9 +753,49 @@ describe('a node that gave the leaf no usable answer (#2060)', () => {
     ['WebKit dropping a fetch', 'Load failed'],
     ['WebKit losing a connection', 'The network connection was lost.'],
     ['a named read that failed on the network', `failed to fetch note script via RPC: ${REQUEST}${UNAVAILABLE}`],
-    ['a gateway that is struggling', 'transport error: status code 503']
+    ['a gateway that is struggling', 'transport error: status code 503'],
+    [
+      'a failed connection under the data store wrapper, which only sounds like the store',
+      'failed to execute transaction: data store error: failed to fetch storage map via RPC: ' +
+        'failed to connect to the Miden node'
+    ],
+    [
+      'an outage whose status quotes the store, since the kind decides a request',
+      `${REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', ` +
+        `message: "storage error: ${STORE_REJECTED}"`
+    ]
   ])('reads %s as an outage', (_label, message) => {
     expect(isNodeOutage(new Error(message))).toBe(true);
+  });
+
+  it.each([
+    [
+      'a store that ran out of quota',
+      `failed to sync chain: storage error: ${STORE_REJECTED}` +
+        'JsValue(AbortError: QuotaExceededError The quota has been exceeded.)'
+    ],
+    [
+      'an aborted IndexedDB transaction',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a rejection whose stack prints a 5xx line',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(ConstraintError: Key already exists\n` +
+        'ConstraintError: Key already exists\n    at put (https://wallet.test/assets/Cargo-2c1.js:512:17))'
+    ],
+    [
+      'the same failure through the data store',
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data ' +
+        `store: store error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a StoreError the SDK reports bare',
+      `failed to get setting value from the store: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    ['a block number the store prints', 'failed to sync chain: storage error: block header for block 512 not found'],
+    ['the data store printing one', 'failed to fetch inputs: store error: block header for block 512 not found']
+  ])('reads %s as no statement about the node', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
   });
 
   it('reads the outage at any depth, and off a value that is not an Error', () => {

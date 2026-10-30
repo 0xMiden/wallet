@@ -633,12 +633,19 @@ const SDK_NAMED_READ = /\bfailed to fetch (?=[a-z])/g;
 // `ClientError::RpcError`'s own text, which heads every RPC failure, an answer the node gave included.
 const SDK_RPC_WRAPPER = /\bRPC error\b/g;
 
+// The SDK reporting its own store: `ClientError::StoreError`, the data store's wrapper, or a bare `StoreError`. It
+// prints the rejected IndexedDB promise with its name, message and stack, whose words and line numbers read as
+// transport failures. Matched as a link of the error chain, because `data store error`, which can head an RPC failure,
+// is not one.
+const SDK_STORE_FAILURE = /(?:^|: )(?:storage error|store error|database-related non-query error): /;
+
 /**
  * The node gave the leaf no usable answer, so the same request can succeed later. The cost is lopsided: a transient
  * failure read as final only ends the row with Retry open, while a final one read as transient spends MAX_QUEUED_AGE on
  * proposals that cannot land. So a kernel failure never counts, a request the SDK reports is decided by its gRPC kind
  * alone, since the text after the kind is the node's own and can read as anything, and a kind not named here counts as
- * an answer. Only what is left reaches the transport heuristic, without the SDK's own words that it would misread.
+ * an answer. A report of the SDK's own store says nothing about the node. Only what is left reaches the transport
+ * heuristic, without the SDK's own words that it would misread.
  */
 export function isNodeOutage(error: unknown): boolean {
   if (isKilledPipeline(error) || isGuardianRequestTimeout(error) || isProverProcedureMismatch(error)) return false;
@@ -647,6 +654,7 @@ export function isNodeOutage(error: unknown): boolean {
   if (isPermanentHttpRejection(raw)) return false;
   const request = NODE_REQUEST_FAILED.exec(raw);
   if (request !== null) return NODE_UNANSWERED_KIND.test(raw.slice(request.index + request[0].length));
+  if (SDK_STORE_FAILURE.test(raw)) return false;
   const transport = raw.replace(SDK_NAMED_READ, '').replace(SDK_RPC_WRAPPER, '');
   return NODE_NOT_CONNECTED.test(transport) || isLikelyNetworkError(transport);
 }

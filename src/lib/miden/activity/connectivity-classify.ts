@@ -69,8 +69,8 @@ const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 404]);
  * literal string is in the shipped wasm — and prover-style "status code: N")
  * and answers true only for the statuses that cannot heal on retry.
  *
- * TWO consumers, with OPPOSITE cost matrices - weigh both before changing the
- * set above. (1) The note-import queue's BUDGET SELECTION: over-inclusion costs
+ * THREE consumers, with OPPOSITE cost matrices - weigh all of them before changing
+ * the set above. (1) The note-import queue's BUDGET SELECTION: over-inclusion costs
  * lock-held retries, under-inclusion costs a false give-up on bytes that can be
  * a note's only copy. (2) The transaction loop's pre-send-sync requeue arm
  * (`transaction/index.ts`), where a "permanent" verdict skips the requeue and
@@ -79,6 +79,8 @@ const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 404]);
  * the whole MAX_QUEUED_AGE budget on syncs that cannot succeed. That arm is not
  * a regression risk against the pre-#822 baseline, which failed every sync
  * error immediately - but it is the reason 401/403 must stay out of the set.
+ * (3) `isNodeOutage` (`transaction/constants.ts`), whose "permanent" verdict
+ * skips the execute-stage requeue arm, on the same terms as (2).
  *
  * Everything else keeps the broad predicate deliberately: the queue-admission
  * gates still admit a permanent rejection (the bounded poison cap in

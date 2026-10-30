@@ -3329,7 +3329,9 @@ const resolveRotationHotKey = async (
 /**
  * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
  * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
- * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does.
+ * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does,
+ * unless a freeze crosses it: that deadline is running time (#2060) and the Guardian's hold is not, so on mobile a
+ * request the platform delivers on resume can still land after the release.
  */
 const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
 
