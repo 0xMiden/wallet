@@ -1,3 +1,20 @@
+# Issue #2028 - label the spendable token balance
+
+## Plan
+
+- [x] Confirm the reporter's answer keeps the existing Send and Receive actions and excludes Bridge wording.
+- [x] Trace the token page balance, price and shared History paths; confirm the existing `available` locale key.
+- [x] RED: assert the balance is explicitly labeled Available on the token detail page; it failed because the label was absent (102 passed, 1 failed).
+- [x] GREEN: render the existing localized label above the authoritative balance without changing settlement, price or action behavior.
+- [x] Run the focused page suite and inspect the final diff.
+- [ ] Complete required light/dark UI verification, then publish only after direct review and current-head CI.
+
+## Review
+
+- Focused page suite first exposed an assertion coupled to the number's immediate wrapper; it now checks the Hero value's style ancestor, preserving the original typography contract with the new label wrapper.
+- `TokenDetail.test.tsx`: 103 tests passed through the guarded local runner. A red assertion first failed because the label was absent.
+- Visual verification remains pending; no Wallet preview is currently available in this worktree.
+
 # Follow-up to #1790: describe wallet-file contents accurately
 
 ## Plan

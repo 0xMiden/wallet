@@ -468,6 +468,7 @@ describe('TokenDetail', () => {
     // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
+    expect(screen.getByText('available')).toBeInTheDocument();
     expect(screen.getByText('12.50')).toBeInTheDocument();
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
   });
@@ -580,7 +581,7 @@ describe('TokenDetail', () => {
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
     // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
-    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('12.50').closest('.text-hero-value')).toHaveClass('text-ink');
     expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 

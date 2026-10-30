@@ -104,4 +104,6 @@ Quote loading removes the derived amount input while keeping the opposite input 
 
 - A live gh watcher only collects status. Treat a CI failure as immediate work in the active orchestration turn; never equate a surviving watcher process with active failure recovery.
 
+- For `/walletissues` coordination, send status or stop messages only to live walletissues owners from `peers.py list` via `peers.py send`. Do not use workspace-wide or direct cmux broadcasts to unrelated running agents.
+
 - Release1.17.8 validation runs RC CI and the release E2E/Mainnet batch in parallel, per explicit user correction. Do not serialize their setup behind RC CI.

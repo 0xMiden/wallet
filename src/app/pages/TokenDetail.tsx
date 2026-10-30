@@ -164,13 +164,16 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             value={
-              <AnimatedNumber
-                value={scaleIsKnown ? balance : null}
-                format={formatBalance}
-                // An em dash, not a translated phrase: this slot is a number in the hero,
-                // and the header above it already names the token.
-                placeholder="—"
-              />
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-caption font-normal text-muted">{t('available')}</span>
+                <AnimatedNumber
+                  value={scaleIsKnown ? balance : null}
+                  format={formatBalance}
+                  // An em dash, not a translated phrase: this slot is a number in the hero,
+                  // and the header above it already names the token.
+                  placeholder="—"
+                />
+              </div>
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
