@@ -53,7 +53,7 @@ export const OnboardingNetwork: FC<{
   const unlockInviteOnly = useCallback(() => setInviteOnly(true), []);
 
   const ready = state === 'ready';
-  const blocking = armed && !ready && !showWhilePreparing;
+  const blocking = armed && !ready && (!showWhilePreparing || state === 'failed' || attempt > 0);
   // Latched once the child has been shown. Its step and credentials live there, so a later
   // preparation covers that child instead of unmounting it.
   const revealed = useRef(false);

@@ -410,17 +410,17 @@ it('covers hash-less Welcome after preparation fails and keeps it covered throug
   expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointSaveFailed');
   const flow = screen.getByTestId('flow');
   expect(flow.parentElement).toHaveClass('pointer-events-none');
-  expect(flow).toHaveAttribute('inert');
+  expect(flow.parentElement).toHaveProperty('inert', true);
 
   fireEvent.click(screen.getByRole('button', { name: 'retry' }));
   await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(2));
   expect(screen.getByRole('status')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(flow.parentElement).toHaveClass('pointer-events-none');
-  expect(flow).toHaveAttribute('inert');
+  expect(flow.parentElement).toHaveProperty('inert', true);
 
   await act(async () => finishRetry());
   await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
   expect(flow.parentElement).not.toHaveClass('pointer-events-none');
-  expect(flow).not.toHaveAttribute('inert');
+  expect(flow.parentElement).toHaveProperty('inert', false);
 });
