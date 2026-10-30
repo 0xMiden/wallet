@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
+- [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
 
 - [CHANGE][all] Move the mainnet endpoints from the `cedar` hosts to the `mainnet` hosts (RPC, prover, note transport, explorer and the Agglayer bridge indexer).
 - [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
