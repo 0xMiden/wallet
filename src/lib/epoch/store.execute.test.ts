@@ -149,8 +149,20 @@ it('fails the tracking row at the solve, with what failed it, when the Epoch SDK
 
   expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
     error: refusal,
-    failure: { step: 'epoch_solve', cause: refusal }
+    failure: { step: 'epoch_solve', cause: refusal, requestClient: 'native_reown' }
   });
+
+  mockUpdatePhase.mockClear();
+  mockConnection.mockResolvedValueOnce({ address: '0xowner', isNative: false, chainId: 11155111 });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+    error: refusal,
+    failure: { step: 'epoch_solve', cause: refusal, requestClient: 'wagmi' }
+  });
+  expect(mockSwitchWebWalletChain).not.toHaveBeenCalled();
 });
 
 it('fails the tracking row at the execute, with what failed it, when the deposit throws before the solve', async () => {

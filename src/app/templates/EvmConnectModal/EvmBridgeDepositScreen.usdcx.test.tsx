@@ -508,13 +508,19 @@ const BALANCE_CHECK_OF: Record<string, string> = {
   usdcxDepositFeeAboveBalance: 'too_low',
   bridgeDepositBalanceReadFailed: 'read_failed'
 };
-const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+const failedAt = (
+  step: string,
+  error: string,
+  errorId = 'raw_bridge_deposit_failed',
+  requestClient?: 'native_reown' | 'wagmi'
+) => ({
   error,
   errorId,
   failure: {
     step,
     cause: expect.any(Error),
-    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] })
+    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] }),
+    ...(requestClient === undefined ? {} : { requestClient })
   }
 });
 /** The library error the crash report names for the cause the last failure write handed it. */
@@ -1779,7 +1785,15 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'false'));
       const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
       expect(failedWrites).toEqual(
-        outcome === 'rejected' ? [['bridge-tx', 'failed', failedAt('wallet_deposit', 'User rejected')]] : []
+        outcome === 'rejected'
+          ? [
+              [
+                'bridge-tx',
+                'failed',
+                failedAt('wallet_deposit', 'User rejected', undefined, native ? 'native_reown' : 'wagmi')
+              ]
+            ]
+          : []
       );
     }
   );
@@ -2014,7 +2028,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
         error: error.message,
         errorId: 'raw_bridge_deposit_failed',
-        failure: { step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', cause: error }
+        failure: {
+          step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt',
+          cause: error,
+          ...(stage === 'prompt' ? { requestClient: native ? 'native_reown' : 'wagmi' } : {})
+        }
       });
       const lastCall = jest.mocked(updateBridgedReceivePhase).mock.calls.at(-1);
       expect(lastCall?.[2]?.failure?.cause).toBe(error);

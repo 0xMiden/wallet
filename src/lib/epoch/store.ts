@@ -270,7 +270,11 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
           // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,
-            failure: { step: 'epoch_solve', cause: intent.error }
+            failure: {
+              step: 'epoch_solve',
+              requestClient: connection.isNative ? 'native_reown' : 'wagmi',
+              cause: intent.error
+            }
           });
         }
         return;

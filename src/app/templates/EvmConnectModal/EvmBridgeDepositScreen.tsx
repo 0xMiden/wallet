@@ -58,6 +58,7 @@ import { useWalletStore } from 'lib/store';
 import {
   bridgeReceiveLibraryError,
   type BridgeBalanceCheck,
+  type BridgeReceiveRequestClient,
   type BridgeReceiveFailureSource,
   type BridgeReceiveFailureStep,
   walletRaised
@@ -1315,7 +1316,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: failureSource(step, err)
+          failure: failureSource(
+            step,
+            err,
+            step === 'wallet_approve' || step === 'wallet_deposit'
+              ? nativeReownAvailable
+                ? 'native_reown'
+                : 'wagmi'
+              : undefined
+          )
         }).catch(() => undefined);
       }
     },
@@ -1536,10 +1545,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const failure = usdcxDepositError(err);
         setSlowError(failure);
         setSlowStatus('failed');
+        const failureStep = usdcxFailureStep(err, step);
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: failureSource(usdcxFailureStep(err, step), err)
+          failure: failureSource(
+            failureStep,
+            err,
+            failureStep === 'wallet_approve' || failureStep === 'wallet_deposit'
+              ? nativeReownAvailable
+                ? 'native_reown'
+                : 'wagmi'
+              : undefined
+          )
         }).catch(() => undefined);
       }
     },
@@ -2368,9 +2386,18 @@ function balanceCheckOf(err: unknown): BridgeBalanceCheck | undefined {
   return isUsdcxExecutorBalanceTooLowError(err) ? 'too_low' : undefined;
 }
 
-function failureSource(step: BridgeReceiveFailureStep, err: unknown): BridgeReceiveFailureSource {
+function failureSource(
+  step: BridgeReceiveFailureStep,
+  err: unknown,
+  requestClient?: BridgeReceiveRequestClient
+): BridgeReceiveFailureSource {
   const balanceCheck = balanceCheckOf(err);
-  return balanceCheck === undefined ? { step, cause: err } : { step, cause: err, balanceCheck };
+  return {
+    step,
+    cause: err,
+    ...(balanceCheck === undefined ? {} : { balanceCheck }),
+    ...(requestClient === undefined ? {} : { requestClient })
+  };
 }
 
 // A USDCx refusal is thrown where the deposit decided it, so it names its own step.
