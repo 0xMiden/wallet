@@ -19,6 +19,7 @@ import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useWalletStore } from 'lib/store';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -161,6 +162,7 @@ function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
 beforeEach(() => {
   jest.clearAllMocks();
   mockSparklinePointsRenders.length = 0;
+  useWalletStore.setState({ tokenPricesStatus: 'loading' });
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
@@ -243,6 +245,15 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-price').textContent).toMatch(/\$0\.0+/);
   });
 
+  it('shows a status instead of an overflowing USD value', () => {
+    tokenPrices = { BTC: priceInfo({ price: 2 }) };
+
+    render(<AssetRow asset={makeAsset({ balance: Number.MAX_VALUE })} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByTestId('row-price')).not.toBeInTheDocument();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
+  });
+
   it('treats a move under 0.1% either way as flat: a grey pill and a grey line', () => {
     for (const change of [0, -0.02, 0.09]) {
       tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };
@@ -310,6 +321,15 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   });
 
+  it('shows unavailable after price loading finishes without a quote', () => {
+    useWalletStore.setState({ tokenPricesStatus: 'ready' });
+    tokenPrices = {};
+
+    render(<AssetRow asset={makeAsset({ balance: 7 })} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
+  });
+
   // The nominal rate is a dollar figure, not a market, so it has no 24h move to show.
   it('values the native token at the nominal rate, with no 24h move, when the feed does not quote it', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
@@ -332,6 +352,7 @@ describe('AssetRow', () => {
     render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('assetPriceUnsupported');
     expect(screen.queryByTestId('row-delta')).toBeNull();
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
     expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');

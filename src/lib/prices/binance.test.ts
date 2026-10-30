@@ -245,6 +245,14 @@ it('values known balances only with a positive price and known scale', () => {
   expect(engine.pricesLoaded({}, [])).toBe(false);
 });
 
+it('omits fiat values for negative or non-finite balances', () => {
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  expect(engine.listedFiatValue(prices, 'VALUED', -1, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.NaN, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.POSITIVE_INFINITY, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', Number.MAX_VALUE, true)).toBeUndefined();
+});
+
 it('waits for a requested asset while only the conversion quotes have arrived', () => {
   const dollar = { price: 1, change24h: 0, percentageChange24h: 0 };
   const conversion = { USDT: dollar, USDC: dollar };
