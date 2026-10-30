@@ -80,7 +80,7 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
-import { type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
+import { OFFSCREEN_PROOF_BUDGET_MS, type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
@@ -1166,7 +1166,8 @@ const DISPATCH: Record<string, DispatchFn> = {
           executeAndProve,
           expirationBlockOf: proven => proven.evidence.expirationBlock,
           readTip: readChainTip,
-          assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip')
+          assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip'),
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
         });
         // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
         await passSubmitGate(context, attempt.evidence);

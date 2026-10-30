@@ -1,4 +1,6 @@
+import { DELEGATED_PROVE_TIMEOUT_MS } from 'lib/miden/sdk/delegated-prove-timeout';
 import { someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
+import { WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
 /**
@@ -12,12 +14,23 @@ export const SUBMIT_EXPIRY_MARGIN_BLOCKS = 4;
 /** Executions one attempt may add after a stale proof. Each is a fresh execute and prove of the same approval. */
 export const MAX_PROOF_REEXECUTIONS = 2;
 
+/** Those 16 blocks at 3 s each. A pass at least this slow comes back stale, and the next at its pace would too. */
+export const MAINNET_PROOF_WINDOW_MS = 48_000;
+
 /**
- * Running time one attempt's passes may reach, 20 s short of the extension's 180 s write deadline. A kill reads as an
- * unknown outcome on a transaction nothing sent, so a re-execution starts only if, at the last pass's pace, it ends
- * inside this. That covers one 120 s wait on a silent remote prover, its fallback and one more local pass.
+ * Running time one attempt's passes may reach in the extension's offscreen document, 20 s short of its 180 s write
+ * deadline. A kill reads as an unknown outcome on a transaction nothing sent, so a re-execution starts only if, at the
+ * last pass's pace, it ends inside this. That covers one 120 s wait on a silent remote prover, its fallback and one
+ * more local pass.
  */
-export const PROOF_ATTEMPT_BUDGET_MS = 160_000;
+export const OFFSCREEN_PROOF_BUDGET_MS = 160_000;
+
+/**
+ * The same bound for the inline leaf on mobile and desktop, where no write deadline runs. What watches that hold is
+ * its normal watchdog ledger, and an eviction reads as the same unknown outcome, so this stops 20 s short of that
+ * ledger. Local proves count here though the ledger pauses for them, which can only stop an attempt sooner.
+ */
+export const INLINE_PROOF_BUDGET_MS = WASM_LOCK_WATCHDOG_MS - 20_000;
 
 /** How long a leaf waits to learn the tip, which it does while holding the WASM lock, before it sends unchecked. */
 export const CHAIN_TIP_READ_TIMEOUT_MS = 3_000;
@@ -94,7 +107,7 @@ const readTipInTime = (readTip: () => Promise<number>): Promise<number | undefin
 export interface ProofPass {
   /** True on every pass after the first. */
   reexecuting: boolean;
-  /** A delegated prove failed earlier in this attempt: skip the remote prover, which a proof cannot outwait. */
+  /** The remote prover cannot help this pass: it failed in this attempt, or one more wait on it cannot pay off. */
   proveLocally: boolean;
   /** This pass's delegated prove failed. Its own fallback still runs. */
   delegatedProveFailed: () => void;
@@ -108,6 +121,8 @@ interface FreshProofSteps<T> {
   readTip: () => Promise<number>;
   /** Throws once the caller's WASM hold is gone. */
   assertLive: () => void;
+  /** Running time the leaf's passes may reach before the limit that watches it. */
+  budgetMs: number;
 }
 
 /**
@@ -121,12 +136,16 @@ interface FreshProofSteps<T> {
  * A delegated prove that fails is waited on once. A remote prover's timeout is more than twice a mainnet proof's
  * window, so a pass behind a silent prover could only come back stale, and every such wait draws on the hold's normal
  * watchdog ledger. A pass's pace is timed from that failure, since the next pass skips the wait.
+ *
+ * A prover that answered can still stop answering, and a slowing one is how that starts. A re-execution keeps it only
+ * if a whole timeout on top of the last pass's pace fits the budget, and only if that pace gave the proof a chance.
  */
 export async function withFreshProof<T>({
   executeAndProve,
   expirationBlockOf,
   readTip,
-  assertLive
+  assertLive,
+  budgetMs
 }: FreshProofSteps<T>): Promise<T> {
   const startedAt = runningNow();
   let proveLocally = false;
@@ -144,9 +163,10 @@ export async function withFreshProof<T>({
     assertLive();
     if (tip === undefined || !isProofStale(expirationBlock, tip)) return proven;
     const now = runningNow();
-    if (reexecutions === MAX_PROOF_REEXECUTIONS || now - startedAt + (now - paceFrom) > PROOF_ATTEMPT_BUDGET_MS) {
-      throw new StaleProofError();
-    }
+    const elapsed = now - startedAt;
+    const pace = now - paceFrom;
+    if (reexecutions === MAX_PROOF_REEXECUTIONS || elapsed + pace > budgetMs) throw new StaleProofError();
+    if (pace >= MAINNET_PROOF_WINDOW_MS || elapsed + DELEGATED_PROVE_TIMEOUT_MS + pace > budgetMs) proveLocally = true;
     console.warn(`[Guardian] proof expires at block ${expirationBlock} with the tip at ${tip}; executing again`);
   }
 }

@@ -35,6 +35,7 @@ import {
 import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
 import {
+  INLINE_PROOF_BUDGET_MS,
   isFailedReexecution,
   isStaleProofError,
   markFailedReexecution,
@@ -2669,7 +2670,8 @@ const runGuardianPipeline = async (
       executeAndProve,
       expirationBlockOf: proven => proven.evidence.expirationBlock,
       readTip: readChainTip,
-      assertLive: () => assertStillHoldingLock(hold, 'after reading the chain tip')
+      assertLive: () => assertStillHoldingLock(hold, 'after reading the chain tip'),
+      budgetMs: INLINE_PROOF_BUDGET_MS
     });
     // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
     // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:

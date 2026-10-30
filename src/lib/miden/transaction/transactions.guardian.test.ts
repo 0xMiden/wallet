@@ -5301,6 +5301,34 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     });
 
+    it('runs the local pass past the extension`s budget, since no write deadline watches this leaf', async () => {
+      const txId = 'send-guardian-inline-budget';
+      const { tx, client } = arrangeSend(txId, true);
+      const fresh = proofOnRefBlock(PAST_THE_WINDOW);
+      let clock = performance.now();
+      const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+      client.transactions.prove
+        .mockImplementationOnce(async () => {
+          clock += 123_000;
+          throw new Error('remote prover did not answer');
+        })
+        .mockImplementationOnce(async () => {
+          clock += 20_000;
+          return proofOnRefBlock(REF_BLOCK);
+        })
+        .mockImplementationOnce(async () => fresh);
+
+      try {
+        await run(tx);
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven.mock.calls[0]?.[0]).toBe(fresh);
+      expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    });
+
     it('asks the remote prover again on a re-execution when it never failed', async () => {
       const { tx, client } = arrangeSend('send-guardian-remote-kept', true);
       client.transactions.prove.mockImplementationOnce(async () => proofOnRefBlock(REF_BLOCK));

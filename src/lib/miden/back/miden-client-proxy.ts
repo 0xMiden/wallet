@@ -246,9 +246,11 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
  * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
- * shipping bundle leaves it at 180s. It was 90s, sized when a local prove could
- * not finish at all (below), and that was shorter than the slowest write the
- * wallet itself allows: a delegated prove may take `DELEGATED_PROVE_TIMEOUT_MS`
+ * shipping bundle leaves it at 180s, which each vite config's define sets: only
+ * Jest reads the fallback below (`write-deadline-define-parity.test.ts`). It was
+ * 90s, sized when a local prove could not finish at all (below), and that was
+ * shorter than the slowest write the wallet itself allows: a delegated prove
+ * may take `DELEGATED_PROVE_TIMEOUT_MS`
  * (120s) and then still has to submit and apply. Once local proving ran in the
  * prove worker (#945), a legitimate on-device proof of a multi-note claim ran
  * past 90s too, and each cut-off kept a Guardian proposal that blocked the
@@ -260,7 +262,7 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  *
  * One op can run its execute and prove more than once: a Guardian leaf executes
  * again when a proof goes stale before its submit, and `withFreshProof` stops it at
- * `PROOF_ATTEMPT_BUDGET_MS` so that ends as a failed row, not a kill here (#2060).
+ * `OFFSCREEN_PROOF_BUDGET_MS` so that ends as a failed row, not a kill here (#2060).
  *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *

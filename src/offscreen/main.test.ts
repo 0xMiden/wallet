@@ -4867,6 +4867,46 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
     });
 
+    it('stops at the budget that keeps it inside the write deadline, past which the inline leaf goes on', async () => {
+      await arrange([1_000], 1_100);
+      let clock = performance.now();
+      const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+      const executeRequest = G.__off.guardianExecuteRequest;
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => ({
+        ...(await executeRequest(...args)),
+        prove: jest.fn(async () => {
+          clock += 123_000;
+          throw new Error('remote prover did not answer');
+        })
+      }));
+      const workerProve = mockProveTransport.prove.getMockImplementation()!;
+      mockProveTransport.prove.mockImplementation(async (...args: unknown[]) => {
+        clock += 20_000;
+        return workerProve(...(args as Parameters<typeof workerProve>));
+      });
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      try {
+        await waitForReply(sendResponse);
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
+    });
+
     it('gives up before its gate, tagged, once the re-executions are spent', async () => {
       const { events } = await arrange([1_000], 1_100);
       const sendResponse = jest.fn();

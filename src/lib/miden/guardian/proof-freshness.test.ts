@@ -3,19 +3,21 @@ import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import {
   CHAIN_TIP_READ_TIMEOUT_MS,
+  INLINE_PROOF_BUDGET_MS,
   isFailedReexecution,
   isProofStale,
   isStaleProofError,
+  MAINNET_PROOF_WINDOW_MS,
   markFailedReexecution,
   MAX_PROOF_REEXECUTIONS,
-  PROOF_ATTEMPT_BUDGET_MS,
+  OFFSCREEN_PROOF_BUDGET_MS,
   StaleProofError,
   SUBMIT_EXPIRY_MARGIN_BLOCKS,
   withFreshProof
 } from './proof-freshness';
-import { DELEGATED_PROVE_TIMEOUT_MS } from '../sdk/miden-client-interface';
+import { DELEGATED_PROVE_TIMEOUT_MS } from '../sdk/delegated-prove-timeout';
 import { hasErrorBeforeSubmit, markErrorBeforeSubmit } from '../sdk/sdk-error-code';
-import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const TIP = 1_000;
 const FRESH = TIP + SUBMIT_EXPIRY_MARGIN_BLOCKS + 1;
@@ -94,7 +96,8 @@ describe('withFreshProof', () => {
       },
       expirationBlockOf: proof => proof.expirationBlock,
       readTip,
-      assertLive
+      assertLive,
+      budgetMs: OFFSCREEN_PROOF_BUDGET_MS
     });
     return { pending, executions };
   };
@@ -276,7 +279,8 @@ describe('withFreshProof', () => {
       },
       expirationBlockOf: () => FRESH,
       readTip: async () => TIP,
-      assertLive: () => {}
+      assertLive: () => {},
+      budgetMs: OFFSCREEN_PROOF_BUDGET_MS
     });
     await expect(pending).rejects.toBe(failure);
   });
@@ -286,7 +290,11 @@ describe('withFreshProof', () => {
     const EXECUTE_MS = 3_000;
 
     /** Every delegated prove waits out its timeout and falls back locally, as behind a prover that never answers. */
-    const behindAHungProver = (localProveMs: number, freshOnLocalPass: boolean) => {
+    const behindAHungProver = (
+      localProveMs: number,
+      freshOnLocalPass: boolean,
+      budgetMs: number = OFFSCREEN_PROOF_BUDGET_MS
+    ) => {
       const proveLocally: boolean[] = [];
       const pending = withFreshProof({
         executeAndProve: async pass => {
@@ -301,7 +309,8 @@ describe('withFreshProof', () => {
         },
         expirationBlockOf: proof => proof.expirationBlock,
         readTip: async () => TIP,
-        assertLive: () => {}
+        assertLive: () => {},
+        budgetMs
       });
       return { pending, proveLocally };
     };
@@ -311,7 +320,7 @@ describe('withFreshProof', () => {
       const { pending, proveLocally } = behindAHungProver(LOCAL_PROVE_MS, true);
       await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
       expect(proveLocally).toEqual([false, true]);
-      expect(performance.now()).toBeLessThan(PROOF_ATTEMPT_BUDGET_MS);
+      expect(performance.now()).toBeLessThan(OFFSCREEN_PROOF_BUDGET_MS);
     });
 
     it('waits on that prover only once, however the attempt ends', async () => {
@@ -319,7 +328,7 @@ describe('withFreshProof', () => {
       const { pending, proveLocally } = behindAHungProver(LOCAL_PROVE_MS, false);
       await expect(pending).rejects.toBeInstanceOf(StaleProofError);
       expect(proveLocally.filter(local => !local)).toHaveLength(1);
-      expect(performance.now()).toBeLessThan(PROOF_ATTEMPT_BUDGET_MS);
+      expect(performance.now()).toBeLessThan(OFFSCREEN_PROOF_BUDGET_MS);
     });
 
     it('stops rather than start a local pass the budget cannot fit', async () => {
@@ -327,6 +336,17 @@ describe('withFreshProof', () => {
       const { pending, proveLocally } = behindAHungProver(30_000, true);
       await expect(pending).rejects.toBeInstanceOf(StaleProofError);
       expect(proveLocally).toEqual([false]);
+    });
+
+    it('gives the inline leaf the local pass the offscreen budget refuses', async () => {
+      jest.useFakeTimers();
+      const offscreen = behindAHungProver(20_000, true);
+      await expect(offscreen.pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(offscreen.proveLocally).toEqual([false]);
+
+      const inline = behindAHungProver(20_000, true, INLINE_PROOF_BUDGET_MS);
+      await expect(inline.pending).resolves.toEqual({ expirationBlock: FRESH });
+      expect(inline.proveLocally).toEqual([false, true]);
     });
 
     it('keeps the remote prover for a re-execution when no delegated prove failed', async () => {
@@ -338,7 +358,8 @@ describe('withFreshProof', () => {
         },
         expirationBlockOf: proof => proof.expirationBlock,
         readTip: async () => TIP,
-        assertLive: () => {}
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS
       });
       await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
       expect(proveLocally).toEqual([false, false]);
@@ -352,15 +373,81 @@ describe('withFreshProof', () => {
         },
         expirationBlockOf: proof => proof.expirationBlock,
         readTip: async () => TIP,
-        assertLive: () => {}
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS
       });
       await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
     });
   });
 
+  describe('with a prover that answered, and may not again', () => {
+    const LOCAL_PROVE_MS = 15_000;
+    const EXECUTE_MS = 3_000;
+
+    /** The first pass proves remotely in `firstPassMs`, stale. A delegated prove after it never answers. */
+    const answeredThenHung = (firstPassMs: number, budgetMs: number) => {
+      const proveLocally: boolean[] = [];
+      const pending = withFreshProof({
+        executeAndProve: async pass => {
+          proveLocally.push(pass.proveLocally);
+          if (!pass.reexecuting) {
+            jest.advanceTimersByTime(firstPassMs);
+            return { expirationBlock: STALE };
+          }
+          jest.advanceTimersByTime(EXECUTE_MS);
+          if (!pass.proveLocally) {
+            jest.advanceTimersByTime(DELEGATED_PROVE_TIMEOUT_MS);
+            pass.delegatedProveFailed();
+          }
+          jest.advanceTimersByTime(LOCAL_PROVE_MS);
+          return { expirationBlock: pass.proveLocally ? FRESH : STALE };
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => TIP,
+        assertLive: () => {},
+        budgetMs
+      });
+      return { pending, proveLocally };
+    };
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    it.each([20_001, 30_000, 45_000, 50_000, 60_000])(
+      'skips the remote prover after a %d ms pass, when one more wait on it would outrun the budget',
+      async firstPassMs => {
+        const { pending, proveLocally } = answeredThenHung(firstPassMs, OFFSCREEN_PROOF_BUDGET_MS);
+        await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
+        expect(proveLocally).toEqual([false, true]);
+        expect(performance.now()).toBeLessThan(OFFSCREEN_PROOF_BUDGET_MS);
+      }
+    );
+
+    it('waits on the remote prover again while that wait fits the budget, and ends inside it', async () => {
+      const { pending, proveLocally } = answeredThenHung(20_000, OFFSCREEN_PROOF_BUDGET_MS);
+      await expect(pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(proveLocally).toEqual([false, false]);
+      expect(performance.now()).toBeLessThanOrEqual(OFFSCREEN_PROOF_BUDGET_MS);
+    });
+
+    it('stops asking a prover too slow for the proof window, though the inline budget would fit the wait', async () => {
+      const { pending, proveLocally } = answeredThenHung(MAINNET_PROOF_WINDOW_MS, INLINE_PROOF_BUDGET_MS);
+      await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
+      expect(proveLocally).toEqual([false, true]);
+    });
+
+    it('asks a prover that kept inside the window again, and still lands inside the inline budget', async () => {
+      const { pending, proveLocally } = answeredThenHung(MAINNET_PROOF_WINDOW_MS - 1, INLINE_PROOF_BUDGET_MS);
+      await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
+      expect(proveLocally).toEqual([false, false, true]);
+      expect(performance.now()).toBeLessThan(INLINE_PROOF_BUDGET_MS);
+    });
+  });
+
   describe('on running time', () => {
     /** Every pass takes `passMs` of running time and proves stale, so only the budget or the count can stop it. */
-    const slowPasses = (passMs: number) => {
+    const slowPasses = (passMs: number, budgetMs: number = OFFSCREEN_PROOF_BUDGET_MS) => {
       let executions = 0;
       const pending = withFreshProof({
         executeAndProve: async () => {
@@ -370,7 +457,8 @@ describe('withFreshProof', () => {
         },
         expirationBlockOf: proof => proof.expirationBlock,
         readTip: async () => TIP,
-        assertLive: () => {}
+        assertLive: () => {},
+        budgetMs
       });
       return { pending, executions: () => executions };
     };
@@ -387,7 +475,17 @@ describe('withFreshProof', () => {
       const run = slowPasses(passMs);
       await expect(run.pending).rejects.toBeInstanceOf(StaleProofError);
       expect(run.executions()).toBe(executions);
-      expect(performance.now()).toBeLessThanOrEqual(PROOF_ATTEMPT_BUDGET_MS);
+      expect(performance.now()).toBeLessThanOrEqual(OFFSCREEN_PROOF_BUDGET_MS);
+    });
+
+    it.each([
+      ['runs every re-execution while each one fits', 90_000, 1 + MAX_PROOF_REEXECUTIONS],
+      ['stops before a pass it cannot fit', 100_000, 2]
+    ])('inline: %s, short of the watchdog', async (_label, passMs, executions) => {
+      const run = slowPasses(passMs, INLINE_PROOF_BUDGET_MS);
+      await expect(run.pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(run.executions()).toBe(executions);
+      expect(performance.now()).toBeLessThan(WASM_LOCK_WATCHDOG_MS);
     });
 
     it('spends none of its budget on a freeze, which is what it recovers from', async () => {
@@ -399,13 +497,14 @@ describe('withFreshProof', () => {
           executeAndProve: async ({ reexecuting }) => {
             if (reexecuting) return { expirationBlock: FRESH };
             doc.setHidden(true);
-            doc.freezeFor(2 * PROOF_ATTEMPT_BUDGET_MS);
+            doc.freezeFor(2 * OFFSCREEN_PROOF_BUDGET_MS);
             doc.setHidden(false);
             return { expirationBlock: STALE };
           },
           expirationBlockOf: proof => proof.expirationBlock,
           readTip: async () => TIP,
-          assertLive: () => {}
+          assertLive: () => {},
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
         });
         await expect(pending).resolves.toEqual({ expirationBlock: FRESH });
       } finally {
