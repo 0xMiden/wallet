@@ -291,7 +291,13 @@ export async function runRateScenario({ service, counters }) {
   }
 }
 
-export async function runWiredRateScenario({ service, counters }) {
+export async function runWiredRateScenario({ service, counters, onFailure = () => {} }) {
+  const failed = stage => {
+    try {
+      onFailure(stage);
+    } catch {}
+    return 'failed';
+  };
   const request = (ip, colo) => {
     const value = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
       headers: { 'CF-Connecting-IP': ip, Origin: 'https://wallet.example' }
@@ -307,32 +313,26 @@ export async function runWiredRateScenario({ service, counters }) {
   try {
     for (let index = 0; index < 4; index++) {
       const response = await service.fetch(request('192.0.2.11', 'IAD'));
-      if (!response.ok) return 'failed';
+      if (!response.ok) return failed(`caller_allow_${index + 1}`);
     }
     const beforeCallerRefusal = await objectCount();
     const callerRefusal = await service.fetch(request('192.0.2.11', 'IAD'));
-    if (
-      callerRefusal.status !== 429 ||
-      callerRefusal.headers.get('Retry-After') !== '60' ||
-      (await objectCount()) !== beforeCallerRefusal
-    )
-      return 'failed';
+    if (callerRefusal.status !== 429 || callerRefusal.headers.get('Retry-After') !== '60')
+      return failed('caller_refusal');
+    if ((await objectCount()) !== beforeCallerRefusal) return failed('caller_refusal_object_access');
 
     for (let index = 1; index <= 4; index++) {
       const response = await service.fetch(request(`198.51.100.${index}`, 'FRA'));
-      if (!response.ok) return 'failed';
+      if (!response.ok) return failed(`colo_allow_${index}`);
     }
     const beforeColoRefusal = await objectCount();
     const coloRefusal = await service.fetch(request('198.51.100.5', 'FRA'));
-    if (
-      coloRefusal.status !== 429 ||
-      coloRefusal.headers.get('Retry-After') !== '10' ||
-      (await objectCount()) !== beforeColoRefusal
-    )
-      return 'failed';
+    if (coloRefusal.status !== 429 || coloRefusal.headers.get('Retry-After') !== '10')
+      return failed('colo_refusal');
+    if ((await objectCount()) !== beforeColoRefusal) return failed('colo_refusal_object_access');
     return 'passed';
   } catch {
-    return 'failed';
+    return failed('scenario_exception');
   }
 }
 
