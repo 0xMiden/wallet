@@ -33,6 +33,13 @@ function syntheticEnv(env) {
   };
 }
 
+function scopedNamespace(namespace, prefix) {
+  return {
+    idFromName: name => namespace.idFromName(`${prefix}:${name}`),
+    get: id => namespace.get(id)
+  };
+}
+
 function fixedFetch(onLookup) {
   return async url => {
     if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json')
@@ -79,7 +86,11 @@ export class CallerEligibilityGuard {
         this.lookups++;
       })
     });
-    this.delegate = new service.CallerEligibilityGuard(state, syntheticEnv(env));
+    const testEnv = syntheticEnv(env);
+    if (state.id?.name?.startsWith('wired-rate:')) {
+      testEnv.ELIGIBILITY_GUARD = scopedNamespace(env.ELIGIBILITY_GUARD, 'wired-rate');
+    }
+    this.delegate = new service.CallerEligibilityGuard(state, testEnv);
     const storage = this.delegate.storage;
     this.delegate.storage = new Proxy(storage, {
       get: (target, key) => {
