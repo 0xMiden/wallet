@@ -60,6 +60,21 @@ describe('NoCodeSheet', () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it('keeps the sheet open when the early-access list cannot open', async () => {
+    mockOpenExternalUrl.mockRejectedValueOnce(new Error('unavailable'));
+    const onOpenChange = jest.fn();
+    render(<NoCodeSheet open onOpenChange={onOpenChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'mainnetCountdownLink' }));
+    await Promise.resolve();
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith({
+      url: 'https://miden.xyz/bread',
+      title: 'mainnetCountdownLink'
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it('renders nothing while closed', () => {
     const { container } = render(<NoCodeSheet open={false} onOpenChange={jest.fn()} />);
     expect(container).toBeEmptyDOMElement();
