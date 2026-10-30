@@ -2,7 +2,7 @@
 // Usage: node discover.mjs
 import { Endpoint, NoteId, NoteTag, RpcClient, NoteScript } from '@miden-sdk/miden-sdk';
 
-const RPC = 'https://rpc.cedar.miden.io';
+const RPC = 'https://rpc.mainnet.miden.io';
 const GC = '0x34a3510213533f512ec4abe36baf84';
 const USDCX = '0xe69e6ca6e39df1b10c1e5399399feb';
 const KNOWN_NOTE = '0x34b2e1aa676f97dfe1e80f2f3da58bc30824434db6e6c7e8d13c8e471969171a';

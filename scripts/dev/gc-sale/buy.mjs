@@ -8,7 +8,7 @@
 //   node scripts/dev/gc-sale/buy.mjs                 # steps 1 and 2 need MIDEN_ACCESS_CODE; stops before the buy with DRY_RUN=1
 //   MIDEN_ACCESS_CODE=... node scripts/dev/gc-sale/buy.mjs
 //   FILL=5000 node scripts/dev/gc-sale/buy.mjs       # pay at most 0.005 USDCx (base units)
-//   PROVER=local node scripts/dev/gc-sale/buy.mjs    # prove in-process instead of the cedar prover
+//   PROVER=local node scripts/dev/gc-sale/buy.mjs    # prove in-process instead of the mainnet prover
 //
 // Nothing here touches the wallet's own stores: the store is ~/.miden/stores/gc-sale-probe/.
 import {
@@ -24,8 +24,8 @@ import {
   StorageMode
 } from '@miden-sdk/miden-sdk';
 
-const RPC = 'https://rpc.cedar.miden.io';
-const PROVER = process.env.PROVER === 'local' ? 'local' : 'https://tx-prover.cedar.miden.io';
+const RPC = 'https://rpc.mainnet.miden.io';
+const PROVER = process.env.PROVER === 'local' ? 'local' : 'https://tx-prover.mainnet.miden.io';
 const STORE = process.env.STORE ?? 'gc-sale-probe';
 // The chain's fee asset, USDCx: what the sale asks for and what pays every fee.
 const USDCX = '0xe69e6ca6e39df1b10c1e5399399feb';
