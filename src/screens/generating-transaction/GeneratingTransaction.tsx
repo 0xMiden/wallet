@@ -27,7 +27,9 @@ import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
@@ -175,14 +177,15 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
       active?.id === txId &&
       status === ITransactionStatus.Failed &&
       firstLoadedRow.current?.txId === txId &&
-      !firstLoadedRow.current.failed
+      !firstLoadedRow.current.failed &&
+      !readsAsNotConfirmed(active)
       ? 'raw_transaction_failed'
       : null,
     'status_screen'
   );
   const submissionMessage =
     active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
-      ? submissionFeedback(active)
+      ? shownSubmissionFeedback(active)
       : undefined;
   const expiredOneClick = isRecoverableExpiredOneClick(active, status);
   useUserVisibleError(
@@ -197,13 +200,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         }
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
-  // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
+  // it while the row waits for a verdict, a Failed one included (#2060); its judging takes no WASM lock (#1081).
+  const verdictPending = status === ITransactionStatus.Unconfirmed || (active !== undefined && awaitingVerdict(active));
   useEffect(() => {
-    if (isExtension() || status !== ITransactionStatus.Unconfirmed) return;
+    if (isExtension() || !verdictPending) return;
     void reconcileUnconfirmedInApp();
     const timer = setInterval(() => void reconcileUnconfirmedInApp(), TRANSACTION_LOOP_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [status]);
+  }, [verdictPending]);
 
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
   // row to the receipt (#1081).
@@ -258,7 +262,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           setRetryError(
             error instanceof Error
               ? {
-                  text: error.message,
+                  text: retryRefusalText(error, t),
                   id: 'raw_transaction_retry_failed',
                   transactionId: active.id,
                   diagnostics: {
@@ -450,12 +454,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const submission = failedRow !== undefined ? submissionFeedback(failedRow) : undefined;
-  const outcomeUnconfirmed =
-    transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
-  // A stored submit refusal is a definite failure even after the submit stamp. A stored timeout,
-  // drop, or missing answer stays not confirmed, including when the row was marked Failed.
-  const unconfirmed = submission?.kind === 'rejected' ? false : submission !== undefined ? true : outcomeUnconfirmed;
+  const submission = failedRow !== undefined ? shownSubmissionFeedback(failedRow) : undefined;
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && readsAsNotConfirmed(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.

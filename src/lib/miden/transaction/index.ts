@@ -3529,8 +3529,9 @@ const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
  * will before the abandon arrives, and a later write may hold the nonce. The record's identity, not its time, tells it
  * from a later write's at the same nonce: an attempt can outlive the Guardian's own discard while it proves and be kept
  * after the nonce was freed, and the next write can propose that nonce within the same second. With no such record
- * (another realm, a restart, another write's record) nothing is sent, and Retry's hold, counted from `capturedAt`,
- * outlasts the Guardian's own discard.
+ * (another realm, a restart that found the row already ended, another write's record) nothing is sent, and Retry's
+ * hold, counted from `capturedAt`, outlasts the Guardian's own discard. The startup sweep restores the record of a
+ * crossed attempt it ends (`handBackInterruptedCandidate`), so a relaunch can release that one (#2060).
  */
 export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvider): CandidateRelease => {
   const releasable = (accountId: string, nonce: number, attemptId: string): GuardianCandidate | undefined => {

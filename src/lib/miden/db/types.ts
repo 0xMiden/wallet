@@ -1166,8 +1166,8 @@ export interface ITransaction {
   /**
    * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
    * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
-   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process; only the
-   * startup sweep reads this, for an attempt a dead process left before its submit.
+   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process, so the startup
+   * sweep reads this for the attempt a dead process left, and an end from outside the pipeline reads its nonce.
    */
   guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
 }

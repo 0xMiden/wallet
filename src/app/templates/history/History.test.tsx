@@ -774,6 +774,33 @@ describe('History', () => {
     expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
   });
 
+  it('reads a refused row by what is left to judge, not by the refusal (#2060)', async () => {
+    const send = { accountId: '0xme', displayIcon: 'SEND', type: 'send', displayMessage: 'Sending' };
+    const refused = {
+      ...send,
+      status: STATUS.Failed,
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      error:
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+    };
+    const openEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...refused, id: 'refused-open', completedAt: 500, submitEvidence: [openEntry] },
+      { ...refused, id: 'refused-bare', completedAt: 600 },
+      { ...refused, id: 'refused-retired', completedAt: 700, submitEvidence: [{ ...openEntry, preSubmitEnd: true }] }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: { key: string }) => e.key === key);
+    expect(byKey('completed-refused-open').isUnconfirmed).toBe(true);
+    expect(byKey('completed-refused-bare').isUnconfirmed).toBe(false);
+    expect(byKey('completed-refused-retired').isUnconfirmed).toBe(false);
+  });
+
   it('reads an Unconfirmed row and a Failed row with an open entry as not confirmed, a retired one as failed (#1081)', async () => {
     const send = { accountId: '0xme', displayIcon: 'SEND', type: 'send', displayMessage: 'Sending' };
     const openEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
@@ -3853,6 +3880,72 @@ describe('History on the real SWR cache', () => {
       expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('received');
       expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('confirmed');
       expect(entryFor('STATUS-EARN-WITHDRAW')?.earnWithdrawPhase).toBe('received');
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
+  it('keeps an older row not confirmed through a refusal, and fails it once nothing is left to judge (#2060)', async () => {
+    await Repo.transactions.clear();
+    const head: ITransaction = {
+      id: 'REFUSED-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const older: ITransaction = {
+      id: 'OLDER-REFUSED',
+      accountId: '0xme',
+      status: ITransactionStatus.Unconfirmed,
+      stage: 'submitting',
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Not confirmed',
+      displayIcon: 'SEND',
+      submitEvidence: [{ attemptId: 'attempt-1', capturedAt: 4000, source: 'stage' }]
+    };
+    const refusal =
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.isUnconfirmed).toBe(true));
+
+      await Repo.transactions.put({ ...older, status: ITransactionStatus.Failed, error: refusal });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(entryFor(older.id)?.status).toBe(ITransactionStatus.Failed));
+      expect(entryFor(older.id)?.isUnconfirmed).toBe(true);
+
+      await Repo.transactions.put({
+        ...older,
+        status: ITransactionStatus.Failed,
+        error: refusal,
+        submitEvidence: [{ attemptId: 'attempt-1', capturedAt: 4000, source: 'stage', preSubmitEnd: true }]
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(entryFor(older.id)?.isUnconfirmed).toBe(false));
     } finally {
       await Repo.transactions.clear();
     }

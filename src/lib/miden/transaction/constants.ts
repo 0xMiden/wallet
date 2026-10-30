@@ -235,28 +235,35 @@ export function isUnconfirmedFailure(
   );
 }
 
+type OutcomeRow = Pick<
+  ITransaction,
+  'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
+> &
+  Partial<
+    Pick<ITransaction, 'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'>
+  >;
+
 /**
- * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
- * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
- * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
- * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
- * which stays on `isUnconfirmedFailure`, agrees with History.
+ * An eligible row, not proven safe and not a definite failure, holding an entry neither proven dead nor retired before
+ * its submit: an earlier attempt may have crossed after a later one failed before its own. An ineligible row's entries
+ * are inert, so it keeps today's label, and the rotation gate, which stays on `isUnconfirmedFailure`, agrees with
+ * History.
  */
-export function isOutcomeUnconfirmed(
-  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
-    Partial<
-      Pick<
-        ITransaction,
-        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
-      >
-    >
-): boolean {
-  if (row.status === ITransactionStatus.Unconfirmed) return true;
-  if (isUnconfirmedFailure(row)) return true;
-  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
-    return false;
+export function hasUnresolvedAttempt(row: OutcomeRow): boolean {
+  if (row.neverCommittedAt !== undefined || !canAwaitVerdict(row)) return false;
   if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
   return (row.submitEvidence ?? []).some(isUnresolvedEntry);
+}
+
+/**
+ * Not confirmed before any stored submit outcome is read (#1081): an Unconfirmed row, a #1250 row
+ * (`isUnconfirmedFailure`), or a Failed row that `hasUnresolvedAttempt` holds. Surfaces read `readsAsNotConfirmed`,
+ * which applies this rule and the stored outcome together.
+ */
+export function isOutcomeUnconfirmed(row: OutcomeRow): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  return row.status === ITransactionStatus.Failed && hasUnresolvedAttempt(row);
 }
 
 /**

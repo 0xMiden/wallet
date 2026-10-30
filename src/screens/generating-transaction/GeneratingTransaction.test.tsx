@@ -331,6 +331,34 @@ describe('GeneratingTransactionPage interval driver', () => {
       expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(3);
     });
 
+    it.each([
+      ['it is proven dead', { neverCommittedAt: 1 }],
+      ['it was restored', { restoredFromBackup: true }]
+    ])('does not fire for a Failed row once %s', async (_label, fields) => {
+      platform.isMobile.mockReturnValue(true);
+      mockRowState = { row: { ...refusedAfterCrossing(checkableEntry), ...fields }, loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('stops firing when the verdict arrives, without a remount', async () => {
+      const root = createRoot(document.createElement('div'));
+      mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(1);
+      mockRowState = { row: { ...refusedAfterCrossing(checkableEntry), neverCommittedAt: 1 }, loaded: true };
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(20_000);
+      });
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(1);
+      act(() => root.unmount());
+    });
+
     it('does not fire on the extension, whose service worker reconciles after its own sync', async () => {
       platform.isExtension.mockReturnValue(true);
       mockRowState = { row: makeTx({ status: ITransactionStatus.Unconfirmed }), loaded: true };
@@ -823,6 +851,36 @@ describe('GeneratingTransactionPage container effects', () => {
       retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it('reads a refusal the reconciler still judges as not confirmed, with no refused sentence (#2060)', async () => {
+    mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('transactionFailed');
+    expect(container.textContent).toContain('showFullError');
+    expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(container.querySelector('.bg-status-negative')).toBeNull();
+    expect(stepStates(container).submitting).toBe('pending');
+    act(() => root.unmount());
+  });
+
+  it('turns to the failed title and the refusal once nothing is left to judge (#2060)', async () => {
+    mockRowState = {
+      row: refusedAfterCrossing({ ...checkableEntry, verdict: 'never-committed' }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('notConfirmed');
     act(() => root.unmount());
   });
 
@@ -1875,6 +1933,65 @@ describe('user-visible transaction errors', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
     act(() => jest.advanceTimersByTime(2000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports neither a failure nor a refusal for a refused row it shows as not confirmed (#2060)', async () => {
+    await renderPage();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        error: networkRefusal,
+        submitEvidence: [checkableEntry]
+      }),
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports no failure for a Failed row it shows as not confirmed (#2060)', async () => {
+    await renderPage();
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Failed, stage: 'sending', error: TRANSACTION_STUCK_ERROR }),
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports the refusal and the failure it shows once the row turns Failed (#2060)', async () => {
+    await renderPage();
+    const refused = makeTx({
+      status: ITransactionStatus.Failed,
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      error: networkRefusal
+    });
+    mockRowState = {
+      row: { ...refused, submitEvidence: [checkableEntry] },
+      loaded: true
+    };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    mockRowState = {
+      row: { ...refused, submitEvidence: [{ ...checkableEntry, verdict: 'never-committed' }] },
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual(
+      expect.arrayContaining([
+        ['raw_transaction_failed', 'status_screen'],
+        ['submissionRejectedByNetwork', 'status_screen']
+      ])
+    );
   });
 
   it('reports the reason attached to the displayed status retry refusal', async () => {

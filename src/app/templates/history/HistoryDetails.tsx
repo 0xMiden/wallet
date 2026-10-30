@@ -22,7 +22,7 @@ import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
+import { isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -48,7 +48,7 @@ import { stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -440,7 +440,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
         const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
-        const submission = submissionFeedback(tx);
+        const submission = shownSubmissionFeedback(tx);
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -498,8 +498,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
-          isUnconfirmed:
-            submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx),
+          isUnconfirmed: readsAsNotConfirmed(tx),
           notConfirmedHint:
             submission !== undefined && submission.kind !== 'rejected'
               ? submission.messageKey

@@ -4,7 +4,10 @@ import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcFailure } from 'lib/telemetr
 import type { SubmissionFeedbackBranch } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
+  hasUnresolvedAttempt,
   isAccountBlockedError,
+  isOutcomeUnconfirmed,
+  isUnconfirmedFailure,
   isUserCancelledTransaction,
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -12,6 +15,7 @@ import {
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR
 } from './constants';
+import { keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 
 export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered';
 
@@ -117,4 +121,37 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   }
   // An error no category recognizes gets no verdict: the row keeps its existing failed or not-confirmed copy.
   return undefined;
+}
+
+type FinishedRow = FeedbackRow & Parameters<typeof isOutcomeUnconfirmed>[0];
+
+// The rotation gate reads these through `isUnconfirmedFailure` and offers no Retry on that reading, so Activity follows.
+const readByRotationGate = (row: FinishedRow): boolean =>
+  row.type === 'replace-hot-key' || row.rotationFunding === true;
+
+/**
+ * Whether a finished row reads Not confirmed, the one rule every surface shares (#2060). A stored timeout, drop or
+ * missing answer does, including on a Failed row. A stored refusal does while an attempt is unresolved: a refusal past
+ * the crossing cannot be told from a lost answer, which is why the leaf keeps its candidate, so only the reconciler can
+ * rule the attempt dead. With nothing left to judge the refusal is the row's outcome, whatever the node said.
+ */
+export function readsAsNotConfirmed(row: FinishedRow): boolean {
+  const feedback = submissionFeedback(row);
+  if (feedback === undefined) return isOutcomeUnconfirmed(row);
+  return (
+    feedback.kind !== 'rejected' || hasUnresolvedAttempt(row) || (readByRotationGate(row) && isUnconfirmedFailure(row))
+  );
+}
+
+/**
+ * The stored outcome a surface may show (#2060). A refusal tells the user to try again, so it is withheld while the row
+ * reads Not confirmed and while the Guardian holds the candidate that a retry would meet.
+ */
+export function shownSubmissionFeedback(
+  row: FinishedRow,
+  nowSec: number = nowSeconds()
+): SubmissionFeedback | undefined {
+  const feedback = submissionFeedback(row);
+  if (feedback?.kind !== 'rejected') return feedback;
+  return readsAsNotConfirmed(row) || keptCandidateHoldUntil(row, nowSec) !== undefined ? undefined : feedback;
 }

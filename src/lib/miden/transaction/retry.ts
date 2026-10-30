@@ -13,7 +13,6 @@ import {
   readClaimFeeContext
 } from './claim-fee';
 import {
-  guardianHoldRetryMessage,
   PRE_SUBMIT_STAGES,
   STALE_PROOF_ERROR,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
@@ -29,6 +28,7 @@ import {
 } from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
 import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
@@ -355,7 +355,7 @@ const planRequeue = async (
   // The next proposal would meet the kept candidate: the 409 arm for most types, an outright failure for a
   // bridged-send. Proven or not, and acknowledged or not, the row waits for the Guardian's own discard.
   const holdUntil = keptCandidateHoldUntil(tx, nowSec);
-  if (holdUntil !== undefined) throw retryRefusal(new Error(guardianHoldRetryMessage(holdUntil)), 'guardian_hold');
+  if (holdUntil !== undefined) throw retryRefusal(new GuardianHoldRetryError(holdUntil), 'guardian_hold');
   let proven = tx.neverCommittedAt !== undefined;
   let baseline = evidenceKey(tx.submitEvidence);
   let checked = false;

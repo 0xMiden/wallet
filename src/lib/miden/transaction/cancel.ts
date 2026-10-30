@@ -57,7 +57,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
-import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
+import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
@@ -1013,19 +1013,22 @@ const hasUnexplainedFutureStamp = (tx: Transaction, nowSeconds: number): boolean
   tx.processingStartedAt > nowSeconds + MAX_WAIT_BEFORE_CANCEL;
 
 /**
- * Hand the candidate a dead process's Guardian write left before its submit back to the account's abandon retry
- * (#1666): that process's record of it died with it, so the next write met the Guardian's 409 for its whole hold.
- * Only the candidate the dead attempt itself proposed, on a row that recorded no submit crossing and whose stage is
- * before its submit: a write that may have reached the node keeps its candidate, since abandoning one still in the
- * mempool releases the account onto stale state. A record this process already holds is a later write's and stands.
- * The retry window is measured from the wall-clock stamp alone, because the monotonic one restarted with the process:
- * a clock set back while the app was down can make an older candidate look younger, and past its hold an abandon at
- * that nonce could only reach another device's candidate. Accepted.
+ * Give this process the record of the candidate a dead process's Guardian write left (#1666): that process's record
+ * died with it, so the next write met the Guardian's 409 for its whole hold. Only the candidate the dead attempt itself
+ * proposed. Before its submit (no crossing recorded, a stage before it) the record is marked for the abandon retry. A
+ * write that may have reached the node keeps its candidate, since abandoning one still in the mempool releases the
+ * account onto stale state, so an attempt that crossed gets the plain record the leaf's keep writes, naming the attempt:
+ * the settlement gate waits on it, and the release abandons it only once the node proves that attempt dead (#2060). A
+ * record this process already holds is a later write's and stands. The retry window is measured from the wall-clock
+ * stamp alone, because the monotonic one restarted with the process: a clock set back while the app was down can make
+ * an older candidate look younger, and past its hold an abandon at that nonce could only reach another device's
+ * candidate. Accepted.
  */
 const handBackInterruptedCandidate = (tx: ITransaction): void => {
   const candidate = tx.guardianCandidate;
-  if (candidate === undefined || candidate.attemptId !== tx.attemptId || tx.mayHaveSubmitted === true) return;
-  if (tx.stage === undefined || !PRE_SUBMIT_STAGES.has(tx.stage)) return;
+  if (candidate === undefined || candidate.attemptId !== tx.attemptId) return;
+  const crossed = crossedCandidateNonce(tx) === candidate.nonce;
+  if (!crossed && (tx.mayHaveSubmitted === true || tx.stage === undefined || !PRE_SUBMIT_STAGES.has(tx.stage))) return;
   const ageMs = Date.now() - candidate.proposedAt;
   const accountId = canonicalWalletAccountId(tx.accountId);
   if (ageMs < 0 || getGuardianCandidate(accountId) !== undefined) return;
@@ -1034,7 +1037,7 @@ const handBackInterruptedCandidate = (tx: ITransaction): void => {
     nonce: candidate.nonce,
     proposedAt: candidate.proposedAt,
     proposedAtMono: monotonicNowMs() - ageMs,
-    abandon: true
+    ...(crossed ? { attemptId: candidate.attemptId } : { abandon: true as const })
   });
 };
 

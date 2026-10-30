@@ -25,7 +25,8 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
-import { submissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { shownSubmissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -226,7 +227,7 @@ export function useActivityClaims() {
         const waiting = new Set<string>();
         const submissions = new Map<string, SubmissionFeedback>();
         for (const tx of rows) {
-          const feedback = submissionFeedback(tx);
+          const feedback = shownSubmissionFeedback(tx);
           if (feedback !== undefined) submissions.set(tx.id, feedback);
           if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
             waiting.add(tx.id);
@@ -554,12 +555,7 @@ export function useActivityClaims() {
     try {
       await requeueFailedTransaction(txId);
     } catch (error) {
-      const message =
-        error instanceof ClaimFeeRefusedError
-          ? t('insufficientFeeAsset')
-          : error instanceof Error
-            ? error.message
-            : String(error);
+      const message = error instanceof ClaimFeeRefusedError ? t('insufficientFeeAsset') : retryRefusalText(error, t);
       const id = error instanceof ClaimFeeRefusedError ? 'insufficientFeeAsset' : 'raw_pending_activity_retry_failed';
       setRetryErrors(previous =>
         new Map(previous).set(txId, {

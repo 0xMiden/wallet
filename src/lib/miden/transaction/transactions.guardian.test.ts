@@ -8486,6 +8486,164 @@ describe('generateTransaction — Guardian routing', () => {
         expect(left).toBeUndefined();
       });
 
+      describe('a crossed attempt (#2060)', () => {
+        const crossedRow = (id: string, overrides: Record<string, unknown> = {}) =>
+          deadRow(id, {
+            stage: 'submitting',
+            mayHaveSubmitted: true,
+            submitEvidence: [
+              {
+                attemptId: 'att-dead',
+                capturedAt: Math.floor(Date.now() / 1000) - 30,
+                source: 'stage',
+                guardianProposalNonce: 8
+              }
+            ],
+            ...overrides
+          });
+        const arrangeRelease = () => {
+          const abandonCandidate = jest.fn(async (_nonce: number) => {});
+          const abandonStatus = jest.fn(async (_nonce: number) => 'abandoned');
+          mockBuildColdMultisigService.mockResolvedValue({
+            guardianEndpoint: GUARDIAN,
+            abandonCandidate,
+            abandonStatus
+          });
+          mockGetMidenClient.mockResolvedValue({
+            syncState: jest.fn(async () => {}),
+            getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+            client: makeClientApi(makeResult())
+          });
+          return { abandonCandidate };
+        };
+
+        it('marks the candidate kept and restores a plain record naming the attempt, never an abandon', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          settledService();
+          crossedRow('dead-crossed');
+
+          await failInterruptedTransactions();
+
+          expect(stored('dead-crossed').status).toBe(ITransactionStatus.Failed);
+          expect(stored('dead-crossed').submitEvidence).toEqual([
+            expect.objectContaining({ candidateKept: true, guardianProposalNonce: 8, endedBy: 'out-of-band' })
+          ]);
+          const { proposedAt } = stored('dead-crossed').guardianCandidate as { proposedAt: number };
+          expect(getGuardianCandidate('guardian-acc')).toEqual({
+            endpoint: GUARDIAN,
+            nonce: 8,
+            proposedAt,
+            proposedAtMono: expect.any(Number),
+            attemptId: 'att-dead'
+          });
+        });
+
+        it('lets the release abandon the candidate of the attempt that crossed, inside its window', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          crossedRow('dead-crossed', { accountId: 'acc-1' });
+          await failInterruptedTransactions();
+          const { abandonCandidate } = arrangeRelease();
+
+          const poll = await guardianCandidateRelease(makeGuardianProvider(true)).abandon('acc-1', 8, 'att-dead');
+
+          expect(abandonCandidate).toHaveBeenCalledWith(8);
+          expect(poll).toBeDefined();
+        });
+
+        it.each<[string, number, string]>([
+          ['another attempt', 8, 'att-other'],
+          ['another nonce', 9, 'att-dead']
+        ])('sends no abandon for %s', async (_label, nonce, attemptId) => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          crossedRow('dead-crossed', { accountId: 'acc-1' });
+          await failInterruptedTransactions();
+          const { abandonCandidate } = arrangeRelease();
+
+          const poll = await guardianCandidateRelease(makeGuardianProvider(true)).abandon('acc-1', nonce, attemptId);
+
+          expect(poll).toBeUndefined();
+          expect(abandonCandidate).not.toHaveBeenCalled();
+        });
+
+        it('sends no abandon once the candidate is past its window', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          crossedRow('dead-crossed', {
+            accountId: 'acc-1',
+            guardianCandidate: {
+              endpoint: GUARDIAN,
+              nonce: 8,
+              proposedAt: Date.now() - GUARDIAN_CANDIDATE_HOLD_MS,
+              attemptId: 'att-dead'
+            }
+          });
+          await failInterruptedTransactions();
+          const { abandonCandidate } = arrangeRelease();
+
+          const poll = await guardianCandidateRelease(makeGuardianProvider(true)).abandon('acc-1', 8, 'att-dead');
+
+          expect(poll).toBeUndefined();
+          expect(abandonCandidate).not.toHaveBeenCalled();
+        });
+
+        it('makes the next proposal wait the candidate out, and abandons nothing itself', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          const service = busyService();
+          service.priorCandidateState.mockResolvedValue('candidate');
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+          crossedRow('dead-crossed');
+
+          await failInterruptedTransactions();
+          await run(queueRow('next-send', SEND));
+
+          expect(service.priorCandidateState).toHaveBeenCalledWith(8);
+          expect(service.createSendProposal).not.toHaveBeenCalled();
+          expect(service.abandonCandidate).not.toHaveBeenCalled();
+        });
+
+        it('restores nothing when the row names another nonce than the crossing recorded', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          settledService();
+          crossedRow('dead-crossed', {
+            guardianCandidate: { endpoint: GUARDIAN, nonce: 9, proposedAt: Date.now() - 60_000, attemptId: 'att-dead' }
+          });
+
+          await failInterruptedTransactions();
+
+          expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+          expect(stored('dead-crossed').submitEvidence).toEqual([
+            expect.objectContaining({ candidateKept: true, guardianProposalNonce: 8 })
+          ]);
+        });
+
+        it('restores nothing for a candidate another attempt left, and still shows the hold', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          settledService();
+          crossedRow('dead-crossed', {
+            guardianCandidate: { endpoint: GUARDIAN, nonce: 7, proposedAt: Date.now() - 60_000, attemptId: 'att-old' }
+          });
+
+          await failInterruptedTransactions();
+
+          expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+          expect(stored('dead-crossed').submitEvidence).toEqual([
+            expect.objectContaining({ candidateKept: true, guardianProposalNonce: 8 })
+          ]);
+        });
+
+        it("keeps a later write's record", async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          settledService();
+          const later = { endpoint: GUARDIAN, nonce: 9, ...proposedNow() };
+          recordGuardianCandidate('guardian-acc', later);
+          crossedRow('dead-crossed');
+
+          await failInterruptedTransactions();
+
+          expect(getGuardianCandidate('guardian-acc')).toEqual(later);
+        });
+      });
+
       it("keeps a later write's record over a dead row's candidate", async () => {
         jest.spyOn(console, 'warn').mockImplementation(() => {});
         settledService();

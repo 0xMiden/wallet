@@ -13,7 +13,7 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 
 import { type SignCallbackReason } from './sign-callback';
 import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
-import { latestEntry, upsertEvidenceEntry } from './verdict-rules';
+import { crossedCandidateNonce, latestEntry, upsertEvidenceEntry } from './verdict-rules';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
@@ -1006,7 +1006,8 @@ export const recordKillEnd = async (id: string, attemptId: string | undefined): 
 /**
  * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
  * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
- * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good. A crossed
+ * attempt's candidate is recorded as kept, as the leaf's own catch records it, so Retry's hold applies (#2060).
  * `onlyIfRow`, when passed, runs in this modify after that check and before the evidence write. False is Dexie's
  * skip. Callers that omit it keep the GeneratingTransaction and defined-`attemptId` requirements below.
  */
@@ -1015,10 +1016,17 @@ export const recordOutOfBandEnd = async (id: string, onlyIfRow?: (row: ITransact
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
     if (onlyIfRow !== undefined && !onlyIfRow(tx)) return false;
+    // Read before the end's own write, which creates an entry for an attempt that never crossed.
+    const keptNonce = crossedCandidateNonce(tx);
     tx.submitEvidence = upsertEvidenceEntry(
       tx.submitEvidence,
       tx.attemptId,
-      { source: 'out-of-band', endedBy: 'out-of-band', fromExecute: tx.type === 'execute' },
+      {
+        source: 'out-of-band',
+        endedBy: 'out-of-band',
+        fromExecute: tx.type === 'execute',
+        ...(keptNonce === undefined ? {} : { candidateKept: true as const, guardianProposalNonce: keptNonce })
+      },
       nowSec
     );
     return undefined;

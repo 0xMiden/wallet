@@ -3,8 +3,8 @@ import path from 'path';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from './constants';
-import { submissionFeedback } from './submission-feedback';
+import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_NEVER_COMMITTED_ERROR, TRANSACTION_STUCK_ERROR } from './constants';
+import { readsAsNotConfirmed, shownSubmissionFeedback, submissionFeedback } from './submission-feedback';
 
 const en = require('../../../../public/_locales/en/en.json') as Record<string, string>;
 
@@ -185,5 +185,104 @@ it.each([
     messageKey: 'submissionUnanswered',
     details: error,
     submissionFeedbackBranch: branch
+  });
+});
+
+describe('a refused row with something left to judge (#2060)', () => {
+  const NOW = 1_700_000_000;
+  const entry = (overrides: Record<string, unknown> = {}) => ({
+    attemptId: 'a1',
+    capturedAt: NOW - 60,
+    source: 'stage' as const,
+    transactionId: '0x01',
+    initialCommitment: '0x02',
+    finalCommitment: '0x03',
+    initialNonce: '4',
+    outputNoteIds: ['0x05'],
+    nullifiers: [],
+    refBlock: 100,
+    refBlockCommitment: '0x06',
+    ...overrides
+  });
+  const refused = (overrides: Record<string, unknown> = {}) =>
+    row({ error: NETWORK_REFUSAL, mayHaveSubmitted: true, ...overrides });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['an entry the reconciler still judges', { submitEvidence: [entry()] }],
+    ['an unresolved entry the reconciler cannot check', { submitEvidence: [{ ...entry(), transactionId: undefined }] }],
+    ['an earlier attempt still open', { submitEvidence: [entry(), entry({ attemptId: 'a2', preSubmitEnd: true })] }],
+    ['an Unconfirmed status', { status: ITransactionStatus.Unconfirmed, submitEvidence: [entry()] }]
+  ])('reads not confirmed with %s, and shows no refusal', (_label, fields) => {
+    const tx = refused(fields);
+
+    expect(submissionFeedback(tx)?.kind).toBe('rejected');
+    expect(readsAsNotConfirmed(tx)).toBe(true);
+    expect(shownSubmissionFeedback(tx, NOW)).toBeUndefined();
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['no evidence, even past the stamp', {}],
+    ['only an attempt retired before its submit', { submitEvidence: [entry({ preSubmitEnd: true })] }],
+    ['an entry proven dead', { submitEvidence: [entry({ verdict: 'never-committed' })] }],
+    [
+      'a row proven safe',
+      {
+        submitEvidence: [entry()],
+        neverCommittedAt: NOW,
+        error: TRANSACTION_NEVER_COMMITTED_ERROR,
+        rawError: NETWORK_REFUSAL
+      }
+    ],
+    ['a restored row', { submitEvidence: [entry()], restoredFromBackup: true }],
+    ['an Epoch bridge', { type: 'bridged-send', extraInputs: { provider: 'epoch' }, submitEvidence: [entry()] }]
+  ])('stays Failed with %s, and keeps its refusal', (_label, fields) => {
+    const tx = refused(fields);
+
+    expect(readsAsNotConfirmed(tx)).toBe(false);
+    expect(shownSubmissionFeedback(tx, NOW)).toMatchObject({ kind: 'rejected' });
+  });
+
+  // The gate offers no Retry on a row it reads as not confirmed, so Activity follows it rather than the reverse.
+  it.each<[string, Record<string, unknown>]>([
+    ['a key rotation', { type: 'replace-hot-key' }],
+    ['a rotation-funding claim', { rotationFunding: true }]
+  ])('reads %s as the rotation gate does', (_label, fields) => {
+    expect(readsAsNotConfirmed(refused(fields))).toBe(true);
+    expect(shownSubmissionFeedback(refused(fields), NOW)).toBeUndefined();
+    expect(readsAsNotConfirmed(refused({ ...fields, mayHaveSubmitted: undefined }))).toBe(false);
+    expect(shownSubmissionFeedback(refused({ ...fields, mayHaveSubmitted: undefined }), NOW)).toMatchObject({
+      kind: 'rejected'
+    });
+  });
+
+  it('applies to every refusal, whatever the node said', () => {
+    const tx = refused({ error: PERMISSION_REFUSAL, submitEvidence: [entry()] });
+
+    expect(readsAsNotConfirmed(tx)).toBe(true);
+    expect(readsAsNotConfirmed(refused({ error: GUARDIAN_REFUSAL, submitEvidence: [entry()] }))).toBe(true);
+  });
+
+  it('withholds a refusal while a hold applies, though the row reads Failed, and returns it after', () => {
+    const tx = refused({
+      neverCommittedAt: NOW,
+      submitEvidence: [entry({ verdict: 'never-committed', candidateKept: true, capturedAt: NOW - 100 })]
+    });
+
+    expect(readsAsNotConfirmed(tx)).toBe(false);
+    expect(shownSubmissionFeedback(tx, NOW)).toBeUndefined();
+    expect(shownSubmissionFeedback(tx, NOW + 980)).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('keeps every answer that is not a refusal', () => {
+    const tx = row({ error: DEADLINE, submitEvidence: [entry({ candidateKept: true })] });
+
+    expect(readsAsNotConfirmed(tx)).toBe(true);
+    expect(shownSubmissionFeedback(tx, NOW)).toMatchObject({ kind: 'unanswered', messageKey: 'submissionUnanswered' });
+  });
+
+  it('falls back to the outcome rule when no category recognizes the error', () => {
+    expect(readsAsNotConfirmed(row({ error: 'a reason no category lists', mayHaveSubmitted: true }))).toBe(true);
+    expect(readsAsNotConfirmed(row({ error: 'a reason no category lists' }))).toBe(false);
+    expect(readsAsNotConfirmed(row({ status: ITransactionStatus.Completed }))).toBe(false);
   });
 });

@@ -3272,6 +3272,62 @@ describe('HistoryDetails', () => {
         expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
       });
 
+      describe('a row the node refused after its crossing (#2060)', () => {
+        const refusal =
+          'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+        const refusedSendTx = (overrides: Tx = {}): Tx =>
+          failedSendTx({
+            stage: 'submitting',
+            mayHaveSubmitted: true,
+            error: refusal,
+            rawError: refusal,
+            ...overrides
+          });
+
+        it('reads not confirmed with the checking hint and no refused sentence while the row is judged', async () => {
+          setMockRow(refusedSendTx({ submitEvidence: [checkableEntry] }));
+          await renderAndLoad();
+
+          expect(notConfirmedCard()).toBeTruthy();
+          expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionNotConfirmedHint');
+          expect(screen.queryByTestId('history-failure-reason')).toBeNull();
+          expect(screen.queryByText('submissionRejectedByNetwork')).toBeNull();
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+        });
+
+        it('keeps the row`s own text behind the disclosure', async () => {
+          setMockRow(refusedSendTx({ submitEvidence: [checkableEntry] }));
+          await renderAndLoad();
+
+          fireEvent.click(screen.getByText('showFullError'));
+          expect(screen.getByText(refusal)).toBeInTheDocument();
+        });
+
+        it('says the wallet is not checking it once its entry is unresolvable', async () => {
+          setMockRow(refusedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'unresolvable' }] }));
+          await renderAndLoad();
+
+          expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionUndeterminedHint');
+        });
+
+        it('stays Failed with the refused sentence once nothing is left to judge', async () => {
+          setMockRow(refusedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'never-committed' }] }));
+          await renderAndLoad();
+
+          expect(notConfirmedCard()).toBeFalsy();
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionRejectedByNetwork');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+        });
+
+        it('stays Failed with the refused sentence when no entry was ever recorded', async () => {
+          setMockRow(refusedSendTx());
+          await renderAndLoad();
+
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionRejectedByNetwork');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+        });
+      });
+
       it('says the wallet is not checking it once its only entry is unresolvable', async () => {
         setMockRow(unconfirmedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'unresolvable' }] }));
         await renderAndLoad();

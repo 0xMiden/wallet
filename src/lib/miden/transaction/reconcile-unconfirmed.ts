@@ -512,8 +512,9 @@ export interface CandidateRelease {
   /**
    * Asks the account's Guardian to abandon the candidate at `nonce` that the attempt `attemptId` kept. Undefined when
    * there is nothing to poll: this realm's record of the account's candidate is not that attempt's at that nonce
-   * (another realm, a restart, another write's record), its abandon window closed, the account's Guardian changed, no
-   * service could be built, or the abandon failed, so the Guardian may never have taken it.
+   * (another realm, a process that ended it without the startup sweep, another write's record), its abandon window
+   * closed, the account's Guardian changed, no service could be built, or the abandon failed, so the Guardian may never
+   * have taken it.
    */
   abandon(accountId: string, nonce: number, attemptId: string): Promise<KeptCandidatePoll | undefined>;
 }

@@ -17,6 +17,7 @@ import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
 import { getPaybackClaimState } from 'lib/miden/swap/payback-claim';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
 import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
@@ -137,7 +138,7 @@ export const useTransactionActions = (
           setRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
         } else {
           console.error('[HistoryDetails] Failed to retry transaction:', error);
-          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+          setRetryError(retryRefusalText(error, t));
           setRetryErrorId({
             id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
             transactionId,
@@ -185,7 +186,7 @@ export const useTransactionActions = (
         setPaybackRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
       } else {
         console.error('[HistoryDetails] Failed to retry the payout claim:', error);
-        setPaybackRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        setPaybackRetryError(retryRefusalText(error, t));
         setPaybackRetryErrorId({
           id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
           transactionId,

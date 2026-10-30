@@ -35,6 +35,8 @@ type MockRow = {
   error?: string;
   rawError?: string;
   mayHaveSubmitted?: boolean;
+  neverCommittedAt?: number;
+  submitEvidence?: Array<{ attemptId: string; capturedAt: number; source: 'stage' }>;
 };
 const mockQueue = jest.fn();
 const mockRequeue = jest.fn();
@@ -158,7 +160,8 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
+  STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES
 }));
 // The vault rows and the base fee the claim gate reads. A null fee fails the gate open, which every case not about
 // the fee runs under.
@@ -2100,6 +2103,28 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
     expect(result.current.items[0]?.submission).toBeUndefined();
     expect(result.current.items[0]).not.toMatchObject({ held: true });
     expect(mockRequeue).not.toHaveBeenCalled();
+  });
+
+  it('shows no refusal on a held claim the reconciler still judges, then shows it once nothing is left (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-judged' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    const refused: MockRow = {
+      id: 'tx-judged',
+      status: 3,
+      stage: 'submitting',
+      type: 'consume',
+      mayHaveSubmitted: true,
+      error:
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+    };
+    settle([{ ...refused, held: true, submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }] }]);
+
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', held: true });
+    expect(result.current.items[0]?.submission).toBeUndefined();
+
+    settle([{ ...refused, held: false, neverCommittedAt: 2 }]);
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
   });
 
   it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
