@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
+- [CHANGE][all] Move the mainnet endpoints from the `cedar` hosts to the `mainnet` hosts (RPC, prover, note transport, explorer and the Agglayer bridge indexer).
 - [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
 - [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
 

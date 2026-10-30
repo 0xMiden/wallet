@@ -878,7 +878,7 @@ describe('actions', () => {
     });
 
     describe('on an invite-only network', () => {
-      const MAINNET = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      const MAINNET = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
       useModelledStorage();
 
       beforeEach(() => {
@@ -2070,7 +2070,7 @@ describe('actions', () => {
   describe('adding an account on an invite-only network', () => {
     beforeEach(() => {
       Object.assign(mockStoreState, { vault: mockVault });
-      mockEndpointOverride = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      mockEndpointOverride = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
     });
 
     it.each([
