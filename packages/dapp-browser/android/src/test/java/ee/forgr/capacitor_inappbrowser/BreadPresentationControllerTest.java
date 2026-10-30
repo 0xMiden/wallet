@@ -308,7 +308,7 @@ public class BreadPresentationControllerTest {
         BreadMorphCard card = new BreadMorphCard(new RectF(20, 20, 220, 160), 18);
         assertTrue("an expand should take ownership of the warm dialog", targetPresentation.morph(
             "expanded", card, 0, 0, "target", (int) targetPresentation.state.policyRevision(), nextSequence()));
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
+        BreadMorphControllerTest.advance(800);
         assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
         BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
         assertEquals(1f, morph.progress(), 0.01f);

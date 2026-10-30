@@ -615,5 +615,6 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Read the exact current-head failure and identify the zero-sized root guard in `expand()`.
 - [x] Compare the failing setup with the existing `openMorph()` fixture.
 - [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
-- [ ] Commit and push the fixture correction, then watch all exact-head checks.
-- [ ] Complete a normal review and send the final behavior/SHA to the #1956 owner.
+- [x] Advance Robolectric Choreographer frames in the expanded-animation assertion; advancing only the main looper does not render frames.
+- [ ] Commit and push the clock correction, then watch all exact-head checks.
+- [ ] Complete the required Council review and send the final behavior/SHA to the #1956 owner.
