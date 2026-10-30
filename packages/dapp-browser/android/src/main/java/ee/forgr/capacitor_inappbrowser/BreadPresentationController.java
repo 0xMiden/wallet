@@ -458,11 +458,11 @@ final class BreadPresentationController {
     }
 
     private void applyWarmWindow(Window window) {
-        View decor = window.getDecorView();
-        warmAccessibilityImportance = decor.getImportantForAccessibility();
         int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         warmAddedWindowFlags = flags & ~window.getAttributes().flags;
         window.addFlags(flags);
+        View decor = window.getDecorView();
+        warmAccessibilityImportance = decor.getImportantForAccessibility();
         decor.setVisibility(View.INVISIBLE);
         decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
