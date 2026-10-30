@@ -154,7 +154,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { canAwaitVerdict } from './verdict-rules';
+import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
@@ -1713,8 +1713,13 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
       // The indefinite outcome counts too: it proves the submit call was reached, whatever stage the row still reads
-      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081).
-      const abandonedWrite = isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error);
+      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081). So does a
+      // crossing on record, since the SDK promotes only a submit request's own lost answer: a failed connection or
+      // an unreadable answer stays a plain RPC error, and the node may hold the write (#2060).
+      const abandonedWrite =
+        isKilledPipeline(error) ||
+        isIndefiniteSubmitOutcomeError(error) ||
+        attemptMayHaveCrossed(currentRow, transaction.attemptId);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
@@ -1781,16 +1786,16 @@ const generateTransactionWithProvider = async (
       }
       // The node stopped answering the execute, as the first requests after a resume often do (#2060). That is
       // pre-submit for the prover arm's reason, with its exclusions and its cap: MAX_QUEUED_AGE runs from
-      // `initiatedAt`, which no requeue moves. The wake and the doubling are the outage arm's, for its reasons. What
-      // reaches here at 'proving' is a local prove or a re-execution's sync or execute, which stays on that stage: the
-      // arm above took every delegated prove. Only the inline leaf gets here, since the offscreen one never authors
-      // `stage`.
+      // `initiatedAt`, which no requeue moves. The wake, the doubling and the types are the outage arm's, for its
+      // reasons. What reaches here at 'proving' is a local prove or a re-execution's sync or execute, which stays on
+      // that stage: the arm above took every delegated prove. Only the inline leaf gets here, since the offscreen one
+      // never authors `stage`.
       if (
         (currentRow?.stage === 'executing' || currentRow?.stage === 'proving') &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
         !isGuardianUnauthorizedExecutionError(error) &&
-        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
         isNodeOutage(error)
       ) {
         const requeueStreak = nextRequeueStreak(currentRow, 'node-unreachable');

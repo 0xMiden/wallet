@@ -741,21 +741,40 @@ describe('the Guardian request deadline across a freeze (#2060)', () => {
     expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
   });
 
-  it("reports a failure a freeze crossed as the transport's own, since the deadline did not end it", async () => {
+  // The texts the native layers give for a request that cannot reach the Guardian. Most read as neither unreachable nor
+  // an outage, while the cut-off is both, so this decides whether a row goes back to the queue or ends.
+  it.each([
+    'The network connection was lost.',
+    'Could not connect to the server.',
+    'A server with the specified hostname could not be found.',
+    'Failed to connect to guardian.example/1.2.3.4:443',
+    'Unable to resolve host "guardian.example": No address associated with hostname'
+  ])('reads a failure a freeze carried past the deadline as the cut-off: %s', async message => {
+    const { boundary, request, fail } = loadBoundary(true);
+
+    await freeze();
+    fail(new Error(message));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(request.error).toBeInstanceOf(boundary.GuardianRequestTimeoutError);
+  });
+
+  it("keeps a failure inside the deadline as the transport's own, a freeze or not", async () => {
     const { request, fail } = loadBoundary(true);
     const dropped = new Error('The network connection was lost.');
 
-    await freeze();
+    doc.setHidden(true);
+    doc.freezeFor(20_000);
     fail(dropped);
     await jest.advanceTimersByTimeAsync(0);
 
     expect(request.error).toBe(dropped);
   });
 
-  it('still reads a failure past the running deadline as the cut-off, whatever the timer did', async () => {
+  it('still reads a failure past the deadline as the cut-off, whatever the timer did', async () => {
     const { boundary, request, fail } = loadBoundary(true);
 
-    // Past the deadline in running time with the timer still to fire, as a late timer leaves it.
+    // Past the deadline with the timer still to fire, as a late timer leaves it.
     const lateClock = jest
       .spyOn(performance, 'now')
       .mockReturnValue(performance.now() + boundary.GUARDIAN_REQUEST_TIMEOUT_MS);

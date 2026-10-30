@@ -1,12 +1,13 @@
 import { CapacitorHttp } from '@capacitor/core';
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
 import { getKnownGuardians, subscribeGuardians } from 'lib/miden-chain/guardian-registry';
-import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
+import { setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -213,9 +214,10 @@ interface GuardianDeadline {
    * delivered would orphan what it did, such as a proposal it created. A native
    * request cannot be cancelled, so an answer that arrives after the cut-off is
    * dropped. A failure that arrives once the deadline has passed is the cut-off
-   * too, though the timer has not fired, because timers run late. A freeze spends
-   * no running time, so a failure it crossed stays the transport's own: the
-   * deadline did not end that request, and the classifiers read both as unreachable.
+   * too, though the timer has not fired: timers run late or sleep through a
+   * suspension while the request times out on its own. That reads the monotonic
+   * clock, which a freeze does not stop, because the classifiers read the cut-off as
+   * unreachable and the transport's own words for a dead connection only sometimes.
    */
   race<T>(start: () => Promise<T>): Promise<T>;
   /** Stop the timer and the forwarded caller abort. */
@@ -228,7 +230,7 @@ function callerSignalOf(input: RequestInfo | URL, init?: RequestInit): AbortSign
 }
 
 function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefined): GuardianDeadline {
-  const startedAt = runningNow();
+  const startedAt = monotonicNowMs();
   const controller = new AbortController();
   // Kept beside the signal: engines older than abort reasons drop the argument to abort().
   let cutOffReason: unknown;
@@ -258,7 +260,7 @@ function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefine
         }
         controller.signal.addEventListener('abort', () => reject(cutOffReason), { once: true });
         start().then(resolve, (error: unknown) => {
-          const pastDeadline = runningNow() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
+          const pastDeadline = monotonicNowMs() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
           reject(pastDeadline ? new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS) : error);
         });
       }),

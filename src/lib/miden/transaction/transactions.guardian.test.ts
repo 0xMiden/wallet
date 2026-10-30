@@ -5475,7 +5475,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     describe('a network failure before the submit', () => {
       const UNAVAILABLE =
-        'failed to sync chain: grpc request failed for sync_chain_mmr: ' +
+        'failed to sync chain: RPC error: grpc request failed for sync_chain_mmr: ' +
         'Miden node is unavailable; check that the node is running and reachable';
 
       beforeEach(() => {
@@ -5488,6 +5488,32 @@ describe('generateTransaction — Guardian routing', () => {
       };
 
       const stored = (txId: string) => txStore.find(row => row.id === txId) as Record<string, unknown>;
+
+      /** Runs `body` with the row's `stage` unable to move to `lost`, as a lost IndexedDB connection leaves it. */
+      const losingStageWrite = async (lost: string, body: () => Promise<unknown>) => {
+        const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+        const realWhere = repo.transactions.where.getMockImplementation()!;
+        repo.transactions.where.mockImplementation((query: { id: string }) => {
+          const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => void) => Promise<void> };
+          return {
+            ...handle,
+            modify: async (fn: (row: Record<string, unknown>) => void) => {
+              const row = txStore.find(r => r.id === query.id);
+              const probe = { ...row };
+              fn(probe);
+              if (probe.stage === lost && row?.stage !== lost) {
+                throw new Error('Connection to Indexed Database server lost. Refresh the page to try again');
+              }
+              return handle.modify(fn);
+            }
+          };
+        });
+        try {
+          await body();
+        } finally {
+          repo.transactions.where.mockImplementation(realWhere);
+        }
+      };
 
       it.each([
         ['delegated', 'tip sync', true],
@@ -5628,6 +5654,73 @@ describe('generateTransaction — Guardian routing', () => {
         expect(stored(txId).nextEligibleAt).toBeUndefined();
       });
 
+      // The crossing and the stage are two writes, and the stamp swallows a failed stage write. The SDK promotes only a
+      // submit request's own lost answer, so a failed connection or an unreadable answer stays a plain RPC error.
+      it.each([
+        ['local', 'failed to connect to the Miden node', false],
+        ['delegated', 'failed to connect to the Miden node', true],
+        ['local', 'received an invalid response from the Miden node: missing block header', false],
+        ['delegated', 'received an invalid response from the Miden node: missing block header', true]
+      ])('%s: never requeues a recorded crossing whose stage write failed, on "%s"', async (label, text, delegate) => {
+        const txId = `send-guardian-offline-stage-lost-${label}-${text.length}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegate);
+        client.transactions.submitProven.mockRejectedValue(
+          new Error(`failed to submit proven transaction: RPC error: ${text}`)
+        );
+
+        await losingStageWrite('submitting', () => run(tx));
+
+        expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+        expect(stored(txId).stage).toBe('proving');
+        expect(stored(txId).submitEvidence).toEqual([expect.objectContaining({ source: 'stage' })]);
+        expect(stored(txId).mayHaveSubmitted).toBe(true);
+        expect(stored(txId).status).toBe(ITransactionStatus.Failed);
+        expect(stored(txId).lastDeferral).toBeUndefined();
+        expect(stored(txId).nextEligibleAt).toBeUndefined();
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it("still requeues when the crossing on the row is an earlier attempt's", async () => {
+        const txId = 'send-guardian-offline-earlier-crossing';
+        const { tx, client } = arrangeSend(txId, false);
+        failingAt(client, 'execute');
+        Object.assign(stored(txId), { submitEvidence: [{ attemptId: 'earlier', capturedAt: 1, source: 'stage' }] });
+
+        await run(tx);
+
+        expect(stored(txId)).toMatchObject({ status: ITransactionStatus.Queued, lastDeferral: 'node_unreachable' });
+      });
+
+      it('leaves a dApp execute to fail at once, since its caller reads the wait running out as a failure', async () => {
+        const txId = 'execute-guardian-offline';
+        const requestBytes = new Uint8Array([7]);
+        const tx = { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false };
+        txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+        mockGetOrCreateMultisigService.mockResolvedValue({
+          createCustomProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+          signAndCreateTransactionRequest: jest.fn(async () => ({
+            serialize: () => new Uint8Array([1]),
+            authArg: () => undefined
+          })),
+          abandonCandidate: jest.fn(async () => {}),
+          sync: jest.fn(async () => {})
+        });
+        const client = makeClientApi(makeResult());
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        failingAt(client, 'execute');
+
+        await run(tx);
+
+        expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+        expect(stored(txId).status).toBe(ITransactionStatus.Failed);
+        expect(stored(txId).lastDeferral).toBeUndefined();
+        expect(stored(txId).nextEligibleAt).toBeUndefined();
+      });
+
       it('never requeues a crossing it could not record', async () => {
         const txId = 'send-guardian-offline-crossing-unrecorded';
         const { tx, abandonCandidate, client } = arrangeSend(txId, false);
@@ -5666,16 +5759,28 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       it.each([
-        ['a node that refused', 'failed to sync chain: grpc request failed for sync_chain_mmr: resource not found'],
+        [
+          'a node that refused the execute',
+          'execute',
+          'failed to execute transaction: RPC error: grpc request failed for get_account: permission denied: ' +
+            'code: \'The caller does not have permission to execute the specified operation\', message: "denied"'
+        ],
+        [
+          'a node that refused the tip sync',
+          'tip sync',
+          'failed to sync chain: RPC error: grpc request failed for sync_chain_mmr: invalid request parameters'
+        ],
         [
           'a kernel failure, whatever its diagnostic prints',
+          'execute',
           'failed to execute transaction: transaction execution failed: failed to execute transaction kernel ' +
             'program:\n  x assertion failed\n 512 |   exec.note::abort'
         ]
-      ])('ends the row on %s', async (label, failure) => {
+      ])('ends the row on %s', async (label, step, failure) => {
         const txId = `send-guardian-execute-refused-${label}`;
         const { tx, client } = arrangeSend(txId, false);
-        client.transactions.executeRequest.mockRejectedValue(new Error(failure));
+        const failing = step === 'tip sync' ? client.syncChain : client.transactions.executeRequest;
+        failing.mockRejectedValue(new Error(failure));
 
         await run(tx);
 

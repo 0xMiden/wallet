@@ -14,6 +14,8 @@
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
@@ -2020,6 +2022,42 @@ describe('MultisigService', () => {
       }
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
       expect(mockProbeVerdicts).toEqual([['https://new', false]]);
+    });
+
+    it('createSwitchGuardianProposal takes the answer a freeze held back, so it never rotates a live guardian away (#2060)', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      let answer: (value: { commitment: string }) => void = () => undefined;
+      guardianConfig.getPubkey.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            answer = resolve;
+          })
+      );
+
+      jest.useFakeTimers();
+      const doc = installHiddenDocument();
+      initBackgroundTimeTracking();
+      try {
+        let failure: unknown;
+        void service.createSwitchGuardianProposal('https://new').catch((err: unknown) => {
+          failure = err;
+        });
+        await jest.advanceTimersByTimeAsync(0);
+        doc.setHidden(true);
+        doc.freezeFor(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS + 1);
+        doc.setHidden(false);
+        await jest.advanceTimersByTimeAsync(0);
+        answer({ commitment: NEW_GUARDIAN_COMMITMENT });
+        await jest.advanceTimersByTimeAsync(0);
+
+        expect(failure).toBeUndefined();
+        expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', NEW_GUARDIAN_COMMITMENT);
+      } finally {
+        __resetBackgroundTimeForTest();
+        doc.restore();
+        jest.useRealTimers();
+      }
     });
 
     // A service that has signed a switch proposal, ready to finalize it; the history read answers with `delta`.

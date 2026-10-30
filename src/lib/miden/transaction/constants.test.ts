@@ -726,15 +726,26 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
 });
 
 describe('a node that gave the leaf no usable answer (#2060)', () => {
-  const REQUEST = 'failed to sync chain: grpc request failed for sync_chain_mmr: ';
+  // web-sdk's `build_error_chain`: its context, `ClientError::RpcError`, the request, then the tonic status.
+  const REQUEST = 'failed to sync chain: RPC error: grpc request failed for sync_chain_mmr: ';
+  const EXECUTE_REQUEST = 'failed to execute transaction: RPC error: grpc request failed for get_account: ';
   const UNAVAILABLE = 'Miden node is unavailable; check that the node is running and reachable';
+  const INTERNAL = 'Miden node returned an internal error; this is likely a node-side issue';
+  const HEADER_MISSING = 'grpc-status header missing, mapped from HTTP status code';
 
   it.each([
     ['the SDK naming an unavailable node', `${REQUEST}${UNAVAILABLE}`],
     ['the SDK timing a request out', `${REQUEST}request to Miden node timed out; the node may be under heavy load`],
     ['a dropped request the SDK has no status for', `${REQUEST}unknown error: `],
     ['a cancelled request', `${REQUEST}operation was cancelled`],
-    ['a connection that never opened', 'failed to execute transaction: failed to connect to the Miden node'],
+    ['an aborted request', `${REQUEST}operation was aborted`],
+    ['a node-side failure', `${REQUEST}${INTERNAL}`],
+    ['a rate limit', `${REQUEST}request was rate-limited or the node's resources are exhausted; retry after a delay`],
+    [
+      'an outage, whatever its status says',
+      `${EXECUTE_REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', message: "no healthy upstream"`
+    ],
+    ['a connection that never opened', 'failed to execute transaction: RPC error: failed to connect to the Miden node'],
     ['Chrome dropping a fetch', 'Failed to fetch'],
     ['WebKit dropping a fetch', 'Load failed'],
     ['WebKit losing a connection', 'The network connection was lost.'],
@@ -754,8 +765,35 @@ describe('a node that gave the leaf no usable answer (#2060)', () => {
       'a read of the local store the SDK named',
       'failed to fetch transaction inputs from the data store: account with id 0xabc not found in data store'
     ],
-    ['a request that can never succeed', 'grpc-status header missing, mapped from HTTP status code 404'],
+    ['a request that can never succeed', `${HEADER_MISSING} 404`],
     ['a node that refused', `${REQUEST}invalid request parameters`],
+    [
+      'a note the node does not hold',
+      'failed to execute transaction: RPC error: note 0xabc was not found on the Miden node'
+    ],
+    [
+      'an answer the SDK cannot read',
+      'failed to sync chain: RPC error: received an invalid response from the Miden node: missing block header'
+    ],
+    [
+      'an answer that does not decode',
+      'failed to sync chain: RPC error: failed to deserialize response from the Miden node: eof'
+    ],
+    [
+      'a client the node does not support',
+      'failed to sync chain: RPC error: accept header validation failed: server rejected request - please check your ' +
+        'version and network settings (client version: 0.17.5, genesis commitment: 0xabc)'
+    ],
+    [
+      'a gateway that rejects the bytes',
+      `${REQUEST}${INTERNAL}: code: 'Internal error', message: "${HEADER_MISSING} 400"`
+    ],
+    [
+      // Base ended these at once. A gateway's refusal the SDK words as a node's stays on that side of the lopsided cost.
+      'a gateway refusal the SDK words as the node refusing',
+      `${REQUEST}permission denied: code: 'The caller does not have permission to execute the specified operation', ` +
+        `message: "${HEADER_MISSING} 403"`
+    ],
     [
       'a kernel failure, whatever its diagnostic prints',
       'failed to execute transaction: transaction execution failed: failed to execute transaction kernel program:\n' +
@@ -765,6 +803,35 @@ describe('a node that gave the leaf no usable answer (#2060)', () => {
     ['a prover that lacks a procedure', 'procedure with root digest 0xabc could not be found: connection']
   ])('leaves %s to the terminal path', (_label, message) => {
     expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  // The gRPC kinds that answer the request, each with tonic's own text for the code.
+  it.each([
+    ['resource not found', 'Some requested entity was not found'],
+    ['invalid request parameters', 'Client specified an invalid argument'],
+    ['permission denied', 'The caller does not have permission to execute the specified operation'],
+    ['resource already exists', 'Some entity that we attempted to create already exists'],
+    ['precondition failed', "The system is not in a state required for the operation's execution"],
+    [
+      'the requested method is not implemented by this version of the Miden node',
+      'Operation is not implemented or not supported'
+    ],
+    [
+      'request was rejected as unauthenticated; check your credentials and connection settings',
+      'The request does not have valid authentication credentials'
+    ],
+    ['operation was attempted past the valid range', 'Operation was attempted past the valid range'],
+    ['unrecoverable data loss or corruption', 'Unrecoverable data loss or corruption']
+  ])('reads a node that answered "%s" by that kind alone, not by what its message prints', (kind, code) => {
+    for (const request of [REQUEST, EXECUTE_REQUEST]) {
+      expect(isNodeOutage(new Error(`${request}${kind}`))).toBe(false);
+      const printed = `${request}${kind}: code: '${code}', message: "connection timed out at block 512"`;
+      expect(isNodeOutage(new Error(printed))).toBe(false);
+    }
+  });
+
+  it('reads a kind this SDK does not name as an answer, the cheap side of the lopsided cost', () => {
+    expect(isNodeOutage(new Error(`${REQUEST}the node has moved on: connection`))).toBe(false);
   });
 
   it('is no statement about the node when a Guardian went silent', () => {

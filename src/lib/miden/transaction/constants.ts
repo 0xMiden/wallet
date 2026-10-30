@@ -616,25 +616,39 @@ export function isGuardianOutage(error: unknown): boolean {
 // numbers and words read as transport failures.
 const KERNEL_PROGRAM_FAILED = /failed to execute transaction kernel program/;
 
-// How miden-client 0.17 words a node that gave no answer, which the transport heuristic does not know.
-const NODE_UNANSWERED =
-  /Miden node is unavailable|failed to connect to the Miden node|grpc request failed for [a-z_]+: (?:unknown error|operation was cancelled)/;
+// miden-client 0.17's report of a request that reached the transport. The gRPC kind comes next, then tonic's status.
+const NODE_REQUEST_FAILED = /grpc request failed for [a-z_]+: /;
+
+// The kinds that leave the same request free to succeed later: no answer, or a node saying to come back. Every other
+// kind answers the request, and `RpcError::is_indeterminate_submission` lists most of those as deliberate.
+const NODE_UNANSWERED_KIND =
+  /^(?:unknown error|operation was (?:cancelled|aborted)|request to Miden node timed out|Miden node is unavailable|Miden node returned an internal error|request was rate-limited)/;
+
+// `RpcError::ConnectionError`, the one failure outside a request that the transport heuristic does not know.
+const NODE_NOT_CONNECTED = /failed to connect to the Miden node/;
 
 // The SDK naming the read it was making, often of its own store. The browser's failed fetch has no object.
 const SDK_NAMED_READ = /\bfailed to fetch (?=[a-z])/g;
 
+// `ClientError::RpcError`'s own text, which heads every RPC failure, an answer the node gave included.
+const SDK_RPC_WRAPPER = /\bRPC error\b/g;
+
 /**
  * The node gave the leaf no usable answer, so the same request can succeed later. The cost is lopsided: a transient
  * failure read as final only ends the row with Retry open, while a final one read as transient spends MAX_QUEUED_AGE on
- * proposals that cannot land. So this reads the SDK's own words, not only the transport heuristic, and refuses what the
- * heuristic would take from a kernel failure or a named store read.
+ * proposals that cannot land. So a kernel failure never counts, a request the SDK reports is decided by its gRPC kind
+ * alone, since the text after the kind is the node's own and can read as anything, and a kind not named here counts as
+ * an answer. Only what is left reaches the transport heuristic, without the SDK's own words that it would misread.
  */
 export function isNodeOutage(error: unknown): boolean {
   if (isKilledPipeline(error) || isGuardianRequestTimeout(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   if (KERNEL_PROGRAM_FAILED.test(raw) || deterministicKernelFailureCopy(raw) !== undefined) return false;
-  const transport = raw.replace(SDK_NAMED_READ, '');
-  return NODE_UNANSWERED.test(transport) || (isLikelyNetworkError(transport) && !isPermanentHttpRejection(transport));
+  if (isPermanentHttpRejection(raw)) return false;
+  const request = NODE_REQUEST_FAILED.exec(raw);
+  if (request !== null) return NODE_UNANSWERED_KIND.test(raw.slice(request.index + request[0].length));
+  const transport = raw.replace(SDK_NAMED_READ, '').replace(SDK_RPC_WRAPPER, '');
+  return NODE_NOT_CONNECTED.test(transport) || isLikelyNetworkError(transport);
 }
 
 /**

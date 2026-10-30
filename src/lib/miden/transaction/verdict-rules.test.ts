@@ -1,4 +1,5 @@
 import {
+  attemptMayHaveCrossed,
   awaitingVerdict,
   canAwaitVerdict,
   evidenceKey,
@@ -140,6 +141,23 @@ describe('awaitingVerdict, holdsNotes and isFailedClaim', () => {
     expect(isFailedClaim(row({ type: 'consume', status: ITransactionStatus.Queued }), NOW)).toBe(false);
     expect(isFailedClaim(row({ type: 'send', status: ITransactionStatus.Failed }), NOW)).toBe(false);
     expect(holdsNotes(row({ type: 'send' }), NOW)).toBe(false);
+  });
+});
+
+describe('attemptMayHaveCrossed (#2060)', () => {
+  it("answers yes for the attempt's own entry, among others", () => {
+    const row = { submitEvidence: [provable({ attemptId: 'a0' }), provable({ attemptId: 'a1' })] };
+    expect(attemptMayHaveCrossed(row, 'a1')).toBe(true);
+  });
+
+  it.each<[string, Pick<ITransaction, 'submitEvidence'> | undefined, string | undefined]>([
+    ['a missing row', undefined, 'a1'],
+    ['a row with no evidence', {}, 'a1'],
+    ["another attempt's entry", { submitEvidence: [provable({ attemptId: 'a0' })] }, 'a1'],
+    ['an entry the leaf retired before its submit call', { submitEvidence: [provable({ preSubmitEnd: true })] }, 'a1'],
+    ['no attempt to ask about', { submitEvidence: [provable()] }, undefined]
+  ])('answers no for %s', (_label, row, attemptId) => {
+    expect(attemptMayHaveCrossed(row, attemptId)).toBe(false);
   });
 });
 

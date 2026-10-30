@@ -162,6 +162,16 @@ export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfir
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;
 
+/**
+ * This attempt may have reached its submit call: a crossing is on record for it, and its leaf did not prove it ended
+ * before that call. The row's `stage` cannot say so alone, because the stamp swallows a stage write that fails after
+ * the crossing write landed (#2060).
+ */
+export const attemptMayHaveCrossed = (
+  row: Pick<ITransaction, 'submitEvidence'> | undefined,
+  attemptId: string | undefined
+): boolean => row?.submitEvidence?.some(entry => entry.attemptId === attemptId && entry.preSubmitEnd !== true) === true;
+
 /** The row's latest attempt entry; entries are appended in attempt order. */
 export const latestEntry = (row: Pick<ITransaction, 'submitEvidence'>): ISubmitEvidence | undefined => {
   const entries = row.submitEvidence ?? [];
