@@ -303,7 +303,11 @@ export class RecoveryJournal {
         await assertCurrent();
         await this.storage.set({ [POINTER_KEY]: { slot: nextSlot, sequence: next.sequence } });
         await assertCurrent();
-        return verified;
+        const pointerReadback = await this.readCurrent(false);
+        await assertCurrent();
+        if (pointerReadback.degraded || !pointerReadback.snapshot || serialize(pointerReadback.snapshot) !== plaintext)
+          throw integrityFailure('Recovery journal pointer readback mismatch');
+        return pointerReadback.snapshot;
       });
     } catch (error) {
       if (error !== capacityError) this.onFailure(error);

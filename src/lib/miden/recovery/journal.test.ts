@@ -10,13 +10,17 @@ class DisposableStorage implements RecoveryStorage {
   writes = 0;
   refuseWrite = false;
   corruptReadback = false;
+  dropPointerWrite = false;
   async get(keys: string[]): Promise<Record<string, unknown>> {
     return Object.fromEntries(keys.map(key => [key, this.values[key]]));
   }
   async set(items: Record<string, unknown>): Promise<void> {
     if (this.refuseWrite) throw new Error('storage refused');
     this.writes++;
-    for (const [key, value] of Object.entries(items)) this.values[key] = this.corruptReadback ? 'corrupt' : value;
+    for (const [key, value] of Object.entries(items)) {
+      if (this.dropPointerWrite && key === RECOVERY_JOURNAL_KEYS[2]) continue;
+      this.values[key] = this.corruptReadback ? 'corrupt' : value;
+    }
   }
 }
 
@@ -136,6 +140,21 @@ it('does not promote a generation that fails encrypted readback validation', asy
     }))
   ).rejects.toThrow();
   storage.corruptReadback = false;
+  expect(await journal.read()).toEqual(first);
+});
+
+it('does not report a new generation when its active pointer write is lost', async () => {
+  const first = await journal.update(data);
+  storage.dropPointerWrite = true;
+
+  await expect(
+    journal.update(() => ({
+      ...data(),
+      accounts: [{ accountId: 'account-1', nonce: '4', commitment: 'commitment-4' }]
+    }))
+  ).rejects.toThrow('Recovery journal pointer readback mismatch');
+
+  storage.dropPointerWrite = false;
   expect(await journal.read()).toEqual(first);
 });
 
