@@ -8,6 +8,7 @@ import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
 import { getCurrentLocale } from 'lib/i18n/core';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
@@ -70,6 +71,7 @@ export function normalizeDecimalInput(rawValue: string): string {
 export interface AmountInputProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   value?: string;
   /** Display-only estimate while unfocused; callbacks always retain the exact value. */
   unfocusedDisplayValue?: string;
@@ -139,6 +141,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   label,
   error,
   errorId,
+  errorDiagnostics,
   invalid = false,
   helper,
   secondary,
@@ -155,7 +158,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   className,
   'data-testid': dataTestId
 }) => {
-  useUserVisibleError(error ? errorId : null, 'field');
+  useUserVisibleError(error ? errorId : null, 'field', undefined, errorDiagnostics);
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
   const showEstimate = unfocusedDisplayValue !== undefined && unfocusedDisplayValue !== '' && !focused;

@@ -890,19 +890,14 @@ describe('TokenDetail', () => {
       );
     });
 
-    it('renders the flat-line fallback when kline data is empty (padding fallback branch)', () => {
-      renderPage({ klineData: [] });
+    it.each([
+      ['empty', []],
+      ['null', null]
+    ])('shows unavailable history instead of a fabricated flat line when kline data is %s', (_state, klineData) => {
+      renderPage({ klineData });
 
-      // FLAT_LINE_DATA (all values 1) => maxVal === minVal => padding falls back
-      // to maxVal * 0.01. The YAxis domain reflects that.
-      const domain = JSON.parse(screen.getByTestId('yaxis').getAttribute('data-domain') as string);
-      expect(domain).toEqual([1 - 0.01, 1 + 0.01]);
-    });
-
-    it('renders the flat-line fallback when kline data is nullish (short-circuit branch)', () => {
-      renderPage({ klineData: null });
-
-      expect(screen.getByTestId('line-chart')).toBeInTheDocument();
+      expect(screen.getByTestId('token-detail-chart-unavailable')).toHaveTextContent('unavailable');
+      expect(screen.queryByTestId('line-chart')).not.toBeInTheDocument();
     });
 
     it('computes a padded y-domain from real kline data', () => {

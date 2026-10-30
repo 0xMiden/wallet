@@ -14,7 +14,7 @@ const medallionVariants = cva(
     variants: {
       size: {
         preview: 'h-14 w-14',
-        card: 'h-20 w-20'
+        card: 'h-24 w-24'
       },
       earned: {
         true: '',

@@ -56,7 +56,8 @@ import {
   FEATURE_UNAVAILABLE_REASONS,
   SUBMISSION_FEEDBACK_BRANCHES,
   PENDING_RETRY_REASONS,
-  RECIPIENT_VALIDATION_STAGES
+  RECIPIENT_VALIDATION_STAGES,
+  BACKUP_NETWORK_FAILURE_STAGES
 } from './ui-producer-diagnostics';
 import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
@@ -192,7 +193,51 @@ it.each([
   ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
   ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
   ['pendingRetryReason', PENDING_RETRY_REASONS],
-  ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES]
+  ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
+  ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it.each([
+  [
+    'earnPositionsLoadStage',
+    ['configuration', 'owner_lookup', 'request', 'response_decode', 'position_decode', 'unrecorded']
+  ],
+  ['earnPositionsLoadOutcome', ['complete_failure', 'partial_failure']]
+])('documents the exact Earn load observations for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it('documents every closed burnFeeFailure value', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'burnFeeFailure'))).toEqual(
+    new Set([
+      'configuration_failed',
+      'native_asset_failed',
+      'request_build_failed',
+      'dry_run_failed',
+      'result_decode_failed',
+      'probe_mismatch',
+      'busy_exhausted',
+      'request_failed',
+      'estimate_failed'
+    ])
+  );
+});
+
+it.each<[string, readonly string[]]>([
+  ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['mainnetAccessCodeRejectionOrigin', ['eligibility_check', 'registration_redemption']],
+  ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
+  [
+    'uiFailureKind',
+    ['network', 'rpc', 'proving', 'validation', 'storage', 'access_denied', 'timeout', 'unknown', 'unavailable']
+  ]
+])('documents exact caller categories for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+it('documents the exact retry notice origins', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'retryNoticeOrigin'))).toEqual(
+    new Set(['history_primary', 'history_earn_receive', 'history_payback', 'status_screen'])
+  );
 });

@@ -1108,6 +1108,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
               isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
               errorValues={errors.amount ? undefined : payoutFeeShortfall}
+              errorDiagnostics={validateUiEvidence(errors.amount?.message, 'field', {
+                kind: 'burn_fee',
+                burnFeeFailure: burnFee.failure
+              })}
               recipientAddress={recipientAddress || ''}
               recipientName={selectedContact?.name}
               network={displayedNetwork}
@@ -1155,6 +1159,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       errors.amount,
       payoutFeeShortfall,
       burnFeeUnmeasured,
+      burnFee.failure,
       tokenHeld,
       onAddressChange,
       onScan,

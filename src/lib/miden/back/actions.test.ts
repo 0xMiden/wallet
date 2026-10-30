@@ -448,16 +448,23 @@ describe('actions', () => {
   });
 
   describe('getFrontState', () => {
-    it('returns state when inited is true', async () => {
-      mockStoreState.inited = true;
-      mockStoreState.status = WalletStatus.Ready;
+    it.each([WalletStatus.Ready, WalletStatus.Locked])(
+      'returns initialized status %s from one snapshot',
+      async status => {
+        const { store } = jest.requireMock('lib/miden/back/store');
+        store.getState.mockClear();
+        mockStoreState.inited = true;
+        mockStoreState.status = status;
 
-      const result = await getFrontState();
+        const result = await getFrontState();
 
-      expect(result.status).toBe(WalletStatus.Ready);
-    });
+        expect(result.status).toBe(status);
+        expect(store.getState).toHaveBeenCalledTimes(1);
+        expect(result).toHaveProperty('backendInitialized', true);
+      }
+    );
 
-    it('returns Idle immediately when inited is false (UI renders while backend inits)', async () => {
+    it('returns pending Idle when inited is false', async () => {
       mockStoreState.inited = false;
 
       const result = await getFrontState();
@@ -465,6 +472,23 @@ describe('actions', () => {
       expect(result.status).toBe(WalletStatus.Idle);
       expect(result.accounts).toEqual([]);
       expect(result.currentAccount).toBeNull();
+      expect(result).toHaveProperty('backendInitialized', false);
+    });
+
+    it('marks initialized Idle as a genuine onboarding state', async () => {
+      mockStoreState.inited = true;
+      mockStoreState.status = WalletStatus.Idle;
+
+      expect(await getFrontState()).toMatchObject({ status: WalletStatus.Idle, backendInitialized: true });
+    });
+
+    it('marks a failed store read as pending', async () => {
+      const { store } = jest.requireMock('lib/miden/back/store');
+      store.getState.mockImplementationOnce(() => {
+        throw new Error('Store unavailable');
+      });
+
+      expect(await getFrontState()).toMatchObject({ status: WalletStatus.Idle, backendInitialized: false });
     });
   });
 
@@ -854,7 +878,7 @@ describe('actions', () => {
     });
 
     describe('on an invite-only network', () => {
-      const MAINNET = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      const MAINNET = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
       useModelledStorage();
 
       beforeEach(() => {
@@ -2046,7 +2070,7 @@ describe('actions', () => {
   describe('adding an account on an invite-only network', () => {
     beforeEach(() => {
       Object.assign(mockStoreState, { vault: mockVault });
-      mockEndpointOverride = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      mockEndpointOverride = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
     });
 
     it.each([
@@ -2642,6 +2666,18 @@ describe('actions', () => {
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
         feeReserve: '0'
+      });
+    });
+
+    it('preserves only a fixed failed-measurement reason on the response', async () => {
+      const failed: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(
+        Object.assign(failed, { failure: 'dry_run_failed', message: 'private-account amount=123' })
+      );
+      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'dry_run_failed'
       });
     });
 

@@ -11,6 +11,7 @@ const REQUEST_BYTES = new Uint8Array([1, 2, 3]);
 const mockDryRun = jest.fn();
 const mockProxySyncState = jest.fn();
 const mockGetMidenClient = jest.fn();
+const mockNativeAsset = jest.fn<Promise<string>, []>();
 const mockSimulate = jest.fn();
 const mockView = jest.fn<TxAssetView | undefined, [unknown]>();
 const mockBuild = jest.fn();
@@ -71,7 +72,7 @@ jest.mock('lib/miden/back/simulate-custom-tx', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => `hex:${ref}` }) }));
 jest.mock('app/confirm/decode', () => ({ simulatedBytesToView: (result: unknown) => mockView(result) }));
-jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: async () => NATIVE }));
+jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: () => mockNativeAsset() }));
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
 jest.mock('lib/shared/helpers', () => ({ u8ToB64: () => 'request-b64' }));
 jest.mock('./burn', () => ({ buildUsdcxBurnRequest: (...args: unknown[]) => mockBuild(...args) }));
@@ -94,7 +95,6 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
 const measured = (reserve: bigint) => ({ outcome: 'measured', reserve });
 const BUSY = { outcome: 'busy' };
-const FAILED = { outcome: 'failed' };
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('estimateUsdcxBurnFeeReserve', () => {
@@ -108,6 +108,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockLock.options = [];
     mockInlineRealm = true;
     mockInitBridgeConfig.mockResolvedValue(undefined);
+    mockNativeAsset.mockResolvedValue(NATIVE);
     mockDestination.mockReturnValue({ domain: 0 });
     mockBuild.mockReturnValue({ burnNoteId: 'note', requestBytes: REQUEST_BYTES });
     mockDryRun.mockResolvedValue({ executedBytes: 'executed' });
@@ -184,6 +185,41 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     expect(mockSimulate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      'configuration_failed',
+      () => mockInitBridgeConfig.mockRejectedValueOnce(new Error('private-account secret amount=123'))
+    ],
+    [
+      'configuration_failed',
+      () =>
+        mockDestination.mockImplementationOnce(() => {
+          throw new Error('private-route');
+        })
+    ],
+    ['native_asset_failed', () => mockNativeAsset.mockRejectedValueOnce(new Error('private-asset'))],
+    [
+      'request_build_failed',
+      () =>
+        mockBuild.mockImplementationOnce(() => {
+          throw new Error('private-account');
+        })
+    ],
+    ['dry_run_failed', () => mockDryRun.mockRejectedValueOnce(new Error('private-node amount=123'))],
+    ['result_decode_failed', () => mockView.mockReturnValueOnce(undefined)],
+    [
+      'result_decode_failed',
+      () =>
+        mockView.mockImplementationOnce(() => {
+          throw new Error('private-bytes');
+        })
+    ],
+    ['probe_mismatch', () => mockView.mockReturnValueOnce(view(undefined, []))]
+  ])('returns only the closed %s failure for its producer', async (failure, prepare) => {
+    prepare();
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({ outcome: 'failed', failure });
+  });
+
   it('builds the probe for a fixed, well-formed placeholder recipient', async () => {
     await estimateUsdcxBurnFeeReserve('mm1sender', 1);
 
@@ -226,13 +262,19 @@ describe('estimateUsdcxBurnFeeReserve', () => {
   ])('answers failed, not a measured cost, when %s', async (_case, dryRunView) => {
     mockView.mockReturnValue(dryRunView);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'probe_mismatch'
+    });
   });
 
   it('answers failed when the dry run fails', async () => {
     mockDryRun.mockRejectedValue(new Error('the execution failed'));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'dry_run_failed'
+    });
     expect(mockView).not.toHaveBeenCalled();
   });
 
@@ -246,7 +288,10 @@ describe('estimateUsdcxBurnFeeReserve', () => {
   it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {
     mockView.mockReturnValue(undefined);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'result_decode_failed'
+    });
     // Without the guard the read of the missing view throws and the catch-all answers failed with a warning.
     expect(warnSpy).not.toHaveBeenCalled();
   });
@@ -269,7 +314,10 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       throw new Error('USDCx withdrawal is not configured for chain 5');
     });
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'configuration_failed'
+    });
     expect(mockDryRun).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
   });

@@ -7,6 +7,7 @@ import type {
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { TelemetryEvent } from 'lib/telemetry/types';
+import type { BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
@@ -398,12 +399,19 @@ export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
  * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
  * when the dry run ran and could not measure, or could not be built.
  */
-export type UsdcxBurnFeeEstimate = { outcome: 'measured'; reserve: bigint } | { outcome: 'busy' | 'failed' };
+export type UsdcxBurnFeeEstimate =
+  | { outcome: 'measured'; reserve: bigint }
+  | { outcome: 'busy' }
+  | { outcome: 'failed'; failure?: BurnFeeFailure };
 
 /** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
 export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
-} & ({ outcome: 'measured'; feeReserve: string } | { outcome: 'busy' | 'failed' });
+} & (
+    | { outcome: 'measured'; feeReserve: string }
+    | { outcome: 'busy' }
+    | { outcome: 'failed'; failure?: BurnFeeFailure }
+  );
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
@@ -412,7 +420,7 @@ export interface GetStateRequest extends WalletMessageBase {
 
 export interface GetStateResponse extends WalletMessageBase {
   type: WalletMessageType.GetStateResponse;
-  state: WalletState;
+  state: WalletState & { backendInitialized?: boolean };
 }
 
 // TODO: Make generalizable and pull out somewhere

@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import myBadgesArt from 'app/misc/badges/my-badges.png';
 import { NetworkChip } from 'components/NetworkChip';
 import { Avatar } from 'components/ui/Avatar';
 import { CardButton } from 'components/ui/Card';
@@ -43,7 +44,7 @@ const Me: React.FC = () => {
         <div data-testid="profile-identity" className="flex flex-col items-center gap-2 pb-1 pt-1">
           <Hero
             visual={
-              <Avatar size={88} tone="brand" initials={Array.from(account.name.trim())[0]?.toUpperCase() ?? 'B'} />
+              <Avatar size={88} tone="neutral" initials={Array.from(account.name.trim())[0]?.toUpperCase() ?? 'B'} />
             }
             name={account.name}
           />
@@ -62,7 +63,7 @@ const Me: React.FC = () => {
           data-testid="my-badges-preview"
         >
           <span className="relative shrink-0">
-            <Avatar size={40} tone="brand" icon={<Icon name={IconName.ProfileBadge} size="sm" />} />
+            <Avatar size={40} image={myBadgesArt} />
             <UnreadDot
               unread={hasUnreadBadges}
               placement="badge"

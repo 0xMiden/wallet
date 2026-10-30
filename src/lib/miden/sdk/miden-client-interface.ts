@@ -18,6 +18,7 @@ import {
   NoteExportFormat,
   NoteFile,
   NoteQuery,
+  NoteScript,
   type NoteInclusionProof,
   RpcClient,
   NoteType,
@@ -26,6 +27,7 @@ import {
   TransactionProver,
   TransactionRequest,
   TransactionResult,
+  TransactionSummary,
   type GetKeyCallback,
   type InsertKeyCallback,
   type SignCallback,
@@ -36,6 +38,7 @@ import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
@@ -74,6 +77,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { applyAfterSubmit } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { buildGcSaleRequest } from './gc-sale-request';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
@@ -83,7 +87,6 @@ import {
   buildSendTransactionRequest,
   canonicalWalletAccountId,
   getBech32AddressFromAccountId,
-  sameWalletAccountId,
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
@@ -99,7 +102,7 @@ import { buildNativeProverCallback } from './native-prover-mobile';
 import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
-import { readPswapOrderNote, readPublicPswapNote } from './pswap-order-note';
+import { readPswapOrderNote } from './pswap-order-note';
 import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
@@ -124,6 +127,7 @@ import {
   type GuardianCreateKey,
   type PendingGuardianRegistration
 } from '../guardian/account';
+import { GuardianHistoryDataError } from '../guardian/history-errors';
 import { withGuardianProbe } from '../guardian/native-http';
 import {
   type ConsumeRestriction,
@@ -615,6 +619,12 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       }
     },
     (error: unknown) => {
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        clientRole: 'realm_reader'
+      });
       entry.failures += 1;
       const windowMs = computeSyncBackoffMs(entry.failures);
       entry.retryAtMs = monotonicNowMs() + windowMs;
@@ -730,6 +740,7 @@ export class MidenClientInterface {
         operation: 'sdk_initialize',
         stage,
         workerMode: useWorker ? 'enabled' : 'disabled',
+        ...(stage === 'client_create' ? { clientRole: 'primary' } : {}),
         ...wasmStartupEvidence(error)
       });
       throw error;
@@ -1153,6 +1164,51 @@ export class MidenClientInterface {
    */
   async decodeGuardianHistory(encoded: string, hold: WasmLockHold) {
     return decodeGuardianSummary(encoded, hold);
+  }
+
+  async importGuardianHistoryP2ideNotes(
+    encoded: string,
+    accountId: string,
+    noteId: string,
+    hold: WasmLockHold
+  ): Promise<void> {
+    const summary = TransactionSummary.deserialize(new Uint8Array(Buffer.from(encoded, 'base64')));
+    try {
+      const owner = walletAccountIdToSdk(accountId).toString();
+      if (summary.accountDelta().id().toString() !== owner) {
+        throw new GuardianHistoryDataError('Guardian summary account does not match');
+      }
+      const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+      const p2ideRoot = NoteScript.p2ide().root().toHex();
+      for (const output of splitExecutedOutputNotes(summary).userNotes) {
+        if (output.id().toString() !== noteId) continue;
+        let note = output.intoFull();
+        if (!note && output.metadata().noteType() === NoteType.Public) {
+          const id = output.id();
+          const expectedId = id.toString();
+          const fetched = await withRpcTimeout(() => rpc.getNotesById([id]), 'recoverySentNote', { retries: 0 });
+          note = fetched
+            .find(entry => String(entry.noteId) === expectedId)
+            ?.asInputNote()
+            ?.note();
+          if (!note) throw new Error('Public output note is missing from the node');
+        }
+        if (!note || note.recipient().script().root().toHex() !== p2ideRoot) continue;
+        if (note.metadata().sender().toString() !== owner) continue;
+        const result = await this.importRecoveryNoteBytes([note.serialize()], hold);
+        if (result.failures > 0) throw new Error('Could not import a recovered P2IDE note');
+      }
+    } catch (error) {
+      rethrowClientFault(error, hold);
+      throw error;
+    } finally {
+      // A trap can invalidate this handle before cleanup.
+      try {
+        summary.free();
+      } catch (error) {
+        console.warn('[GuardianRecovery] Could not free the sent-note summary:', error);
+      }
+    }
   }
 
   async getGuardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold) {
@@ -1737,37 +1793,13 @@ export class MidenClientInterface {
     return request.serialize();
   }
 
-  /**
-   * Build, but do not execute, the fee-aware request that fills `fillAmount` of a public PSWAP sale note with this
-   * account's own vault (an Arcade GC purchase). The note is somebody else's, so it is read on the node, on RPC
-   * clients of the read's own, and the request carries the full note: the SDK's `newPswapConsumeTransactionRequest`
-   * takes the note itself, so a client that never tracked it can fill it (proven on mainnet by
-   * `scripts/dev/gc-sale/buy.mjs`). Refused when the note is spent, absent, not the creator's, or asks less than
-   * the fill: the SDK rejects an overfill, and a fill of the whole request would take the whole offer.
-   */
+  /** Build a GameCoin sale purchase in the caller's WASM lock and Guardian proposal hold. */
   async buildPswapConsumeRequest(
     accountId: string,
     { noteId, fillAmount, creatorAccountId }: PswapConsumeRequestInputs,
     assertLive: AssertLive = noAssertLive
   ): Promise<Uint8Array> {
-    const read = await readPublicPswapNote(noteId);
-    assertLive('after the node note read');
-    if (read.kind === 'spent') throw new Error(`PSWAP sale note ${noteId} is already consumed on chain`);
-    if (read.kind === 'absent') throw new Error(`PSWAP sale note ${noteId} is not a public PSWAP note`);
-    if (!sameWalletAccountId(read.fields.creator, creatorAccountId)) {
-      throw new Error(`PSWAP sale note ${noteId} was not created by account ${creatorAccountId}`);
-    }
-    const requested = read.fields.storage[2] ?? 0n;
-    if (fillAmount < 1n || fillAmount > requested) {
-      throw new Error(`PSWAP sale note ${noteId} asks ${requested}, which a fill of ${fillAmount} cannot meet`);
-    }
-
-    const consumer = walletAccountIdToSdk(accountId);
-    const request = await this.innerClientAccess()._withInnerWebClient(inner =>
-      inner.newPswapConsumeTransactionRequest(read.note, consumer, fillAmount, 0n)
-    );
-    assertLive('after the consume-request build');
-    return request.serialize();
+    return buildGcSaleRequest(this.client, accountId, { noteId, fillAmount, creatorAccountId }, assertLive);
   }
 
   async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {

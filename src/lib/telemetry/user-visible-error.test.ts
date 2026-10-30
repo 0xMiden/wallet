@@ -189,13 +189,69 @@ test('startup warning retains closed attempt diagnostics without attaching them 
 
 const uiCases = [
   [
+    'earnPositionsLoadError',
+    'notice',
+    { kind: 'earn_positions_load', earnPositionsLoadStage: 'request', earnPositionsLoadOutcome: 'partial_failure' }
+  ],
+  [
+    'raw_history_retry_failed',
+    'inline',
+    { kind: 'history_retry', retryNoticeOrigin: 'history_primary', pendingRetryReason: 'guardian_hold' }
+  ],
+  [
+    'raw_history_retry_failed',
+    'inline',
+    { kind: 'history_retry', retryNoticeOrigin: 'history_earn_receive', pendingRetryReason: 'unexpected' }
+  ],
+  [
+    'raw_history_retry_failed',
+    'notice',
+    { kind: 'history_payback_retry', retryNoticeOrigin: 'history_payback', pendingRetryReason: 'verdict_busy' }
+  ],
+  [
+    'raw_transaction_retry_failed',
+    'inline',
+    { kind: 'transaction_retry', retryNoticeOrigin: 'status_screen', pendingRetryReason: 'unsafe_retry' }
+  ],
+  [
     'bridgeFeatureUnavailableBody',
     'notice',
     { kind: 'feature_unavailable', featureUnavailableFeature: 'earnDeposit', featureUnavailableReason: 'service-down' }
   ],
   ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown' }],
   ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
-  ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }]
+  ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
+  ['usdcxBurnFeeUnavailable', 'field', { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }],
+  [
+    'mainnetAccessCheckFailed',
+    'inline',
+    { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' }
+  ],
+  [
+    'mainnetAccessCodeRejected',
+    'inline',
+    { kind: 'mainnet_access_code_rejection', mainnetAccessCodeRejectionOrigin: 'registration_redemption' }
+  ],
+  [
+    'noteClaimFailedRetry',
+    'notice',
+    { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }
+  ],
+  [
+    'raw_bridge_balance_failed',
+    'field',
+    { kind: 'bridge_balance_read', bridgeBalanceBranch: 'circle_usdc', bridgeBalanceStage: 'request' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'declared_network' }
+  ],
+  [
+    'encryptedWalletFileWrongNetwork',
+    'field',
+    { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' }
+  ]
 ] as const;
 it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {
   Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
@@ -236,3 +292,109 @@ it('rejects partial or unknown feature evidence and never reads getters', () => 
   }
   expect(getter).not.toHaveBeenCalled();
 });
+
+it('drops unexpected access-code rejection details instead of annotating them', () => {
+  const evidence = {
+    kind: 'mainnet_access_code_rejection',
+    mainnetAccessCodeRejectionOrigin: 'registration_redemption',
+    rawError: 'rejected code ABCDEF123456 for account 0x1234, amount 98.76'
+  };
+  reportUserVisibleError('mainnetAccessCodeRejected', 'inline', evidence as never);
+  const root = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect((root as Error).message).toBe('User-visible error: mainnetAccessCodeRejected; surface inline');
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: 'mainnetAccessCodeRejected',
+    userErrorSurface: 'inline'
+  });
+  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
+});
+
+it('rejects incomplete arbitrary inherited and accessor Earn observations without reading them', () => {
+  const getter = jest.fn(() => 'request');
+  const base = {
+    kind: 'earn_positions_load',
+    earnPositionsLoadStage: 'request',
+    earnPositionsLoadOutcome: 'complete_failure'
+  };
+  for (const value of [
+    { kind: 'earn_positions_load', earnPositionsLoadStage: 'request' },
+    { ...base, earnPositionsLoadStage: 'private amount 1234.56' },
+    { ...base, earnPositionsLoadOutcome: 'private-owner' },
+    { ...base, raw: 'private 0x1234' },
+    Object.create(base),
+    Object.defineProperty(
+      { kind: 'earn_positions_load', earnPositionsLoadOutcome: 'complete_failure' },
+      'earnPositionsLoadStage',
+      { get: getter }
+    )
+  ]) {
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['earnPositionsLoadError', 'notice', value]);
+    const fields = snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0]);
+    expect(fields).not.toHaveProperty('earnPositionsLoadStage');
+    expect(fields).not.toHaveProperty('earnPositionsLoadOutcome');
+  }
+  expect(getter).not.toHaveBeenCalled();
+});
+
+it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating getters', () => {
+  const getter = jest.fn(() => 'dry_run_failed');
+  const values = [
+    { kind: 'burn_fee', burnFeeFailure: 'private-account amount=123' },
+    Object.defineProperty({ kind: 'burn_fee' }, 'burnFeeFailure', { get: getter })
+  ];
+  for (const value of values) {
+    jest.mocked(captureCrash).mockClear();
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['usdcxBurnFeeUnavailable', 'field', value]);
+    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+      userErrorId: 'usdcxBurnFeeUnavailable',
+      userErrorSurface: 'field'
+    });
+  }
+  expect(getter).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['earnPositionsLoadError', 'inline'],
+  ['earnVaultLoadError', 'notice']
+])('rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {
+  Reflect.apply(reportUserVisibleError, undefined, [
+    id,
+    surface,
+    {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'configuration',
+      earnPositionsLoadOutcome: 'complete_failure'
+    }
+  ]);
+  const fields = snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0]);
+  expect(fields).not.toHaveProperty('earnPositionsLoadStage');
+  expect(fields).not.toHaveProperty('earnPositionsLoadOutcome');
+});
+
+it.each([
+  ['mainnetAccessCheckFailed', 'inline', 'mainnet_access_check', 'mainnetAccessCheckFailure', 'invitation_check'],
+  ['noteClaimFailedRetry', 'notice', 'note_claim', 'noteClaimFailureOrigin', 'queue_single']
+])(
+  'rejects incomplete or arbitrary caller facts for %s without invoking accessors',
+  (id, surface, kind, field, valid) => {
+    const getter = jest.fn(() => valid);
+    const values = [
+      { kind, [field]: valid },
+      { kind, [field]: 'private-account amount=123', uiFailureKind: 'network' },
+      { kind, [field]: valid, uiFailureKind: 'private-account amount=123' },
+      Object.defineProperty({ kind, uiFailureKind: 'network' }, field, { get: getter })
+    ];
+    for (const value of values) {
+      jest.mocked(captureCrash).mockClear();
+      _resetUserVisibleErrorLimitsForTest();
+      Reflect.apply(reportUserVisibleError, undefined, [id, surface, value]);
+      expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+        userErrorId: id,
+        userErrorSurface: surface
+      });
+    }
+    expect(getter).not.toHaveBeenCalled();
+  }
+);

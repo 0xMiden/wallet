@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "加入資金並等待資金變為可用。",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "首次收款",
@@ -4851,6 +4851,31 @@
     "message": "有 1 筆轉帳無法自動匯入。",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "匯入停止原因：$reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "連線問題",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "無法讀取的便箋",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "節點拒絕",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "原因無法取得",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "明天",
     "englishSource": "Tomorrow"
@@ -4974,6 +4999,34 @@
   "exploreNoResultsDescription": {
     "message": "試試其他名稱，或貼上 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden 上的金融服務",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "您的資金，預設為私有",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "透過基於 Miden 建置的應用程式進行交易、付款及收款。",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "精選",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "私下交易任何代幣",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "找出十座城市，擊敗你的對手",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "薪資明細僅本人可見",
+    "englishSource": "Payroll nobody else can see"
   },
   "minimize": {
     "message": "最小化",
@@ -5707,6 +5760,10 @@
   "receiveShareCaption": {
     "message": "傳送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "來自另一個網路",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "複製",

@@ -867,11 +867,11 @@ it('observes the actual inline Guardian request through cancellation and the rea
   await failureEventWith(
     {
       executionRoute: 'guardian_signed_request',
-      authObservation: 'observed',
-      authArgPresence: 'absent',
-      authLayout: 'absent',
+      executionObservation: 'observed',
+      executionArguments: 'absent',
+      executionLayout: 'absent',
       commitmentMatch: 'unavailable',
-      accountAuthCode: 'unavailable'
+      accountCodeFamily: 'unavailable'
     },
     'authentication preparation unavailable; layout absent; commitment match unavailable; account code unavailable'
   );
@@ -923,7 +923,7 @@ it.each(['extension', 'mobile'])(
       {
         proposalStep: 'proposal_create',
         proposalCreateApi: 'consume_notes',
-        proposalCreateFamily: 'consume_note_authentication'
+        proposalCreateFamily: 'consume_note_not_verified'
       },
       'stage signing'
     );

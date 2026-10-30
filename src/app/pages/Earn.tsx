@@ -20,7 +20,7 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults, isLoading, error, notOnNetwork, refetch } = useEarnPositions();
+  const { summary, positions, vaults, isLoading, error, errorDiagnostics, notOnNetwork, refetch } = useEarnPositions();
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
@@ -79,7 +79,7 @@ const Earn: FC = () => {
               flight the slot stays empty, and a failed load says so and retries - in place of the
               list when there is nothing to show, above the last-good cards when there is. */}
           {positions.length === 0 && loadFailed ? (
-            <EarnLoadError onRetry={refetch} />
+            <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />
           ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
             <EmptyState
               surface="dashed"
@@ -91,7 +91,7 @@ const Earn: FC = () => {
             />
           ) : (
             <>
-              {loadFailed && <EarnLoadError onRetry={refetch} />}
+              {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
               <div className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x">
                 <div className="flex gap-3 px-4 pb-1">
                   {positions.map(position => (

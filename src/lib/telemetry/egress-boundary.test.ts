@@ -36,6 +36,7 @@ import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
+import { annotateTransactionExecution } from './transaction-execution-diagnostics';
 import { reportTransactionFailure, type TransactionFailure } from './transaction-failure';
 import {
   TelemetryErrorKind,
@@ -1199,92 +1200,140 @@ describe('product-event egress', () => {
 });
 
 describe('crash-report egress', () => {
-  it('realNativeRejectionReportsOnlyClosedDiagnosticsOnTheWire', async () => {
-    consentOn();
-    jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
-    const address = `0x${'a1'.repeat(20)}`;
-    const poison = {
-      requestId: 'request-private-123',
-      topic: 'topic-private-456',
-      address,
-      amount: '1234.5678',
-      url: 'https://native-poison.example.invalid/private',
-      hostname: 'native-poison.example.invalid',
-      walletCode: '-32603',
-      requestAge: '123456',
-      text: 'native-private-free-text'
-    };
-    const privateText = Object.values(poison).join(' ');
-    const code =
-      'REOWN_NATIVE_REQUEST_FAILURE:' +
-      JSON.stringify({
-        nativeOrigin: 'wallet_error',
-        walletResponseCode: 'internal_error',
-        requestAge: '120_to_300s',
-        published: 'confirmed',
-        backgrounded: 'yes'
+  it.each(['request_construction_error', 'request_call_error'])(
+    'reports only the closed iOS per-call diagnostic %s on the real Sentry wire',
+    async origin => {
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('ios');
+      const address = `0x${'a1'.repeat(20)}`;
+      const poison = ['private-topic-123', address, '1234.5678', 'https://private.example.invalid/path'];
+      const code = `REOWN_IOS_REQUEST_FAILURE:${origin}`;
+      const original = Object.assign(new Error(poison.join(' ')), { code, data: { privateData: poison } });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(original);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: address });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(original);
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause: caught },
+        error: caught
       });
-    const rawError = Object.assign(new Error(`Request expired\n${privateText}`, { cause: new Error(privateText) }), {
-      code,
-      details: `Request expired\n${privateText}`,
-      data: poison
-    });
-    rawError.stack = `Error: ${privateText}\n    at nativeRequest (${poison.url}:123456:1)`;
-    jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
-    let caught: unknown;
-    try {
-      await NativeReown.sendTransaction({ chainId: 1, to: address });
-    } catch (rejection) {
-      caught = rejection;
+      await flushEgress();
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('Expected one Sentry event');
+      expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+        reownNativeOrigin: origin,
+        reownRequestAge: 'unknown',
+        reownPublished: 'unobserved'
+      });
+      expect(objectAt(event, 'tags')).toMatchObject({
+        reown_native_origin: origin,
+        reown_request_age: 'unknown',
+        reown_published: 'unobserved'
+      });
+      for (const text of [...poison, code, 'REOWN_IOS_REQUEST_FAILURE:']) {
+        for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      }
+      expect(leaksIn(wireText())).toEqual([]);
     }
-    expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
-    expect(caught).toBe(rawError);
+  );
 
-    reportTransactionFailure({
-      type: 'bridged-receive',
-      point: 'bridge_receive_settlement',
-      bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
-      error: caught
-    });
-    await flushEgress();
+  it.each(['internal_error', 'provider_unauthorized', 'rpc_limited'])(
+    'real native rejection sends only closed diagnostics for %s',
+    async category => {
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const address = `0x${'a1'.repeat(20)}`;
+      const poison = {
+        requestId: 'request-private-123',
+        topic: 'topic-private-456',
+        address,
+        amount: '1234.5678',
+        url: 'https://native-poison.example.invalid/private',
+        hostname: 'native-poison.example.invalid',
+        walletCode: '-32603',
+        requestAge: '123456',
+        text: 'native-private-free-text'
+      };
+      const privateText = Object.values(poison).join(' ');
+      const code =
+        'REOWN_NATIVE_REQUEST_FAILURE:' +
+        JSON.stringify({
+          nativeOrigin: 'wallet_error',
+          walletResponseCode: category,
+          requestAge: '120_to_300s',
+          published: 'confirmed',
+          backgrounded: 'yes'
+        });
+      const rawError = Object.assign(new Error(`Request expired\n${privateText}`, { cause: new Error(privateText) }), {
+        code,
+        details: `Request expired\n${privateText}`,
+        data: poison
+      });
+      rawError.stack = `Error: ${privateText}\n    at nativeRequest (${poison.url}:123456:1)`;
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: address });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
 
-    expect(captured).toHaveLength(1);
-    const events = sentryEvents();
-    expect(events).toHaveLength(1);
-    const event = events[0];
-    if (event === undefined) throw new Error('Expected one Sentry event');
-    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
-      reownNativeOrigin: 'wallet_error',
-      reownWalletResponseCode: 'internal_error',
-      reownRequestAge: '120_to_300s',
-      reownPublished: 'confirmed',
-      reownBackgrounded: 'yes'
-    });
-    expect(objectAt(event, 'tags')).toMatchObject({
-      reown_native_origin: 'wallet_error',
-      reown_wallet_response_code: 'internal_error',
-      reown_request_age: '120_to_300s',
-      reown_published: 'confirmed',
-      reown_backgrounded: 'yes'
-    });
-    const exception = objectAt(event, 'exception');
-    expect(exception.values).toHaveLength(1);
-    if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
-    const value: unknown = exception.values[0];
-    if (typeof value !== 'object' || value === null) throw new Error('Expected a synthetic exception');
-    expect(Reflect.get(value, 'type')).toBe('WalletTransactionFailure');
-    expect(Reflect.get(value, 'value')).toContain('via usdcx; failed at wallet_approve; evm error request_expired');
-    expect(value).not.toHaveProperty('cause');
-    const stacktrace: unknown = Reflect.get(value, 'stacktrace');
-    const frames: unknown =
-      typeof stacktrace === 'object' && stacktrace !== null ? Reflect.get(stacktrace, 'frames') : stacktrace;
-    expect(frames ?? []).toEqual([]);
-    expect(event.fingerprint).toBeUndefined();
-    for (const text of [...Object.values(poison), 'REOWN_NATIVE_REQUEST_FAILURE:', code]) {
-      for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
+        error: caught
+      });
+      await flushEgress();
+
+      expect(captured).toHaveLength(1);
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('Expected one Sentry event');
+      expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+        reownNativeOrigin: 'wallet_error',
+        reownWalletResponseCode: category,
+        reownRequestAge: '120_to_300s',
+        reownPublished: 'confirmed',
+        reownBackgrounded: 'yes'
+      });
+      expect(objectAt(event, 'tags')).toMatchObject({
+        reown_native_origin: 'wallet_error',
+        reown_wallet_response_code: category,
+        reown_request_age: '120_to_300s',
+        reown_published: 'confirmed',
+        reown_backgrounded: 'yes'
+      });
+      const exception = objectAt(event, 'exception');
+      expect(exception.values).toHaveLength(1);
+      if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
+      const value: unknown = exception.values[0];
+      if (typeof value !== 'object' || value === null) throw new Error('Expected a synthetic exception');
+      expect(Reflect.get(value, 'type')).toBe('WalletTransactionFailure');
+      expect(Reflect.get(value, 'value')).toContain('via usdcx; failed at wallet_approve; evm error request_expired');
+      expect(value).not.toHaveProperty('cause');
+      const stacktrace: unknown = Reflect.get(value, 'stacktrace');
+      const frames: unknown =
+        typeof stacktrace === 'object' && stacktrace !== null ? Reflect.get(stacktrace, 'frames') : stacktrace;
+      expect(frames ?? []).toEqual([]);
+      expect(event.fingerprint).toBeUndefined();
+      for (const text of [...Object.values(poison), 'REOWN_NATIVE_REQUEST_FAILURE:', code]) {
+        for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+      }
+      expect(leaksIn(wireText())).toEqual([]);
     }
-    expect(leaksIn(wireText())).toEqual([]);
-  });
+  );
 
   describe('native request diagnostic omissions', () => {
     const closedCode =
@@ -2278,6 +2327,89 @@ describe('crash-report egress', () => {
 });
 
 describe('user-visible error reports', () => {
+  const retryCases = [
+    ['raw_history_retry_failed', 'inline', 'history_retry', 'history_primary'],
+    ['raw_history_retry_failed', 'notice', 'history_payback_retry', 'history_payback'],
+    ['raw_transaction_retry_failed', 'inline', 'transaction_retry', 'status_screen']
+  ] as const;
+
+  it.each(retryCases)('sends only closed retry notice evidence for %s/%s', async (id, surface, kind, origin) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      id,
+      surface,
+      { kind, retryNoticeOrigin: origin, pendingRetryReason: 'guardian_hold' }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      retryNoticeOrigin: origin,
+      pendingRetryReason: 'guardian_hold'
+    });
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('kind');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each(retryCases)('rejects private retry extras for %s/%s', async (id, surface, kind, origin) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      id,
+      surface,
+      { kind, retryNoticeOrigin: origin, pendingRetryReason: 'guardian_hold', detail: POISON.mnemonic12 }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).not.toHaveProperty('retryNoticeOrigin');
+    expect(diagnostics).not.toHaveProperty('pendingRetryReason');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('sends only closed bridge balance evidence through the real crash wire', async () => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'raw_bridge_balance_failed',
+      'field',
+      { kind: 'bridge_balance_read', bridgeBalanceBranch: 'registered_erc20', bridgeBalanceStage: 'value_decode' }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      userErrorId: 'raw_bridge_balance_failed',
+      userErrorSurface: 'field',
+      bridgeBalanceBranch: 'registered_erc20',
+      bridgeBalanceStage: 'value_decode'
+    });
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('drops bridge evidence containing private extras before reaching the crash wire', async () => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'raw_bridge_balance_failed',
+      'field',
+      {
+        kind: 'bridge_balance_read',
+        bridgeBalanceBranch: 'native',
+        bridgeBalanceStage: 'request',
+        rawError: POISON.mnemonic12,
+        address: POISON.addressTestnet
+      }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).not.toHaveProperty('bridgeBalanceBranch');
+    expect(diagnostics).not.toHaveProperty('bridgeBalanceStage');
+    expect(diagnostics).not.toHaveProperty('rawError');
+    expect(diagnostics).not.toHaveProperty('address');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('sends only the closed startup attempt evidence through the real crash wire', async () => {
     consentOn();
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
@@ -2336,6 +2468,61 @@ describe('user-visible error reports', () => {
     expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
     expect(wireText()).toContain('raw_send_submit_failed');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each(['complete_failure', 'partial_failure'])(
+    'retains only the closed Earn load %s evidence on actual outgoing envelopes',
+    async outcome => {
+      consentOn();
+      Reflect.apply(reportUserVisibleError, undefined, [
+        'earnPositionsLoadError',
+        'notice',
+        {
+          kind: 'earn_positions_load',
+          earnPositionsLoadStage: 'response_decode',
+          earnPositionsLoadOutcome: outcome
+        }
+      ]);
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).toMatchObject({
+        earnPositionsLoadStage: 'response_decode',
+        earnPositionsLoadOutcome: outcome
+      });
+      const baseline = { ...diagnostics };
+      delete baseline.earnPositionsLoadStage;
+      delete baseline.earnPositionsLoadOutcome;
+      expect(
+        new TextEncoder().encode(JSON.stringify(diagnostics)).length -
+          new TextEncoder().encode(JSON.stringify(baseline)).length
+      ).toBeLessThanOrEqual(192);
+      expect(leaksIn(wireText())).toEqual([]);
+    }
+  );
+
+  it('drops arbitrary Earn load values and private fields at the actual SDK boundary', async () => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'earnPositionsLoadError',
+      'notice',
+      {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: POISON.addressTestnet,
+        earnPositionsLoadOutcome: 'complete_failure',
+        raw: POISON.amount,
+        password: PHRASE_12
+      }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).not.toHaveProperty('earnPositionsLoadStage');
+    expect(diagnostics).not.toHaveProperty('earnPositionsLoadOutcome');
+    expect(diagnostics).not.toHaveProperty('raw');
     expect(leaksIn(wireText())).toEqual([]);
   });
 
@@ -2870,4 +3057,103 @@ describe('consent boundary', () => {
 
     expect(captured).toEqual([]);
   });
+});
+
+it('keeps validated execution diagnostics private on the actual outgoing envelope', async () => {
+  consentOn();
+  const error = poisonedError('execution failed');
+  annotateTransactionExecution(error, {
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'observed',
+    authArgPresence: 'present',
+    authLayout: 'guardian',
+    commitmentMatch: 'guardian',
+    accountAuthCode: 'current_guardian'
+  });
+  reportTransactionFailure({ type: 'consume', stage: 'executing', error });
+  await flushEgress();
+  expect(captured).toHaveLength(1);
+  const executionWire = captured[0]?.body ?? '';
+  for (const entry of [
+    '"executionObservation":"observed"',
+    '"executionArguments":"present"',
+    '"executionLayout":"guardian"',
+    '"accountCodeFamily":"current_guardian"'
+  ]) {
+    expect(executionWire).toContain(entry);
+  }
+  for (const key of ['authObservation', 'authArgPresence', 'authLayout', 'accountAuthCode']) {
+    expect(executionWire).not.toContain(`"${key}":`);
+  }
+  const oldWire = executionWire
+    .replace('"executionObservation":', '"authObservation":')
+    .replace('"executionArguments":', '"authArgPresence":')
+    .replace('"executionLayout":', '"authLayout":')
+    .replace('"accountCodeFamily":', '"accountAuthCode":');
+  expect(new TextEncoder().encode(executionWire).length - new TextEncoder().encode(oldWire).length).toBeLessThanOrEqual(
+    192
+  );
+  expect(leaksIn(wireText())).toEqual([]);
+});
+
+it('keeps the current burn-fee reason private on the actual outgoing envelope', async () => {
+  consentOn();
+  Reflect.apply(reportUserVisibleError, undefined, [
+    'usdcxBurnFeeUnavailable',
+    'field',
+    { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }
+  ]);
+  await flushEgress();
+  expect(captured).toHaveLength(1);
+  const burnWire = captured[0]?.body ?? '';
+  expect(burnWire).toContain('"burnFeeFailure":"dry_run_failed"');
+  const without = burnWire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
+  expect(new TextEncoder().encode(burnWire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+  expect(leaksIn(wireText())).toEqual([]);
+});
+
+it.each([
+  {
+    id: 'mainnetAccessCheckFailed',
+    surface: 'inline',
+    evidence: { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'timeout' },
+    key: 'mainnetAccessCheckFailure',
+    value: 'invitation_check'
+  },
+  {
+    id: 'noteClaimFailedRetry',
+    surface: 'notice',
+    evidence: { kind: 'note_claim', noteClaimFailureOrigin: 'queue_batch', uiFailureKind: 'storage' },
+    key: 'noteClaimFailureOrigin',
+    value: 'queue_batch'
+  }
+])(
+  'retains only closed $id evidence on the actual outgoing envelope',
+  async ({ id, surface, evidence, key, value }) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const wire = captured[0]?.body ?? '';
+    const producerField = `,"${key}":"${value}"`;
+    const kindField = `,"uiFailureKind":"${evidence.uiFailureKind}"`;
+    expect(wire).toContain(producerField);
+    expect(wire).toContain(kindField);
+    const without = wire.replace(producerField, '').replace(kindField, '');
+    expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+    expect(leaksIn(wireText())).toEqual([]);
+  }
+);
+
+it('sends the closed mainnet code rejection origin on the actual outgoing envelope', async () => {
+  consentOn();
+  reportUserVisibleError('mainnetAccessCodeRejected', 'inline', {
+    kind: 'mainnet_access_code_rejection',
+    mainnetAccessCodeRejectionOrigin: 'registration_redemption'
+  } as never);
+  await flushEgress();
+  const wire = wireText();
+  expect(wire).toContain('"mainnetAccessCodeRejectionOrigin":"registration_redemption"');
+  expect(wire).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
+  expect(leaksIn(wire)).toEqual([]);
 });

@@ -249,7 +249,8 @@ export interface BridgeConfig {
    */
   earn?: { vaults: EarnVaultConfig[] };
   /**
-   * The Arcade GC sale: the account whose public PSWAP note sells Game Coins, as a lower-case hex account id. Present
+   * The Arcade sale configuration. The seller field is retained for compatibility; purchases accept any seller
+   * with the required script, asset pair and price. Present
    * exactly when `features.arcadeGcPurchase` is true (`lib/miden/arcade/gc-sale.ts`).
    */
   arcade?: { sale: { seller: string } };

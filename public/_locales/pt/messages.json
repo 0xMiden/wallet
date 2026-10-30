@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Adicione fundos e aguarde até que estejam disponíveis para uso.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Primeiro recebimento",
@@ -4856,6 +4856,31 @@
     "message": "Não foi possível importar automaticamente 1 transferência.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "Importação interrompida devido a: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Problema de conexão",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Nota ilegível",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Rejeição pelo nó",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Motivo indisponível",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Amanhã",
     "englishSource": "Tomorrow"
@@ -4979,6 +5004,34 @@
   "exploreNoResultsDescription": {
     "message": "Tente outro nome ou cole o URL de um dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Finanças no Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Seu dinheiro, privado por padrão",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Negocie, pague e receba pagamentos com aplicativos desenvolvidos na plataforma Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "Em destaque",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Negocie qualquer token, de forma privada",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Encontre dez cidades, vença seus rivais",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Folha de pagamento que ninguém mais pode ver",
+    "englishSource": "Payroll nobody else can see"
   },
   "minimize": {
     "message": "Minimizar",
@@ -5712,6 +5765,10 @@
   "receiveShareCaption": {
     "message": "Envie seu endereço",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "De outra rede",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "Copiar",

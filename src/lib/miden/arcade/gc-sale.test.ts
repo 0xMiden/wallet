@@ -7,6 +7,8 @@ import {
   GC_SALES,
   getGcSaleConfig,
   findLiveGcSale,
+  findGcSales,
+  pickGcSale,
   isGcSaleNote,
   pswapFillPayout,
   quoteGcPurchase,
@@ -23,7 +25,8 @@ jest.mock('lib/miden/sdk/pswap-order-note', () => ({
   listCommittedNoteIdsByTag: jest.fn(),
   readPublicPswapNote: jest.fn(),
   readChainTip: jest.fn(async () => 1_000),
-  pswapNoteTag: () => 123
+  pswapNoteTag: () => 123,
+  GC_SALE_SCRIPT_ROOT: 'gc-sale-root'
 }));
 const mockDiscovery = jest.requireMock('lib/miden/sdk/pswap-order-note') as {
   listCommittedNoteIdsByTag: jest.Mock;
@@ -129,9 +132,10 @@ describe('pswapFillPayout', () => {
 });
 
 describe('isGcSaleNote', () => {
-  it('accepts the seller’s GC-for-USDCx note and refuses another creator or pair', () => {
+  it('accepts any seller at the price limit and refuses a wrong pair or price', () => {
     expect(isGcSaleNote(liveNote(), config, '0xusdcx')).toBe(true);
-    expect(isGcSaleNote(liveNote({ creator: '0xother' }), config, '0xusdcx')).toBe(false);
+    expect(isGcSaleNote(liveNote({ creator: '0xother' }), config, '0xusdcx')).toBe(true);
+    expect(isGcSaleNote(liveNote({ storage: [0n, 0n, 49_850_001n] }), config, '0xusdcx')).toBe(false);
     expect(isGcSaleNote(liveNote({ offeredFaucet: '0xnotgc' }), config, '0xusdcx')).toBe(false);
     expect(isGcSaleNote(liveNote({ requestedFaucet: '0xother' }), config, '0xusdcx')).toBe(false);
   });
@@ -171,6 +175,30 @@ describe('quoteGcPurchase', () => {
   });
 });
 
+describe('pickGcSale', () => {
+  it('uses exact integer prices and selects the cheapest sale from any seller', () => {
+    const cheaper = sale({ saleNoteId: 'cheap', sellerAccountId: 'other', requestedAmount: 24_925_000n });
+    expect(pickGcSale([sale(), cheaper], DEFAULT_GC_PURCHASE_AMOUNT)?.saleNoteId).toBe('cheap');
+  });
+
+  it('excludes the buyer and checks inventory and minimum fill before comparing prices', () => {
+    const own = sale({ sellerAccountId: 'buyer', requestedAmount: 1n });
+    const small = sale({ saleNoteId: 'small', offeredAmount: 500_000n, requestedAmount: 500n });
+    const floor = sale({ saleNoteId: 'floor', requestedAmount: 1_000n, fillFloor: 1_000n });
+    expect(pickGcSale([own, small, floor, sale()], DEFAULT_GC_PURCHASE_AMOUNT, 'buyer_suffix')?.saleNoteId).toBe(
+      '0xnote'
+    );
+    expect(pickGcSale([own], DEFAULT_GC_PURCHASE_AMOUNT, 'buyer_suffix')).toBeNull();
+  });
+
+  it('uses the larger inventory at the same price and changes the choice for a larger buy', () => {
+    const large = sale({ saleNoteId: 'large', offeredAmount: 100_000_000_000n, requestedAmount: 100_000_000n });
+    const cheap = sale({ saleNoteId: 'cheap', requestedAmount: 24_925_000n });
+    expect(pickGcSale([sale(), large], DEFAULT_GC_PURCHASE_AMOUNT)?.saleNoteId).toBe('large');
+    expect(pickGcSale([cheap, large], 60_000_000_000n)?.saleNoteId).toBe('large');
+  });
+});
+
 describe('findLiveGcSale', () => {
   const seller = '0xseller';
   const fields = () => liveNote({ offeredFaucet: GC_SALES.mainnet!.gcFaucetId });
@@ -196,7 +224,7 @@ describe('findLiveGcSale', () => {
     }));
     mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([...unrelated, { noteId: 'real-origin', block: 100 }]);
     mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) =>
-      open(id, id.startsWith('unrelated') ? '0xother' : seller)
+      id.startsWith('unrelated') ? { kind: 'absent' } : open(id)
     );
 
     let discovered = await findLiveGcSale(MIDEN_NETWORK_NAME.MAINNET);
@@ -215,7 +243,7 @@ describe('findLiveGcSale', () => {
 
     await expect(findLiveGcSale(MIDEN_NETWORK_NAME.MAINNET)).resolves.toMatchObject({ saleNoteId: 'buyer-remainder' });
   });
-  it('revalidates a found sale before scanning newer unrelated notes', async () => {
+  it('revalidates a found sale while making progress through newer unrelated notes', async () => {
     mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([{ noteId: 'live', block: 100 }]);
     mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) => open(id));
     expect(await findLiveGcSale()).toMatchObject({ saleNoteId: 'live' });
@@ -225,9 +253,12 @@ describe('findLiveGcSale', () => {
       { noteId: 'live', block: 100 }
     ]);
     mockDiscovery.readPublicPswapNote.mockClear();
+    mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) =>
+      id === 'live' ? open(id) : { kind: 'absent' }
+    );
     expect(await findLiveGcSale()).toMatchObject({ saleNoteId: 'live' });
-    expect(mockDiscovery.readPublicPswapNote).toHaveBeenCalledTimes(1);
-    expect(mockDiscovery.readPublicPswapNote).toHaveBeenCalledWith('live');
+    expect(mockDiscovery.readPublicPswapNote.mock.calls.length).toBeLessThanOrEqual(8);
+    expect(mockDiscovery.readPublicPswapNote).toHaveBeenCalledWith('live', 'gc-sale-root');
   });
 
   it('finds a spent sale successor while historical noise remains', async () => {
@@ -235,7 +266,9 @@ describe('findLiveGcSale', () => {
       { noteId: 'live', block: 1_000 },
       ...Array.from({ length: 100 }, (_, i) => ({ noteId: `old-${i}`, block: 900 - i }))
     ]);
-    mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) => open(id));
+    mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) =>
+      id === 'live' ? open(id) : { kind: 'absent' }
+    );
     await findLiveGcSale();
     mockDiscovery.readChainTip.mockResolvedValue(1_002);
     mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([
@@ -251,15 +284,15 @@ describe('findLiveGcSale', () => {
   it('shares concurrent discovery and retries a rejected candidate without skipping it', async () => {
     mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([{ noteId: 'live', block: 100 }]);
     mockDiscovery.readPublicPswapNote.mockRejectedValueOnce(new Error('node unavailable'));
-    const first = findLiveGcSale();
-    expect(findLiveGcSale()).toBe(first);
+    const first = findGcSales();
+    expect(findGcSales()).toBe(first);
     await expect(first).rejects.toThrow('node unavailable');
     mockDiscovery.readPublicPswapNote.mockResolvedValue(open('live'));
     expect(await findLiveGcSale()).toMatchObject({ saleNoteId: 'live' });
   });
 
   it('does not publish a result after the sale is disabled during an RPC', async () => {
-    let release!: (value: unknown) => void;
+    let release!: (value: { noteId: string; block: number }[]) => void;
     mockDiscovery.listCommittedNoteIdsByTag.mockImplementationOnce(
       () =>
         new Promise(resolve => {

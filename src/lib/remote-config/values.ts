@@ -177,8 +177,8 @@ export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultCon
 }
 
 /**
- * The Arcade GC sale the accepted document names (`arcade.sale`): the account whose public PSWAP note sells Game
- * Coins. Null while no document is accepted, or while `features.arcadeGcPurchase` is off; a document that turns the
+ * The Arcade sale configuration. The seller field is retained for compatibility, not seller filtering.
+ * Null while no document is accepted, or while `features.arcadeGcPurchase` is off; a document that turns the
  * purchase off is the kill switch, and `getGcSaleConfig` (`lib/miden/arcade/gc-sale.ts`) tells the two apart.
  */
 export function selectGcSale(s: BridgeConfigSnapshot): { seller: string } | null {

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Probe once or clean one prior probe
+        description: Probe once, clean one prior probe, or inspect the original probe
         type: choice
-        options: [probe, cleanup]
+        options: [probe, cleanup, inspect]
         default: probe
         required: true
       cleanup_run_id:
@@ -51,7 +51,7 @@ jobs:
           CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
         shell: bash
         run: |
-          if [[ "$PROBE_OPERATION" == probe ]]; then
+          if [[ "$PROBE_OPERATION" == probe || "$PROBE_OPERATION" == inspect ]]; then
             test -z "$CLEANUP_RUN_ID" && test -z "$CLEANUP_ATTEMPT"
           elif [[ "$PROBE_OPERATION" == cleanup ]]; then
             [[ "$CLEANUP_RUN_ID" =~ ^[1-9][0-9]{0,17}$ ]] && [[ "$CLEANUP_ATTEMPT" =~ ^[1-9][0-9]{0,5}$ ]]
@@ -76,6 +76,28 @@ jobs:
           artifact-ids: ${{ steps.recovery.outputs.artifact_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/probe-recovered
+      - name: Verify original inspection provenance
+        if: inputs.operation == 'inspect'
+        id: inspection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/feature-eligibility-staging-inspect.mjs prepare
+      - name: Download original inspection evidence
+        if: inputs.operation == 'inspect'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: 0xMiden/wallet
+          run-id: '40309563506'
+          artifact-ids: ${{ steps.inspection.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/probe-recovered
+      - name: Inspect original probe with GET requests only
+        if: inputs.operation == 'inspect'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/feature-eligibility-staging-inspect.mjs inspect
       - name: Run bounded isolated probe
         if: inputs.operation == 'probe'
         env:
@@ -103,13 +125,24 @@ jobs:
           if test -f "$RUNNER_TEMP/feature-eligibility-probe/manifest.json"; then
             node scripts/feature-eligibility-staging-probe.mjs cleanup > "$RUNNER_TEMP/probe-cleanup-result.json"
           fi
+      - name: Validate sanitized inspection evidence
+        if: always() && inputs.operation == 'inspect'
+        run: node scripts/feature-eligibility-staging-inspect.mjs evidence
+      - name: Retain sanitized inspection evidence
+        if: always() && inputs.operation == 'inspect'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eligibility-inspection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/probe-inspection-evidence/inspection.json
+          if-no-files-found: warn
+          retention-days: 3
       - name: Validate sanitized evidence
-        if: always()
+        if: always() && inputs.operation != 'inspect'
         env:
           PROBE_OPERATION: ${{ inputs.operation }}
         run: node scripts/feature-eligibility-staging-probe-recovery.mjs evidence
       - name: Retain sanitized evidence
-        if: always()
+        if: always() && inputs.operation != 'inspect'
         uses: actions/upload-artifact@v4
         with:
           name: eligibility-probe-${{ github.run_id }}-${{ github.run_attempt }}

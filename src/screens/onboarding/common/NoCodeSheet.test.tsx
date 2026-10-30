@@ -24,7 +24,7 @@ jest.mock('lib/ui/drawer', () => ({
 describe('NoCodeSheet', () => {
   it('says Bread is invite-only, and closes on Got it', () => {
     const onOpenChange = jest.fn();
-    render(<NoCodeSheet open onOpenChange={onOpenChange} onRecover={jest.fn()} />);
+    render(<NoCodeSheet open onOpenChange={onOpenChange} />);
 
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('noCodeTitle');
     expect(screen.getByText('noCodeBody')).toBeInTheDocument();
@@ -33,16 +33,14 @@ describe('NoCodeSheet', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('offers the recover flow, which needs no code', () => {
-    const onRecover = jest.fn();
-    render(<NoCodeSheet open onOpenChange={jest.fn()} onRecover={onRecover} />);
-
-    fireEvent.click(screen.getByTestId('no-code-sheet-recover'));
-    expect(onRecover).toHaveBeenCalledTimes(1);
+  it('keeps account recovery on the welcome page', () => {
+    render(<NoCodeSheet open onOpenChange={jest.fn()} />);
+    expect(screen.queryByTestId('no-code-sheet-recover')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('renders nothing while closed', () => {
-    const { container } = render(<NoCodeSheet open={false} onOpenChange={jest.fn()} onRecover={jest.fn()} />);
+    const { container } = render(<NoCodeSheet open={false} onOpenChange={jest.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 });
