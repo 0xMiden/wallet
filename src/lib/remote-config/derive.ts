@@ -51,10 +51,13 @@ export interface TokenMetadata {
 
 /**
  * An Epoch token's contract read, with the Miden faucet the solver settles it into (lowercase hex): the document's
- * output for it, else the token-list's entry for its Miden symbol. Absent when neither names one.
+ * output for it, else the token-list's entry for its Miden symbol. Absent when neither names one. The faucet's own
+ * symbol and decimals are there when its on-chain metadata could be read.
  */
 export interface EpochTokenRead extends TokenMetadata {
   midenFaucetId?: string;
+  midenSymbol?: string;
+  midenDecimals?: number;
 }
 
 /**
@@ -572,16 +575,29 @@ async function probeEpochToken(
   symbol: string,
   token: EpochTokenConfig,
   tokenFaucets: Promise<Map<string, string>>,
+  readFaucet: FaucetRead,
   io: DeriveDeps
 ): Promise<Probe<EpochTokenRead>> {
   const read = await probeEpochTokenMetadata(reads, chainId, symbol, token);
   if (read.state !== 'ok') return read;
   const listed = epochTokenFaucetId(config, token) ?? (await tokenFaucets).get(token.midenSymbol ?? symbol);
   if (listed === undefined) return read;
+  let midenFaucetId: string;
   try {
-    return { state: 'ok', value: { ...read.value, midenFaucetId: await io.midenAccountHex(listed) } };
+    midenFaucetId = await io.midenAccountHex(listed);
   } catch {
     return read;
+  }
+  // A deposit converts the amount the user types with the faucet's own scale, so a faucet that cannot be read keeps
+  // the token off the deposit picker; a send needs only the id.
+  try {
+    const faucet = await readFaucet(midenFaucetId);
+    return {
+      state: 'ok',
+      value: { ...read.value, midenFaucetId, midenSymbol: faucet.symbol, midenDecimals: faucet.decimals }
+    };
+  } catch {
+    return { state: 'ok', value: { ...read.value, midenFaucetId } };
   }
 }
 
@@ -737,7 +753,16 @@ export async function deriveBridgeConfig(
       Object.fromEntries(
         Object.entries(chain.bridges.epoch?.tokens ?? {}).map(([symbol, token]) => [
           symbol,
-          probeEpochToken(evmReads.get(chain.chainId) ?? null, chain.chainId, config, symbol, token, tokenFaucets, io)
+          probeEpochToken(
+            evmReads.get(chain.chainId) ?? null,
+            chain.chainId,
+            config,
+            symbol,
+            token,
+            tokenFaucets,
+            readFaucet,
+            io
+          )
         ])
       )
     ])

@@ -37,6 +37,16 @@ export interface EpochToken extends EvmUsdc {
   key: string;
   /** The Miden faucet the solver settles the token into (lowercase hex, `EpochTokenRead`); absent when none resolved. */
   midenFaucetId?: string;
+  /** That faucet's on-chain symbol and decimals; absent when its metadata could not be read. */
+  midenSymbol?: string;
+  midenDecimals?: number;
+}
+
+/** An Epoch token a deposit can deliver: one whose Miden faucet, and that faucet's scale, are known. */
+export interface EpochDepositToken extends EpochToken {
+  midenFaucetId: string;
+  midenSymbol: string;
+  midenDecimals: number;
 }
 
 export interface EarnMarket {
@@ -135,6 +145,19 @@ export function selectEpochToken(s: BridgeConfigSnapshot, chainId: number, key: 
 export function selectEpochTokens(s: BridgeConfigSnapshot, chainId: number): EpochToken[] {
   const keys = Object.keys(selectEpochChain(s, chainId)?.bridges.epoch?.tokens ?? {});
   return keys.flatMap(key => selectEpochToken(s, chainId, key) ?? []);
+}
+
+/**
+ * The tokens a Fast deposit can start from on `chainId`, in document order: those of a route with deposits on whose
+ * Miden faucet and its scale the derivation read. Empty while the route takes no deposit.
+ */
+export function selectEpochDepositTokens(s: BridgeConfigSnapshot, chainId: number): EpochDepositToken[] {
+  if (selectEpochChain(s, chainId)?.bridges.epoch?.depositEnabled !== true) return [];
+  return selectEpochTokens(s, chainId).flatMap(token => {
+    const { midenFaucetId, midenSymbol, midenDecimals } = token;
+    if (midenFaucetId === undefined || midenSymbol === undefined || midenDecimals === undefined) return [];
+    return [{ ...token, midenFaucetId, midenSymbol, midenDecimals }];
+  });
 }
 
 /**

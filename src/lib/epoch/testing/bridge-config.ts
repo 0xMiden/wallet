@@ -143,7 +143,19 @@ const TEST_DERIVED: DerivedBridgeConfig = {
     [TEST_EVM_CHAIN_ID]: {
       ...UNREAD_CHAIN,
       epoch: {
-        tokens: { USDC: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } } }
+        // The route's USDC settles into the testnet output faucet, read at its own scale.
+        tokens: {
+          USDC: {
+            state: 'ok',
+            value: {
+              symbol: TEST_EVM_USDC.symbol,
+              decimals: TEST_EVM_USDC.decimals,
+              midenFaucetId: TEST_MIDEN_USDC.faucetId,
+              midenSymbol: TEST_MIDEN_USDC.symbol,
+              midenDecimals: TEST_MIDEN_USDC.decimals
+            }
+          }
+        }
       }
     }
   },

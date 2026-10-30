@@ -514,6 +514,14 @@ const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') 
   await settle();
 };
 
+/** Picks the source network `id` in the network drawer. */
+const pickNetwork = async (id: string) => {
+  fireEvent.click(screen.getByTestId('open-network-drawer'));
+  await settle();
+  fireEvent.click(screen.getByTestId(`pick-network-${id}`));
+  await settle();
+};
+
 const reachRouteStep = async () => {
   fireEvent.click(screen.getByTestId('set-amount'));
   await settle();
@@ -681,6 +689,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     renderScreen();
 
     await pickToken('pick-circle-usdc');
+    // ETH is offered on the chain that has the AggLayer route, so that chain is picked first.
+    await pickNetwork('sepolia');
     await pickToken('pick-eth');
     await reachRouteStep();
 
@@ -737,12 +747,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
   });
 
-  it('moves ETH picked from Circle USDC to the AggLayer route, which names its chain and continues', async () => {
+  it('moves to the AggLayer route once its chain is picked and ETH chosen, and continues', async () => {
     mockBridgeSnapshot = withAgglayerEth(withoutEpochUsdc(), route => route);
     renderScreen();
     await settle();
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
 
+    await pickNetwork('sepolia');
     await pickToken('pick-eth');
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
     fireEvent.click(screen.getByTestId('set-amount'));

@@ -1,4 +1,4 @@
-import type { Probe, TokenMetadata } from './derive';
+import type { EpochTokenRead, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
 import type { GeoFeature, GeoLookup } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
@@ -114,6 +114,15 @@ function checkEpochTokens(reads: Record<string, Probe<TokenMetadata>> | undefine
   return probes.some(probe => probe.state === 'ok') ? null : checkProbe(probes[0], 'Epoch token');
 }
 
+// A deposit is quoted in the delivering faucet's base units, so a route takes deposits while one of its tokens has a
+// Miden faucet whose scale the derivation read. A route none of whose tokens read is reported by `checkEpochTokens`.
+function checkEpochDepositTokens(reads: Record<string, Probe<EpochTokenRead>> | undefined): FeatureAvailability | null {
+  const read = Object.values(reads ?? {}).flatMap(probe => (probe.state === 'ok' ? [probe.value] : []));
+  if (read.length === 0) return null;
+  const delivers = read.some(token => token.midenFaucetId !== undefined && token.midenDecimals !== undefined);
+  return delivers ? null : unavailable('not-configured', 'no Epoch token with a known Miden faucet');
+}
+
 function chainAvailability(
   feature: BridgeFeature,
   chain: SupportedEvmChainConfig,
@@ -155,9 +164,10 @@ function chainAvailability(
       if (!derived) return { state: 'loading' };
       checks.push(checkProbe(derived.epoch.allocator, 'Epoch allocator'));
       if (feature !== 'earnDeposit') checks.push(checkEpochTokens(reads?.epoch.tokens));
-      // Earn spends the native USDCx on every network (selectEarnCollateral), never the legacy output faucet.
+      // Each deposit token delivers into its own faucet (`EpochTokenRead`), so Fast bridge-in needs one whose faucet
+      // was read, not the testnet's output faucet, which a mainnet document never names.
       if (feature === 'fastBridgeIn' && !overrides.earnCollateralFaucet) {
-        checks.push(checkProbe(derived.epoch.midenUsdcFaucet, 'Epoch output faucet'));
+        checks.push(checkEpochDepositTokens(reads?.epoch.tokens));
       }
       break;
     case 'bridgeIn':

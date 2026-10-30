@@ -290,11 +290,19 @@ function chainReads(value: unknown): DerivedChainConfig | null {
   };
 }
 
-// An Epoch token's read: its contract's metadata, and the faucet it settles into when the derivation resolved one.
+// An Epoch token's read: its contract's metadata, the faucet it settles into when the derivation resolved one, and
+// that faucet's own metadata when it was read too.
 function epochTokenRead(value: unknown): EpochTokenRead | null {
   const read = metadata(value);
   if (!read || !isRecord(value) || value.midenFaucetId === undefined) return read;
-  return isMidenAccountId(value.midenFaucetId) ? { ...read, midenFaucetId: value.midenFaucetId } : null;
+  if (!isMidenAccountId(value.midenFaucetId)) return null;
+  if (value.midenSymbol === undefined && value.midenDecimals === undefined) {
+    return { ...read, midenFaucetId: value.midenFaucetId };
+  }
+  const faucet = metadata({ symbol: value.midenSymbol, decimals: value.midenDecimals });
+  return faucet
+    ? { ...read, midenFaucetId: value.midenFaucetId, midenSymbol: faucet.symbol, midenDecimals: faucet.decimals }
+    : null;
 }
 
 // One token read that does not read back makes the whole map unreadable, as a partial list would hide a token.

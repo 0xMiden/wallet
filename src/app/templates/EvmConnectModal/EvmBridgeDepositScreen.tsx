@@ -32,9 +32,11 @@ import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { quotedPrice } from 'lib/prices/binance';
 import { evmQuote } from 'lib/prices/evm';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
@@ -47,8 +49,7 @@ import {
   selectAgglayerDepositTokens,
   selectAgglayerRecoveryConfig,
   selectAgglayerRegistryToken,
-  selectEvmUsdc,
-  selectMidenUsdc
+  selectEpochDepositTokens
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
@@ -104,12 +105,12 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
-import { type DepositToken, type OfferedErc20 } from './deposit-token';
+import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
-import { type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
+import { type DepositEpochRow, type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
 import { useDepositToken } from './useDepositToken';
@@ -118,6 +119,8 @@ import { useDepositToken } from './useDepositToken';
 // Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
 const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
+// The address a chain's native coin is deposited at, on AggLayer and on an Epoch route alike.
+const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
 // The source chains a USDCx deposit can start from on this network family, as the network drawer lists them.
 // Every read, signer call and receipt wait below takes its chain from the chosen `UsdcxSourceChain` entry.
 const MOCK_USDC_GET_BALANCE_ABI = [
@@ -380,12 +383,16 @@ async function readErc20Decimals(contract: `0x${string}`, chainId: number): Prom
   return decodeFunctionResult({ abi: ERC20_DECIMALS_ABI, functionName: 'decimals', data: result });
 }
 
-/** The symbol the recipient gets on Miden. xReserve mints USDCx; the other routes keep the source symbol. */
-function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
+/**
+ * The symbol the recipient gets on Miden. xReserve mints USDCx; Epoch delivers its token's Miden faucet
+ * (`deliveredSymbol`); AggLayer keeps the source symbol.
+ */
+function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string, deliveredSymbol: string): string {
   switch (route) {
     case 'usdcx':
       return USDCX_SYMBOL;
     case 'epoch':
+      return deliveredSymbol || sourceSymbol;
     case 'agglayer':
     default:
       return sourceSymbol;
@@ -393,15 +400,12 @@ function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
 }
 
 /**
- * The route after a token change. Circle's USDC bridges only through xReserve, and no other token
- * can use that route; a registered ERC-20 bridges only through AggLayer; a token leaving xReserve
- * goes to AggLayer, since only the retired Epoch USDC confirms on Fast. Between ETH and the
- * bridge's own USDC the chosen route stays.
+ * The one route a token bridges through. Circle's USDC bridges only through xReserve, a token of the chain's Epoch
+ * route only through Epoch, and ETH and a registered ERC-20 only through AggLayer.
  */
-function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): BridgeRoute {
-  if (next === 'CIRCLE_USDC') return 'usdcx';
-  if (typeof next !== 'string' || current === 'usdcx') return 'agglayer';
-  return current;
+function routeForToken(token: DepositToken): BridgeRoute {
+  if (token === 'CIRCLE_USDC') return 'usdcx';
+  return epochTokenKey(token) === null ? 'agglayer' : 'epoch';
 }
 
 async function readEthBalance(evmAddress: string, chainId: number, observer?: BalanceStageObserver): Promise<bigint> {
@@ -477,8 +481,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // deposit, nor change the amount, token or wallet it was confirmed with. Once the row exists the screen stays on the
   // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
-  // True once the user picked a token in the drawer; the document's opening token is applied only before that.
-  const tokenChosen = useRef(false);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
 
@@ -494,29 +496,41 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>(token === 'CIRCLE_USDC' ? 'usdcx' : 'epoch');
-  // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
-  // that chain offers the route, else the first that does.
+  const [route, setRoute] = useState<BridgeRoute>(routeForToken(token));
+  // The one chain picked in the network drawer. Every route starts from it, and the token drawer offers what it bridges.
   const [pickedChainId, setPickedChainId] = useState<number>();
   const bridgeConfig = useBridgeConfigSnapshot();
-  const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains().flatMap(entry => {
-    const network = getBridgeNetworkByChainId(entry.chain.id);
-    return network ? [network] : [];
-  });
-  const usdcxSource = useMemo(() => {
-    const sources = usdcxSourceChains(bridgeConfig);
-    return (
-      (pickedChainId === undefined ? undefined : sources.get(pickedChainId)) ??
-      sources.get(defaultUsdcxChainId()) ??
-      sources.values().next().value
-    );
-  }, [pickedChainId, bridgeConfig]);
+  const usdcxSources = useMemo(() => usdcxSourceChains(bridgeConfig), [bridgeConfig]);
+  // Every chain a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers a
+  // token, or an AggLayer chain that takes deposits. The list is the same for every token.
+  const sourceNetworks = useMemo<readonly BridgeNetwork[]>(() => {
+    const circle = new Set(listUsdcxSourceChains().map(entry => entry.chain.id));
+    return Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).flatMap(entry => {
+      const offered =
+        circle.has(entry.chainId) ||
+        selectEpochDepositTokens(bridgeConfig, entry.chainId).length > 0 ||
+        entry.bridges.agglayer?.depositEnabled === true;
+      const network = getBridgeNetworkByChainId(entry.chainId);
+      return offered && network ? [network] : [];
+    });
+  }, [bridgeConfig]);
+  // The picked chain, else Circle's default source, else the first chain listed. Zero while the config lists none: the
+  // form then asks for a network instead of naming a compiled default.
+  const sourceChainId = (() => {
+    if (pickedChainId !== undefined) return pickedChainId;
+    const circleDefault = defaultUsdcxChainId();
+    if (sourceNetworks.some(network => network.chainId === circleDefault)) return circleDefault;
+    return sourceNetworks[0]?.chainId ?? 0;
+  })();
+  // Circle's source on the picked chain, when that chain is one.
+  const usdcxSource = usdcxSources.get(sourceChainId);
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
   // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
   // was quoted for, so a fee for an earlier amount is never shown.
   const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
   const [amount, setAmount] = useState('');
-  const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
+  // The connected wallet's balance of each Epoch token of the source chain, by its document key.
+  const [epochBalances, setEpochBalances] = useState<Record<string, BridgeBalance>>({});
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
   const usdcxAvailability = useFeatureAvailability('usdcxDeposit', { chainId: usdcxSource?.chain.id });
@@ -531,26 +545,51 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // True between the approval being signed and the bridge prompt being answered — the gap in
   // which the wallet is silent and the user would otherwise read the flow as finished.
   const [awaitingNextConfirmation, setAwaitingNextConfirmation] = useState(false);
-  // The Fast USDC pair the bridge config names: the EVM token deposited and the Miden faucet the solver delivers
-  // into. While the config names none the Fast route reads unavailable, and nothing below quotes or bridges USDC.
   const allocatorUrl = bridgeConfig.config?.['bridge-providers'].epoch.allocatorUrl;
   // The selectors build new objects on every snapshot publish. Rebuilt from their fields, these keep their identity
   // until a value moves, so the balance read and the quote keyed on them run again only then.
   const usdPrices = useWalletStore(state => state.tokenPrices);
   const nativeUsdFaucetId = useMidenFaucetId();
-  const agglayerChain = selectAgglayerChain(bridgeConfig, pickedChainId) ?? selectAgglayerChain(bridgeConfig);
-  const selectedEvmUsdc =
-    route === 'agglayer'
-      ? selectEvmUsdc(bridgeConfig, agglayerChain?.chainId)
-      : (selectEvmUsdc(bridgeConfig, pickedChainId) ?? selectEvmUsdc(bridgeConfig));
+  // The AggLayer route of the picked chain, when it has one: ETH and the registered ERC-20s are offered only there.
+  const agglayerChain = selectAgglayerChain(bridgeConfig, sourceChainId);
   const agglayerChainId = agglayerChain?.chainId;
   const agglayerRecovery = selectAgglayerRecoveryConfig(bridgeConfig, agglayerChainId);
-  const evmUsdcAddress = selectedEvmUsdc?.address;
-  const evmUsdcChainId = selectedEvmUsdc?.chainId;
-  const usdcSymbol = selectedEvmUsdc?.symbol ?? '';
+  // The tokens the picked chain's Epoch route takes a deposit of, each with the Miden faucet it delivers into.
+  const epochTokens = useMemo(
+    () => selectEpochDepositTokens(bridgeConfig, sourceChainId),
+    [bridgeConfig, sourceChainId]
+  );
+  // A token is one token whatever the provider: on a chain whose Epoch route takes the same token, picking the Fast
+  // route for Circle's USDC or AggLayer's ETH deposits the Epoch route's token of that key.
+  const sharedFastKey = (() => {
+    switch (token) {
+      case 'CIRCLE_USDC':
+        return 'USDC';
+      case 'ETH':
+        return 'ETH';
+      default:
+        return null;
+    }
+  })();
+  const sharedFastToken =
+    sharedFastKey === null ? undefined : epochTokens.find(candidate => candidate.key === sharedFastKey);
+  // The token's own Epoch key: the Epoch route is its only route, but for the Epoch USDC's AggLayer one.
+  const ownFastKey = epochTokenKey(token);
+  // The Epoch key the deposit runs on: the token's own, or the shared one while the Fast route is picked.
+  const fastKey = sharedFastKey !== null ? (route === 'epoch' ? sharedFastKey : null) : ownFastKey;
+  const fastToken = fastKey === null ? null : (epochTokens.find(candidate => candidate.key === fastKey) ?? null);
+  // The Fast pair, named for the USDC it first carried: the picked Epoch token and the Miden faucet the solver delivers
+  // it into. While the route lists no such token the Fast route reads unavailable, and nothing below quotes or bridges.
+  const evmUsdcAddress = fastToken?.address;
+  const evmUsdcChainId = fastToken?.chainId;
+  const usdcSymbol = fastToken?.symbol ?? '';
+  // A native coin is deposited as the call's value, with no approval, and its balance is the account's own.
+  const fastNative = evmUsdcAddress?.toLowerCase() === NATIVE_TOKEN_ADDRESS;
   // The one name the drawer, the amount step and the Review give the bridge's own USDC, while its read is pending
-  // too. Circle's USDC on Arc Testnet is another token: it keeps its symbol and never takes that label.
-  const usdcLabel = evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC');
+  // too. Circle's USDC on Arc Testnet is another token: it keeps its symbol and never takes that label, and so does
+  // any other Epoch token.
+  const usdcLabel = fastKey === 'USDC' ? evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC') : usdcSymbol;
+  const usdcBalance = fastKey === null ? EMPTY_BALANCE : (epochBalances[fastKey] ?? EMPTY_BALANCE);
   // Keep the list stable between config updates, including an empty list. A new list restarts the balance reads.
   const depositTokens = useMemo(
     () => selectAgglayerDepositTokens(bridgeConfig, agglayerChainId),
@@ -610,33 +649,34 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // pick unresolved, which the route step reports instead of bridging it.
   const erc20 = useMemo<OfferedErc20 | null>(
     () =>
-      typeof token === 'string'
+      typeof token === 'string' || token.kind !== 'erc20'
         ? null
         : (offeredErc20s.find(candidate => candidate.contractAddress === token.contractAddress) ?? null),
     [token, offeredErc20s]
   );
+  // True for a pick of an ERC-20 offered on the AggLayer chain, resolved in `erc20` or not.
+  const erc20Picked = typeof token !== 'string' && token.kind === 'erc20';
   // The bridge's own USDC keeps its testnet label wherever it is picked from; any other ERC-20 is its symbol.
   const erc20Label = (candidate: OfferedErc20): string =>
     evmUsdcAddress !== undefined && candidate.contractAddress === evmUsdcAddress.toLowerCase()
       ? evmUsdcLabel(bridgeConfig, candidate.symbol)
       : candidate.symbol;
   const { tokenSymbol, tokenLabel } = (() => {
-    if (typeof token !== 'string') {
-      return { tokenSymbol: erc20?.symbol ?? '', tokenLabel: erc20 ? erc20Label(erc20) : '' };
-    }
+    if (fastKey !== null) return { tokenSymbol: usdcSymbol, tokenLabel: usdcLabel };
+    if (erc20Picked) return { tokenSymbol: erc20?.symbol ?? '', tokenLabel: erc20 ? erc20Label(erc20) : '' };
     switch (token) {
       case 'ETH':
         return { tokenSymbol: ETH_SYMBOL, tokenLabel: ETH_SYMBOL };
       case 'CIRCLE_USDC':
-        return { tokenSymbol: CIRCLE_USDC_SYMBOL, tokenLabel: CIRCLE_USDC_SYMBOL };
-      case 'USDC':
       default:
-        return { tokenSymbol: usdcSymbol, tokenLabel: usdcLabel };
+        return { tokenSymbol: CIRCLE_USDC_SYMBOL, tokenLabel: CIRCLE_USDC_SYMBOL };
     }
   })();
+  // The Miden token another Epoch token arrives as; the Epoch USDC arrives under its label, as it always has.
+  const deliveredSymbol = fastKey === 'USDC' ? undefined : fastToken?.midenSymbol;
   // The route stays chosen when the user steps back, so the amount step names the arriving token as the Review does.
-  const arrivingName = arrivingTokenName(route, tokenSymbol, tokenLabel);
-  const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
+  const arrivingName = arrivingTokenName(route, tokenSymbol, tokenLabel, deliveredSymbol);
+  const usdcDecimals = fastToken?.decimals ?? 0;
   // The decimals a Slow (AggLayer) deposit converts the typed amount with: the picked token's own.
   const slowSourceDecimals = (() => {
     if (token === 'ETH') return ETH_DECIMALS;
@@ -650,79 +690,111 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         : null,
     [evmUsdcAddress, evmUsdcChainId, usdcSymbol, usdcDecimals]
   );
-  const selectedMidenUsdc = selectMidenUsdc(bridgeConfig);
-  const midenUsdcFaucetId = selectedMidenUsdc?.faucetId;
-  const midenUsdcSymbol = selectedMidenUsdc?.symbol ?? '';
-  const midenUsdcDecimals = selectedMidenUsdc?.decimals ?? 0;
+  const midenUsdcFaucetId = fastToken?.midenFaucetId;
+  const midenUsdcSymbol = fastToken?.midenSymbol ?? '';
+  const midenUsdcDecimals = fastToken?.midenDecimals ?? 0;
   const midenUsdc = useMemo<MidenUsdc | null>(
     () =>
       midenUsdcFaucetId ? { faucetId: midenUsdcFaucetId, symbol: midenUsdcSymbol, decimals: midenUsdcDecimals } : null,
     [midenUsdcFaucetId, midenUsdcSymbol, midenUsdcDecimals]
   );
-  // A token or chain not named yet while the snapshot loads is a wait, not a failure.
-  const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
+  // A chain not named yet while the snapshot loads is a wait, not a failure.
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
   // The config moves the token or route below only on the opening amount step and never under a confirm, so a publish
-  // cannot flip a deposit on its way to, or on, Review. A token the user picked stands.
+  // cannot flip a deposit on its way to, or on, Review.
   const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
-  // A retained legacy engine state may move to Circle when its old source is no longer configured.
-  // New flows already start on Circle.
+  // What the picked chain offers, in the order a token it does not offer falls back to: Circle USDC, then native ETH,
+  // then each Epoch token. Where Circle carries USDC, or AggLayer ETH, the Epoch route's token of that key is the same
+  // token, offered under Circle's or AggLayer's row with Fast as its other route. A registered ERC-20 is offered
+  // wherever ETH is, and is never a fallback.
+  const circleOffered = usdcxSource !== undefined && usdcxAvailable;
+  const ownRowCarries = useCallback(
+    (key: string) => (key === 'USDC' && circleOffered) || (key === 'ETH' && agglayerChain !== null),
+    [circleOffered, agglayerChain]
+  );
+  const fallbackTokens = useMemo(() => {
+    const tokens: DepositToken[] = [];
+    if (circleOffered) tokens.push('CIRCLE_USDC');
+    if (agglayerChain) tokens.push('ETH');
+    for (const candidate of epochTokens) {
+      if (!ownRowCarries(candidate.key)) tokens.push({ kind: 'epoch', key: candidate.key });
+    }
+    return tokens;
+  }, [circleOffered, epochTokens, agglayerChain, ownRowCarries]);
+  const tokenOffered = erc20Picked
+    ? agglayerChain !== null
+    : fallbackTokens.some(candidate => depositTokenKey(candidate) === depositTokenKey(token));
+  // A token the picked chain does not offer, the opening Circle USDC on a chain without Circle deposits included, moves
+  // to the first token it does. Nothing moves while the config or Circle's availability is still loading.
   useEffect(() => {
-    if (tokenChosen.current || confirming.current || !onAmountStep) return;
-    if (token !== 'USDC' || usdcPending || usdcxPending) return;
-    if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
-    selectToken('CIRCLE_USDC');
-    setRoute('usdcx');
-  }, [onAmountStep, token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
-  // Circle USDC is the opening token. Where Circle deposits are unavailable (no source, or switched off) the network
-  // may still offer native ETH; never fall back to the retired Epoch test token, even if an older config advertises it.
+    if (confirming.current || !onAmountStep) return;
+    if (tokenOffered || bridgeConfig.status === 'loading' || usdcxPending) return;
+    const first = fallbackTokens[0];
+    if (first === undefined) return;
+    selectToken(first);
+    setRoute(routeForToken(first));
+  }, [onAmountStep, tokenOffered, bridgeConfig.status, usdcxPending, fallbackTokens, selectToken]);
+  // Circle's USDC or AggLayer's ETH on the Fast route moves back to its own route on a chain whose Epoch route does not
+  // take that token.
   useEffect(() => {
-    if (tokenChosen.current || confirming.current || !onAmountStep) return;
-    if (token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading' || usdcxPending) return;
-    if ((usdcxSource && usdcxAvailable) || !agglayerChain) return;
-    selectToken('ETH');
-    setRoute('agglayer');
-  }, [onAmountStep, token, bridgeConfig.status, usdcxPending, usdcxSource, usdcxAvailable, agglayerChain, selectToken]);
+    if (confirming.current || !onAmountStep) return;
+    if (sharedFastKey !== null && route === 'epoch' && sharedFastToken === undefined) setRoute(routeForToken(token));
+  }, [onAmountStep, token, route, sharedFastKey, sharedFastToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const configuredFastAvailability = useFeatureAvailability('fastBridgeIn', {
     hold: routesAhead,
-    chainId: evmUsdcChainId
+    chainId: sourceChainId
   });
   const configuredSlowAvailability = useFeatureAvailability('bridgeIn', {
     hold: routesAhead,
     chainId: agglayerChainId
   });
+  // An Epoch token bridges through Epoch, and an ERC-20 only through AggLayer; ETH takes AggLayer, and Epoch too where
+  // the chain's Epoch route lists it. The Epoch USDC can also take the AggLayer route where that route is on the same
+  // chain.
   const slowAvailability: FeatureAvailability = (() => {
-    if (token === 'USDC' && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
-      return { state: 'unavailable', reason: 'not-configured', detail: 'AggLayer has no supported USDC on this chain' };
+    if (ownFastKey !== null && (ownFastKey !== 'USDC' || !evmUsdcChainId || evmUsdcChainId !== agglayerChainId)) {
+      return {
+        state: 'unavailable',
+        reason: 'not-configured',
+        detail: 'AggLayer has no supported token on this chain'
+      };
     }
-    if (typeof token !== 'string' && erc20 === null) {
+    if (erc20Picked && erc20 === null) {
       return { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') };
     }
     return configuredSlowAvailability;
   })();
-  // Fast (Epoch) quotes only its own USDC; an offered ERC-20 has the one route, AggLayer.
-  const fastAvailability = useMemo<FeatureAvailability>(
-    () =>
-      typeof token === 'string'
+  // The Fast card is open to an Epoch token the route lists, and to ETH or Circle's USDC while it lists the same token.
+  const fastAvailability = useMemo<FeatureAvailability>(() => {
+    if (sharedFastKey !== null) {
+      return sharedFastToken
         ? configuredFastAvailability
-        : { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') },
-    [token, configuredFastAvailability, t]
-  );
+        : { state: 'unavailable', reason: 'not-configured', detail: 'The Epoch route lists no such token here' };
+    }
+    if (ownFastKey === null) {
+      return { state: 'unavailable', reason: 'not-configured', detail: 'This token bridges through AggLayer only' };
+    }
+    if (fastToken === null) {
+      return { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') };
+    }
+    return configuredFastAvailability;
+  }, [sharedFastKey, sharedFastToken, ownFastKey, fastToken, configuredFastAvailability, t]);
 
   // The connected wallet's balance of each registered ERC-20, by its lowercase address, read together.
   const [erc20Balances, setErc20Balances] = useState<Record<string, BridgeBalance>>({});
   const selectedBalance = (() => {
-    if (typeof token !== 'string') return erc20Balances[token.contractAddress] ?? EMPTY_BALANCE;
+    if (fastKey !== null) return usdcBalance;
+    if (typeof token !== 'string' && token.kind === 'erc20') {
+      return erc20Balances[token.contractAddress] ?? EMPTY_BALANCE;
+    }
     switch (token) {
       case 'ETH':
         return ethBalance;
       case 'CIRCLE_USDC':
-        return circleUsdcBalance;
-      case 'USDC':
       default:
-        return usdcBalance;
+        return circleUsdcBalance;
     }
   })();
   // Circle's display quote follows the amount the user settled on, not every keystroke.
@@ -730,10 +802,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
   const usdcxQuotedFee =
     usdcxQuotedFeeUnits === undefined ? undefined : formatUnits(usdcxQuotedFeeUnits, CIRCLE_USDC_DECIMALS);
-  // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
-  // (not implemented yet) and Slow (Agglayer) needs no quote.
+  // Only an Epoch token on the Fast route is quoted; Slow (AggLayer) and Circle need no quote.
   const [debouncedAmount] = useDebounce(
-    token === 'USDC' && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
+    fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
     500
   );
 
@@ -755,41 +826,43 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     resetEpoch();
   }, [resetEpoch]);
 
+  // Every Epoch token's balance on the source chain, each row settling on its own: the native coin is the account's own
+  // balance, any other token its ERC-20 balance. Keyed on the token set, not the array a config publish rebuilds.
+  const epochTokensRef = useRef(epochTokens);
+  epochTokensRef.current = epochTokens;
+  const epochTokensKey = epochTokens.map(({ key, address, decimals }) => `${key}:${address}:${decimals}`).join(',');
   useEffect(() => {
-    setUsdcBalance(EMPTY_BALANCE);
-    if (token !== 'USDC' || usdcPending) return;
+    setEpochBalances({});
+    const tokens = epochTokensRef.current;
+    if (tokens.length === 0) return;
     let cancelled = false;
-    const evidence = createBalanceEvidence('fast_usdc');
-
-    const usdcRead = evmUsdc
-      ? readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId, evidence.observe)
-      : Promise.reject(new Error('The bridge config names no USDC token.'));
-    usdcRead
-      .then(value => {
-        if (cancelled || !evmUsdc) return;
-        setUsdcBalance({
-          value,
-          formatted: formatBalance(value, evmUsdc.decimals),
-          loading: false,
-          error: null
-        });
-      })
-      .catch(err => {
-        if (cancelled) return;
-        setUsdcBalance({
-          value: null,
-          formatted: '0',
-          loading: false,
-          error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed',
-          errorDiagnostics: evidence.snapshot()
-        });
-      });
-
+    const settle = (key: string, balance: BridgeBalance) => {
+      if (cancelled) return;
+      setEpochBalances(current => ({ ...current, [key]: balance }));
+    };
+    for (const { key, address, chainId, decimals } of tokens) {
+      const native = address.toLowerCase() === NATIVE_TOKEN_ADDRESS;
+      const evidence = createBalanceEvidence(native ? 'native' : 'fast_usdc');
+      const read = native
+        ? readEthBalance(evmAddress, chainId, evidence.observe)
+        : readEpochUsdcBalance(evmAddress, address, chainId, evidence.observe);
+      read
+        .then(value => settle(key, { value, formatted: formatBalance(value, decimals), loading: false, error: null }))
+        .catch(err =>
+          settle(key, {
+            value: null,
+            formatted: '0',
+            loading: false,
+            error: errorMessage(err),
+            errorId: 'raw_bridge_balance_failed',
+            errorDiagnostics: evidence.snapshot()
+          })
+        );
+    }
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, evmUsdc, usdcPending, token]);
+  }, [evmAddress, epochTokensKey]);
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
@@ -918,17 +991,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
         evmSourceAddress: evmAddress,
         evmTokenAddress: evmUsdc.address,
+        isNative: fastNative,
         midenRecipientId: midenAccount.publicKey,
         midenFaucetId: midenUsdc.faucetId,
         minTokenOut
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, evmUsdc, midenAccount.publicKey, midenUsdc, quoteEVMToMiden]);
+  }, [debouncedAmount, evmAddress, evmUsdc, fastNative, midenAccount.publicKey, midenUsdc, quoteEVMToMiden]);
 
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
-    if (route !== 'epoch' || token !== 'USDC') return;
+    if (route !== 'epoch' || fastKey === null) return;
     // A quote resets the store's deposit state, stopping its status poll, so nothing quotes over a deposit that has
     // started. Read, not subscribed: a status change alone must never quote, or a landed quote starts another and a
     // deposit that fails is re-quoted over its error.
@@ -938,7 +1012,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
     const quoting = requote();
     if (quoting === undefined) resetEpoch();
-  }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, token]);
+  }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, fastKey]);
 
   useEffect(() => {
     if (compactWatchClosed || epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
@@ -955,11 +1029,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      if (confirming.current || next === 'USDC') return;
-      tokenChosen.current = true;
+      if (confirming.current) return;
       setTokenDrawerOpen(false);
       selectToken(next);
-      setRoute(current => routeAfterTokenChange(next, current));
+      setRoute(routeForToken(next));
     },
     [selectToken]
   );
@@ -1132,10 +1205,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // token address; an ERC-20 is approved to the bridge first, unless its allowance
         // already covers the deposit, and then bridged with its own address and no value.
         const isNative = token === 'ETH';
-        if (token === 'USDC' && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
-          throw walletRaised(new Error('The bridge config has no supported USDC on this chain.'));
+        if (fastKey !== null && (fastKey !== 'USDC' || !evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
+          throw walletRaised(new Error('The bridge config has no supported token for AggLayer on this chain.'));
         }
-        if (typeof token !== 'string' && !erc20) {
+        if (erc20Picked && !erc20) {
           throw walletRaised(new Error('The bridge does not list this token on this chain.'));
         }
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
@@ -1300,8 +1373,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       depositError,
       ensureBalanceCovers,
       erc20,
+      erc20Picked,
       evmAddress,
       evmUsdc,
+      fastKey,
       midenAccount.publicKey,
       nativeReownAvailable,
       slowSourceDecimals,
@@ -1548,8 +1623,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       try {
         if (!evmUsdc || quotedTokenIn === null) throw walletRaised(new Error('The Fast route has no quoted deposit.'));
         step = 'precheck_balance';
+        // A native deposit is held to the quoted amount alone; a gas shortfall on top stays the wallet's to report.
         await ensureBalanceCovers(quotedTokenIn, evmUsdc.decimals, evmUsdc.chainId, () =>
-          readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
+          fastNative
+            ? readEthBalance(evmAddress, evmUsdc.chainId)
+            : readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
         );
         step = 'precheck_session_chain';
         if (nativeReownAvailable) await prepareNativeSessionChain(evmUsdc.chainId);
@@ -1565,11 +1643,31 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       }
       await executeEVMToMiden(trackingTxId);
     },
-    [depositError, ensureBalanceCovers, evmAddress, evmUsdc, executeEVMToMiden, nativeReownAvailable, quotedTokenIn]
+    [
+      depositError,
+      ensureBalanceCovers,
+      evmAddress,
+      evmUsdc,
+      executeEVMToMiden,
+      fastNative,
+      nativeReownAvailable,
+      quotedTokenIn
+    ]
   );
 
   const setupToken: UITokenWithPendingBalance = useMemo(() => {
-    if (typeof token !== 'string') {
+    if (fastKey !== null) {
+      return {
+        id: evmUsdc?.address ?? '',
+        name: usdcSymbol,
+        decimals: usdcDecimals,
+        balance: shownBalance(usdcBalance, usdcDecimals),
+        // Only the route's USDC is at par; any other Epoch token has no price here, so no bogus ≈USD shows.
+        fiatPrice: fastKey === 'USDC' ? 1 : 0,
+        scaleIsKnown: evmUsdc !== null
+      };
+    }
+    if (typeof token !== 'string' && token.kind === 'erc20') {
       const decimals = erc20?.decimals ?? 0;
       return {
         id: token.contractAddress,
@@ -1595,6 +1693,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           scaleIsKnown: true
         };
       case 'CIRCLE_USDC':
+      default:
         return {
           id: usdcxSource?.usdc ?? '',
           name: CIRCLE_USDC_SYMBOL,
@@ -1603,18 +1702,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           fiatPrice: 1,
           scaleIsKnown: true
         };
-      case 'USDC':
-      default:
-        return {
-          id: evmUsdc?.address ?? '',
-          name: usdcSymbol,
-          decimals: usdcDecimals,
-          balance: shownBalance(usdcBalance, usdcDecimals),
-          fiatPrice: 1,
-          scaleIsKnown: evmUsdc !== null
-        };
     }
   }, [
+    fastKey,
     token,
     erc20,
     erc20Balances,
@@ -1637,7 +1727,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // receiving account's valued holdings plus this deposit, at its own token's price (`depositTokenPrice`), and holds
   // every step while they pass it. A note that lands by any other way is not this screen's to refuse.
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const depositPrice = depositTokenPrice(token, erc20, tokenPrices);
+  const depositPrice = depositTokenPrice(
+    token,
+    fastToken ? { symbol: fastToken.midenSymbol, delivery: { midenFaucetId: fastToken.midenFaucetId } } : erc20,
+    tokenPrices
+  );
   const capVerdict = useBridgeInBalanceCap({
     accountPublicKey: midenAccount.publicKey,
     depositAmount: typedUnits === null ? null : Number(amount),
@@ -1670,14 +1764,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const capHoldErrorId = capHoldError?.id;
   const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
 
-  // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
-  // The quote must be for the amount on screen: it lags the input by the debounce, and
-  // an amount that rounds to zero faucet units is never quoted. Its deposit, not the
-  // typed amount, is what the balance has to cover.
+  // Fast (Epoch) bridges the picked Epoch token. The quote must be for the amount on screen: it lags the input by the
+  // debounce, and an amount that rounds to zero faucet units is never quoted. Its deposit, not the typed amount, is
+  // what the balance has to cover.
   const fastReady =
     route === 'epoch' &&
     fastAvailability.state === 'available' &&
-    token === 'USDC' &&
+    fastKey !== null &&
     epochFlow === 'evm-to-miden' &&
     epochStatus === 'quoted' &&
     !!epochQuote &&
@@ -1770,19 +1863,36 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const reviewAmount = quotedDeposit
     ? formatMoneyAmount(quotedDeposit, 'pays', tokenSymbol)
     : formatMoneyAmount(amount, 'typed');
+  // The Fast fee in US dollars: what goes in less what comes out. USDC in and USDCx out are both at par; any other
+  // token is valued at the feed's price on each side, and the fee is not shown while either side has none.
+  const fastInputPrice =
+    fastKey === 'USDC' ? 1 : evmQuote(usdPrices, evmUsdc?.chainId, evmUsdc?.address, bridgeConfig)?.price;
+  const fastOutputPrice =
+    fastKey === 'USDC' || !midenUsdc
+      ? 1
+      : quotedPrice(usdPrices, priceSymbolFor(midenUsdc.faucetId, midenUsdc.symbol))?.price;
   const fastFeeUsd = useMemo(() => {
     const rawIn = epochQuote?.quoteResult.tokenIn;
     const rawOut = epochQuote?.quoteResult.tokenOut;
-    if (!rawIn || !rawOut || !midenUsdc) return undefined;
+    if (!rawIn || !rawOut || !midenUsdc || fastInputPrice === undefined || fastOutputPrice === undefined) {
+      return undefined;
+    }
     try {
-      const input = parseFloat(formatUnits(BigInt(String(rawIn)), usdcDecimals));
-      const output = parseFloat(formatUnits(BigInt(String(rawOut)), midenUsdc.decimals));
+      const input = parseFloat(formatUnits(BigInt(String(rawIn)), usdcDecimals)) * fastInputPrice;
+      const output = parseFloat(formatUnits(BigInt(String(rawOut)), midenUsdc.decimals)) * fastOutputPrice;
       if (!Number.isFinite(input) || !Number.isFinite(output)) return undefined;
       return Math.max(0, input - output);
     } catch {
       return undefined;
     }
-  }, [epochQuote?.quoteResult.tokenIn, epochQuote?.quoteResult.tokenOut, midenUsdc, usdcDecimals]);
+  }, [
+    epochQuote?.quoteResult.tokenIn,
+    epochQuote?.quoteResult.tokenOut,
+    midenUsdc,
+    usdcDecimals,
+    fastInputPrice,
+    fastOutputPrice
+  ]);
   const displayedError: DepositError | null =
     route === 'epoch' && epochFlow === 'evm-to-miden'
       ? epochError == null
@@ -1806,23 +1916,34 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, amount, epochQuote?.params.minTokenOut, midenUsdc]);
 
-  const sourceChainId = (() => {
-    switch (route) {
-      case 'usdcx':
-        return usdcxSource?.chain.id ?? 0;
-      case 'agglayer':
-        return agglayerChainId ?? 0;
+  // Undefined while no chain is listed: the form then asks for a network instead of naming a compiled default.
+  const bridgeNetwork = getBridgeNetworkByChainId(sourceChainId);
+  // The deposited token's address on the source chain, which prices it.
+  const sourceTokenAddress = (() => {
+    if (fastKey !== null) return evmUsdc?.address;
+    if (typeof token !== 'string' && token.kind === 'erc20') return token.contractAddress;
+    switch (token) {
+      case 'ETH':
+        return NATIVE_TOKEN_ADDRESS;
+      case 'CIRCLE_USDC':
+        return usdcxSource?.usdc;
       default:
-        return evmUsdc?.chainId ?? 0;
+        return undefined;
     }
   })();
-  // Undefined while the route has no chain: the form then asks for a network instead of naming a compiled default.
-  const bridgeNetwork = getBridgeNetworkByChainId(sourceChainId);
-  const sourceNetworks = Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).flatMap(entry => {
-    const enabled = route === 'agglayer' ? entry.bridges.agglayer?.depositEnabled : entry.bridges.epoch?.depositEnabled;
-    const network = getBridgeNetworkByChainId(entry.chainId);
-    return enabled && network ? [network] : [];
-  });
+  // The Miden faucet the deposit arrives in, as the Review values it.
+  const outputFaucetId = (() => {
+    switch (route) {
+      case 'usdcx':
+        return nativeUsdFaucetId ?? undefined;
+      case 'epoch':
+        return midenUsdcFaucetId;
+      case 'agglayer':
+      default:
+        if (erc20Picked) return erc20?.delivery?.midenFaucetId;
+        return token === 'ETH' ? (selectNativeEthFaucet(bridgeConfig, sourceChainId) ?? undefined) : undefined;
+    }
+  })();
   const networkName = getChain(sourceChainId)?.name ?? '';
 
   // Every route step holds Confirm on the selected balance, which can be re-read while the step is up: picking Slow
@@ -1833,10 +1954,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : capHoldNotice);
   })();
 
-  // Fast/Slow hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
-  // covers can still quote a Fast deposit, fee included, above it; fastReady then holds Confirm, and this says why.
+  // Fast/Slow hint below the cards. A typed amount the balance covers can still quote a Fast deposit, fee included,
+  // above it; fastReady then holds Confirm, and this says why.
   const routeNotice = (() => {
-    if (token === 'ETH' && route === 'epoch') return t('fastEthWrapNotice');
     if (balanceHoldNotice) return balanceHoldNotice;
     const balance = usdcBalance.value;
     const quoteForAmount =
@@ -1863,7 +1983,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Allow a retry tap after a failed Fast attempt (wrong chain / reject / intent
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
   const fastRetryable =
-    route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
+    route === 'epoch' && fastKey !== null && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
   const reviewCanConfirm = (canConfirmRoute || (fastRetryable && !capHold)) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
@@ -1975,7 +2095,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           sourceAmount: depositAmount.trim(),
           sourceSymbol: tokenSymbol,
           outputAmount,
-          outputSymbol: outputSymbolFor(route, tokenSymbol)
+          outputSymbol: outputSymbolFor(route, tokenSymbol, deliveredSymbol ?? '')
         });
       const txId = await startBridgeReceiveSubmission(
         () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
@@ -1999,6 +2119,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     amount,
     canConfirmRoute,
     creatingBridgeRow,
+    deliveredSymbol,
     depositAmount,
     epochQuote?.quoteResult.tokenOut,
     epochStatus,
@@ -2038,29 +2159,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               amount={reviewAmount}
               symbol={tokenSymbol}
               label={tokenLabel}
-              sourceQuote={evmQuote(
-                usdPrices,
-                sourceChainId,
-                typeof token !== 'string'
-                  ? token.contractAddress
-                  : token === 'ETH'
-                    ? '0x0000000000000000000000000000000000000000'
-                    : token === 'CIRCLE_USDC'
-                      ? usdcxSource?.usdc
-                      : evmUsdc?.address,
-                bridgeConfig
-              )}
-              outputFaucetId={
-                route === 'usdcx'
-                  ? (nativeUsdFaucetId ?? undefined)
-                  : typeof token !== 'string'
-                    ? erc20?.delivery?.midenFaucetId
-                    : route === 'epoch'
-                      ? (midenUsdcFaucetId ?? undefined)
-                      : token === 'ETH'
-                        ? (selectNativeEthFaucet(bridgeConfig, sourceChainId) ?? undefined)
-                        : undefined
-              }
+              sourceQuote={evmQuote(usdPrices, sourceChainId, sourceTokenAddress, bridgeConfig)}
+              outputFaucetId={outputFaucetId}
+              deliveredSymbol={route === 'epoch' ? deliveredSymbol : undefined}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
@@ -2070,7 +2171,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               sourceChainId={sourceChainId}
               extensionId={typeof window !== 'undefined' ? chromeExtensionWalletConnectId(window.location) : undefined}
               promptAmount={depositAmount.trim()}
-              nativeSource={route === 'agglayer' && token === 'ETH'}
+              nativeSource={(route === 'agglayer' && token === 'ETH') || (route === 'epoch' && fastNative)}
               epochResourceLockRequired={epochQuote?.quoteResult.resourceLockRequired}
               epochQuoteTransactions={epochQuote?.quoteResult.transactions}
               promptContract={
@@ -2096,12 +2197,26 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             />
           );
         case ReceiveStep.ShowBridgePageRoute:
-          // USDC has one route (Circle xReserve); ETH picks Fast or Slow.
-          if (route === 'usdcx') {
+          // Circle's USDC takes Circle, or Fast where the chain's Epoch route takes USDC too; any other token picks
+          // between Fast and Slow.
+          if (token === 'CIRCLE_USDC') {
             return (
               <EvmBridgeUsdcxRoute
                 confirmDisabled={!canConfirmRoute}
                 onConfirm={handleContinueToReview}
+                onSelectCircle={() => handleRouteChange('usdcx')}
+                fast={
+                  sharedFastToken
+                    ? {
+                        selected: route === 'epoch',
+                        onSelect: () => handleRouteChange('epoch'),
+                        availability: configuredFastAvailability,
+                        feeUsd: fastFeeUsd,
+                        loading: route === 'epoch' && epochStatus === 'quoting',
+                        notice: route === 'epoch' ? routeNotice : undefined
+                      }
+                    : undefined
+                }
                 sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
@@ -2138,6 +2253,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
+              logoFaucetId={route === 'epoch' ? midenUsdcFaucetId : undefined}
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
@@ -2177,10 +2293,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       amount,
       amountExceedsBalance,
       usdPrices,
-      nativeUsdFaucetId,
+      sourceTokenAddress,
+      outputFaucetId,
       midenUsdcFaucetId,
-      erc20,
-      evmUsdc,
+      deliveredSymbol,
+      fastNative,
       token,
       bridgeConfig,
       agglayerRecovery?.contractAddress,
@@ -2199,6 +2316,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       midenAccount.name,
       epochStatus,
       fastAvailability,
+      sharedFastToken,
+      configuredFastAvailability,
       fastFeeUsd,
       handleAmountChange,
       handleConfirm,
@@ -2261,10 +2380,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         selected={token}
         chainId={sourceChainId}
         circleUsdcAddress={usdcxSource?.usdc}
-        // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
+        // The picked chain's tokens: Circle USDC where it is Circle's source, ETH and the registered ERC-20s where it is
+        // the AggLayer chain, and every token its Epoch route takes. USDC and ETH are one row each: where Circle carries
+        // USDC or AggLayer carries ETH, Epoch is its other route, chosen on the route step.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         ethLoading={ethBalance.loading}
-        circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
+        circleUsdcBalance={circleOffered ? circleUsdcBalance.formatted : undefined}
+        epochRows={epochTokens.flatMap((candidate): DepositEpochRow[] => {
+          if (ownRowCarries(candidate.key)) return [];
+          const balance = epochBalances[candidate.key] ?? EMPTY_BALANCE;
+          return [
+            {
+              key: candidate.key,
+              symbol: candidate.symbol,
+              address: candidate.address,
+              midenFaucetId: candidate.midenFaucetId,
+              name: candidate.key === 'USDC' ? evmUsdcLabel(bridgeConfig, candidate.symbol) : candidate.symbol,
+              balance: balance.formatted,
+              loading: balance.loading
+            }
+          ];
+        })}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}
         erc20Rows={
@@ -2291,7 +2427,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <EvmBridgeNetworkDrawer
         open={networkDrawerOpen}
         onOpenChange={setNetworkDrawerOpen}
-        networks={route === 'usdcx' ? usdcxSourceNetworks : sourceNetworks}
+        networks={sourceNetworks}
         selected={bridgeNetwork}
         onSelect={handleNetworkSelect}
       />

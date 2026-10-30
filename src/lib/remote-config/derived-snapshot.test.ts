@@ -102,7 +102,21 @@ const whole = (): DerivedBridgeConfig => ({
         l1BridgeCode: SKIPPED,
         depositTokens: SKIPPED
       },
-      epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } }
+      // A token read with its Miden faucet and that faucet's own scale reads back whole.
+      epoch: {
+        tokens: {
+          USDC: {
+            state: 'ok',
+            value: {
+              symbol: 'USDC',
+              decimals: 6,
+              midenFaucetId: '0x537c15a622074e91188aa894456c52',
+              midenSymbol: 'USDC',
+              midenDecimals: 6
+            }
+          }
+        }
+      }
     }
   },
   agglayer: { indexer: { state: 'absent' } },
@@ -225,6 +239,14 @@ it.each([
   ['a registry that is not a list', 'agglayer', 'tokens', ok({})],
   ['a registry with one entry that is not an object', 'agglayer', 'tokens', ok([NATIVE_ETH, null])],
   ['an upper-case faucet id', 'agglayer', 'tokens', token({ midenFaucetId: '0x0B372F2735E33E91216D995BF29B91' })],
+  [
+    "an Epoch token's faucet scale with no faucet symbol",
+    'epoch',
+    'tokens',
+    {
+      USDC: ok({ symbol: 'USDC', decimals: 18, midenFaucetId: '0x537c15a622074e91188aa894456c52', midenDecimals: 6 })
+    }
+  ],
   [
     'a checksummed origin token',
     'agglayer',
