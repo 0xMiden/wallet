@@ -609,3 +609,11 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [ ] Pass Android unit tests and the complete exact-head CI gate.
 - [ ] Add native-tap Android E2E and compare before/after FrameTimeline traces.
 - [ ] Complete exact-head CI and the recorded independent review, then merge.
+
+# Issue #1840 - Android warm-dialog expand CI follow-up
+
+- [x] Read the exact current-head failure and identify the zero-sized root guard in `expand()`.
+- [x] Compare the failing setup with the existing `openMorph()` fixture.
+- [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
+- [ ] Commit and push the fixture correction, then watch all exact-head checks.
+- [ ] Complete a normal review and send the final behavior/SHA to the #1956 owner.

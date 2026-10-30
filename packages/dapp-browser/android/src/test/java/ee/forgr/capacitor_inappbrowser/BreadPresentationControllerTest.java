@@ -259,14 +259,14 @@ public class BreadPresentationControllerTest {
         verify(options.getPluginCall()).resolve();
     }
 
-    @Test public void prepareMorphWarmsOnlyRequestedHiddenDialogUntilExpandedOrExpired() {
-        open(true, true, "default", false);
+    @Test @Config(shadows = PaintWebView.class)
+    public void prepareMorphWarmsOnlyRequestedHiddenDialogUntilExpandedOrExpired() throws Exception {
+        openMorph(false);
+        reveal();
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
         WebViewDialog target = dialog;
         BreadPresentationController targetPresentation = controller;
-        targetPresentation.state.configure("browser", false, false);
-        assertTrue(targetPresentation.state.requestVisibility(
-            true, (int) targetPresentation.state.policyRevision(), null, SystemClock.uptimeMillis()));
-        assertTrue(targetPresentation.state.requestVisibility(false, null, null, SystemClock.uptimeMillis()));
         BreadPresentationState.Phase parked = targetPresentation.state.phase();
         WebViewRegistry.getShared().register("target", target);
         assertSame(target, WebViewRegistry.getShared().get("target"));
@@ -307,7 +307,7 @@ public class BreadPresentationControllerTest {
 
         BreadMorphCard card = new BreadMorphCard(new RectF(20, 20, 220, 160), 18);
         assertTrue("an expand should take ownership of the warm dialog", targetPresentation.morph(
-            "expanded", card, 0, 0, "target", (int) targetPresentation.state.policyRevision(), 1));
+            "expanded", card, 0, 0, "target", (int) targetPresentation.state.policyRevision(), nextSequence()));
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
         assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
         BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
