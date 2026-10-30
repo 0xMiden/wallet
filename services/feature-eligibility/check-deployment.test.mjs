@@ -227,7 +227,10 @@ test('a connected readiness peer that never responds still hits the deadline', a
     });
   };
   const outcome = await Promise.race([
-    waitUntilReady({ exitCode: null, signalCode: null }, 'http://127.0.0.1:9/', { deadlineMs: 200, fetchImpl }),
+    waitUntilReady({ exitCode: null, signalCode: null }, 'http://127.0.0.1:9/', { deadlineMs: 200, fetchImpl }).then(
+      value => value,
+      error => error
+    ),
     new Promise(resolve => setTimeout(() => resolve('still-pending'), 1000))
   ]);
 
