@@ -150,8 +150,8 @@ describe('effective-endpoints resolver', () => {
     });
     await eff.applyEndpointOverride(eff.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
 
-    expect(helpers.getExplorerTxUrl('0xa84b')).toBe('https://explorer.cedar.miden.io/tx/0xa84b');
-    expect(helpers.getExplorerAccountUrl('mm1azc87wvsq')).toBe('https://explorer.cedar.miden.io/account/mm1azc87wvsq');
+    expect(helpers.getExplorerTxUrl('0xa84b')).toBe('https://explorer.mainnet.miden.io/tx/0xa84b');
+    expect(helpers.getExplorerAccountUrl('mm1azc87wvsq')).toBe('https://explorer.mainnet.miden.io/account/mm1azc87wvsq');
   });
 
   it('loadEndpointOverrides is a no-op under MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES', async () => {
