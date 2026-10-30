@@ -218,7 +218,7 @@ export class TopologyControl {
         const monitored = namespace => ({
           idFromName: name => {
             objects++;
-            return namespace.idFromName(name);
+            return namespace.idFromName(`wired-rate:${name}`);
           },
           get: id => {
             objects++;
