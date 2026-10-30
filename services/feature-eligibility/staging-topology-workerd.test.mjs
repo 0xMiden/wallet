@@ -29,6 +29,10 @@ test('isolated workerd refuses rate limits before object access', async () => {
   await runScenario('rate_refusal');
 });
 
+test('isolated workerd wires the configured rate-limit bindings through the Worker', async () => {
+  await runScenario('wired_rate');
+});
+
 test('isolated workerd distinguishes overload from retryable failure', async () => {
   await runScenario('failure_behavior');
 });
