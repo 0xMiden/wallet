@@ -3,9 +3,14 @@
 ## 1.17.9 (TBD)
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
+- [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
+- [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
+
+- [CHANGE][all] Distinguish primary and realm-reader SDK client creation failures in crash diagnostics without sending raw error details.
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
 - [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
 - [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+- [CHANGE][all] Include the closed mainnet access-code refusal stage in Sentry diagnostics.
 - [CHANGE][all] Add 25%, 50%, 75% and Max amount shortcuts based on the spendable balance in Swap and Bridge.
 
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
@@ -34,6 +39,7 @@
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Buy GameCoin from the new sale script with an explicit USDCx payment and Guardian fee authentication; select eligible offers by price and amount, and exclude the buyer's own sales.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
+- [FIX][all] Bridge activity shows the saved destination chain, including Ethereum mainnet for Agglayer withdrawals.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 

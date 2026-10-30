@@ -228,6 +228,11 @@ const uiCases = [
     { kind: 'mainnet_access_check', mainnetAccessCheckFailure: 'invitation_check', uiFailureKind: 'network' }
   ],
   [
+    'mainnetAccessCodeRejected',
+    'inline',
+    { kind: 'mainnet_access_code_rejection', mainnetAccessCodeRejectionOrigin: 'registration_redemption' }
+  ],
+  [
     'noteClaimFailedRetry',
     'notice',
     { kind: 'note_claim', noteClaimFailureOrigin: 'queue_single', uiFailureKind: 'timeout' }
@@ -286,6 +291,22 @@ it('rejects partial or unknown feature evidence and never reads getters', () => 
     );
   }
   expect(getter).not.toHaveBeenCalled();
+});
+
+it('drops unexpected access-code rejection details instead of annotating them', () => {
+  const evidence = {
+    kind: 'mainnet_access_code_rejection',
+    mainnetAccessCodeRejectionOrigin: 'registration_redemption',
+    rawError: 'rejected code ABCDEF123456 for account 0x1234, amount 98.76'
+  };
+  reportUserVisibleError('mainnetAccessCodeRejected', 'inline', evidence as never);
+  const root = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect((root as Error).message).toBe('User-visible error: mainnetAccessCodeRejected; surface inline');
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: 'mainnetAccessCodeRejected',
+    userErrorSurface: 'inline'
+  });
+  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
 });
 
 it('rejects incomplete arbitrary inherited and accessor Earn observations without reading them', () => {

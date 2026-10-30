@@ -858,6 +858,41 @@ describe('bridgeStatusOf', () => {
 });
 
 describe('bridgeRowDisplay', () => {
+  it.each([
+    { chainId: 1, network: 'Ethereum' },
+    { chainId: 11155111, network: 'Sepolia' },
+    { chainId: 8453, network: 'Base' },
+    { chainId: 999999, network: '999999' }
+  ])('shows the saved Agglayer destination chain $chainId', ({ chainId, network }) => {
+    const entry = bridgeEntry({
+      token: 'ETH',
+      bridgeProvider: 'agglayer',
+      bridgeDestinationNetwork: 0,
+      bridgeAgglayerRoute: {
+        chainId,
+        contractAddress: '0x0000000000000000000000000000000000000001',
+        midenBridgeId: '0xbridge',
+        indexerUrl: 'https://indexer.example',
+        rollupId: 1,
+        evmNetworkId: 0
+      }
+    });
+
+    expect(bridgeRowDisplay(UNLOADED, entry).network).toBe(network);
+  });
+
+  it('keeps Sepolia for an older Agglayer row without a saved route', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'agglayer', bridgeDestinationNetwork: 0 })).network
+    ).toBe('Sepolia');
+  });
+
+  it('shows the saved Epoch destination chain', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
+    ).toBe('Base');
+  });
+
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(

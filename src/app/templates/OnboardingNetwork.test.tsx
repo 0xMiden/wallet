@@ -366,3 +366,61 @@ it('leaves a fresh page on the saved network after an unmarked page prepared mai
   expect(screen.getByTestId('flow')).toHaveTextContent('false');
   expect(mockApply).not.toHaveBeenCalled();
 });
+
+it('shows the invite welcome during preparation and blocks later steps until mainnet is ready', async () => {
+  mockRequired = false;
+  let finishApply = () => {};
+  mockApply.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        finishApply = resolve;
+      })
+  );
+  const view = render(
+    <OnboardingNetwork requireInviteOnly showWhilePreparing>
+      {content}
+    </OnboardingNetwork>
+  );
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+  view.rerender(<OnboardingNetwork requireInviteOnly>{content}</OnboardingNetwork>);
+  expect(screen.getByTestId('flow').parentElement).toHaveClass('pointer-events-none');
+  expect(screen.getByRole('status')).toBeInTheDocument();
+
+  await act(async () => finishApply());
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  expect(screen.getByTestId('flow').parentElement).not.toHaveClass('pointer-events-none');
+});
+
+it('covers hash-less Welcome after preparation fails and keeps it covered through Retry', async () => {
+  let finishRetry!: () => void;
+  mockApply.mockRejectedValueOnce(new Error('Storage unavailable')).mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        finishRetry = resolve;
+      })
+  );
+  render(<OnboardingNetwork showWhilePreparing>{content}</OnboardingNetwork>);
+
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointSaveFailed');
+  const flow = screen.getByTestId('flow');
+  expect(flow.parentElement).toHaveClass('pointer-events-none');
+  expect(flow.parentElement).toHaveProperty('inert', true);
+
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+  await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(flow.parentElement).toHaveClass('pointer-events-none');
+  expect(flow.parentElement).toHaveProperty('inert', true);
+
+  await act(async () => finishRetry());
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  expect(flow.parentElement).not.toHaveClass('pointer-events-none');
+  expect(flow.parentElement).toHaveProperty('inert', false);
+});

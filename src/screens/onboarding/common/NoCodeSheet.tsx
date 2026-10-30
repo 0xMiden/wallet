@@ -2,7 +2,7 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Button, ButtonVariant } from 'components/Button';
+import { Button } from 'components/Button';
 import { isExtension } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { cn } from 'lib/ui/util';
@@ -10,15 +10,12 @@ import { cn } from 'lib/ui/util';
 export interface NoCodeSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** An existing account needs no code: the recover flow. */
-  onRecover: () => void;
 }
 
 /**
- * The invite-only Welcome's "I don't have a code": a new wallet needs a mainnet access code. An
- * account that already exists can still be recovered. The caller owns `open`.
+ * Show the access code information. The caller controls `open`.
  */
-export const NoCodeSheet: FC<NoCodeSheetProps> = ({ open, onOpenChange, onRecover }) => {
+export const NoCodeSheet: FC<NoCodeSheetProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
 
   return (
@@ -39,13 +36,6 @@ export const NoCodeSheet: FC<NoCodeSheetProps> = ({ open, onOpenChange, onRecove
               onClick={() => onOpenChange(false)}
               className="w-full"
               data-testid="no-code-sheet-close"
-            />
-            <Button
-              variant={ButtonVariant.Secondary}
-              title={t('recoverYourAccount')}
-              onClick={onRecover}
-              className="w-full"
-              data-testid="no-code-sheet-recover"
             />
           </DrawerFooter>
         </div>

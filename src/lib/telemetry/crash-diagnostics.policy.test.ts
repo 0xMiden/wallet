@@ -227,6 +227,7 @@ it('documents every closed burnFeeFailure value', () => {
 
 it.each<[string, readonly string[]]>([
   ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['mainnetAccessCodeRejectionOrigin', ['eligibility_check', 'registration_redemption']],
   ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
   [
     'uiFailureKind',
