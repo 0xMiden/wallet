@@ -266,6 +266,7 @@ The server does not read the row. It enforces the feature name and the caps in 6
 | `earn-deposit`, `earn-withdraw` | market uid, EVM recipient, intent nonce, EVM tx hash, epoch status, protocol, chain id | allocator URL, recall blocks |
 | `swap` | requested faucet and amount, order note id, settlement kind | retry and tracking state |
 | `consume` | note sender, GC purchase quote when present | swap-settle linkage |
+| `switch-guardian` | previous Guardian endpoint (`pg`), new Guardian endpoint (`ng`) | proposal identifiers, request bytes, retry state |
 
 A bridged row is about twice a send, near 800 B plaintext. A 25 KiB chunk then holds about 30 of them in place of 50. The cap in 6.4 is by size, so the chunk rule needs no change.
 

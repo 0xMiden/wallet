@@ -69,6 +69,29 @@ function row(id: string, fields: Partial<ITransaction> = {}): ITransaction {
 }
 
 describe('history projection', () => {
+  it('preserves both Guardian endpoints without copying execution data', () => {
+    const transaction = row('guardian-switch', {
+      type: 'switch-guardian',
+      extraInputs: {
+        previousGuardianEndpoint: 'https://old.guardian.test',
+        newGuardianEndpoint: 'https://new.guardian.test',
+        switchProposalId: 'private-proposal',
+        requestBytes: [1, 2]
+      }
+    });
+    const projection = projectTransaction(transaction);
+    expect(projection.x).toEqual({ pg: 'https://old.guardian.test', ng: 'https://new.guardian.test' });
+    expect(restoreTransaction(projection).extraInputs).toEqual({
+      previousGuardianEndpoint: 'https://old.guardian.test',
+      newGuardianEndpoint: 'https://new.guardian.test'
+    });
+  });
+
+  it('does not invent endpoints for a legacy Guardian switch receipt', () => {
+    const restored = restoreTransaction(projectTransaction(row('legacy-switch', { type: 'switch-guardian' })));
+    expect(restored.extraInputs).toBeUndefined();
+  });
+
   it('preserves the revoked commitment and transaction hash across devices', () => {
     const target = `0x${'3'.repeat(64)}`;
     const restored = restoreTransaction(
@@ -331,6 +354,28 @@ describe('history sync', () => {
     const mark = server.requests.length;
     await expect(flushHistory(session)).resolves.toBe(0);
     expect(server.requestsSince(mark)).toHaveLength(0);
+  });
+
+  it('repairs an uploaded switch receipt and updates the peer copy', async () => {
+    const old = row('guardian-switch', { type: 'switch-guardian' });
+    await Repo.transactions.add(old);
+    await flushHistory(session);
+    const endpoints = {
+      previousGuardianEndpoint: 'https://old.guardian.test',
+      newGuardianEndpoint: 'https://new.guardian.test'
+    };
+    await Repo.transactions.update(old.id, { extraInputs: endpoints });
+    await expect(flushHistory(session)).resolves.toBe(1);
+    const entry = server.entriesOf(session.publicKey, 'history')[0];
+    if (!entry) throw new Error('Missing uploaded receipt');
+    expect(entry.revision).toBe(2);
+    const encrypted = server.storedEntryOf(session.publicKey, 'history', entry.hashedKey);
+    if (!encrypted) throw new Error('Missing encrypted chunk');
+    const repaired = parseHistoryChunk(await decryptEntry(session.encKey, encrypted, HISTORY_BLOB_CAP));
+    await Repo.transactions.put(restoreTransaction(projectTransaction(old)));
+    await applyHistoryRows(repaired);
+    expect((await Repo.transactions.get(old.id))?.extraInputs).toEqual(endpoints);
+    expect((await Repo.transactions.get(old.id))?.transactionId).toBe(old.transactionId);
   });
 
   it('rewrites the chunk of a row whose receipt changed', async () => {
