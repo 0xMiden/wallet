@@ -5,6 +5,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 
 import {
   REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_NEVER_COMMITTED_ERROR,
   TRANSACTION_STUCK_ERROR
@@ -339,6 +340,47 @@ describe('a refused row with something left to judge (#2060)', () => {
 
     expect(readsAsNotConfirmed(tx, NOW)).toBe(true);
     expect(shownSubmissionFeedback(tx, NOW)).toBeUndefined();
+  });
+
+  it.each<[string, Record<string, unknown>, string]>([
+    [
+      'an engine recovery with too little to check',
+      {
+        stage: 'proving',
+        error: TRANSACTION_ENGINE_RECOVERED_ERROR,
+        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 100, source: 'kill', candidateKept: true }]
+      },
+      'none'
+    ],
+    [
+      'a missing answer the reconciler gave up on',
+      {
+        error: DEADLINE,
+        submitEvidence: [entry({ verdict: 'unresolvable', candidateKept: true, capturedAt: NOW - 100 })]
+      },
+      'unanswered'
+    ]
+  ])('says why a row nothing judges cannot be retried while a hold applies: %s', (_label, fields, after) => {
+    const tx = row(fields);
+
+    expect(readsAsNotConfirmed(tx, NOW)).toBe(true);
+    expect(shownSubmissionFeedback(tx, NOW)).toMatchObject({
+      kind: 'guardianHold',
+      messageKey: 'submissionHeldByGuardian'
+    });
+    expect(readsAsNotConfirmed(tx, NOW + 980)).toBe(true);
+    expect(shownSubmissionFeedback(tx, NOW + 980)?.kind ?? 'none').toBe(after);
+  });
+
+  it('names the hold on a row that reads Failed, even with an entry left to judge', () => {
+    const tx = row({
+      type: 'bridged-send',
+      extraInputs: { provider: 'usdcx', epochStatus: 'failed' },
+      submitEvidence: [entry({ candidateKept: true })]
+    });
+
+    expect(readsAsNotConfirmed(tx, NOW)).toBe(false);
+    expect(shownSubmissionFeedback(tx, NOW)).toMatchObject({ kind: 'guardianHold' });
   });
 
   it('keeps every answer that is not a refusal', () => {

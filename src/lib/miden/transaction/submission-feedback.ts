@@ -149,8 +149,9 @@ export function readsAsNotConfirmed(row: FinishedRow, nowSec: number = nowSecond
 
 /**
  * What a surface may say about a finished row's outcome (#2060): the stored outcome only where the row's reading agrees
- * with it. While the Guardian holds the candidate a retry would meet, a row that reads Failed says that instead, since
- * its refusal and a proven row's "safe to retry" would both invite a Retry the hold refuses.
+ * with it. While the Guardian holds the candidate a retry would meet, the row says that instead, since its refusal, a
+ * proven row's "safe to retry" and a claim card's Retry hint would all invite a Retry the hold refuses. The exception
+ * is a row that reads Not confirmed while the reconciler still judges it: that row keeps its reading until the verdict.
  */
 export function shownSubmissionFeedback(
   row: FinishedRow,
@@ -159,12 +160,15 @@ export function shownSubmissionFeedback(
   if (row.status !== ITransactionStatus.Failed && row.status !== ITransactionStatus.Unconfirmed) return undefined;
   const feedback = submissionFeedback(row);
   const refused = feedback?.kind === 'rejected';
-  if (readsAsNotConfirmed(row, nowSec)) return refused ? undefined : feedback;
-  if (keptCandidateHoldUntil(row, nowSec) === undefined) return refused ? feedback : undefined;
-  const details = feedback?.details ?? row.rawError;
-  return {
-    kind: 'guardianHold',
-    messageKey: row.neverCommittedAt === undefined ? 'submissionHeldByGuardian' : 'submissionProvenHeldByGuardian',
-    ...(details === undefined ? {} : { details })
-  };
+  const notConfirmed = readsAsNotConfirmed(row, nowSec);
+  if (!(notConfirmed && awaitingVerdict(row, nowSec)) && keptCandidateHoldUntil(row, nowSec) !== undefined) {
+    const details = feedback?.details ?? row.rawError;
+    return {
+      kind: 'guardianHold',
+      messageKey: row.neverCommittedAt === undefined ? 'submissionHeldByGuardian' : 'submissionProvenHeldByGuardian',
+      ...(details === undefined ? {} : { details })
+    };
+  }
+  if (notConfirmed) return refused ? undefined : feedback;
+  return refused ? feedback : undefined;
 }

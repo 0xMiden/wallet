@@ -3335,6 +3335,30 @@ describe('HistoryDetails', () => {
           expect(screen.getByText(refusal)).toBeInTheDocument();
         });
 
+        it('keeps reading Not confirmed and says why it cannot be retried yet when nothing judges it', async () => {
+          const deadline =
+            'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: request to Miden node timed out; the node may be under heavy load';
+          setMockRow(
+            refusedSendTx({
+              error: deadline,
+              rawError: deadline,
+              submitEvidence: [
+                {
+                  ...checkableEntry,
+                  verdict: 'unresolvable',
+                  candidateKept: true,
+                  capturedAt: Math.floor(Date.now() / 1000) - 60
+                }
+              ]
+            })
+          );
+          await renderAndLoad();
+
+          expect(notConfirmedCard()).toBeTruthy();
+          expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('submissionHeldByGuardian');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+        });
+
         it('stays Failed with the refused sentence once nothing is left to judge', async () => {
           setMockRow(refusedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'never-committed' }] }));
           await renderAndLoad();
