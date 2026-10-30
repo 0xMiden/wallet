@@ -19,6 +19,8 @@ interface AssetListItemBaseProps {
   chart?: ReactNode;
   /** The fiat value of the holding. A live figure comes in as an `AnimatedNumber`. */
   price?: ReactNode;
+  /** Replaces the fiat value when it cannot be calculated, while preserving the value column. */
+  priceStatus?: ReactNode;
   delta?: {
     value: ReactNode;
     direction?: AssetDeltaDirection;
@@ -55,6 +57,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   amount,
   chart,
   price,
+  priceStatus,
   delta,
   selected,
   disabled = false,
@@ -103,8 +106,12 @@ export const AssetListItem: FC<AssetListItemProps> = ({
       <div className="flex items-center justify-center">{chart}</div>
 
       <div data-slot="trailing" className="flex shrink-0 items-center gap-3">
-        <div className="flex flex-col items-end">
-          {price && <div className="text-row-title text-ink">{price}</div>}
+        <div data-slot="price" className="flex min-w-16 flex-col items-end">
+          {price !== undefined ? (
+            <div className="text-row-title text-ink">{price}</div>
+          ) : (
+            priceStatus !== undefined && <div className="text-caption-heading text-muted text-right">{priceStatus}</div>
+          )}
           {delta && (
             <Pill size="xs" tone={deltaTone} className="mt-0.5">
               {delta.value}

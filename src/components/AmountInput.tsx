@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
@@ -66,6 +66,13 @@ export function normalizeDecimalInput(rawValue: string): string {
     return rawValue.replace(/,/g, '');
   }
   return rawValue.replace(/,/g, '.');
+}
+
+export function normalizeLeadingZeroes(value: string): string {
+  return value
+    .replace(/^(-?)\.(?=\d)/, '$10.')
+    .replace(/^(-?)0+(?=\d)/, '$1')
+    .replace(/^(-?)0+(?=\.|$)/, '$10');
 }
 
 export interface AmountInputProps {
@@ -160,7 +167,16 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   useUserVisibleError(error ? errorId : null, 'field', undefined, errorDiagnostics);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingSelection = useRef<{ value: string; start: number; end: number } | null>(null);
   const [focused, setFocused] = useState(false);
+  useLayoutEffect(() => {
+    const selection = pendingSelection.current;
+    const input = inputRef.current;
+    if (selection && input?.value === selection.value) {
+      input.setSelectionRange(selection.start, selection.end);
+      pendingSelection.current = null;
+    }
+  }, [value]);
   const showEstimate = unfocusedDisplayValue !== undefined && unfocusedDisplayValue !== '' && !focused;
   const figureValue = showEstimate ? unfocusedDisplayValue : value;
   const centered = align === 'center';
@@ -196,10 +212,33 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         )}
         value={value ?? ''}
         onChange={event => {
-          const normalized = normalizeDecimalInput(event.target.value);
+          const raw = event.target.value;
+          const decimalNormalized = normalizeDecimalInput(raw);
+          const normalized = normalizeLeadingZeroes(decimalNormalized);
           const pattern = allowNegativeValue ? /^-?\d*(?:\.\d*)?$/ : /^\d*(?:\.\d*)?$/;
           const fractionalDigits = normalized.split('.')[1]?.replace(/0+$/, '').length ?? 0;
           if (!pattern.test(normalized) || fractionalDigits > decimalsLimit) return;
+          const removedZeroes = decimalNormalized.length - normalized.length;
+          if (normalized !== raw && event.target.selectionStart !== null && event.target.selectionEnd !== null) {
+            const map = (position: number) => {
+              const withoutCommas = raw.includes('.')
+                ? position - (raw.slice(0, position).match(/,/g)?.length ?? 0)
+                : position;
+              return position === 0 ? 0 : Math.max(raw.startsWith('-') ? 1 : 0, withoutCommas - removedZeroes);
+            };
+            const selection = {
+              value: normalized,
+              start: map(event.target.selectionStart),
+              end: map(event.target.selectionEnd)
+            };
+            pendingSelection.current = selection;
+            queueMicrotask(() => {
+              if (pendingSelection.current === selection && inputRef.current?.value === selection.value) {
+                inputRef.current.setSelectionRange(selection.start, selection.end);
+                pendingSelection.current = null;
+              }
+            });
+          }
           onValueChange?.(normalized || undefined);
         }}
         onFocus={() => setFocused(true)}

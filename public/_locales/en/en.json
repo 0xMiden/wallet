@@ -1040,6 +1040,8 @@
   "fast": "Fast",
   "slow": "Slow",
   "unavailable": "Unavailable",
+  "assetPriceUnsupported": "Unsupported",
+  "assetValueUnknownScale": "Unknown scale",
   "bridgeFeatureUnavailableTitle": "Temporarily unavailable",
   "bridgeFeatureUnavailableBody": "This external service is currently down. Please try again later.",
   "geoRestrictedTitle": "Not available where you are",

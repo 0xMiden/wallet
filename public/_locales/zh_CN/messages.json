@@ -4674,6 +4674,14 @@
     "message": "不可用",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "不支持",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "未知规模",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "暂时不可用",
     "englishSource": "Temporarily unavailable"

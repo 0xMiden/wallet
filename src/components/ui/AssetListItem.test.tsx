@@ -73,9 +73,16 @@ describe('AssetListItem', () => {
     });
 
     it('omits the price when absent', () => {
-      renderItem();
+      const { container } = renderItem();
 
       expect(screen.queryByText('$1.23')).toBeNull();
+      expect(container.querySelector('[data-slot="price"]')).toBeInTheDocument();
+    });
+
+    it('keeps a status in the same right aligned slot as the price', () => {
+      const { container } = renderItem({ priceStatus: 'Loading...' });
+
+      expect(container.querySelector('[data-slot="price"]')).toHaveTextContent('Loading...');
     });
   });
 
