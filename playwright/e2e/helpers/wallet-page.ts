@@ -18,6 +18,7 @@ import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
+import { openImportTypeScreen } from './onboarding-entry';
 import { dismissTelemetryConsent } from './telemetry-consent';
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
@@ -1248,30 +1249,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.waitForTransactionRowComplete(txId);
   }
 
-  /**
-   * Welcome through to the import-type choice.
-   *
-   * Test networks put Recover on the welcome screen (`#import-link`) and then show the network
-   * notice. Mainnet Welcome is invite-only, so that link is absent: recovery is the secondary
-   * action on "I don't have a code", and mainnet has no network notice.
-   */
+  /** Open recovery from Welcome and accept the test network notice when it is shown. */
   private async openImportTypeScreen(): Promise<void> {
     await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    const recover = this.page.locator('#import-link');
-    const noCode = this.page.getByTestId('onboarding-no-code');
-    await noCode.or(recover).first().waitFor({ state: 'visible', timeout: 30_000 });
-    if (await noCode.isVisible()) {
-      await noCode.click();
-      await this.page.getByTestId('no-code-sheet-recover').click();
-    } else {
-      await recover.click();
-    }
-    const notice = this.page.getByTestId('onboarding-network-notice-acknowledge');
-    const importType = this.page.getByTestId('import-select-type');
-    await notice.or(importType).first().waitFor({ state: 'visible', timeout: 15_000 });
-    if (await notice.isVisible()) await acknowledgeNetworkNotice(this.page, 15_000);
-    await importType.waitFor({ timeout: 15_000 });
+    await openImportTypeScreen(this.page, 30_000, 15_000);
   }
 
   /**
@@ -2228,9 +2209,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
     const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
-    await this.waitForStoreReady(
-      deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now()))
-    );
+    await this.waitForStoreReady(deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now())));
     await this.refreshBalances(deadline === undefined ? undefined : Math.max(0, deadline - Date.now()));
     const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
     if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
@@ -2320,9 +2299,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     while (true) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
-        throw lastError instanceof Error
-          ? lastError
-          : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
+        throw lastError instanceof Error ? lastError : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
       }
       try {
         await this.refreshBalances(remaining);
