@@ -64,8 +64,8 @@ test('wired rate scenario reports only the fixed failed stage', async () => {
   const result = await topology.runWiredRateScenario({
     service: { fetch: async () => new Response(null, { status: 503 }) },
     counters: async () => ({ objects: 0 }),
-    onFailure: (stage, status) => failures.push([stage, status])
+    onFailure: (stage, status, objects) => failures.push([stage, status, objects])
   });
   assert.equal(result, 'failed');
-  assert.deepEqual(failures, [['caller_allow_1', 503]]);
+  assert.deepEqual(failures, [['caller_allow_1', 503, 0]]);
 });
