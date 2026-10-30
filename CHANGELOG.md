@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
+
 - [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
 - [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
 

@@ -8,6 +8,7 @@ import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
+import { TokenPrices } from 'lib/prices/binance';
 import type { GeoLookup } from 'lib/remote-config/geo';
 import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
 import testnet from 'lib/remote-config/testing/testnet.json';
@@ -31,6 +32,7 @@ let mockPathname = '/swap';
 let mockNav: { navigateTo: jest.Mock; goBack: jest.Mock; cardStack: Array<{ name: string }> };
 let mockBackHandler: (() => boolean) | null;
 let mockWalletState: {
+  tokenPrices: TokenPrices;
   isTransactionModalOpen: boolean;
   lastCompletedTxHash: string | null;
   closeTransactionModal: jest.Mock;
@@ -284,8 +286,7 @@ const mockSwapPartners = (faucetId: string) =>
         mockSolverPairs.some(pair => pair.includes(faucetId) && pair.includes(token.faucetId)))
   );
 jest.mock('lib/miden/swap/tokens', () => ({
-  // These registry fixtures have no verified market quotes; amount and receipt UI must stay token-only.
-  tokenQuote: () => undefined,
+  tokenQuote: (prices: TokenPrices) => prices.AAA,
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
   getSwapTokens: () =>
@@ -505,6 +506,7 @@ beforeEach(() => {
   mockAuthorizationAccountOverride = undefined;
   mockDefaultPairOverride = undefined;
   mockWalletState = {
+    tokenPrices: { AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now() } },
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
@@ -621,6 +623,55 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('SwapFlow / SwapManager', () => {
+  it('does not query below $1 and starts at exactly $1', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockQuoteSwap.mockResolvedValue(quoteAt('2', 5n, {}, { offeredAmount: 1n }));
+      renderFlow();
+      setOffer('0.99');
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(mockQuoteSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapBelowMinimum');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      setOffer('1');
+      await act(async () => jest.advanceTimersByTime(500));
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('blocks quotes when the USD price is unavailable', () => {
+    mockWalletState.tokenPrices = {};
+    renderFlow();
+    setOffer('10');
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapMinimumPriceUnavailable');
+  });
+
+  it('checks the receive value before requesting its offered amount', () => {
+    renderFlow();
+    setRequest('0.99');
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    setRequest('1');
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true }));
+  });
+
+  it('blocks submission when the offer price falls below the minimum', async () => {
+    const view = renderFlow();
+    setOffer('10');
+    mockWalletState.tokenPrices = {
+      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+    };
+    view.rerender(<SwapFlow />);
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBelowMinimum');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
   it('opens an already-mounted unavailable form when real registry override tokens arrive', async () => {
     mockRealSwapRegistry = true;
     const registry = jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens');
