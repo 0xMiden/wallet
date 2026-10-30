@@ -263,6 +263,10 @@ public class BreadPresentationControllerTest {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
         BreadPresentationController targetPresentation = controller;
+        targetPresentation.state.configure("browser", false, false);
+        assertTrue(targetPresentation.state.requestVisibility(
+            true, (int) targetPresentation.state.policyRevision(), null, SystemClock.uptimeMillis()));
+        assertTrue(targetPresentation.state.requestVisibility(false, null, null, SystemClock.uptimeMillis()));
         BreadPresentationState.Phase parked = targetPresentation.state.phase();
         WebViewRegistry.getShared().register("target", target);
         assertSame(target, WebViewRegistry.getShared().get("target"));
