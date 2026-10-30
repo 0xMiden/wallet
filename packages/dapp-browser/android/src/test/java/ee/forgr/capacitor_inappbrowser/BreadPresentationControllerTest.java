@@ -16,6 +16,8 @@ import androidx.webkit.Page;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -2102,6 +2104,91 @@ public class BreadPresentationControllerTest {
         assertEquals(0f, driver().target(), 0f);
         verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
             eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        BreadMorphControllerTest.settle();
+        assertEquals(0f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void shortCapsuleDragReversesWithoutRequestingPark() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 50, t + 1000));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 20, 50, t + 2000));
+
+        assertEquals(1f, driver().target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertEquals(1f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() {
+        openMorph(false);
+        reveal();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        int[] location = new int[2];
+        capsule.getLocationOnScreen(location);
+        long t = android.os.SystemClock.uptimeMillis();
+        float x = location[0] + capsule.getWidth() / 2f;
+        float y = location[1] + capsule.getHeight() / 2f;
+        android.view.MotionEvent down = touch(android.view.MotionEvent.ACTION_DOWN, x, y, t);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(down));
+        down.recycle();
+
+        ReflectionHelpers.setField(controller, "posed", true);
+        android.view.MotionEvent move = touch(android.view.MotionEvent.ACTION_MOVE, x, y + 40, t + 100);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(move));
+        move.recycle();
+        android.view.MotionEvent up = touch(android.view.MotionEvent.ACTION_UP, x, y + 40, t + 120);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(up));
+        up.recycle();
+        ReflectionHelpers.setField(controller, "posed", false);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackProgressTracksCollapseAndCancelRestoresThePage() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(120, 0, 0.45f, BackEvent.EDGE_LEFT));
+        assertEquals(0.55f, driver().progress(), 1e-5f);
+        callback.onBackCancelled();
+
+        assertEquals(1f, driver().target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(1f, root.getScaleX(), 0f);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCommitRequestsTheExistingParkPathOnce() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(280, 0, 1f, BackEvent.EDGE_LEFT));
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), startsWith("native-"));
         BreadMorphControllerTest.settle();
         assertEquals(0f, driver().progress(), 0f);
         assertTrue(dialog.isShowing());

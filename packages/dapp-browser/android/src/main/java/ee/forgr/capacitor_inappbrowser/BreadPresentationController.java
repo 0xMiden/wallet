@@ -102,12 +102,21 @@ final class BreadPresentationController {
     private boolean owned;
     private boolean released;
     private boolean cancelledForPage;
+    private boolean capsuleGestureOwned;
     private boolean onPage;
     private boolean moved;
     private boolean tracking;
+    private boolean capsuleTouchDown;
+    private boolean capsuleTouchRejected;
+    private boolean capsuleTracking;
+    private boolean capsuleReducedMotion;
+    private boolean interactiveCollapse;
+    private boolean backPreview;
     private float downX;
     private float downY;
     private long downTime;
+    private float capsuleDownX;
+    private float capsuleDownY;
     private float grabX;
     private float grabY;
     private float grabStart;
@@ -209,11 +218,7 @@ final class BreadPresentationController {
             long revision = state.policyRevision(), sequence = state.acknowledgedVisibilitySequence();
             owner.presentationMinimizeRequested(revision, sequence, nativeCollapse());
         });
-        back.setOnTouchListener((v, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) BreadFrameBoost.hold(v, BreadFrameBoost.DURATION_MS);
-            else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) BreadFrameBoost.release();
-            return false;
-        });
+        back.setOnTouchListener(this::handleCapsuleTouch);
         GradientDrawable capsule = new GradientDrawable();
         capsule.setColor(0xcc292929);
         capsule.setCornerRadius(dp(28));
@@ -432,6 +437,7 @@ final class BreadPresentationController {
 
     boolean morph(String to, BreadMorphCard card, float vx, float vy, String id, Integer revision, Integer sequence) {
         if (id == null || owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return false;
+        cancelInteractiveInput();
         if ("collapsed".equals(to)) return collapse(card, vx, vy, id, sequence);
         if ("expanded".equals(to)) return expand(card, vx, vy, id, revision, sequence);
         return false;
@@ -514,7 +520,7 @@ final class BreadPresentationController {
     private void headTo(float end) {
         state.beginMotion(end >= 0.5f ? BreadPresentationState.Motion.EXPANDING : BreadPresentationState.Motion.COLLAPSING);
         if (end < 0.5f) {
-            if (fullscreen()) holdBack(true);
+            if (fullscreen() && !interactiveCollapse) holdBack(true);
         } else releaseBack();
         if (end < 0.5f && proxyCovering) {
             proxyCovering = false;
@@ -797,13 +803,229 @@ final class BreadPresentationController {
 
     // The dialog routes every touch here first: the posed page owns a gesture that starts on it, and a
     // gesture the page already had when a motion began is cancelled for it, then swallowed.
+    private boolean handleCapsuleTouch(View view, MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            capsuleTouchDown = true;
+            capsuleTouchRejected = false;
+            capsuleReducedMotion = false;
+            capsuleDownX = event.getX();
+            capsuleDownY = event.getY();
+            if (tracker == null) tracker = VelocityTracker.obtain();
+            tracker.clear();
+            tracker.addMovement(event);
+            BreadFrameBoost.hold(view, BreadFrameBoost.DURATION_MS);
+            return false;
+        }
+        if (!capsuleTouchDown) return false;
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (tracker != null) tracker.addMovement(event);
+            if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) {
+                if (capsuleTracking) cancelInteractiveCollapse();
+                capsuleTracking = false;
+                capsuleReducedMotion = false;
+                capsuleTouchRejected = true;
+                view.setPressed(false);
+                return true;
+            }
+            if (capsuleTouchRejected) return true;
+            if (!capsuleTracking) {
+                float dx = event.getX() - capsuleDownX, dy = event.getY() - capsuleDownY;
+                float slop = ViewConfiguration.get(owner.getContext()).getScaledTouchSlop();
+                if (Math.hypot(dx, dy) < slop) return false;
+                if (dy <= 0 || dy <= Math.abs(dx)) {
+                    capsuleTouchRejected = true;
+                    view.setPressed(false);
+                    return true;
+                }
+                if (!ValueAnimator.areAnimatorsEnabled()) {
+                    capsuleReducedMotion = true;
+                    grabStart = 1;
+                    grabTarget = 1;
+                    grabX = capsuleDownX;
+                    grabY = capsuleDownY;
+                } else if (!beginInteractiveCollapse(capsuleDownX, capsuleDownY)) {
+                    capsuleTouchRejected = true;
+                    view.setPressed(false);
+                    return true;
+                }
+                capsuleTracking = true;
+                view.setPressed(false);
+                view.cancelLongPress();
+            }
+            if (capsuleTouchRejected) return true;
+            if (!capsuleReducedMotion) dragCapsule(event.getY());
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP) {
+            if (!capsuleTracking) {
+                boolean consumed = capsuleTouchRejected;
+                finishCapsuleTouch(view, consumed);
+                return consumed;
+            }
+            if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) {
+                cancelInteractiveCollapse();
+                finishCapsuleTouch(view, true);
+                return true;
+            }
+            if (tracker != null) tracker.addMovement(event);
+            float end;
+            if (capsuleReducedMotion) {
+                end = capsuleProgress(event.getY());
+                if (end <= 1 - COMMIT_TRAVEL) minimizeFromBackWithoutPreview();
+            } else {
+                String collapseId = morphId;
+                end = release(true);
+                if (end < 0.5f) requestNativeMinimize(collapseId);
+            }
+            capsuleTracking = false;
+            finishCapsuleTouch(view, true);
+            return true;
+        }
+        if (action == MotionEvent.ACTION_CANCEL) {
+            boolean consumed = capsuleTracking || capsuleTouchRejected;
+            if (capsuleTracking) {
+                capsuleTracking = false;
+                cancelInteractiveCollapse();
+            }
+            finishCapsuleTouch(view, consumed);
+            return consumed;
+        }
+        return capsuleTracking;
+    }
+
+    private void finishCapsuleTouch(View view, boolean consumed) {
+        capsuleTouchDown = false;
+        capsuleTouchRejected = false;
+        capsuleTracking = false;
+        capsuleReducedMotion = false;
+        if (consumed) view.setPressed(false);
+        BreadFrameBoost.release();
+    }
+
+    private boolean beginInteractiveCollapse(float x, float y) {
+        if (owner.managedClosing() || !owner.isShowing() || !state.effectiveVisibility()
+            || state.phase() != BreadPresentationState.Phase.VISIBLE || posed || flying()) return false;
+        container.getLocationInWindow(origin);
+        BreadMorphCard host = WebViewRegistry.getShared().morphCard();
+        BreadMorphCard nativeCard = host == null ? null : owner.hostCardToWindow(host);
+        BreadMorphCard landing = landing(nativeCard);
+        String id = "native-" + java.util.UUID.randomUUID();
+        interactiveCollapse = true;
+        if (!collapse(nativeCard, 0, 0, id, null, null)) {
+            interactiveCollapse = false;
+            return false;
+        }
+        cancelCollapseFlight();
+        morph.prepareTracking(landing, 1, 0);
+        if (fullscreen()) captureProxy();
+        tracking = true;
+        released = false;
+        grabStart = 1;
+        grabTarget = 1;
+        grabX = x;
+        grabY = y;
+        emit("retargeted", 0, true, 0);
+        return true;
+    }
+
+    private void dragCapsule(float y) {
+        morph.track(capsuleProgress(y));
+    }
+
+    private float capsuleProgress(float y) {
+        float progress = grabStart - (y - grabY) / capsuleCollapseDistance();
+        if (progress > 1) return 1 + BreadMorphGeometry.rubberBand(progress - 1, 1);
+        if (progress < 0) return BreadMorphGeometry.rubberBand(progress, 1);
+        return progress;
+    }
+
+    private float capsuleCollapseDistance() {
+        BreadMorphCard target = morph.card();
+        if (target == null) {
+            container.getLocationInWindow(origin);
+            BreadMorphCard host = WebViewRegistry.getShared().morphCard();
+            target = landing(host == null ? null : owner.hostCardToWindow(host));
+        }
+        if (target == null) return dp(300);
+        float dx = container.getWidth() / 2f - target.rect.centerX();
+        float dy = container.getHeight() / 2f - target.rect.centerY();
+        return Math.max(dp(180), (float) Math.hypot(dx, dy));
+    }
+
+    boolean beginBackPreview() {
+        if (backPreview || !ValueAnimator.areAnimatorsEnabled()) return false;
+        if (!beginInteractiveCollapse(0, 0)) return false;
+        backPreview = true;
+        return true;
+    }
+
+    void progressBackPreview(float progress) {
+        if (!backPreview || !tracking || !Float.isFinite(progress)) return;
+        morph.track(1 - Math.max(0, Math.min(1, progress)));
+    }
+
+    void cancelBackPreview() {
+        if (!backPreview) return;
+        backPreview = false;
+        cancelInteractiveCollapse();
+    }
+
+    void commitBackPreview() {
+        if (!backPreview || !tracking || owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        String collapseId = morphId;
+        backPreview = false;
+        commitInteractiveCollapse();
+        requestNativeMinimize(collapseId);
+    }
+
+    void minimizeFromBackWithoutPreview() {
+        if (owner.managedClosing() || !owner.isShowing() || !state.effectiveVisibility()
+            || state.phase() != BreadPresentationState.Phase.VISIBLE || posed || flying()) return;
+        String id = nativeCollapse();
+        if (id != null) owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence(), id);
+    }
+
+    boolean canMinimizeFromBack() {
+        return !owner.managedClosing() && owner.isShowing() && state.effectiveVisibility()
+            && state.phase() == BreadPresentationState.Phase.VISIBLE && !posed && !flying();
+    }
+
+    private void commitInteractiveCollapse() {
+        tracking = false;
+        released = true;
+        interactiveCollapse = false;
+        headTo(0);
+        emit("retargeted", 0, false, 0);
+        morph.animateTo(0, morph.card(), 0, BreadMorphPhysics.RELEASE);
+    }
+
+    private void cancelInteractiveCollapse() {
+        if (!tracking) return;
+        tracking = false;
+        released = true;
+        interactiveCollapse = false;
+        if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        reverse();
+    }
+
+    private void requestNativeMinimize(String collapseId) {
+        if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED || collapseId == null) return;
+        owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence(), collapseId);
+    }
+
     int routeTouch(MotionEvent event) {
         int action = event.getActionMasked();
         boolean last = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL;
         if (action == MotionEvent.ACTION_DOWN) {
+            capsuleGestureOwned = downOnCapsule(event);
             owned = posed;
             released = false;
             cancelledForPage = false;
+        }
+        if (capsuleGestureOwned) {
+            if (last) capsuleGestureOwned = false;
+            return TOUCH_PASS;
         }
         if (!owned) {
             if (!posed && !cancelledForPage) return TOUCH_PASS;
@@ -814,6 +1036,14 @@ final class BreadPresentationController {
         if (!released) handleTouch(event, action);
         if (last) owned = false;
         return TOUCH_CONSUME;
+    }
+
+    private boolean downOnCapsule(MotionEvent event) {
+        if (!back.isShown()) return false;
+        int[] location = new int[2];
+        back.getLocationOnScreen(location);
+        return event.getRawX() >= location[0] && event.getRawX() < location[0] + back.getWidth()
+            && event.getRawY() >= location[1] && event.getRawY() < location[1] + back.getHeight();
     }
 
     private void handleTouch(MotionEvent event, int action) {
@@ -853,20 +1083,28 @@ final class BreadPresentationController {
     }
 
     private void drag(float x, float y) {
-        RectF card = morph.card().rect;
-        double dx = container.getWidth() / 2f - card.centerX(), dy = container.getHeight() / 2f - card.centerY();
-        double length = dx * dx + dy * dy;
-        // A card centred on the slot has no path to project onto; keep the grabbed progress, never NaN.
-        float p = length < 1e-6 ? grabStart : (float) (grabStart + ((x - grabX) * dx + (y - grabY) * dy) / length);
+        BreadMorphCard landing = morph.card();
+        float p;
+        if (landing == null) {
+            p = grabStart - (y - grabY) / Math.max(1, dp(300));
+        } else {
+            RectF card = landing.rect;
+            double dx = container.getWidth() / 2f - card.centerX(), dy = container.getHeight() / 2f - card.centerY();
+            double length = dx * dx + dy * dy;
+            // A card centred on the slot has no path to project onto; keep the grabbed progress, never NaN.
+            p = length < 1e-6 ? grabStart : (float) (grabStart + ((x - grabX) * dx + (y - grabY) * dy) / length);
+        }
         if (p > 1) p = 1 + BreadMorphGeometry.rubberBand(p - 1, 1);
         else if (p < 0) p = BreadMorphGeometry.rubberBand(p, 1);
         morph.track(p);
     }
 
-    private void release() {
+    private float release() { return release(false); }
+
+    private float release(boolean capsule) {
         tracker.computeCurrentVelocity(1000);
         float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
-        float velocity = velocity(morph.card(), vx, vy);
+        float velocity = capsule ? capsuleProgressVelocity(vy) : velocity(morph.card(), vx, vy);
         float travel = morph.progress() + PROJECTION_SECONDS * velocity - grabStart;
         float speed = (float) Math.hypot(vx, vy) / owner.getContext().getResources().getDisplayMetrics().density;
         float end = grabTarget;
@@ -874,9 +1112,17 @@ final class BreadPresentationController {
         else if (Math.abs(travel) >= COMMIT_TRAVEL) end = travel > 0 ? 1 : 0;
         tracking = false;
         released = true;
+        interactiveCollapse = false;
         headTo(end);
         emit("retargeted", end, false, velocity);
         morph.animateTo(end, morph.card(), velocity, BreadMorphPhysics.RELEASE);
+        return end;
+    }
+
+    private float capsuleProgressVelocity(float vy) {
+        float velocity = -vy / capsuleCollapseDistance();
+        return Math.max(-BreadMorphGeometry.MAX_PROGRESS_VELOCITY,
+            Math.min(BreadMorphGeometry.MAX_PROGRESS_VELOCITY, velocity));
     }
 
     private void reverse() {
@@ -889,6 +1135,22 @@ final class BreadPresentationController {
     private void endTracking() {
         if (tracking) released = true;
         tracking = false;
+        if (capsuleTracking || backPreview) {
+            capsuleTracking = false;
+            backPreview = false;
+            interactiveCollapse = false;
+            if (capsuleTouchDown) capsuleTouchRejected = true;
+        }
+    }
+
+    private void cancelInteractiveInput() {
+        if (!interactiveCollapse && !capsuleTracking && !backPreview) return;
+        boolean cancelMorph = interactiveCollapse;
+        capsuleTracking = false;
+        backPreview = false;
+        capsuleReducedMotion = false;
+        capsuleTouchRejected = capsuleTouchDown;
+        if (cancelMorph) cancelInteractiveCollapse();
     }
     boolean fullscreen() { return state.fullscreen(); }
 
