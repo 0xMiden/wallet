@@ -19,6 +19,7 @@ const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
 const mockSpendingLimitsClear = jest.fn();
+const mockRecoveryDebitsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   metadata: { put: (...args: unknown[]) => mockMetadataPut(...args) },
   db: {
@@ -30,6 +31,9 @@ jest.mock('lib/miden/repo', () => ({
   },
   spendingLimits: {
     clear: () => mockSpendingLimitsClear()
+  },
+  recoveryDebits: {
+    clear: () => mockRecoveryDebitsClear()
   }
 }));
 
@@ -133,6 +137,7 @@ beforeEach(() => {
     mockDbOpen,
     mockTransactionsClear,
     mockSpendingLimitsClear,
+    mockRecoveryDebitsClear,
     mockBrowserStorageRemove,
     mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
@@ -156,6 +161,7 @@ describe('clearStorage', () => {
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
     expect(mockTransactionsClear).toHaveBeenCalled();
+    expect(mockRecoveryDebitsClear).toHaveBeenCalled();
     // The caps and the history they are computed from go together. Recovery from the same
     // mnemonic reproduces the same account ids, so a configuration left behind here would keep
     // enforcing a cap over a spend total that was just zeroed.
@@ -457,6 +463,7 @@ describe('resetStorageDestructive', () => {
 
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+    expect(mockRecoveryDebitsClear).toHaveBeenCalledTimes(1);
   });
 
   it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {

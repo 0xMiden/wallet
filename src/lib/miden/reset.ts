@@ -103,7 +103,7 @@ function removeSessionStorageExcept(keep: readonly string[]): void {
  * Soft storage reset called during wallet creation / spawn.
  *
  * Removes every platform key-value entry except `keep` (by default `PRESERVED_STORAGE_KEYS`) and
- * then empties the `transactions` and `spendingLimits` tables, but deliberately keeps the TridentMain Dexie
+ * then empties the `transactions`, `spendingLimits` and `recoveryDebits` tables, but deliberately keeps the TridentMain Dexie
  * connection alive. Using `db.delete()` here would fire a `versionchange` event
  * to every other open handle (notably the page's, which was opened lazily by the
  * onboarding UI), force them closed, and leave no path to reopen them short of a
@@ -127,6 +127,7 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
     if (clearDb) {
       await Repo.transactions.clear();
       await Repo.spendingLimits.clear();
+      await Repo.recoveryDebits.clear();
     }
     await Repo.metadata.put({ id: 'generation', generation: crypto.randomUUID(), origin: 'authorized' });
   });
@@ -181,6 +182,7 @@ export async function resetStorageDestructive({
       await Repo.db.open().catch(() => {});
       await Repo.transactions.clear().catch(() => {});
       await Repo.spendingLimits.clear().catch(() => {});
+      await Repo.recoveryDebits.clear().catch(() => {});
       throw err;
     }
   });
