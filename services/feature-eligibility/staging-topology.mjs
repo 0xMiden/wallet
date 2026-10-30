@@ -292,9 +292,9 @@ export async function runRateScenario({ service, counters }) {
 }
 
 export async function runWiredRateScenario({ service, counters, onFailure = () => {} }) {
-  const failed = stage => {
+  const failed = (stage, status) => {
     try {
-      onFailure(stage);
+      onFailure(stage, status);
     } catch {}
     return 'failed';
   };
@@ -313,22 +313,22 @@ export async function runWiredRateScenario({ service, counters, onFailure = () =
   try {
     for (let index = 0; index < 4; index++) {
       const response = await service.fetch(request('192.0.2.11', 'IAD'));
-      if (!response.ok) return failed(`caller_allow_${index + 1}`);
+      if (!response.ok) return failed(`caller_allow_${index + 1}`, response.status);
     }
     const beforeCallerRefusal = await objectCount();
     const callerRefusal = await service.fetch(request('192.0.2.11', 'IAD'));
     if (callerRefusal.status !== 429 || callerRefusal.headers.get('Retry-After') !== '60')
-      return failed('caller_refusal');
+      return failed('caller_refusal', callerRefusal.status);
     if ((await objectCount()) !== beforeCallerRefusal) return failed('caller_refusal_object_access');
 
     for (let index = 1; index <= 4; index++) {
       const response = await service.fetch(request(`198.51.100.${index}`, 'FRA'));
-      if (!response.ok) return failed(`colo_allow_${index}`);
+      if (!response.ok) return failed(`colo_allow_${index}`, response.status);
     }
     const beforeColoRefusal = await objectCount();
     const coloRefusal = await service.fetch(request('198.51.100.5', 'FRA'));
     if (coloRefusal.status !== 429 || coloRefusal.headers.get('Retry-After') !== '10')
-      return failed('colo_refusal');
+      return failed('colo_refusal', coloRefusal.status);
     if ((await objectCount()) !== beforeColoRefusal) return failed('colo_refusal_object_access');
     return 'passed';
   } catch {

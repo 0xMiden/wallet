@@ -235,7 +235,7 @@ export class TopologyControl {
         return runWiredRateScenario({
           service: { fetch: request => service.fetch(request, boundEnv) },
           counters: async () => ({ objects }),
-          onFailure: stage => console.error(`topology wired_rate failed at ${stage}`)
+          onFailure: (stage, status) => console.error(`topology wired_rate failed at ${stage} status=${status ?? 'none'}`)
         });
       }
       if (name === 'rate_refusal') {
