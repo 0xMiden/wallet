@@ -5,6 +5,8 @@
 ### Changes
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+- [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
+- [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
 
 - [CHANGE][all] Distinguish primary and realm-reader SDK client creation failures in crash diagnostics without sending raw error details.
 - [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
@@ -38,6 +40,7 @@
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Buy GameCoin from the new sale script with an explicit USDCx payment and Guardian fee authentication; select eligible offers by price and amount, and exclude the buyer's own sales.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
+- [FIX][all] Bridge activity shows the saved destination chain, including Ethereum mainnet for Agglayer withdrawals.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
