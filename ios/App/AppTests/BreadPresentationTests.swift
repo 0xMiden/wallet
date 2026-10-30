@@ -2282,6 +2282,16 @@ private final class SnapshotLog {
 final class BreadMorphPresentationTests: XCTestCase {
     private typealias Motion = BreadPresentationState.Motion
 
+    func testCapsuleHasANativePanRecognizerForPullDownMinimization() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        let capsule = try XCTUnwrap(live.owner.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier == "bread-presentation-minimize" })
+
+        XCTAssertTrue(capsule.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer } == true,
+                      "the native capsule must recognize a pull-down minimization gesture")
+    }
+
     func testAThrowingFixtureReleasesTheWindowAndTheRegistryEntry() async throws {
         for arm in ["livePresentation", "revealedMorph", "parkedWithProxy"] {
             var captured: (id: String, window: UIWindow)?

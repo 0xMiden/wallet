@@ -2061,6 +2061,53 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void downwardCapsuleDragTracksTheNativeCollapseAndCancelRestoresThePage() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 100, t + 100));
+
+        BreadMorphController morph = driver();
+        assertTrue("the native morph follows the capsule drag", morph.progress() < 1f);
+        assertTrue(morph.progress() > 0f);
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_CANCEL, 20, 100, t + 120));
+        assertEquals(1f, morph.target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(1f, root.getScaleX(), 0f);
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void committedCapsuleDragUsesTheExistingParkRequestExactlyOnce() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 150, t + 400));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 150, t + 800));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 20, 150, t + 900));
+
+        assertEquals(0f, driver().target(), 0f);
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        BreadMorphControllerTest.settle();
+        assertEquals(0f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void touchesOutsideThePageAreConsumedDuringFlight() throws Exception {
         openMorph(false);
         reveal();
