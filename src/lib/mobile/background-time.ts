@@ -16,10 +16,11 @@
  * RUNNING time, on the monotonic clock: `runningNow` is `performance.now()`
  * minus the stretches the platform froze our JS, and `setRunningTimeout` runs
  * on it, so a freeze cannot expire the deadlines that bound an in-flight
- * delegated prove, or the WASM lock watchdog, on resume (#473). Hidden is not
- * frozen: a hidden WebView may keep running JS (Android, Capacitor
- * KeepRunning), and there these deadlines must still fire on time, so a freeze
- * is measured rather than assumed from visibility (see `markNow`): it is a
+ * delegated prove or Guardian request, or the WASM lock watchdog, on resume
+ * (#473, #2060). Hidden is not frozen: a hidden WebView may keep running JS
+ * (Android, Capacitor KeepRunning), and there these deadlines must still fire
+ * on time, so a freeze is measured rather than assumed from visibility (see
+ * `markNow`): it is a
  * silence longer than the hidden pulse can explain, 12 s in the first 5 minutes
  * hidden and 75 s after that, once Chrome's intensive throttling may slow a
  * hidden page's timers to one wake-up a minute. Until tracking is initialised

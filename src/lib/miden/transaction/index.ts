@@ -63,6 +63,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
@@ -115,6 +116,7 @@ import {
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   isGuardianOutage,
+  isNodeOutage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
@@ -410,9 +412,13 @@ const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 // connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
-// Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
-// the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
-// can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
+// Cooldown (seconds) for a tx requeued because the node stopped answering before its submit (#2060). The base of the
+// same doubling, from the failed pre-send sync's window: the next attempt starts with a sync of its own.
+const NODE_OUTAGE_REQUEUE_COOLDOWN_SEC = SYNC_FAILURE_REQUEUE_COOLDOWN_SEC;
+
+// Ceiling (seconds) on the doubling the unreachable, node, 409 and 429 arms give a row they requeue again (#1223). Four
+// times the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's
+// 429 can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
 // timeout, or three that each run to the 60 s Guardian request cut-off, so the rows between them get laps.
 const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
 
@@ -1004,7 +1010,7 @@ function scheduleRequeueWake(
   requeueWakes.set(txId, timer);
 }
 
-/** What a guardian arm stamps on the row it requeues, on top of the requeue itself. */
+/** What an arm stamps on the row it requeues, on top of the requeue itself. */
 type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
 
 /**
@@ -1012,14 +1018,14 @@ type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRe
  * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
  * doesn't starve other accounts' queued txs. Called by the guardian arms for a
  * remote-prover outage (#419) and a rate-limit 429, by `requeueWithWake` for the
- * Guardian-backpressure (#312), unreachable-guardian (#779) and
- * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
- * locked-wallet requeues. Clearing `processingStartedAt` avoids
+ * Guardian-backpressure (#312), unreachable-guardian (#779), unreachable-node
+ * (#2060) and unauthorized-at-execution arms, and by the loop's pre-send sync
+ * failure and locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own, and
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
- * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
+ * A backing-off arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
  * other requeue clears the streak (#1223). Only the backpressure arm passes `guardianBusy`, and every other requeue
  * clears it the same way (#312). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which a wake is
  * timed from.
@@ -1048,7 +1054,7 @@ async function requeueTransactionForRetry(
   // byte-identical reuse.
   //
   // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
-  // requeue from proposal creation or proving), but not necessarily for the row:
+  // requeue from proposal creation, execution or proving), but not necessarily for the row:
   // a user Retry of a send that died post-submit keeps its bytes and stamps
   // `mayHaveSubmitted`, and the fresh attempt can then hit a 409 here. Clearing
   // on the strength of this attempt's stage would rebuild the note id that is
@@ -1113,7 +1119,7 @@ async function requeueTransactionForRetry(
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt,
-    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    // Only a backing-off arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
     // Only the backpressure arm passes it, so any other requeue ends the busy state on screen (#312).
     guardianBusy: undefined,
@@ -1770,6 +1776,34 @@ const generateTransactionWithProvider = async (
           'creating-proposal',
           PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC,
           'delegated_prover_failed'
+        );
+        return;
+      }
+      // The node stopped answering the execute, as the first requests after a resume often do (#2060). That is
+      // pre-submit for the prover arm's reason, with its exclusions and its cap: MAX_QUEUED_AGE runs from
+      // `initiatedAt`, which no requeue moves. The wake and the doubling are the outage arm's, for its reasons. What
+      // reaches here at 'proving' is a local prove or a re-execution's sync or execute, which stays on that stage: the
+      // arm above took every delegated prove. Only the inline leaf gets here, since the offscreen one never authors
+      // `stage`.
+      if (
+        (currentRow?.stage === 'executing' || currentRow?.stage === 'proving') &&
+        !abandonedWrite &&
+        !isSubmitCrossingUnrecorded(error) &&
+        !isGuardianUnauthorizedExecutionError(error) &&
+        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        isNodeOutage(error)
+      ) {
+        const requeueStreak = nextRequeueStreak(currentRow, 'node-unreachable');
+        const cooldown = guardianRequeueBackoffSec(NODE_OUTAGE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] node unreachable pre-submit, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'node_unreachable',
+          { requeueStreak }
         );
         return;
       }
@@ -2794,6 +2828,10 @@ const runWriteLeaf = async <T>(
  * and the row fails terminally with no requeue and no Retry. The deadline gives
  * the caller an unreachable verdict whatever the hold does.
  *
+ * It runs on running time, like the holds it stays ahead of: an overdue timer fires
+ * the moment a frozen WebView resumes, ahead of the answer, and on a switch that
+ * verdict is what commits the row to a unilateral on-chain rotation (#2060).
+ *
  * The deadline does not cancel the request or release the lock (`GuardianHttpClient`
  * passes no signal), so the abandoned hold runs on until the fetch boundary cuts
  * its request off a minute in. What it changes is that the CALLER gets an
@@ -2810,7 +2848,7 @@ const runWriteLeaf = async <T>(
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancelTimer = setRunningTimeout(
       () =>
         reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
       OUTGOING_GUARDIAN_DEADLINE_MS
@@ -2822,16 +2860,16 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
     try {
       run().then(
         value => {
-          clearTimeout(timer);
+          cancelTimer();
           resolve(value);
         },
         error => {
-          clearTimeout(timer);
+          cancelTimer();
           reject(error);
         }
       );
     } catch (syncError) {
-      clearTimeout(timer);
+      cancelTimer();
       reject(syncError);
     }
   });

@@ -1,12 +1,12 @@
 import { CapacitorHttp } from '@capacitor/core';
 
-import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
 import { getKnownGuardians, subscribeGuardians } from 'lib/miden-chain/guardian-registry';
+import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -21,7 +21,11 @@ import { isMobile } from 'lib/platform';
  * `GuardianRequestTimeoutError` (#312), and a caller's own abort still rejects
  * with the caller's reason. Unbounded, a proposal POST to a Guardian that
  * stopped answering held the WASM lock until the five-minute watchdog poisoned
- * the client and failed the send.
+ * the client and failed the send. The deadline is RUNNING time (`runningNow`), like
+ * the watchdog it stays ahead of: an overdue timer runs the moment a frozen WebView
+ * resumes, ahead of the answer the native layer then delivers, so on wall time a
+ * freeze would cut off a Guardian that had answered (#2060). Where tracking never
+ * starts (desktop, the extension's realms) running time is plain monotonic time.
  *
  * On mobile a routed request goes through `CapacitorHttp.request()` (native
  * HTTP, not subject to CORS): Guardian operators don't emit
@@ -41,7 +45,7 @@ import { isMobile } from 'lib/platform';
  * is lossless.
  */
 
-/** Every routed Guardian request is cut off after this long (#312). */
+/** Every routed Guardian request is cut off after this much running time (#312). */
 export const GUARDIAN_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
@@ -209,8 +213,9 @@ interface GuardianDeadline {
    * delivered would orphan what it did, such as a proposal it created. A native
    * request cannot be cancelled, so an answer that arrives after the cut-off is
    * dropped. A failure that arrives once the deadline has passed is the cut-off
-   * too, though the timer has not fired: timers run late or sleep through a
-   * suspension while the request times out on its own.
+   * too, though the timer has not fired, because timers run late. A freeze spends
+   * no running time, so a failure it crossed stays the transport's own: the
+   * deadline did not end that request, and the classifiers read both as unreachable.
    */
   race<T>(start: () => Promise<T>): Promise<T>;
   /** Stop the timer and the forwarded caller abort. */
@@ -223,7 +228,7 @@ function callerSignalOf(input: RequestInfo | URL, init?: RequestInit): AbortSign
 }
 
 function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefined): GuardianDeadline {
-  const startedAt = monotonicNowMs();
+  const startedAt = runningNow();
   const controller = new AbortController();
   // Kept beside the signal: engines older than abort reasons drop the argument to abort().
   let cutOffReason: unknown;
@@ -234,7 +239,7 @@ function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefine
   };
   const onCallerAbort = (): void =>
     cutOff(callerSignal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
-  const timer = setTimeout(
+  const cancelTimer = setRunningTimeout(
     () => cutOff(new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS)),
     GUARDIAN_REQUEST_TIMEOUT_MS
   );
@@ -253,12 +258,12 @@ function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefine
         }
         controller.signal.addEventListener('abort', () => reject(cutOffReason), { once: true });
         start().then(resolve, (error: unknown) => {
-          const pastDeadline = monotonicNowMs() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
+          const pastDeadline = runningNow() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
           reject(pastDeadline ? new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS) : error);
         });
       }),
     release: (): void => {
-      clearTimeout(timer);
+      cancelTimer();
       callerSignal?.removeEventListener('abort', onCallerAbort);
     }
   };

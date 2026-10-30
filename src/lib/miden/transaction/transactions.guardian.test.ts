@@ -46,7 +46,7 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 import { WalletType } from 'screens/onboarding/types';
 
-import { cancelTransactionById } from './cancel';
+import { cancelStaleQueuedTransactions, cancelTransactionById, MAX_QUEUED_AGE } from './cancel';
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
@@ -5393,14 +5393,18 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     describe('a re-execution that fails before it proves', () => {
-      const FAILURE = 'Failed to fetch';
-      const failingStep = (client: ReturnType<typeof arrangeSend>['client'], step: 'sync' | 'execute') => {
+      const FAILURE = 'failed to sync chain: grpc request failed for sync_chain_mmr: invalid request parameters';
+      const failingStep = (
+        client: ReturnType<typeof arrangeSend>['client'],
+        step: 'sync' | 'execute',
+        failure = FAILURE
+      ) => {
         if (step === 'sync') {
-          client.syncChain.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error(FAILURE));
+          client.syncChain.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error(failure));
           return;
         }
         const execute = client.transactions.executeRequest.getMockImplementation()!;
-        client.transactions.executeRequest.mockImplementationOnce(execute).mockRejectedValueOnce(new Error(FAILURE));
+        client.transactions.executeRequest.mockImplementationOnce(execute).mockRejectedValueOnce(new Error(failure));
       };
 
       it.each([
@@ -5427,6 +5431,30 @@ describe('generateTransaction — Guardian routing', () => {
         expect(stored.mayHaveSubmitted).toBeUndefined();
       });
 
+      it.each([
+        ['delegated', 'sync', true],
+        ['delegated', 'execute', true],
+        ['local', 'sync', false],
+        ['local', 'execute', false]
+      ] as const)('%s, at the %s: a network failure requeues, on no prover reason', async (...args) => {
+        const [label, step, delegateTransaction] = args;
+        const txId = `send-guardian-reexecution-${step}-offline-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+        failingStep(client, step, 'Failed to fetch');
+
+        await run(tx);
+
+        expect(txStore.find(row => row.id === txId)).toMatchObject({
+          status: ITransactionStatus.Queued,
+          stage: 'creating-proposal',
+          lastDeferral: 'node_unreachable'
+        });
+        expect(getConnectivityState().prover.active).toBe(false);
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+      });
+
       it('leaves a prove that fails on a re-execution to the prover arms', async () => {
         const txId = 'send-guardian-reexecution-prove-failed';
         const { tx, client } = arrangeSend(txId, false);
@@ -5442,6 +5470,244 @@ describe('generateTransaction — Guardian routing', () => {
           status: ITransactionStatus.Failed,
           error: LOCAL_PROVER_FAILED_ERROR
         });
+      });
+    });
+
+    describe('a network failure before the submit', () => {
+      const UNAVAILABLE =
+        'failed to sync chain: grpc request failed for sync_chain_mmr: ' +
+        'Miden node is unavailable; check that the node is running and reachable';
+
+      beforeEach(() => {
+        mockReadChainTip.mockImplementation(async () => REF_BLOCK);
+      });
+
+      const failingAt = (client: ReturnType<typeof arrangeSend>['client'], step: 'tip sync' | 'execute') => {
+        if (step === 'tip sync') client.syncChain.mockRejectedValue(new Error(UNAVAILABLE));
+        else client.transactions.executeRequest.mockRejectedValue(new TypeError('Load failed'));
+      };
+
+      const stored = (txId: string) => txStore.find(row => row.id === txId) as Record<string, unknown>;
+
+      it.each([
+        ['delegated', 'tip sync', true],
+        ['delegated', 'execute', true],
+        ['local', 'tip sync', false],
+        ['local', 'execute', false]
+      ] as const)('%s, at the %s: goes back to the queue with nothing sent', async (...args) => {
+        const [label, step, delegateTransaction] = args;
+        const txId = `send-guardian-offline-${step}-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+        failingAt(client, step);
+        const { initiatedAt } = stored(txId);
+
+        await run(tx);
+
+        expect(stored(txId)).toMatchObject({
+          status: ITransactionStatus.Queued,
+          stage: 'creating-proposal',
+          lastDeferral: 'node_unreachable',
+          requeueStreak: { arm: 'node-unreachable', count: 1 },
+          initiatedAt
+        });
+        expect(Number(stored(txId).nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+        expect(stored(txId).processingStartedAt).toBeUndefined();
+        expect(stored(txId).attemptId).toBeUndefined();
+        expect(stored(txId).error).toBeUndefined();
+        expect(stored(txId).mayHaveSubmitted).toBeUndefined();
+        expect(client.transactions.prove).not.toHaveBeenCalled();
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        // The next attempt proposes afresh, so this one's candidate goes.
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+        expect(getConnectivityState().prover.active).toBe(false);
+      });
+
+      it('requeues a local prove that failed on the network too', async () => {
+        const txId = 'send-guardian-offline-local-prove';
+        const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+        client.transactions.prove.mockRejectedValue(new TypeError('Failed to fetch'));
+
+        await run(tx);
+
+        expect(stored(txId)).toMatchObject({
+          status: ITransactionStatus.Queued,
+          stage: 'creating-proposal',
+          lastDeferral: 'node_unreachable'
+        });
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+      });
+
+      it('wakes itself off the extension, backs off on a repeat, and the queue age still ends it', async () => {
+        mockPlatformIsExtension = false;
+        jest.useFakeTimers();
+        try {
+          const txId = 'send-guardian-offline-repeat';
+          const { tx, client } = arrangeSend(txId, false);
+          failingAt(client, 'execute');
+          const { initiatedAt } = stored(txId);
+          const attempt = async (row: object) => {
+            const pending = run(row);
+            await jest.advanceTimersByTimeAsync(0);
+            await pending;
+          };
+
+          await attempt(tx);
+          expect(stored(txId).requeueStreak).toEqual({ arm: 'node-unreachable', count: 1 });
+          // Mobile and desktop have no other driver once the user leaves the screen.
+          expect(jest.getTimerCount()).toBe(1);
+
+          jest.clearAllTimers();
+          await attempt({ ...stored(txId) });
+          expect(stored(txId).requeueStreak).toEqual({ arm: 'node-unreachable', count: 2 });
+          expect(Number(stored(txId).nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(60);
+          expect(stored(txId).initiatedAt).toBe(initiatedAt);
+
+          // Past MAX_QUEUED_AGE from the row's first queueing, which no requeue moves.
+          jest.setSystemTime((Number(initiatedAt) + MAX_QUEUED_AGE + 1) * 1000);
+          await cancelStaleQueuedTransactions();
+          expect(stored(txId).status).toBe(ITransactionStatus.Failed);
+        } finally {
+          jest.clearAllTimers();
+          jest.useRealTimers();
+          mockPlatformIsExtension = true;
+        }
+      });
+
+      it('takes over from another arm with a streak of its own', async () => {
+        const txId = 'send-guardian-offline-after-outage';
+        const { tx, client } = arrangeSend(txId, false);
+        failingAt(client, 'tip sync');
+        Object.assign(stored(txId), { requeueStreak: { arm: 'guardian-unreachable', count: 3 } });
+
+        await run({ ...tx, requeueStreak: { arm: 'guardian-unreachable', count: 3 } });
+
+        expect(stored(txId).requeueStreak).toEqual({ arm: 'node-unreachable', count: 1 });
+      });
+
+      it('never requeues a crossed attempt', async () => {
+        const txId = 'send-guardian-offline-crossed';
+        const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+        client.transactions.submitProven.mockRejectedValue(
+          new Error('failed to submit proven transaction: transport error: connection refused')
+        );
+
+        await run(tx);
+
+        expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+        expect(stored(txId).status).toBe(ITransactionStatus.Failed);
+        expect(stored(txId).lastDeferral).toBeUndefined();
+        expect(stored(txId).nextEligibleAt).toBeUndefined();
+        expect(stored(txId).mayHaveSubmitted).toBe(true);
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['an eviction', () => new WasmClientPoisonedError('watchdog', new TypeError('Failed to fetch'))],
+        ['a kill', () => new OperationAbortedError('op-7', 'deadline')],
+        [
+          'a kill under a transport-shaped wrapper',
+          () => new Error('transport error', { cause: new OperationAbortedError('op-7', 'deadline') })
+        ],
+        [
+          'an indefinite submit outcome',
+          () =>
+            new Error(
+              'submission of transaction 0xabc came back without a definite outcome, so the node may or may not ' +
+                'have accepted it; nothing was recorded locally: Load failed'
+            )
+        ]
+      ])('never requeues %s, which may still submit, at the execute', async (label, failure) => {
+        const txId = `send-guardian-offline-abandoned-${label}`;
+        const { tx, client } = arrangeSend(txId, false);
+        client.transactions.executeRequest.mockRejectedValue(failure());
+
+        await run(tx).catch(() => {});
+
+        expect(stored(txId).status).not.toBe(ITransactionStatus.Queued);
+        expect(stored(txId).lastDeferral).toBeUndefined();
+        expect(stored(txId).nextEligibleAt).toBeUndefined();
+      });
+
+      it('never requeues a crossing it could not record', async () => {
+        const txId = 'send-guardian-offline-crossing-unrecorded';
+        const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+        const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+        const realWhere = repo.transactions.where.getMockImplementation()!;
+        repo.transactions.where.mockImplementation((query: { id: string }) => {
+          const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => void) => Promise<void> };
+          return {
+            ...handle,
+            modify: async (fn: (row: Record<string, unknown>) => void) => {
+              const row = txStore.find(r => r.id === query.id);
+              const probe = { ...row };
+              fn(probe);
+              // Network-shaped on purpose: WebKit's words for a lost IndexedDB server.
+              if (probe.mayHaveSubmitted === true && row?.mayHaveSubmitted !== true) {
+                throw new Error('Connection to Indexed Database server lost. Refresh the page to try again');
+              }
+              return handle.modify(fn);
+            }
+          };
+        });
+
+        try {
+          await run(tx).catch(() => {});
+        } finally {
+          repo.transactions.where.mockImplementation(realWhere);
+        }
+
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledWith(5);
+        expect(stored(txId)).toMatchObject({
+          status: ITransactionStatus.Failed,
+          error: SUBMIT_CROSSING_UNRECORDED_ERROR
+        });
+        expect(stored(txId).lastDeferral).toBeUndefined();
+      });
+
+      it.each([
+        ['a node that refused', 'failed to sync chain: grpc request failed for sync_chain_mmr: resource not found'],
+        [
+          'a kernel failure, whatever its diagnostic prints',
+          'failed to execute transaction: transaction execution failed: failed to execute transaction kernel ' +
+            'program:\n  x assertion failed\n 512 |   exec.note::abort'
+        ]
+      ])('ends the row on %s', async (label, failure) => {
+        const txId = `send-guardian-execute-refused-${label}`;
+        const { tx, client } = arrangeSend(txId, false);
+        client.transactions.executeRequest.mockRejectedValue(new Error(failure));
+
+        await run(tx);
+
+        expect(stored(txId).status).toBe(ITransactionStatus.Failed);
+        expect(stored(txId).lastDeferral).toBeUndefined();
+      });
+
+      it('leaves an unauthorized execute to its own arm, whatever numbers its printed summary holds', async () => {
+        const txId = 'send-guardian-unauthorized-printed-summary';
+        const { tx, client } = arrangeSend(txId, false);
+        client.transactions.executeRequest.mockRejectedValue(
+          new Error('transaction execution failed: transaction is unauthorized with summary { fee: 503 }')
+        );
+
+        await run(tx);
+
+        expect(stored(txId).lastDeferral).toBe('guardian_unauthorized');
+      });
+
+      it('leaves a structural write to its own failure, since a rerun can register a second delta', async () => {
+        const { tx, row, client, provider } = arrangeRotation(proposalFor());
+        client.transactions.executeRequest.mockRejectedValue(new TypeError('Load failed'));
+
+        await generateTransaction(
+          tx as never,
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          provider as never
+        ).catch(() => {});
+
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(row()?.lastDeferral).toBeUndefined();
       });
     });
 
@@ -9091,7 +9357,12 @@ describe('generateTransaction — Guardian routing', () => {
   describe('Guardian switch-guardian: the outgoing deadline while the proposal syncs the chain (#1442)', () => {
     // The proposal push never settles unless `rejectWith` is given; `markSyncing` says whether the hold is inside its
     // chain sync then.
-    const runSilentSwitch = async (txId: string, markSyncing: boolean, rejectWith?: Error) => {
+    const runSilentSwitch = async (
+      txId: string,
+      markSyncing: boolean,
+      rejectWith?: Error,
+      waitOut: () => Promise<unknown> = () => jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS)
+    ) => {
       jest.useFakeTimers();
       txStore.push({
         id: txId,
@@ -9142,7 +9413,7 @@ describe('generateTransaction — Guardian routing', () => {
           false,
           provider as never
         );
-        await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+        await waitOut();
         await run;
       } finally {
         jest.useRealTimers();
@@ -9150,6 +9421,30 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId);
       return { createSwitchGuardianProposal, phases, row };
     };
+
+    it('spends none of the deadline in a freeze, so a frozen row takes no unilateral switch on resume (#2060)', async () => {
+      const doc = installHiddenDocument();
+      initBackgroundTimeTracking();
+      // The running clock keeps one 5 s pulse of a measured freeze.
+      const leftAfterFreezeMs = OUTGOING_GUARDIAN_DEADLINE_MS - 5_000;
+      try {
+        await runSilentSwitch('switch-guardian-frozen-deadline', false, undefined, async () => {
+          await jest.advanceTimersByTimeAsync(0);
+          doc.setHidden(true);
+          doc.freezeFor(80_000);
+          doc.setHidden(false);
+          await jest.advanceTimersByTimeAsync(leftAfterFreezeMs - 1);
+          expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+
+          await jest.advanceTimersByTimeAsync(1);
+        });
+
+        expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+      } finally {
+        __resetBackgroundTimeForTest();
+        doc.restore();
+      }
+    });
 
     it('fails the row without the direct switch when the deadline expires during the chain sync', async () => {
       const { createSwitchGuardianProposal, phases, row } = await runSilentSwitch(

@@ -15,6 +15,7 @@ import {
   INVALID_NOTE_ERROR,
   isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
+  isNodeOutage,
   isOutcomeUnconfirmed,
   isProverProcedureMismatch,
   isUnconfirmedFailure,
@@ -721,6 +722,65 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     a.cause = b;
     b.cause = a;
     expect(isGuardianOutage(a)).toBe(false);
+  });
+});
+
+describe('a node that gave the leaf no usable answer (#2060)', () => {
+  const REQUEST = 'failed to sync chain: grpc request failed for sync_chain_mmr: ';
+  const UNAVAILABLE = 'Miden node is unavailable; check that the node is running and reachable';
+
+  it.each([
+    ['the SDK naming an unavailable node', `${REQUEST}${UNAVAILABLE}`],
+    ['the SDK timing a request out', `${REQUEST}request to Miden node timed out; the node may be under heavy load`],
+    ['a dropped request the SDK has no status for', `${REQUEST}unknown error: `],
+    ['a cancelled request', `${REQUEST}operation was cancelled`],
+    ['a connection that never opened', 'failed to execute transaction: failed to connect to the Miden node'],
+    ['Chrome dropping a fetch', 'Failed to fetch'],
+    ['WebKit dropping a fetch', 'Load failed'],
+    ['WebKit losing a connection', 'The network connection was lost.'],
+    ['a named read that failed on the network', `failed to fetch note script via RPC: ${REQUEST}${UNAVAILABLE}`],
+    ['a gateway that is struggling', 'transport error: status code 503']
+  ])('reads %s as an outage', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(true);
+  });
+
+  it('reads the outage at any depth, and off a value that is not an Error', () => {
+    expect(isNodeOutage(new Error('could not execute', { cause: new TypeError('Failed to fetch') }))).toBe(true);
+    expect(isNodeOutage('Failed to fetch')).toBe(true);
+  });
+
+  it.each([
+    [
+      'a read of the local store the SDK named',
+      'failed to fetch transaction inputs from the data store: account with id 0xabc not found in data store'
+    ],
+    ['a request that can never succeed', 'grpc-status header missing, mapped from HTTP status code 404'],
+    ['a node that refused', `${REQUEST}invalid request parameters`],
+    [
+      'a kernel failure, whatever its diagnostic prints',
+      'failed to execute transaction: transaction execution failed: failed to execute transaction kernel program:\n' +
+        '  x connection assertion failed\n 512 |   exec.note::abort'
+    ],
+    ['a kernel failure read by its code', `execution failed: ${ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE} 503`],
+    ['a prover that lacks a procedure', 'procedure with root digest 0xabc could not be found: connection']
+  ])('leaves %s to the terminal path', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  it('is no statement about the node when a Guardian went silent', () => {
+    const timeout = new GuardianRequestTimeoutError('https://guardian.test/delta', GUARDIAN_REQUEST_TIMEOUT_MS);
+    expect(isNodeOutage(timeout)).toBe(false);
+    expect(isNodeOutage(new Error('the send failed', { cause: timeout }))).toBe(false);
+  });
+
+  it('is never an outage under a killed pipeline, at any depth', () => {
+    // The abandoned pipeline may still submit, and every kill reads as transport-shaped text.
+    const poisoned = new WasmClientPoisonedError('watchdog', new TypeError('Failed to fetch'));
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    for (const kill of [poisoned, aborted]) {
+      expect(isNodeOutage(kill)).toBe(false);
+      expect(isNodeOutage(new Error('transport error', { cause: kill }))).toBe(false);
+    }
   });
 });
 
