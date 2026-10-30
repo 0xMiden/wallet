@@ -123,7 +123,12 @@ it('reports the Fast solve request client', () => {
     requestClient: 'native_reown',
     cause: REFUSED_FAST_DEPOSIT
   });
-  const wagmi = reportBridge({ route: 'epoch', step: 'epoch_solve', requestClient: 'wagmi', cause: REFUSED_FAST_DEPOSIT });
+  const wagmi = reportBridge({
+    route: 'epoch',
+    step: 'epoch_solve',
+    requestClient: 'wagmi',
+    cause: REFUSED_FAST_DEPOSIT
+  });
   const unlisted = reportBridge({
     route: 'epoch',
     step: 'epoch_solve',
