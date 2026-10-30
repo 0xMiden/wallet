@@ -317,6 +317,63 @@ public class BreadPresentationControllerTest {
         other.forceClose();
     }
 
+    @Test public void prepareMorphCooldownExpiresAt750MsWithoutAnExpand() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+
+        assertTrue(target.isShowing());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700));
+        assertTrue("the warm dialog remains available through 700 ms", target.isShowing());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        assertFalse("the unclaimed warm dialog cools down at 750 ms", target.isShowing());
+    }
+
+    @Test public void prepareMorphCooldownCannotTouchReplacementAfterClose() {
+        open(true, true, "default", false);
+        WebViewDialog original = dialog;
+        WebViewRegistry.getShared().register("target", original);
+        prepareMorph("target", 600);
+        assertTrue(original.isShowing());
+
+        original.forceClose();
+        WebViewRegistry.getShared().remove("target");
+        WebViewDialog replacement = mock(WebViewDialog.class);
+        WebViewRegistry.getShared().register("target", replacement);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+
+        assertSame(replacement, WebViewRegistry.getShared().get("target"));
+        verifyNoInteractions(replacement);
+    }
+
+    @Test public void prepareMorphLeavesAlreadyVisiblePresentationUnchanged() {
+        open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
+        assertTrue(dialog.isShowing());
+        WebViewRegistry.getShared().register("visible", dialog);
+        int decorVisibility = dialog.getWindow().getDecorView().getVisibility();
+        BreadPresentationState.Phase phase = controller.state.phase();
+        prepareMorph("visible", 600);
+
+        assertTrue(dialog.isShowing());
+        assertEquals(decorVisibility, dialog.getWindow().getDecorView().getVisibility());
+        assertEquals(phase, controller.state.phase());
+    }
+
+    private void prepareMorph(String id, int durationMs) {
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall call = mock(PluginCall.class);
+        when(call.getString("id")).thenReturn(id);
+        when(call.getInt("durationMs")).thenReturn(durationMs);
+        plugin.prepareMorph(call);
+        verify(call).resolve();
+    }
+
     @After public void tearDown() {
         if (dialog != null) dialog.forceClose();
         WebViewRegistry.getShared().clear();
