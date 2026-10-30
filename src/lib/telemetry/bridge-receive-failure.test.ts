@@ -104,6 +104,18 @@ it('reports other for a cause that names no library error', () => {
   );
 });
 
+it('keeps the wallet request client within its closed values', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'wallet_deposit', requestClient: 'unlisted' } as never)).toContain(
+    'wallet request client other'
+  );
+});
+
+it('omits the wallet request client outside an approve or deposit request', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', requestClient: 'wagmi' })).not.toContain(
+    'wallet request client'
+  );
+});
+
 const OWN_WORDS = 'The Fast route has no quoted deposit.';
 
 it('reports no answer for a cause the wallet raised itself that wraps none', () => {
