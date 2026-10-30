@@ -58,3 +58,14 @@ test('native rate scenario rejects missing bindings and unexpected provider beha
   assert.equal(await runNativeRateScenario({ caller: allows, colo: allows, nonce: 'a'.repeat(32) }), 'failed');
   assert.equal(await runNativeRateScenario({ caller: allows, colo: allows, nonce: 'invalid' }), 'failed');
 });
+
+test('wired rate scenario reports only the fixed failed stage', async () => {
+  const failures = [];
+  const result = await topology.runWiredRateScenario({
+    service: { fetch: async () => new Response(null, { status: 503 }) },
+    counters: async () => ({ objects: 0 }),
+    onFailure: stage => failures.push(stage)
+  });
+  assert.equal(result, 'failed');
+  assert.deepEqual(failures, ['caller_allow_1']);
+});
