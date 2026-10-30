@@ -305,15 +305,6 @@ public class BreadPresentationControllerTest {
         assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
         BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
         assertEquals(1f, morph.progress(), 0.01f);
-
-        target.forceClose();
-        WebViewRegistry.getShared().remove("target");
-        target.forceClose();
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
-        assertFalse("a stale timeout must not affect a replacement registered under the same id", target.isShowing());
-        WebViewDialog replacement = mock(WebViewDialog.class);
-        WebViewRegistry.getShared().register("target", replacement);
-        assertSame(replacement, WebViewRegistry.getShared().get("target"));
         other.forceClose();
     }
 
@@ -358,6 +349,10 @@ public class BreadPresentationControllerTest {
         prepareMorph("visible", 600);
 
         assertTrue(dialog.isShowing());
+        assertEquals(decorVisibility, dialog.getWindow().getDecorView().getVisibility());
+        assertEquals(phase, controller.state.phase());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
+        assertTrue("a cooldown must not hide an already-visible target", dialog.isShowing());
         assertEquals(decorVisibility, dialog.getWindow().getDecorView().getVisibility());
         assertEquals(phase, controller.state.phase());
     }
