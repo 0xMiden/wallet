@@ -561,7 +561,7 @@ describe('getNetworkRPC', () => {
 
   it('resolves a mainnet claim to the mainnet RPC on a mainnet wallet', async () => {
     mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
-    await expect(dapp.getNetworkRPC('mainnet')).resolves.toBe('https://rpc.cedar.miden.io');
+    await expect(dapp.getNetworkRPC('mainnet')).resolves.toBe('https://rpc.mainnet.miden.io');
   });
 
   it('still resolves a testnet claim on a mainnet wallet', async () => {
