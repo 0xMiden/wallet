@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
+- [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
 
 - [CHANGE][all] Move the mainnet endpoints from the `cedar` hosts to the `mainnet` hosts (RPC, prover, note transport, explorer and the Agglayer bridge indexer).
