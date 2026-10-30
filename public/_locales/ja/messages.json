@@ -4674,6 +4674,14 @@
     "message": "利用不可",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "未対応",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "不明な単位",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "一時的に利用不可",
     "englishSource": "Temporarily unavailable"

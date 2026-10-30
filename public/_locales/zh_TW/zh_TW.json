@@ -1040,6 +1040,8 @@
   "fast": "快速",
   "slow": "緩慢",
   "unavailable": "不可用",
+  "assetPriceUnsupported": "不支援",
+  "assetValueUnknownScale": "未知規模",
   "bridgeFeatureUnavailableTitle": "暫時無法使用",
   "bridgeFeatureUnavailableBody": "此外部服務目前暫停運作。請稍後再試。",
   "geoRestrictedTitle": "Not available where you are",

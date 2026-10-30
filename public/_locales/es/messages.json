@@ -4680,6 +4680,14 @@
     "message": "No disponible",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "No admitido",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Escala desconocida",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporalmente no disponible",
     "englishSource": "Temporarily unavailable"
