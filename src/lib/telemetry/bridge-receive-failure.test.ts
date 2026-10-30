@@ -151,9 +151,7 @@ it('names epoch_solve in the Fast solve request client policy line', () => {
     .split('\n')
     .find(line => line.includes('Only inbound bridge failures') && line.includes('wallet request client'));
 
-  expect(policyLine).toContain(
-    '`wallet_approve`, `wallet_deposit` or `epoch_solve` carry wallet request client'
-  );
+  expect(policyLine).toContain('`wallet_approve`, `wallet_deposit` or `epoch_solve` carry wallet request client');
   expect(policyLine).toContain('wallet request client (`native_reown`, `wagmi`)');
 });
 
