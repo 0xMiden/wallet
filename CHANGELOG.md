@@ -5,6 +5,7 @@
 ### Changes
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+- [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
 
