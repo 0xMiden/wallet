@@ -233,6 +233,10 @@ jest.mock('app/templates/EditMidenFaucetId', () => ({
   __esModule: true,
   default: mockLayoutPage('edit-faucet')
 }));
+jest.mock('app/templates/DeviceSettings', () => ({
+  __esModule: true,
+  default: mockLayoutPage('device-settings-body')
+}));
 jest.mock('app/templates/GuardianSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('guardian-settings-body')

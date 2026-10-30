@@ -35,6 +35,7 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
+import { deviceSignersAfterRevocation } from './device-signers';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
@@ -1215,6 +1216,64 @@ export class MultisigService {
     );
     console.log('Created add-hot-key proposal:', proposal.id);
     return proposal;
+  }
+
+  /** Remove one device after a fresh state read. Keep this device and the recovery key. */
+  async createRevokeDeviceProposal(target: string, hotPublicKey: string, coldPublicKey: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
+    const targetThreshold = this.multisig.threshold;
+    const built = await withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        assertWasmHoldCurrent(hold, 'revoke device', 'after client read');
+        const account = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after account read');
+        if (!account) throw new Error('Account is unavailable');
+        const own = await findOwnSignerCommitment(account, hotPublicKey);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after device key read');
+        const cold = await findOwnSignerCommitment(account, coldPublicKey);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after recovery key read');
+        if (!own || !cold) throw new Error('Device or recovery key is not a signer');
+        const targetSignerCommitments = deviceSignersAfterRevocation(
+          getSignerCommitmentsFromAccount(account),
+          target,
+          own,
+          cold,
+          targetThreshold
+        );
+        const { request, salt } = await buildUpdateSignersTransactionRequest(
+          webClient,
+          targetThreshold,
+          targetSignerCommitments,
+          { accountId: this.accountId, signatureScheme: 'ecdsa' }
+        );
+        assertWasmHoldCurrent(hold, 'revoke device', 'after request build');
+        const boundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after summary execution');
+        return {
+          summaryBase64: u8ToB64(summary.serialize()),
+          saltHex: salt.toHex(),
+          boundBlockNum,
+          targetSignerCommitments
+        };
+      },
+      { label: 'revoke-device-build' }
+    );
+    const metadata: ProposalMetadata = {
+      proposalType: 'remove_signer',
+      targetThreshold,
+      targetSignerCommitments: built.targetSignerCommitments,
+      saltHex: built.saltHex,
+      boundBlockNum: built.boundBlockNum,
+      requiredSignatures: this.multisig.getEffectiveThreshold('remove_signer'),
+      description: 'Revoke device'
+    };
+    return this.proposalStep(
+      'proposal_create',
+      () => this.multisig.createProposal(Date.now(), built.summaryBase64, metadata),
+      'replace-hot-key'
+    );
   }
 
   /**

@@ -8,6 +8,7 @@ import {
   type ExpectedEarnDepositIntent,
   type ExpectedEarnWithdrawIntent
 } from 'lib/epoch/intent-key';
+import { getMessage } from 'lib/i18n/core';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
@@ -538,11 +539,11 @@ export const completeReplaceHotKeyTransaction = async (
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
-    if (!newHotPublicKey) {
+    if (!newHotPublicKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
     }
 
-    if (!guardianProvider.swapHotKey) {
+    if (!guardianProvider.swapHotKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('swapHotKey not implemented in this provider');
     }
 
@@ -641,13 +642,16 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    if (newHotPublicKey && guardianProvider.swapHotKey)
+      await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
     // Drop the cached MultisigService — its bound hot signer is now stale.
     clearGuardianServiceFor(storedAccountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
-      displayMessage: hotKeyActivationMessage(tx.extraInputs.mode),
+      displayMessage: tx.extraInputs.revokedSignerCommitment
+        ? getMessage('deviceRevoked')
+        : hotKeyActivationMessage(tx.extraInputs.mode),
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the

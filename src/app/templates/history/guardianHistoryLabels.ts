@@ -45,6 +45,7 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
   if (entry.message === 'Transaction failed') {
     return t('transactionFailedNotificationTitle');
   }
+  if (entry.revokedSignerCommitment) return t('deviceRevoked');
   if (entry.guardianRecovered) {
     return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed, entry.hotKeyAdded));
   }

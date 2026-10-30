@@ -496,6 +496,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           hotKeyAdded: hotKeyExtra?.mode === 'add',
+          revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment,
           errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -994,6 +995,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {entry.revokedSignerCommitment && (
+                    <DetailRow label={t('deviceSignerCommitment')}>
+                      <HashChip hash={entry.revokedSignerCommitment} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
                   {isHotKeyRotation && entry.newHotPublicKey && (
                     <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
                       <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />

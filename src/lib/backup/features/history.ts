@@ -178,9 +178,10 @@ export function projectExtra(tx: ITransaction): HistoryRowExtra | undefined {
     case 'send':
     case 'execute':
     case 'switch-guardian':
-    case 'replace-hot-key':
     case 'update-procedure-threshold':
       return undefined;
+    case 'replace-hot-key':
+      return compact({ rc: pickString(raw, 'revokedSignerCommitment'), mode: pickString(raw, 'mode') });
   }
 }
 
@@ -426,9 +427,10 @@ export function restoreExtraInputs(row: HistoryRow): Record<string, unknown> | u
     case 'send':
     case 'execute':
     case 'switch-guardian':
-    case 'replace-hot-key':
     case 'update-procedure-threshold':
       return undefined;
+    case 'replace-hot-key':
+      return { revokedSignerCommitment: extraString(x, 'rc'), mode: extraString(x, 'mode') };
   }
 }
 

@@ -69,6 +69,21 @@ function row(id: string, fields: Partial<ITransaction> = {}): ITransaction {
 }
 
 describe('history projection', () => {
+  it('preserves the revoked commitment and transaction hash across devices', () => {
+    const target = `0x${'3'.repeat(64)}`;
+    const restored = restoreTransaction(
+      projectTransaction(
+        row('revocation', {
+          type: 'replace-hot-key',
+          extraInputs: { revokedSignerCommitment: target, secret: 'discard' }
+        })
+      )
+    );
+    expect(restored.transactionId).toBe('tx-revocation');
+    expect(restored.extraInputs).toEqual({ revokedSignerCommitment: target, mode: undefined });
+    expect(restored.restoredFromBackup).toBe(true);
+  });
+
   it('names a chunk history:<deviceId>:<n>', () => {
     expect(historyEntryKey('dev', 3)).toBe('history:dev:3');
   });

@@ -46,8 +46,16 @@ export function isRecoveryTransaction(transaction: ITransaction): boolean {
 export function getRecoveryAction(transaction: ITransaction): GuardianRecoveryAction {
   const accountId = transaction.accountId;
   switch (transaction.type) {
-    case 'replace-hot-key':
+    case 'replace-hot-key': {
+      const target = transaction.extraInputs?.revokedSignerCommitment;
+      if (target !== undefined) {
+        if (typeof target !== 'string' || !/^0x[0-9a-f]{64}$/i.test(target)) {
+          throw new Error('Invalid signer commitment');
+        }
+        return { type: transaction.type, accountId, revokedSignerCommitment: target };
+      }
       return { type: transaction.type, accountId };
+    }
     case 'switch-guardian': {
       const endpoint = transaction.extraInputs?.newGuardianEndpoint;
       if (typeof endpoint !== 'string' || !endpoint) throw new Error('Invalid Guardian target');

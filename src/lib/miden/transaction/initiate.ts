@@ -1,3 +1,4 @@
+import { getMessage } from 'lib/i18n/core';
 import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -1324,6 +1325,24 @@ export const initiateReplaceHotKeyTransaction = async (
   return queueRecoveryChange(dbTransaction);
 };
 
+/** Queue removal of one device. The recovery key signs this account update. */
+export const initiateRevokeDeviceTransaction = async (
+  accountId: string,
+  commitment: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!/^0x[0-9a-f]{64}$/i.test(commitment)) throw new Error('Invalid signer commitment');
+  const account = await resolveGuardianWalletAccount(accountId, guardianProvider, 'Guardian account required');
+  const transaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  transaction.extraInputs = {
+    revokedSignerCommitment: commitment,
+    guardianEndpoint: resolveGuardianEndpoint(account)
+  };
+  transaction.displayMessage = getMessage('revokeDevice');
+  return queueRecoveryChange(transaction);
+};
+
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
 // createGuardianAccount): changing the guardian requires both device keys.
 // Creation also pins `update_procedure_threshold` to 2 so this override can't be
@@ -1455,6 +1474,7 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
           row.type === transaction.type &&
           compareAccountIds(row.accountId, transaction.accountId) &&
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.revokedSignerCommitment === transaction.extraInputs?.revokedSignerCommitment &&
           row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
           row.extraInputs?.threshold === transaction.extraInputs?.threshold
       )

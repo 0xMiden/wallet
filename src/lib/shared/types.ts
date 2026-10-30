@@ -430,7 +430,7 @@ export interface GetStateResponse extends WalletMessageBase {
 // TODO: Make generalizable and pull out somewhere
 export type GuardianRecoveryAction =
   | { type: 'switch-guardian'; accountId: string; newGuardianEndpoint: string }
-  | { type: 'replace-hot-key'; accountId: string }
+  | { type: 'replace-hot-key'; accountId: string; revokedSignerCommitment?: string }
   | { type: 'update-procedure-threshold'; accountId: string; procedure: string; threshold: number };
 
 export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';

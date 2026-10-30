@@ -985,6 +985,7 @@ async function fetchTransactionsAsHistoryEntries(
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       hotKeyAdded: tx.type === 'replace-hot-key' && tx.extraInputs?.mode === 'add',
+      revokedSignerCommitment: tx.type === 'replace-hot-key' ? tx.extraInputs?.revokedSignerCommitment : undefined,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no

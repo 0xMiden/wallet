@@ -75,6 +75,7 @@ import {
   generateTransactionsLoop,
   guardianCandidateRelease,
   initiateReplaceHotKeyTransaction,
+  initiateRevokeDeviceTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction,
   LANDED_CONFIRM_BOUND_MS,
@@ -13071,6 +13072,16 @@ describe('initiateReplaceHotKeyTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
+  });
+
+  it('keeps revocations separate from activation and from a different target', async () => {
+    const provider = makeGuardianProvider(true);
+    const target = `0x${'1'.repeat(64)}`;
+    const first = await initiateRevokeDeviceTransaction('acc-1', target, false, provider);
+    expect(await initiateRevokeDeviceTransaction('acc-1', target, false, provider)).toBe(first);
+    expect(await initiateRevokeDeviceTransaction('acc-1', `0x${'2'.repeat(64)}`, false, provider)).not.toBe(first);
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).not.toBe(first);
+    expect(txStore).toHaveLength(3);
   });
 
   it('reuses a pending recovery change but permits a new change after completion', async () => {

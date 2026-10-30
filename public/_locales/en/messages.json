@@ -1,4 +1,35 @@
 {
+  "deviceRevokedBody": {
+    "message": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authenticate to revoke this device.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": { "message": "Revoked signer commitment" },
+  "walletDevices": { "message": "Devices" },
+  "currentDevice": { "message": "This device" },
+  "revokeDevice": { "message": "Revoke device" },
+  "revokeDeviceDescription": {
+    "message": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": { "message": "The recovery phrase stored on this device will approve revocation." },
+  "deviceRecoveryRequired": {
+    "message": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": { "message": "Cannot read the device list. Try again after the wallet syncs." },
+  "deviceSignerNumber": { "message": "Device $number$", "placeholders": { "number": { "content": "$1" } } },
+  "deviceRevoked": { "message": "Device revoked" },
+  "thisDeviceRevoked": { "message": "This device was revoked" },
+  "deviceRevocationTransaction": { "message": "Revocation transaction" },
   "seedBackupRequiredTitle": {
     "message": "Back up your recovery phrase",
     "englishSource": "Back up your recovery phrase"
