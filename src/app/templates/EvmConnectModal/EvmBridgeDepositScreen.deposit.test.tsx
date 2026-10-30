@@ -563,13 +563,19 @@ const BALANCE_CHECK_OF: Record<string, string> = {
   usdcxDepositFeeAboveBalance: 'too_low',
   bridgeDepositBalanceReadFailed: 'read_failed'
 };
-const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+const failedAt = (
+  step: string,
+  error: string,
+  errorId = 'raw_bridge_deposit_failed',
+  requestClient?: 'native_reown' | 'wagmi'
+) => ({
   error,
   errorId,
   failure: {
     step,
     cause: expect.any(Error),
-    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] })
+    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] }),
+    ...(requestClient === undefined ? {} : { requestClient })
   }
 });
 /** The library error the crash report names for the cause the last failure write handed it. */
@@ -1618,7 +1624,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
         'failed',
         stage === 'receipt'
           ? failedAt('approve_receipt', 'approval receipt failed')
-          : failedAt('wallet_deposit', 'second prompt rejected')
+          : failedAt('wallet_deposit', 'second prompt rejected', undefined, native ? 'native_reown' : 'wagmi')
       );
     }
   );
@@ -1783,7 +1789,31 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
         'bridge-tx',
         'failed',
-        failedAt('wallet_approve', 'approval rejected')
+        failedAt('wallet_approve', 'approval rejected', undefined, native ? 'native_reown' : 'wagmi')
+      );
+    }
+  );
+
+  it.each([
+    [false, 'wagmi'],
+    [true, 'native_reown']
+  ] as const)(
+    'records the selected wallet request client when the deposit request fails (%s)',
+    async (native, client) => {
+      mockNativeReown = native;
+      answerAllowance(DEPOSIT);
+      const privateText = 'request private-topic-123 for 0x1234 with amount 98.76';
+      if (native) jest.mocked(NativeReown.sendTransaction).mockRejectedValueOnce(privateText);
+      else mockMutateAsync.mockRejectedValueOnce(privateText);
+
+      await confirmSlowUsdcDeposit();
+
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        expect.objectContaining({
+          failure: expect.objectContaining({ step: 'wallet_deposit', requestClient: client })
+        })
       );
     }
   );
