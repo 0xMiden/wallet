@@ -600,3 +600,12 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - The extension confirmation and shared mobile/desktop modal now use the same note-flow DTO. The mobile/desktop request takes it from the existing dry run, without repeating execution.
 - Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
 - Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
+
+# Issue #1840 - Android dApp touch-down warm-up
+
+- [x] Resume after the 1.17.7 hold and merge current main into the issue branch.
+- [x] Add and prove red Robolectric lifecycle tests in Android CI.
+- [x] Implement and route the per-dialog warm-up.
+- [ ] Pass Android unit tests and the complete exact-head CI gate.
+- [ ] Add native-tap Android E2E and compare before/after FrameTimeline traces.
+- [ ] Complete exact-head CI and the recorded independent review, then merge.

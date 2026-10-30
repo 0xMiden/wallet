@@ -144,6 +144,9 @@ public class WebViewDialog extends Dialog {
 
     boolean hasPresentation() { return presentation != null; }
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    void prepareMorph(long durationMs) {
+        if (presentation != null) presentation.prepareMorph(durationMs);
+    }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
         if (managedClose != null) managedClose.foreground(foreground);
