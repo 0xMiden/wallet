@@ -363,7 +363,8 @@ export function bridgeReceiveIdentity(failure: BridgeReceiveFailure): string {
   const error = bridgeReceiveLibraryError(failure.cause);
   const precheck = readNativeSessionPrecheck(failure.cause);
   const requestClient =
-    failure.requestClient === undefined || (step !== 'wallet_approve' && step !== 'wallet_deposit')
+    failure.requestClient === undefined ||
+    (step !== 'wallet_approve' && step !== 'wallet_deposit' && step !== 'epoch_solve')
       ? ''
       : ` wallet request client ${listed(failure.requestClient, BRIDGE_RECEIVE_REQUEST_CLIENTS)};`;
   // `recovery` would drop the report: it is mnemonic context, and this sentence already holds wordlist words such as
