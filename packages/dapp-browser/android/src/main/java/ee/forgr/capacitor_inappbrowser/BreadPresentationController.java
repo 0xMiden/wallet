@@ -450,6 +450,7 @@ final class BreadPresentationController {
         Window window = owner.getWindow();
         if (window == null) return;
         restoreWindow();
+        warmAccessibilityImportance = window.getDecorView().getImportantForAccessibility();
         warmed = true;
         addWarmWindowFlags(window);
         owner.applyPresentationVisibility(true);
@@ -474,7 +475,6 @@ final class BreadPresentationController {
 
     private void hideWarmDecor(Window window) {
         View decor = window.getDecorView();
-        warmAccessibilityImportance = decor.getImportantForAccessibility();
         decor.setVisibility(View.INVISIBLE);
         decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
