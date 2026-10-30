@@ -40,7 +40,8 @@ final class BreadAuthController {
     BreadAuthController(WebViewDialog owner, WebView webView) {
         this.owner = owner;
         this.webView = webView;
-        presentable = () -> owner.isShowing() && !owner.managedClosing() && owner.activity != null;
+        presentable = () -> owner.isShowing() && !owner.unseenWarmPresentation()
+            && !owner.managedClosing() && owner.activity != null;
     }
 
     void install() {

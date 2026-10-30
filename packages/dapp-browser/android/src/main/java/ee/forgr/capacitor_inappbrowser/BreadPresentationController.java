@@ -458,6 +458,14 @@ final class BreadPresentationController {
         handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
     }
 
+    boolean unseenWarm() { return warmed && !state.surfaceVisibility(); }
+
+    boolean retireUnseenWarm() {
+        if (!unseenWarm()) return false;
+        finishWarmup(true);
+        return true;
+    }
+
     private void addWarmWindowFlags(Window window) {
         int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         warmAddedWindowFlags = flags & ~window.getAttributes().flags;
@@ -472,7 +480,7 @@ final class BreadPresentationController {
     }
 
     private void finishWarmup(boolean hide) {
-        if (!warmed) return;
+        if (!warmed || owner.managedClosing()) return;
         warmed = false;
         if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
         warmCooldown = null;

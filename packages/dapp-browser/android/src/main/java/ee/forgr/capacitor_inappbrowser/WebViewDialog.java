@@ -116,6 +116,8 @@ public class WebViewDialog extends Dialog {
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
+    boolean unseenWarmPresentation() { return presentation != null && presentation.unseenWarm(); }
+    boolean retireUnseenWarmPresentation() { return presentation != null && presentation.retireUnseenWarm(); }
     void disableClosingPage() {
         if (presentation != null) presentation.stopMotion();
         if (_webView != null) {

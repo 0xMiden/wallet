@@ -358,7 +358,8 @@ public class BreadPresentationControllerTest {
 
         assertEquals(1, requests.size());
         assertFalse("a warm close is not a visible page", requests.get(0).getBoolean("visible"));
-        assertFalse("a warm close hides before it is managed", target.isShowing());
+        assertEquals("a warm close hides before it is managed", View.GONE,
+            target.getWindow().getDecorView().getVisibility());
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
         assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
     }
