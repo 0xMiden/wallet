@@ -133,6 +133,7 @@ export async function executeRetainedEpochIntent(
   const transactions = executionTransactions.parse(quote.transactions);
   const claimHash = getClaimHash(compactData, witnessTypeString);
   let fenced = false;
+  let pendingBatchId: string | undefined;
   const assertCurrent = () => {
     if (fenced) throw new Error('Epoch submission requires reconciliation');
     hooks.assertCurrent();
@@ -155,13 +156,40 @@ export async function executeRetainedEpochIntent(
             'personal_sign'
           ];
           const mutation = writes.includes(args.method);
-          if (mutation) assertCurrent();
+          if (mutation) {
+            if (pendingBatchId) throw new Error('Epoch submission requires reconciliation');
+            assertCurrent();
+          }
           let result: unknown;
           try {
             result = await original.walletClient.request(args);
           } catch (error) {
             if (mutation && !isUserWalletRejection(error) && !isBatchingUnsupported(error)) fenced = true;
+            if (args.method === 'wallet_getCallsStatus' && pendingBatchId) fenced = true;
             throw error;
+          }
+          if (
+            args.method === 'wallet_getCallsStatus' &&
+            pendingBatchId &&
+            Array.isArray(args.params) &&
+            args.params[0] === pendingBatchId
+          ) {
+            const status = typeof result === 'object' && result !== null ? Reflect.get(result, 'status') : undefined;
+            if (status === 'CONFIRMED' || (typeof status === 'number' && status >= 200)) {
+              const receipts =
+                typeof result === 'object' && result !== null ? Reflect.get(result, 'receipts') : undefined;
+              const succeeded = status === 'CONFIRMED' || (typeof status === 'number' && status < 300);
+              const allReceiptsSucceeded =
+                Array.isArray(receipts) &&
+                receipts.length > 0 &&
+                receipts.every(receipt => {
+                  if (typeof receipt !== 'object' || receipt === null) return false;
+                  const receiptStatus = Reflect.get(receipt, 'status');
+                  return receiptStatus === '0x1' || receiptStatus === 'success' || receiptStatus === 1;
+                });
+              if (succeeded && allReceiptsSucceeded) pendingBatchId = undefined;
+              else fenced = true;
+            }
           }
           if (
             mutation &&
@@ -178,6 +206,7 @@ export async function executeRetainedEpochIntent(
                     : undefined;
               if (typeof id !== 'string' || id.length === 0 || id.length > 2048)
                 throw new Error('Missing Epoch submission identity');
+              if (args.method === 'wallet_sendCalls') pendingBatchId = id;
               await hooks.onSubmitted(args.method === 'wallet_sendCalls' ? 'batch' : 'transaction', id);
               assertCurrent();
             } catch (error) {
@@ -289,7 +318,7 @@ export async function executeRetainedEpochIntent(
         receipts.push(...legs);
         continue;
       } catch (error) {
-        if (fenced || isUserWalletRejection(error)) throw error;
+        if (fenced || pendingBatchId || isUserWalletRejection(error) || !isBatchingUnsupported(error)) throw error;
       }
     }
     for (const [leg, transaction] of group.items.entries()) {

@@ -27,7 +27,7 @@ function deferred() {
   });
   return { promise, release };
 }
-function fixture(resourceLockRequired = true, batch = false, forced = false) {
+function fixture(resourceLockRequired = true, batch = false, forced = false, failBatchStatus = false) {
   const events: string[] = [];
   const submitted = deferred();
   const requests: unknown[] = [];
@@ -87,6 +87,8 @@ function fixture(resourceLockRequired = true, batch = false, forced = false) {
       submitted.release();
       return 'bundle-1';
     }
+    if (method === 'wallet_getCallsStatus' && failBatchStatus)
+      return { atomic: true, chainId: '0xaa36a7', status: 200, version: '2.0.0', receipts: [] };
     if (method === 'wallet_getCallsStatus')
       return {
         atomic: true,
@@ -267,6 +269,54 @@ it('Task4C2 finalseams preserves an Epoch accepted batch identity when receipt r
   expect(setup.requests).toHaveLength(1);
   expect(setup.allocations).toHaveLength(0);
   expect(setup.nonces()).toBe(1);
+});
+
+it('does not retry individual transactions after an accepted batch lacks status receipts', async () => {
+  const setup = fixture(false, true, false, true);
+  setup.quote.quoteResult.transactions = [
+    { target: PREPARED_OWNER, callData: '0x1234', value: '0', chainId: sepolia.id },
+    { target: PREPARED_OWNER, callData: '0xabcd', value: '0', chainId: sepolia.id }
+  ];
+  const submitted: string[] = [];
+  const result = await buildEVMToMidenIntent(setup.sdk, {
+    ...setup.params,
+    preFetchedQuote: setup.quote,
+    recovery: {
+      config: setup.config,
+      beforeExecute: async () => {},
+      beforeAllocation: async () => {},
+      assertCurrent: () => {},
+      onSubmitted: async (_kind, id) => {
+        submitted.push(id);
+      }
+    }
+  });
+  expect(setup.events.filter(method => method === 'eth_sendTransaction')).toHaveLength(0);
+  expect(submitted).toEqual(['bundle-1']);
+  expect(setup.requests).toHaveLength(1);
+  expect(result.error).toBeDefined();
+});
+
+it('does not retry a compact deposit after an accepted batch lacks status receipts', async () => {
+  const setup = fixture(true, true, false, true);
+  const submitted: string[] = [];
+  const result = await buildEVMToMidenIntent(setup.sdk, {
+    ...setup.params,
+    preFetchedQuote: setup.quote,
+    recovery: {
+      config: setup.config,
+      beforeExecute: async () => {},
+      beforeAllocation: async () => {},
+      assertCurrent: () => {},
+      onSubmitted: async (_kind, id) => {
+        submitted.push(id);
+      }
+    }
+  });
+  expect(setup.events.filter(method => method === 'eth_sendTransaction')).toHaveLength(0);
+  expect(submitted).toEqual(['bundle-1']);
+  expect(setup.requests).toHaveLength(1);
+  expect(result.error).toContain('Epoch submission requires reconciliation');
 });
 
 it.each([true, false])(
