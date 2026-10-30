@@ -165,11 +165,17 @@ describe('background time around a transaction attempt', () => {
   it('still ends the time when the attempt fails', async () => {
     attemptFails();
     queueRow();
+    let statusAtEnd: ITransactionStatus | undefined;
+    mockEnd.mockImplementation(async () => {
+      statusAtEnd = mockTxStore[0]!.status;
+    });
 
     await expect(generateTransactionsLoop(signCallback, false, guardianProvider)).resolves.toBe(false);
     await flush();
 
     expect(mockTxStore[0]!.status).toBe(ITransactionStatus.Failed);
+    // The failure's own writes are what iOS would otherwise suspend halfway through.
+    expect(statusAtEnd).toBe(ITransactionStatus.Failed);
     expect(mockBegin).toHaveBeenCalledTimes(1);
     expect(endsSeenInsideAttempt).toBe(0);
     expect(mockEnd).toHaveBeenCalledTimes(1);

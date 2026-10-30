@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-import { __resetBackgroundExecutionForTest, runWithBackgroundExecution } from './background-execution';
+import { __resetBackgroundExecutionForTest, beginBackgroundExecution } from './background-execution';
 
 const mockBegin = jest.fn();
 const mockEnd = jest.fn();
@@ -27,7 +27,17 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe('runWithBackgroundExecution', () => {
+// How the transaction loop uses it: begun before the work, ended in its `finally`.
+async function runWithBackgroundExecution<T>(run: () => Promise<T>): Promise<T> {
+  const end = beginBackgroundExecution();
+  try {
+    return await run();
+  } finally {
+    end();
+  }
+}
+
+describe('beginBackgroundExecution', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetBackgroundExecutionForTest();

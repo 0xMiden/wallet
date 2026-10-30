@@ -63,7 +63,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { runWithBackgroundExecution } from 'lib/mobile/background-execution';
+import { beginBackgroundExecution } from 'lib/mobile/background-execution';
 import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
@@ -4880,10 +4880,10 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   beginAttemptInThisRealm(nextTransaction.id);
+  // Held through the catch arm too: its writes are how a failure reaches the row.
+  const endBackgroundExecution = beginBackgroundExecution();
   try {
-    await runWithBackgroundExecution(() =>
-      generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider)
-    );
+    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -5076,6 +5076,7 @@ export const generateTransactionsLoop = async (
     return false;
   } finally {
     endAttemptInThisRealm(nextTransaction.id);
+    endBackgroundExecution();
   }
 
   // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed
