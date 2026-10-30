@@ -827,10 +827,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [resetEpoch]);
 
   // Every Epoch token's balance on the source chain, each row settling on its own: the native coin is the account's own
-  // balance, any other token its ERC-20 balance. Keyed on the token set, not the array a config publish rebuilds.
+  // balance, any other token its ERC-20 balance. Keyed on the chain and token set, not the array a config publish
+  // rebuilds: two chains can list the same entry, native ETH at the zero address above all.
   const epochTokensRef = useRef(epochTokens);
   epochTokensRef.current = epochTokens;
-  const epochTokensKey = epochTokens.map(({ key, address, decimals }) => `${key}:${address}:${decimals}`).join(',');
+  const epochTokensKey = epochTokens
+    .map(({ key, address, chainId, decimals }) => `${chainId}:${key}:${address}:${decimals}`)
+    .join(',');
   useEffect(() => {
     setEpochBalances({});
     const tokens = epochTokensRef.current;

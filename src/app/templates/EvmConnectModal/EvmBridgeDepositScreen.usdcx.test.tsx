@@ -1609,6 +1609,62 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(epochState.quoteEVMToMiden).not.toHaveBeenCalled();
   });
 
+  // Two chains whose Epoch routes list the same token entry: only the chain tells their balances apart.
+  const sameEpochTokenOnTwoChains = (): BridgeConfigSnapshot => {
+    const { config, derived } = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const epoch = {
+      depositEnabled: true,
+      withdrawalEnabled: true,
+      tokens: { ETH: { contractAddress: '0x0000000000000000000000000000000000000000' as const, outputs: [] } }
+    };
+    const reads = {
+      ...derived!.chains[11155111]!,
+      epoch: {
+        tokens: {
+          ETH: {
+            state: 'ok' as const,
+            value: {
+              symbol: 'ETH',
+              decimals: 18,
+              midenFaucetId: '0x00000000000000000000000000e2e1',
+              midenSymbol: 'ETH',
+              midenDecimals: 8
+            }
+          }
+        }
+      }
+    };
+    return {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...config!,
+        supportedEvmChains: {
+          sepolia: { chainId: 11155111, bridges: { epoch } },
+          'base-sepolia': { chainId: 84532, bridges: { epoch } }
+        }
+      },
+      derived: { ...derived!, chains: { 11155111: reads, 84532: reads } }
+    };
+  };
+
+  it('rereads the Epoch balance on a chain that lists the same token entry', async () => {
+    mockBridgeSnapshot = sameEpochTokenOnTwoChains();
+    global.fetch = jest.fn(async (url: string) => ({
+      json: async () => ({ result: word(url.endsWith('/84532') ? 2n * 10n ** 18n : 0n) })
+    })) as never;
+    renderScreen();
+    await settle();
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+
+    await pickNetwork('base-sepolia');
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^84532$/);
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^true$/);
+  });
+
   const deferred = <T,>() => {
     let resolve!: (value: T) => void;
     let reject!: (reason: Error) => void;
