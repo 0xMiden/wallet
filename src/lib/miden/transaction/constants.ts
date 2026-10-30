@@ -4,6 +4,7 @@ import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
+import { formatHoldDeadline } from './hold-deadline';
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
   IBridgedSendExtraInputs,
@@ -289,12 +290,9 @@ export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
 export const GUARDIAN_HOLD_RETRY_ERROR =
   'The Guardian is still holding this transaction. You can retry it after {time}.';
 
-/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+/** The hold refusal for logs, naming when `clearsAtSec` (unix seconds) falls; a surface shows `retryRefusalText`. */
 export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
-  GUARDIAN_HOLD_RETRY_ERROR.replace(
-    '{time}',
-    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  );
+  GUARDIAN_HOLD_RETRY_ERROR.replace('{time}', formatHoldDeadline(clearsAtSec, { locale: 'en' }));
 
 /**
  * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read

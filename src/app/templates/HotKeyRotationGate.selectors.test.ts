@@ -400,15 +400,18 @@ describe('describeRotationFailure', () => {
   });
 });
 
-// The gate withholds Retry on `unconfirmed`, so a refused rotation must read the same in Activity (#2060).
-describe('a refused rotation row reads the same in the gate and in Activity (#2060)', () => {
+// `unconfirmed` decides whether the gate offers its key-pair exit, so a rotation must read the same in Activity (#2060).
+describe('a failed rotation row reads the same in the gate and in Activity (#2060)', () => {
   const refusal =
     'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+  const timedOut = 'Guardian request to guardian.example timed out after 30000 ms';
 
   it.each<[string, Partial<ITransaction>, boolean]>([
-    ['past its crossing', { type: 'replace-hot-key', mayHaveSubmitted: true }, true],
+    ['refused past its crossing', { type: 'replace-hot-key', mayHaveSubmitted: true }, true],
     ['a funding claim past its crossing', { type: 'consume', rotationFunding: true, mayHaveSubmitted: true }, true],
-    ['before its crossing', { type: 'replace-hot-key' }, false]
+    ['refused before its crossing', { type: 'replace-hot-key' }, false],
+    ['unanswered past its crossing', { error: timedOut, mayHaveSubmitted: true }, true],
+    ['unanswered before its crossing', { error: timedOut, stage: 'creating-proposal' }, false]
   ])('%s', (_label, fields, unconfirmed) => {
     const row: Pick<ITransaction, 'type'> & Partial<ITransaction> & { status: ITransactionStatus } = {
       type: 'replace-hot-key',

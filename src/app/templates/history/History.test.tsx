@@ -19,6 +19,7 @@ import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import {
   TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_NEVER_COMMITTED_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
@@ -784,21 +785,34 @@ describe('History', () => {
       error:
         'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
     };
-    const openEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    const bareEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    const openEntry = {
+      ...bareEntry,
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
     mockGetCompletedTransactions.mockResolvedValueOnce([
       { ...refused, id: 'refused-open', completedAt: 500, submitEvidence: [openEntry] },
       { ...refused, id: 'refused-bare', completedAt: 600 },
-      { ...refused, id: 'refused-retired', completedAt: 700, submitEvidence: [{ ...openEntry, preSubmitEnd: true }] }
+      { ...refused, id: 'refused-retired', completedAt: 700, submitEvidence: [{ ...openEntry, preSubmitEnd: true }] },
+      { ...refused, id: 'refused-uncheckable', completedAt: 800, submitEvidence: [bareEntry] }
     ]);
     mockGetUncompletedTransactions.mockResolvedValueOnce([]);
 
     await renderHistory();
-    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(4));
 
     const byKey = (key: string) => mockHistoryViewProps.entries.find((e: { key: string }) => e.key === key);
     expect(byKey('completed-refused-open').isUnconfirmed).toBe(true);
     expect(byKey('completed-refused-bare').isUnconfirmed).toBe(false);
     expect(byKey('completed-refused-retired').isUnconfirmed).toBe(false);
+    expect(byKey('completed-refused-uncheckable').isUnconfirmed).toBe(false);
   });
 
   it('reads an Unconfirmed row and a Failed row with an open entry as not confirmed, a retired one as failed (#1081)', async () => {
@@ -3906,7 +3920,21 @@ describe('History on the real SWR cache', () => {
       completedAt: 4000,
       displayMessage: 'Not confirmed',
       displayIcon: 'SEND',
-      submitEvidence: [{ attemptId: 'attempt-1', capturedAt: 4000, source: 'stage' }]
+      submitEvidence: [
+        {
+          attemptId: 'attempt-1',
+          capturedAt: 4000,
+          source: 'stage',
+          transactionId: '0x01',
+          initialCommitment: '0x02',
+          finalCommitment: '0x03',
+          initialNonce: '4',
+          outputNoteIds: ['0x05'],
+          nullifiers: [],
+          refBlock: 100,
+          refBlockCommitment: '0x06'
+        }
+      ]
     };
     const refusal =
       'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
@@ -3998,8 +4026,9 @@ describe('History on the real SWR cache', () => {
       await Repo.transactions.put({
         ...older,
         status: ITransactionStatus.Failed,
+        stage: 'submitting',
         error: TRANSACTION_NEVER_COMMITTED_ERROR,
-        rawError: 'node verdict: never committed',
+        rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
         displayMessage: 'Failed',
         displayIcon: 'FAILED',
         neverCommittedAt: 6000

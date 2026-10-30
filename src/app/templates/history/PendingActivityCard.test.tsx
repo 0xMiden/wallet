@@ -293,6 +293,16 @@ describe('PendingActivityCard', () => {
       expect(screen.queryByText('noteClaimFailedRetry')).toBeNull();
     });
 
+    it('says why a failed claim cannot be retried yet, and never tells the user to tap Retry (#2060)', () => {
+      renderCard('failed', { submission: { kind: 'guardianHold', messageKey: 'submissionHeldByGuardian' } });
+
+      const notice = screen.getByTestId('pending-activity-submission');
+      expect(notice).toHaveTextContent('submissionHeldByGuardian');
+      expect(notice).toHaveAttribute('role', 'status');
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getByTestId('pending-activity-hint')).not.toHaveTextContent('noteClaimFailedRetry');
+    });
+
     it('offers Retry for a stored submission only on a held claim, the one its handler can act on (#1689)', () => {
       const onRetryHeld = jest.fn();
       const onAccept = jest.fn();
@@ -484,6 +494,24 @@ describe('PendingActivityCard live failure reporting', () => {
     ]);
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports no failed claim while it shows a hold, and reports it once the hold is over (#2060)', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(
+      card({
+        note,
+        status: 'failed',
+        submission: { kind: 'guardianHold', messageKey: 'submissionProvenHeldByGuardian' }
+      })
+    );
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id)).toEqual(['noteClaimFailedRetry']);
   });
 
   it.each<PendingActivityItem>([

@@ -133,7 +133,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
-  else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative =
     item.retryError !== undefined || (submission !== undefined ? submission.kind === 'rejected' : status === 'failed');

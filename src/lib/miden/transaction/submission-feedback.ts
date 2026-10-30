@@ -7,7 +7,6 @@ import {
   hasUnresolvedAttempt,
   isAccountBlockedError,
   isOutcomeUnconfirmed,
-  isUnconfirmedFailure,
   isUserCancelledTransaction,
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -15,14 +14,16 @@ import {
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR
 } from './constants';
-import { keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
+import { awaitingVerdict, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 
-export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered';
+export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered' | 'guardianHold';
 
 export type SubmissionMessageKey =
   | 'submissionRejectedByNetwork'
   | 'submissionRejectedByGuardian'
   | 'submissionBlockedByIssuer'
+  | 'submissionHeldByGuardian'
+  | 'submissionProvenHeldByGuardian'
   | 'submissionInterrupted'
   | 'submissionUnanswered';
 
@@ -125,33 +126,45 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
 
 type FinishedRow = FeedbackRow & Parameters<typeof isOutcomeUnconfirmed>[0];
 
-// The rotation gate reads these through `isUnconfirmedFailure` and offers no Retry on that reading, so Activity follows.
+// The rotation gate reads these through `isUnconfirmedFailure`, which decides whether it offers its key-pair exit, so
+// Activity reads them by that rule, whatever text they stored.
 const readByRotationGate = (row: FinishedRow): boolean =>
   row.type === 'replace-hot-key' || row.rotationFunding === true;
 
 /**
- * Whether a finished row reads Not confirmed, the one rule every surface shares (#2060). A stored timeout, drop or
- * missing answer does, including on a Failed row. A stored refusal does while an attempt is unresolved: a refusal past
- * the crossing cannot be told from a lost answer, which is why the leaf keeps its candidate, so only the reconciler can
- * rule the attempt dead. With nothing left to judge the refusal is the row's outcome, whatever the node said.
+ * Whether a finished row reads Not confirmed, the one rule every surface shares (#2060). A row the node proved never
+ * committed and a rotation row follow the outcome rule, whatever text they stored. Otherwise a stored timeout, drop or
+ * missing answer does, including on a Failed row. A stored refusal does while the reconciler still judges the row: a
+ * refusal past the crossing cannot be told from a lost answer, which is why the leaf keeps its candidate, so only a
+ * verdict can rule the attempt dead. With nothing left to judge the refusal is the row's outcome, whatever the node
+ * said.
  */
-export function readsAsNotConfirmed(row: FinishedRow): boolean {
+export function readsAsNotConfirmed(row: FinishedRow, nowSec: number = nowSeconds()): boolean {
   const feedback = submissionFeedback(row);
-  if (feedback === undefined) return isOutcomeUnconfirmed(row);
-  return (
-    feedback.kind !== 'rejected' || hasUnresolvedAttempt(row) || (readByRotationGate(row) && isUnconfirmedFailure(row))
-  );
+  if (feedback === undefined || row.neverCommittedAt !== undefined || readByRotationGate(row)) {
+    return isOutcomeUnconfirmed(row);
+  }
+  return feedback.kind !== 'rejected' || (hasUnresolvedAttempt(row) && awaitingVerdict(row, nowSec));
 }
 
 /**
- * The stored outcome a surface may show (#2060). A refusal tells the user to try again, so it is withheld while the row
- * reads Not confirmed and while the Guardian holds the candidate that a retry would meet.
+ * What a surface may say about a finished row's outcome (#2060): the stored outcome only where the row's reading agrees
+ * with it. While the Guardian holds the candidate a retry would meet, a row that reads Failed says that instead, since
+ * its refusal and a proven row's "safe to retry" would both invite a Retry the hold refuses.
  */
 export function shownSubmissionFeedback(
   row: FinishedRow,
   nowSec: number = nowSeconds()
 ): SubmissionFeedback | undefined {
+  if (row.status !== ITransactionStatus.Failed && row.status !== ITransactionStatus.Unconfirmed) return undefined;
   const feedback = submissionFeedback(row);
-  if (feedback?.kind !== 'rejected') return feedback;
-  return readsAsNotConfirmed(row) || keptCandidateHoldUntil(row, nowSec) !== undefined ? undefined : feedback;
+  const refused = feedback?.kind === 'rejected';
+  if (readsAsNotConfirmed(row, nowSec)) return refused ? undefined : feedback;
+  if (keptCandidateHoldUntil(row, nowSec) === undefined) return refused ? feedback : undefined;
+  const details = feedback?.details ?? row.rawError;
+  return {
+    kind: 'guardianHold',
+    messageKey: row.neverCommittedAt === undefined ? 'submissionHeldByGuardian' : 'submissionProvenHeldByGuardian',
+    ...(details === undefined ? {} : { details })
+  };
 }

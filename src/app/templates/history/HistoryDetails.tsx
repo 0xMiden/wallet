@@ -441,6 +441,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
         const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
         const submission = shownSubmissionFeedback(tx);
+        const isUnconfirmed = readsAsNotConfirmed(tx);
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -495,10 +496,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
-          errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
+          errorMessage:
+            submission !== undefined && !isUnconfirmed ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
-          isUnconfirmed: readsAsNotConfirmed(tx),
+          isUnconfirmed,
           notConfirmedHint:
             submission !== undefined && submission.kind !== 'rejected'
               ? submission.messageKey

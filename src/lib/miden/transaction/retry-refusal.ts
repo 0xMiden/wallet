@@ -1,4 +1,7 @@
+import { getCurrentLocale } from 'lib/i18n/core';
+
 import { guardianHoldRetryMessage } from './constants';
+import { formatHoldDeadline } from './hold-deadline';
 
 /**
  * Retry met a candidate the Guardian still holds (#1081). It carries when the hold clears, so a surface can state that
@@ -16,8 +19,19 @@ export class GuardianHoldRetryError extends Error {
 
 /** Matched by `name`, like `isUnverifiableSendRetryError`: the retry can be driven from a bundle sharing no class. */
 export const isGuardianHoldRetryError = (error: unknown): error is GuardianHoldRetryError =>
-  error instanceof Error && error.name === 'GuardianHoldRetryError';
+  error instanceof Error &&
+  error.name === 'GuardianHoldRetryError' &&
+  'clearsAtSec' in error &&
+  typeof error.clearsAtSec === 'number';
 
 /** The text every surface shows for a refused Retry (#2060). */
-export const retryRefusalText = (error: unknown, t: (key: string) => string): string =>
-  error instanceof Error ? error.message : t('smthWentWrong');
+export const retryRefusalText = (
+  error: unknown,
+  t: (key: string, substitutions?: Record<string, string>) => string
+): string => {
+  if (isGuardianHoldRetryError(error)) {
+    const time = formatHoldDeadline(error.clearsAtSec, { locale: getCurrentLocale() });
+    return t('guardianHoldRetryRefused', { time });
+  }
+  return error instanceof Error ? error.message : t('smthWentWrong');
+};

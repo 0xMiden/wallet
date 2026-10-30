@@ -4,7 +4,12 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
+import {
+  REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_NEVER_COMMITTED_ERROR,
+  TRANSACTION_STUCK_ERROR
+} from 'lib/miden/transaction/constants';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -881,6 +886,82 @@ describe('GeneratingTransactionPage container effects', () => {
     expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
     expect(container.textContent).toContain('submissionRejectedByNetwork');
     expect(container.textContent).not.toContain('notConfirmed');
+    act(() => root.unmount());
+  });
+
+  it('turns to the failed title and the refusal when the reconciler gave up on its entry (#2060)', async () => {
+    mockRowState = { row: refusedAfterCrossing({ ...checkableEntry, verdict: 'unresolvable' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('transactionUndeterminedHint');
+    act(() => root.unmount());
+  });
+
+  describe('a row the node proved never committed (#2060)', () => {
+    const provenRow = (entry: Record<string, unknown> = {}) =>
+      makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        neverCommittedAt: 1,
+        error: TRANSACTION_NEVER_COMMITTED_ERROR,
+        rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
+        submitEvidence: [{ ...checkableEntry, verdict: 'never-committed', ...entry }]
+      });
+
+    it('reads Failed and says it is safe to retry, with nothing about the answer it missed', async () => {
+      mockRowState = { row: provenRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+        expect(container.textContent).toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+        expect(container.textContent).not.toContain('submissionUnanswered');
+        expect(container.querySelector('.bg-status-negative')).not.toBeNull();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('does not invite a retry while the Guardian still holds its candidate', async () => {
+      mockRowState = {
+        row: provenRow({ candidateKept: true, capturedAt: Math.floor(Date.now() / 1000) - 60 }),
+        loaded: true
+      };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+        expect(container.textContent).toContain('submissionProvenHeldByGuardian');
+        expect(container.textContent).not.toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+  });
+
+  it('says why a refused row with nothing left to judge cannot be retried yet (#2060)', async () => {
+    mockRowState = {
+      row: refusedAfterCrossing({
+        ...checkableEntry,
+        verdict: 'unresolvable',
+        candidateKept: true,
+        capturedAt: Math.floor(Date.now() / 1000) - 60
+      }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionHeldByGuardian');
+    expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain(networkRefusal);
     act(() => root.unmount());
   });
 

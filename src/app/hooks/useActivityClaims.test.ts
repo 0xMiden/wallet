@@ -4,6 +4,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 
 import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import type { ISubmitEvidence } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
@@ -36,7 +37,7 @@ type MockRow = {
   rawError?: string;
   mayHaveSubmitted?: boolean;
   neverCommittedAt?: number;
-  submitEvidence?: Array<{ attemptId: string; capturedAt: number; source: 'stage' }>;
+  submitEvidence?: ISubmitEvidence[];
 };
 const mockQueue = jest.fn();
 const mockRequeue = jest.fn();
@@ -2118,13 +2119,76 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
       error:
         'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
     };
-    settle([{ ...refused, held: true, submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }] }]);
+    const checkable: ISubmitEvidence = {
+      attemptId: 'a1',
+      capturedAt: 1,
+      source: 'stage',
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
+    settle([{ ...refused, held: true, submitEvidence: [checkable] }]);
 
     expect(result.current.items[0]).toMatchObject({ status: 'claiming', held: true });
     expect(result.current.items[0]?.submission).toBeUndefined();
 
     settle([{ ...refused, held: false, neverCommittedAt: 2 }]);
     expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('fails a claim the reconciler gave up on with its refusal, as Activity reads it (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unresolvable' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-unresolvable',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error:
+          'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters',
+        submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage', verdict: 'unresolvable' }]
+      }
+    ]);
+
+    expect(result.current.items[0]?.submission).toMatchObject({ kind: 'rejected' });
+  });
+
+  it('says a proven claim cannot be retried yet while the Guardian holds its candidate (#2060)', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-proven' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-proven',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        neverCommittedAt: 2,
+        error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.',
+        submitEvidence: [
+          {
+            attemptId: 'a1',
+            capturedAt: Math.floor(Date.now() / 1000) - 60,
+            source: 'stage',
+            verdict: 'never-committed',
+            candidateKept: true
+          }
+        ]
+      }
+    ]);
+
+    expect(result.current.items[0]?.submission).toMatchObject({
+      kind: 'guardianHold',
+      messageKey: 'submissionProvenHeldByGuardian'
+    });
   });
 
   it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {

@@ -22,6 +22,8 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import {
   REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_NEVER_COMMITTED_ERROR,
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON,
   isUserCancelledTransaction
@@ -3303,11 +3305,34 @@ describe('HistoryDetails', () => {
           expect(screen.getByText(refusal)).toBeInTheDocument();
         });
 
-        it('says the wallet is not checking it once its entry is unresolvable', async () => {
+        it('stays Failed with the refused sentence once the reconciler gave up on its entry', async () => {
           setMockRow(refusedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'unresolvable' }] }));
           await renderAndLoad();
 
-          expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionUndeterminedHint');
+          expect(notConfirmedCard()).toBeFalsy();
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionRejectedByNetwork');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+        });
+
+        it('says why it cannot be retried yet while the Guardian holds its candidate', async () => {
+          setMockRow(
+            refusedSendTx({
+              submitEvidence: [
+                {
+                  ...checkableEntry,
+                  verdict: 'unresolvable',
+                  candidateKept: true,
+                  capturedAt: Math.floor(Date.now() / 1000) - 60
+                }
+              ]
+            })
+          );
+          await renderAndLoad();
+
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionHeldByGuardian');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+          fireEvent.click(screen.getByText('showFullError'));
+          expect(screen.getByText(refusal)).toBeInTheDocument();
         });
 
         it('stays Failed with the refused sentence once nothing is left to judge', async () => {
@@ -3324,6 +3349,36 @@ describe('HistoryDetails', () => {
           await renderAndLoad();
 
           expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionRejectedByNetwork');
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+        });
+      });
+
+      describe('a row the node proved never committed (#2060)', () => {
+        const provenSendTx = (entry: Tx = {}): Tx =>
+          failedSendTx({
+            stage: 'submitting',
+            mayHaveSubmitted: true,
+            neverCommittedAt: 1_700_000_100,
+            error: TRANSACTION_NEVER_COMMITTED_ERROR,
+            rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
+            submitEvidence: [{ ...checkableEntry, verdict: 'never-committed', ...entry }]
+          });
+
+        it('reads Failed with the safe-to-retry sentence, whatever answer its attempt missed', async () => {
+          setMockRow(provenSendTx());
+          await renderAndLoad();
+
+          expect(notConfirmedCard()).toBeFalsy();
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent(TRANSACTION_NEVER_COMMITTED_ERROR);
+          expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
+        });
+
+        it('does not invite a retry while the Guardian still holds its candidate', async () => {
+          setMockRow(provenSendTx({ candidateKept: true, capturedAt: Math.floor(Date.now() / 1000) - 60 }));
+          await renderAndLoad();
+
+          expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionProvenHeldByGuardian');
+          expect(screen.queryByText(TRANSACTION_NEVER_COMMITTED_ERROR)).toBeNull();
           expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'false');
         });
       });
