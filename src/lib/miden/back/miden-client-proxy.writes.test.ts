@@ -1848,4 +1848,3 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     expect(extractSdkErrorCode(err)).toBeUndefined();
   });
 });
-

@@ -18,10 +18,10 @@
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { assertCanonicalNoteRequest } from 'lib/miden/recovery/canonical-note-readback';
 import { prepareOffscreenRetainedNoteReceipt, type RetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
 import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
-import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';

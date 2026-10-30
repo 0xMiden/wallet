@@ -352,7 +352,7 @@ it.each([true, false])(
       );
       expect(notes[0]?.[0]).toBe(lock ? PREPARED_FAUCET : undefined);
       expect(notes[0]?.[1]).toBe(lock ? '1000000' : undefined);
-      if (lock) expect(notes[0]?.[3]).toBe(1250);
+      expect(notes[0]?.[3]).toBe(lock ? 1250 : undefined);
       expect(Array.isArray(notes[0]?.[4])).toBe(lock);
     } finally {
       ack.release();

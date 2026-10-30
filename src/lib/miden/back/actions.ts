@@ -216,7 +216,9 @@ export async function init() {
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<GetStateResponse['state'] & { storageAvailability: StorageAvailability }> {
+export async function getFrontState(): Promise<
+  GetStateResponse['state'] & { storageAvailability: StorageAvailability }
+> {
   try {
     const state = store.getState();
     if (state.inited) {
