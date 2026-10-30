@@ -1,7 +1,7 @@
 import { getCurrentLocale } from 'lib/i18n/core';
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 
 import { guardianHoldRetryMessage } from './constants';
-import { formatHoldDeadline } from './hold-deadline';
 
 /**
  * Retry met a candidate the Guardian still holds (#1081). It carries when the hold clears, so a surface can state that

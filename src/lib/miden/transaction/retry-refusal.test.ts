@@ -1,5 +1,6 @@
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
+
 import { guardianHoldRetryMessage } from './constants';
-import { formatHoldDeadline } from './hold-deadline';
 import { GuardianHoldRetryError, isGuardianHoldRetryError, retryRefusalText } from './retry-refusal';
 
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'de' }));

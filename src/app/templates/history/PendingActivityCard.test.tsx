@@ -345,17 +345,47 @@ describe('PendingActivityCard', () => {
       expect(hint).not.toHaveTextContent('activityNotYetAccepted');
     });
 
+    describe.each([
+      ['a held claim', { status: 'claiming', txId: 'tx-held', held: true }],
+      ['a failed claim', { status: 'failed', txId: 'tx-held' }]
+    ] as const)('%s the Guardian still holds (#2060)', (_label, row) => {
+      const holdUntil = Math.floor(Date.now() / 1000) + 600;
+
+      it('turns Retry off and says until when with the card closed', () => {
+        const onRetryHeld = jest.fn();
+        const onAccept = jest.fn();
+        render(
+          <PendingActivityCard item={{ note, ...row, holdUntil }} onAccept={onAccept} onRetryHeld={onRetryHeld} />
+        );
+
+        expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+        expect(screen.getByTestId('guardian-hold-notice')).toHaveTextContent('guardianHoldNotice');
+        const retry = screen.getByRole('button', { name: 'retry' });
+        expect(retry).toBeDisabled();
+        fireEvent.click(retry);
+        expect(onRetryHeld).not.toHaveBeenCalled();
+        expect(onAccept).not.toHaveBeenCalled();
+      });
+
+      it('gives Retry back without the hold', () => {
+        render(<PendingActivityCard item={{ note, ...row }} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+
+        expect(screen.queryByTestId('guardian-hold-notice')).toBeNull();
+        expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+      });
+    });
+
     it('a refusal replaces the hint and opens the folded section (#1081)', () => {
       const item: PendingActivityItem = {
         note,
         status: 'claiming',
         txId: 'tx-held',
         held: true,
-        retryError: 'The Guardian is still holding this transaction.'
+        retryError: 'Your Guardian is still holding this transaction. You can retry it after 13:18:00 GMT+1.'
       };
       render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
       const hint = screen.getByTestId('pending-activity-hint');
-      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveTextContent('Your Guardian is still holding this transaction.');
       expect(hint).toHaveAttribute('data-tone', 'negative');
       expect(hint).toHaveAttribute('role', 'alert');
     });

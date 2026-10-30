@@ -28,6 +28,8 @@ import {
   USER_CANCELLED_TRANSACTION_REASON,
   isUserCancelledTransaction
 } from 'lib/miden/transaction/constants';
+import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
+import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
@@ -195,8 +197,13 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockConfiguredNativeFaucet
 }));
 
+// Read once per render of the page, and by nothing under it: that makes it the page's render count.
+let mockPageRenders = 0;
 jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
-  useNetworkFeeEstimate: () => mockMaxNetworkFee
+  useNetworkFeeEstimate: () => {
+    mockPageRenders += 1;
+    return mockMaxNetworkFee;
+  }
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -226,6 +233,11 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
 }));
 
 let mockPaybackState: { stuck: boolean; failedClaimId?: string; reason?: string } | null = null;
+const mockGetPaybackClaimState = jest.fn();
+jest.mock('lib/miden/swap/payback-claim', () => ({
+  ...jest.requireActual('lib/miden/swap/payback-claim'),
+  getPaybackClaimState: (...args: unknown[]) => mockGetPaybackClaimState(...args)
+}));
 jest.mock('./usePaybackClaimState', () => ({
   usePaybackClaimState: (row: { type?: string } | undefined) => (row?.type === 'swap' ? mockPaybackState : null)
 }));
@@ -3446,6 +3458,124 @@ describe('HistoryDetails', () => {
       expect(isUserCancelledTransaction(TRANSACTION_STUCK_ERROR)).toBe(false);
     });
 
+    describe('while the Guardian holds the row`s candidate (#2060)', () => {
+      const secondsFromNow = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+      const heldFor = (seconds: number, overrides: Tx = {}): Tx => ({
+        attemptId: 'a1',
+        capturedAt: secondsFromNow(seconds) - GUARDIAN_PENDING_HOLD_SEC,
+        source: 'stage',
+        candidateKept: true,
+        ...overrides
+      });
+      // A new element each time: React skips the render of one it has already seen.
+      const page = () => <HistoryDetails transactionId="tx-1" />;
+
+      it('turns Retry off, says until when and hides the fee a Retry would pay', async () => {
+        mockMaxNetworkFee = '0.3 MIDEN';
+        setMockRow(failedSendTx({ submitEvidence: [heldFor(600)] }));
+        await renderAndLoad();
+
+        expect(screen.getByTestId('history-retry-button')).toBeDisabled();
+        expect(screen.getByTestId('guardian-hold-notice')).toHaveTextContent('guardianHoldNotice');
+        expect(screen.getByTestId('guardian-hold-countdown')).toHaveTextContent('10:00');
+        expect(screen.queryByText('networkFeeMax · 0.3 MIDEN')).toBeNull();
+      });
+
+      it('leaves the ticking to the notice, so the page renders only for the end of the hold', async () => {
+        setMockRow(failedSendTx({ submitEvidence: [heldFor(5)] }));
+        await renderAndLoad();
+        const rendered = mockPageRenders;
+
+        act(() => {
+          jest.advanceTimersByTime(4_000);
+        });
+
+        expect(screen.getByTestId('guardian-hold-countdown')).toHaveTextContent('00:01');
+        expect(mockPageRenders).toBe(rendered);
+      });
+
+      it('gives back Retry, the fee and the row`s own reason the moment the hold ends', async () => {
+        mockMaxNetworkFee = '0.3 MIDEN';
+        setMockRow(
+          failedSendTx({
+            stage: 'submitting',
+            mayHaveSubmitted: true,
+            neverCommittedAt: 1_700_000_100,
+            error: TRANSACTION_NEVER_COMMITTED_ERROR,
+            rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
+            submitEvidence: [heldFor(3, { verdict: 'never-committed' })]
+          })
+        );
+        await renderAndLoad();
+        expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('submissionProvenHeldByGuardian');
+        expect(screen.queryByText(TRANSACTION_NEVER_COMMITTED_ERROR)).toBeNull();
+
+        act(() => {
+          jest.advanceTimersByTime(3_000);
+        });
+        await flush();
+
+        expect(screen.getByTestId('history-retry-button')).toBeEnabled();
+        expect(screen.queryByTestId('guardian-hold-notice')).toBeNull();
+        expect(screen.getByText('networkFeeMax · 0.3 MIDEN')).toBeInTheDocument();
+        expect(screen.getByTestId('history-failure-reason')).toHaveTextContent(TRANSACTION_NEVER_COMMITTED_ERROR);
+      });
+
+      it('holds Retry anyway too, and drops it with its refusal when the Guardian lets go', async () => {
+        const refused = new GuardianHoldRetryError(secondsFromNow(60));
+        setMockRow(failedSendTx());
+        mockRequeueFailedTransaction.mockRejectedValueOnce(refused);
+        mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+        const { rerender } = await renderAndLoad();
+        fireEvent.click(screen.getByText('retry'));
+        await flush();
+        expect(screen.getByTestId('history-retry-error')).toHaveTextContent('guardianHoldRetryRefused');
+
+        setMockRow(failedSendTx({ submitEvidence: [heldFor(60)] }));
+        rerender(page());
+        await flush();
+        expect(screen.getByTestId('history-retry-anyway-button')).toBeDisabled();
+
+        setMockRow(failedSendTx({ submitEvidence: [heldFor(60, { candidateKept: undefined })] }));
+        rerender(page());
+        await flush();
+        expect(screen.queryByTestId('history-retry-error')).toBeNull();
+        expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
+        expect(screen.getByTestId('history-retry-button')).toBeEnabled();
+      });
+
+      it('keeps an ordinary refusal when no hold ended', async () => {
+        setMockRow(failedSendTx());
+        mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('row is gone'));
+        const { rerender } = await renderAndLoad();
+        fireEvent.click(screen.getByText('retry'));
+        await flush();
+
+        setMockRow(failedSendTx({ displayMessage: 'Failed again' }));
+        rerender(page());
+        await flush();
+
+        expect(screen.getByTestId('history-retry-error')).toHaveTextContent('row is gone');
+      });
+    });
+
+    it('keeps a refusal and its Retry anyway on the row that met them', async () => {
+      setMockRow(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+      const { rerender } = await renderAndLoad();
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+      expect(screen.getByTestId('history-retry-error')).toBeInTheDocument();
+
+      setMockRow(failedSendTx({ id: 'tx-2' }));
+      rerender(<HistoryDetails transactionId="tx-2" />);
+      await flush();
+
+      expect(screen.queryByTestId('history-retry-error')).toBeNull();
+      expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
+    });
+
     // Same contract as the progress screen: a send the wallet cannot verify is
     // refused with an explanation, and only then can the user vouch for it.
     it('offers "retry anyway" after refusing a send it cannot verify', async () => {
@@ -4945,6 +5075,20 @@ describe('HistoryDetails swap order actions', () => {
     await openOrder();
     expect(screen.getByTestId('swap-payback-stuck')).toHaveTextContent('swapPaybackStuckGuardian');
     expect(screen.getByTestId('swap-retry-payback-button')).toBeInTheDocument();
+  });
+
+  // The claim is another row, so nothing on this page can turn its Retry off ahead of time.
+  it('keeps the refusal for a payout claim the Guardian holds, in the wallet`s language (#2060)', async () => {
+    mockPaybackState = { stuck: true, failedClaimId: 'claim-9', reason: 'guardian' };
+    mockGetPaybackClaimState.mockResolvedValue({ stuck: true, failedClaimId: 'claim-9', reason: 'guardian' });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(new GuardianHoldRetryError(Math.floor(Date.now() / 1000) + 60));
+    await openOrder();
+
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await flush();
+
+    expect(screen.getByTestId('swap-retry-payback-button')).toBeEnabled();
+    expect(screen.getByTestId('swap-retry-payback-error')).toHaveTextContent('guardianHoldRetryRefused');
   });
 
   it('shows no stuck payout claim while the live read says none', async () => {

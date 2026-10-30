@@ -61,7 +61,10 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     id: 'generating-proof',
     labelKey: 'transactionStepProofGenerated',
     defaultLabel: 'Proof generated',
-    startStage: 'proving',
+    // Execution is the wallet's work, not the Guardian's: timed from `proving` it read as a slow approval. Every leaf
+    // stamps `executing`, but the offscreen copy's stamps are fire-and-forget, so a lost one falls back here.
+    startStage: 'executing',
+    fallbackStartStage: 'proving',
     activeStages: ['sending', 'executing', 'proving']
   },
   {

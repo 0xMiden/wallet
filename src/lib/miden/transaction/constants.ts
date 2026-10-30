@@ -1,10 +1,10 @@
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
-import { formatHoldDeadline } from './hold-deadline';
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
   IBridgedSendExtraInputs,

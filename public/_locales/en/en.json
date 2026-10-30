@@ -240,6 +240,7 @@
   "submissionHeldByGuardian": "Your Guardian is still holding this transaction, so it cannot be retried yet.",
   "submissionProvenHeldByGuardian": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet.",
   "guardianHoldRetryRefused": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+  "guardianHoldNotice": "You can retry after $time$",
   "submissionUnanswered": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "showFullError": "Show full error",
   "hideFullError": "Hide full error",

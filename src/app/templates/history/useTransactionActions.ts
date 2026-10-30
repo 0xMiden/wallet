@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -74,7 +74,8 @@ export interface TransactionActions {
 export const useTransactionActions = (
   transactionId: string,
   entry: IHistoryEntry | null,
-  transaction: ITransaction | undefined
+  transaction: ITransaction | undefined,
+  guardianHoldUntil?: number
 ): TransactionActions => {
   const { t } = useTranslation();
   const confirm = useConfirm();
@@ -159,6 +160,14 @@ export const useTransactionActions = (
     },
     [entry, t, transactionId]
   );
+
+  // A refusal describes the hold it met, and Retry anyway only ever follows its refusal.
+  useEffect(() => {
+    if (guardianHoldUntil !== undefined) return;
+    setRetryError(null);
+    setRetryErrorId(null);
+    setAcknowledgement(null);
+  }, [guardianHoldUntil]);
 
   const failedPaybackClaimId = entry?.paybackClaimStuck?.failedClaimId;
   const handleRetryPayback = useCallback(async () => {
@@ -258,6 +267,8 @@ export const useTransactionActions = (
           restoredFromBackup: transaction?.restoredFromBackup
         }));
 
+  const refusalIsThisRow = retryErrorId?.transactionId === transactionId;
+
   return {
     canCancel,
     isCancelling,
@@ -267,10 +278,10 @@ export const useTransactionActions = (
     canRetry,
     earnRetryKind,
     isRetrying,
-    retryError,
-    retryErrorId: retryErrorId?.transactionId === transactionId ? retryErrorId.id : null,
-    retryErrorDiagnostics: retryErrorId?.transactionId === transactionId ? retryErrorId.diagnostics : undefined,
-    acknowledgement,
+    retryError: refusalIsThisRow ? retryError : null,
+    retryErrorId: refusalIsThisRow ? retryErrorId.id : null,
+    retryErrorDiagnostics: refusalIsThisRow ? retryErrorId.diagnostics : undefined,
+    acknowledgement: refusalIsThisRow ? acknowledgement : null,
     onRetry: acknowledged => void handleRetry(acknowledged),
     isCancellingOrder,
     cancelOrderError,

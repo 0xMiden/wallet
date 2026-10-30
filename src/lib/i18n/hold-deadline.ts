@@ -21,6 +21,7 @@ const calendarDay = (at: number, timeZone: string | undefined): string =>
 /**
  * When a Guardian hold clears (#2060), in the wallet's locale and with its UTC offset, so the time still means one
  * instant once it is repeated to someone in another zone. The date appears only when the deadline is not today.
+ * Callers pass the wallet's locale (`getCurrentLocale`), so the log line can stay in English.
  */
 export const formatHoldDeadline = (
   clearsAtSec: number,
@@ -35,3 +36,11 @@ export const formatHoldDeadline = (
     ...(calendarDay(at, timeZone) === calendarDay(nowMs, timeZone) ? {} : { month: 'short', day: 'numeric' })
   });
 };
+
+/** Whole seconds until `clearsAtSec`, rounded up, so a hold that has not cleared never reads as zero. */
+export const holdSecondsLeft = (clearsAtSec: number, nowMs: number): number =>
+  Math.ceil((clearsAtSec * 1000 - nowMs) / 1000);
+
+/** `mm:ss`, whose minutes run past 59 rather than wrap. */
+export const formatHoldCountdown = (secondsLeft: number): string =>
+  [Math.floor(secondsLeft / 60), secondsLeft % 60].map(part => String(part).padStart(2, '0')).join(':');

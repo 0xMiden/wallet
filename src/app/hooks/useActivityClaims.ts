@@ -25,7 +25,7 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
-import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { isGuardianHoldRetryError, retryRefusalText } from 'lib/miden/transaction/retry-refusal';
 import { shownSubmissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { keptCandidateHoldUntil, nowSeconds } from 'lib/miden/transaction/verdict-rules';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -51,7 +51,7 @@ type FeeSnapshot = {
   balancesLoading: boolean;
 };
 type ClaimAttempt = PendingActivityItem & { feeRefusedAt?: FeeSnapshot };
-type RetryFailure = { message: string } & NonNullable<PendingActivityItem['failure']>;
+type RetryFailure = { message: string; metHold?: true } & NonNullable<PendingActivityItem['failure']>;
 type Attempts = ReadonlyMap<string, ClaimAttempt>;
 type ClaimSlot = {
   attempts: Attempts;
@@ -96,6 +96,10 @@ function sameSubmission(left: SubmissionFeedback | undefined, right: SubmissionF
     left.rowCopy === right.rowCopy &&
     left.details === right.details
   );
+}
+
+function sameHolds(left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>): boolean {
+  return left.size === right.size && [...right].every(([id, until]) => left.get(id) === until);
 }
 
 function sameFeedback(
@@ -217,11 +221,13 @@ export function useActivityClaims() {
     txIds: new Set()
   });
   const [submissionByTx, setSubmissionByTx] = useState<ReadonlyMap<string, SubmissionFeedback>>(() => new Map());
+  const [holdByTx, setHoldByTx] = useState<ReadonlyMap<string, number>>(() => new Map());
 
   useEffect(() => {
     if (!watchedTxIds) {
       setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
       setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
+      setHoldByTx(previous => (previous.size === 0 ? previous : new Map()));
       return;
     }
     const txIds = watchedTxIds.split(',');
@@ -235,6 +241,8 @@ export function useActivityClaims() {
       const held = new Set<string>();
       const waiting = new Set<string>();
       const submissions = new Map<string, SubmissionFeedback>();
+      const holds = new Map<string, number>();
+      const nowSec = nowSeconds();
       for (const tx of rows) {
         const feedback = shownSubmissionFeedback(tx);
         if (feedback !== undefined) submissions.set(tx.id, feedback);
@@ -243,6 +251,8 @@ export function useActivityClaims() {
         } else if (tx.status === ITransactionStatus.Completed) {
           settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
         } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
+          const until = keptCandidateHoldUntil(tx, nowSec);
+          if (until !== undefined) holds.set(tx.id, until);
           if (holdsNotes(tx)) held.add(tx.id);
           else {
             settled.set(tx.id, {
@@ -255,14 +265,18 @@ export function useActivityClaims() {
         }
       }
       setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
+      setHoldByTx(previous => (sameHolds(previous, holds) ? previous : holds));
       // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
       setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
       setGuardianWait(previous =>
         previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
       );
-      // A refusal describes the hold it met; once the row moves on it must not return with a later hold.
+      // A refusal describes the hold it met: it ends with that hold, and once the row moves on it must not return with
+      // a later one.
       setRetryErrors(previous => {
-        const moved = rows.filter(tx => !held.has(tx.id) && previous.has(tx.id));
+        const moved = rows.filter(
+          tx => previous.has(tx.id) && (!held.has(tx.id) || (previous.get(tx.id)?.metHold && !holds.has(tx.id)))
+        );
         if (moved.length === 0) return previous;
         const next = new Map(previous);
         for (const tx of moved) next.delete(tx.id);
@@ -298,9 +312,9 @@ export function useActivityClaims() {
         return next ?? previous;
       });
       // A hold ends with no write to its row, so no emission would ever take its notice down.
-      const nowSec = nowSeconds();
-      const clears = rows.flatMap(tx => keptCandidateHoldUntil(tx, nowSec) ?? []);
-      if (clears.length > 0) holdEnds = setTimeout(() => publish(rows), (Math.min(...clears) - nowSec) * 1000);
+      if (holds.size > 0) {
+        holdEnds = setTimeout(() => publish(rows), Math.min(...holds.values()) * 1000 - Date.now());
+      }
     };
     // A freeze holds the timer up, so the way back reads the clock rather than wait out what it had left.
     const resample = () => {
@@ -323,10 +337,12 @@ export function useActivityClaims() {
     const rowFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission'> => {
+    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission' | 'holdUntil'> => {
       if (txId === undefined) return {};
       const submission = submissionByTx.get(txId);
-      if (status === 'failed') return submission === undefined ? {} : { submission };
+      const holdUntil = holdByTx.get(txId);
+      const hold = holdUntil === undefined ? {} : { holdUntil };
+      if (status === 'failed') return { ...hold, ...(submission === undefined ? {} : { submission }) };
       if (status !== 'claiming') return {};
       if (!heldTxIds.has(txId)) {
         const guardianBusy = guardianWait.key === key && guardianWait.txIds.has(txId);
@@ -338,9 +354,10 @@ export function useActivityClaims() {
       }
       const retryError = retryErrors.get(txId);
       return retryError === undefined
-        ? { held: true, ...(submission !== undefined ? { submission } : {}) }
+        ? { held: true, ...hold, ...(submission !== undefined ? { submission } : {}) }
         : {
             held: true,
+            ...hold,
             retryError: retryError.message,
             failure: retryError,
             ...(submission !== undefined ? { submission } : {})
@@ -410,6 +427,7 @@ export function useActivityClaims() {
     heldTxIds,
     guardianWait,
     submissionByTx,
+    holdByTx,
     key,
     retryErrors,
     balances,
@@ -598,6 +616,7 @@ export function useActivityClaims() {
         new Map(previous).set(txId, {
           message,
           id,
+          ...(isGuardianHoldRetryError(error) ? { metHold: true as const } : {}),
           ...(id === 'raw_pending_activity_retry_failed'
             ? {
                 diagnostics: {
