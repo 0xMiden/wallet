@@ -265,6 +265,8 @@ public class BreadPresentationControllerTest {
         BreadPresentationController targetPresentation = controller;
         BreadPresentationState.Phase parked = targetPresentation.state.phase();
         WebViewRegistry.getShared().register("target", target);
+        assertSame(target, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(target, targetPresentation);
 
         open(true, true, "default", false);
         WebViewDialog other = dialog;
@@ -285,14 +287,15 @@ public class BreadPresentationControllerTest {
         when(warm.getInt("durationMs")).thenReturn(600);
         plugin.prepareMorph(warm);
 
-        assertTrue("only the requested hidden presentation should warm", target.isShowing());
+        assertTrue("only the requested hidden presentation should warm " + warmupState(target, targetPresentation),
+            target.isShowing());
         assertEquals(View.INVISIBLE, target.getWindow().getDecorView().getVisibility());
         assertEquals(parked, targetPresentation.state.phase());
         assertFalse(other.isShowing());
         verify(warm).resolve();
 
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
-        assertTrue(target.isShowing());
+        assertTrue(warmupState(target, ReflectionHelpers.getField(target, "presentation")), target.isShowing());
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
         assertTrue(target.isShowing());
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
@@ -311,7 +314,10 @@ public class BreadPresentationControllerTest {
     @Test public void prepareMorphCooldownExpiresAt750MsWithoutAnExpand() {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = ReflectionHelpers.getField(target, "presentation");
         WebViewRegistry.getShared().register("target", target);
+        assertSame(target, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(target, targetPresentation);
         prepareMorph("target", 600);
 
         assertTrue(target.isShowing());
@@ -324,9 +330,12 @@ public class BreadPresentationControllerTest {
     @Test public void prepareMorphCooldownCannotTouchReplacementAfterClose() {
         open(true, true, "default", false);
         WebViewDialog original = dialog;
+        BreadPresentationController originalPresentation = ReflectionHelpers.getField(original, "presentation");
         WebViewRegistry.getShared().register("target", original);
+        assertSame(original, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(original, originalPresentation);
         prepareMorph("target", 600);
-        assertTrue(original.isShowing());
+        assertTrue(warmupState(original, originalPresentation), original.isShowing());
 
         original.forceClose();
         WebViewRegistry.getShared().remove("target");
@@ -367,6 +376,33 @@ public class BreadPresentationControllerTest {
         when(call.getInt("durationMs")).thenReturn(durationMs);
         plugin.prepareMorph(call);
         verify(call).resolve();
+    }
+
+    private void assertWarmupEligible(WebViewDialog target, BreadPresentationController presentation) {
+        assertFalse(warmupState(target, presentation), target.isShowing());
+        assertFalse(warmupState(target, presentation), target.managedClosing());
+        assertFalse(warmupState(target, presentation), presentation.state.surfaceVisibility());
+        assertEquals(warmupState(target, presentation), BreadPresentationState.Phase.TEMPORARILY_HIDDEN,
+            presentation.state.phase());
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "warmed"));
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "capturing"));
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "tracking"));
+        assertNull(warmupState(target, presentation), ReflectionHelpers.getField(presentation, "collapseFlight"));
+        assertFalse(warmupState(target, presentation),
+            ReflectionHelpers.<BreadMorphController>getField(presentation, "morph").running());
+        assertNotNull(warmupState(target, presentation), target.getWindow());
+    }
+
+    private String warmupState(WebViewDialog target, BreadPresentationController presentation) {
+        return "(phase=" + presentation.state.phase()
+            + ", surfaceVisible=" + presentation.state.surfaceVisibility()
+            + ", dialogShowing=" + target.isShowing()
+            + ", managedClosing=" + target.managedClosing()
+            + ", warmed=" + ReflectionHelpers.<Boolean>getField(presentation, "warmed")
+            + ", capturing=" + ReflectionHelpers.<Boolean>getField(presentation, "capturing")
+            + ", tracking=" + ReflectionHelpers.<Boolean>getField(presentation, "tracking")
+            + ", collapseQueued=" + (ReflectionHelpers.getField(presentation, "collapseFlight") != null)
+            + ")";
     }
 
     @After public void tearDown() {
