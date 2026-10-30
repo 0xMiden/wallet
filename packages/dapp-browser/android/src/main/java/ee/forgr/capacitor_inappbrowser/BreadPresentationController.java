@@ -1127,7 +1127,7 @@ final class BreadPresentationController {
         }
         if (!state.surfaceVisibility()) {
             if (warmed) {
-                owner.applyPresentationVisibility(true);
+                if (!owner.isShowing()) owner.applyPresentationVisibility(true);
             } else owner.applyPresentationVisibility(false);
             restoreWindow();
             renderCover();
