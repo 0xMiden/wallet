@@ -449,6 +449,7 @@ final class BreadPresentationController {
             && phase != BreadPresentationState.Phase.TEMPORARILY_HIDDEN)) return;
         Window window = owner.getWindow();
         if (window == null) return;
+        restoreWindow();
         owner.applyPresentationVisibility(true);
         warmed = true;
         applyWarmWindow(window);
