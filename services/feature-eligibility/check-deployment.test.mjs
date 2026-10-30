@@ -236,3 +236,17 @@ test('a connected readiness peer that never responds still hits the deadline', a
   assert.ok(signal instanceof AbortSignal);
   assert.equal(signal.aborted, true);
 });
+
+test('a ready response clears its readiness abort timer', async () => {
+  let signal;
+  await waitUntilReady({ exitCode: null, signalCode: null }, 'http://127.0.0.1:9/', {
+    deadlineMs: 200,
+    fetchImpl: (_url, init) => {
+      signal = init?.signal;
+      return Promise.resolve(new Response(null, { status: 403 }));
+    }
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(signal.aborted, false);
+});

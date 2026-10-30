@@ -31,11 +31,18 @@ export async function waitUntilReady(child, url, { deadlineMs = 45_000, fetchImp
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error(`workerd exited before readiness (${child.exitCode ?? child.signalCode})`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()));
     try {
-      const response = await fetchImpl(url);
-      if (response.status === 403) return;
-    } catch {}
-    await new Promise(resolve => setTimeout(resolve, 250));
+      const response = await fetchImpl(url, { signal: controller.signal });
+      if (Date.now() < deadline && response.status === 403) return;
+    } catch {
+    } finally {
+      clearTimeout(timer);
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, remaining)));
   }
   throw new Error('workerd did not become ready within 45 seconds');
 }
