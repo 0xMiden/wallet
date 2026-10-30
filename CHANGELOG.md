@@ -2,6 +2,8 @@
 
 ## 1.17.9 (TBD)
 
+- [FIX][all] Refresh synced contacts when the Send contacts drawer opens and show a loading state while keeping saved contacts available.
+
 - [FEAT][all] List device signers in Settings and revoke another device with password or biometric authentication and the recovery key; show the notice after the Guardian verdict and use encrypted history for its transaction link.
 
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
