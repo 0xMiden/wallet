@@ -1132,7 +1132,17 @@ final class BreadPresentationController {
         }
         if (!state.surfaceVisibility()) {
             if (warmed) {
-                if (!owner.isShowing()) owner.applyPresentationVisibility(true);
+                Window window = owner.getWindow();
+                View decor = window == null ? null : window.peekDecorView();
+                if (decor == null || decor.getParent() == null) {
+                    owner.applyPresentationVisibility(true);
+                    window = owner.getWindow();
+                    if (window != null) {
+                        decor = window.getDecorView();
+                        decor.setVisibility(View.INVISIBLE);
+                        decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+                    }
+                } else if (decor.getVisibility() != View.INVISIBLE) decor.setVisibility(View.INVISIBLE);
             } else owner.applyPresentationVisibility(false);
             restoreWindow();
             renderCover();
