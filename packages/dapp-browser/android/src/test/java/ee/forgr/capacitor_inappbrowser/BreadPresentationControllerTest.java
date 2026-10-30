@@ -2063,6 +2063,121 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleReleaseUsesFlingAndProjectedTravel() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+
+        try {
+            float speed = capsuleReleaseSpeedDpPerSecond(0.10f, 16, 0);
+            assertTrue("the short gesture crosses the fling threshold", speed >= 450f);
+            verify(callbacks, times(1).description("a short fast downward capsule swipe minimizes with animations disabled"))
+                .presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                    eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleReleaseUsesProjectedTravelBelowFlingSpeed() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
+        float density = activity.getResources().getDisplayMetrics().density;
+        assertTrue("the projected-travel gesture begins outside touch slop",
+            0.05f * distance > android.view.ViewConfiguration.get(activity).getScaledTouchSlop());
+        assertTrue("the projected-travel fixture has a sub-fling collapse distance", distance / density < 450f);
+
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            float speed = capsuleReleaseSpeedDpPerSecond(0.05f, 50, 0);
+            assertTrue("the projected-travel gesture remains below the fling threshold", speed < 450f);
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackKeepsThePageBackChosenWhenPreviewCannotRun() throws Exception {
+        openMorph(false);
+        reveal();
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            options.setToolbarType("navigation");
+            options.setActiveNativeNavigationForWebview(false);
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(webView, times(1).description("frozen page-back calls goBack when preview cannot run")).goBack();
+            assertFalse("a frozen page-back action does not start managed close", dialog.managedClosing());
+
+            options.setToolbarType("default");
+            options.setActiveNativeNavigationForWebview(true);
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(webView, times(2)).goBack();
+            assertFalse("native-navigation page back does not start managed close", dialog.managedClosing());
+
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), startsWith("native-"));
+            verify(webView, times(2)).goBack();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    private float capsuleReleaseSpeedDpPerSecond(float dropFraction, long moveAfterMillis, long holdAfterMillis) {
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
+        float y = 20;
+        float endY = y + distance * dropFraction;
+        long downTime = android.os.SystemClock.uptimeMillis();
+        List<android.view.MotionEvent> events = new ArrayList<>();
+        events.add(touch(android.view.MotionEvent.ACTION_DOWN, 20, y, downTime));
+        events.add(touch(android.view.MotionEvent.ACTION_MOVE, 20, endY, downTime + moveAfterMillis));
+        long upTime = downTime + moveAfterMillis + 4;
+        if (holdAfterMillis > 0) {
+            upTime += holdAfterMillis;
+            events.add(touch(android.view.MotionEvent.ACTION_MOVE, 20, endY, upTime - 4));
+        }
+        events.add(touch(android.view.MotionEvent.ACTION_UP, 20, endY, upTime));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        try {
+            for (android.view.MotionEvent event : events) {
+                measured.addMovement(event);
+                assertTrue(capsule.dispatchTouchEvent(event));
+            }
+            measured.computeCurrentVelocity(1000);
+            return (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity())
+                / activity.getResources().getDisplayMetrics().density;
+        } finally {
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void downwardCapsuleDragTracksTheNativeCollapseAndCancelRestoresThePage() throws Exception {
         openMorph(false);
         reveal();
