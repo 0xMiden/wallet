@@ -3,6 +3,7 @@ const SCENARIOS = new Set([
   'colo_isolation',
   'shared_budget',
   'rate_refusal',
+  'wired_rate',
   'native_rate',
   'failure_behavior',
   'restart_day'
@@ -284,6 +285,51 @@ export async function runRateScenario({ service, counters }) {
       )
         return 'failed';
     }
+    return 'passed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function runWiredRateScenario({ service, counters }) {
+  const request = (ip, colo) => {
+    const value = new Request('https://topology.invalid/v1/eligibility?network=testnet', {
+      headers: { 'CF-Connecting-IP': ip, Origin: 'https://wallet.example' }
+    });
+    Object.defineProperty(value, 'cf', { value: { colo } });
+    return value;
+  };
+  const objectCount = async () => {
+    const count = (await counters())?.objects;
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid object count');
+    return count;
+  };
+  try {
+    for (let index = 0; index < 4; index++) {
+      const response = await service.fetch(request('192.0.2.11', 'IAD'));
+      if (!response.ok) return 'failed';
+    }
+    const beforeCallerRefusal = await objectCount();
+    const callerRefusal = await service.fetch(request('192.0.2.11', 'IAD'));
+    if (
+      callerRefusal.status !== 429 ||
+      callerRefusal.headers.get('Retry-After') !== '60' ||
+      (await objectCount()) !== beforeCallerRefusal
+    )
+      return 'failed';
+
+    for (let index = 1; index <= 4; index++) {
+      const response = await service.fetch(request(`198.51.100.${index}`, 'FRA'));
+      if (!response.ok) return 'failed';
+    }
+    const beforeColoRefusal = await objectCount();
+    const coloRefusal = await service.fetch(request('198.51.100.5', 'FRA'));
+    if (
+      coloRefusal.status !== 429 ||
+      coloRefusal.headers.get('Retry-After') !== '10' ||
+      (await objectCount()) !== beforeColoRefusal
+    )
+      return 'failed';
     return 'passed';
   } catch {
     return 'failed';

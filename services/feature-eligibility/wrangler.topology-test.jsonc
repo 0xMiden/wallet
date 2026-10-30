@@ -12,7 +12,7 @@
   },
   "vars": {
     "TOPOLOGY_BEARER": "synthetic-test-only-bearer",
-    "TOPOLOGY_RUN_MAX": "7"
+    "TOPOLOGY_RUN_MAX": "8"
   },
   "ratelimits": [
     { "name": "TOPOLOGY_CALLER_RATE", "namespace_id": "189410", "simple": { "limit": 4, "period": 60 } },

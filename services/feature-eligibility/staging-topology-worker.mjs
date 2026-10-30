@@ -7,6 +7,7 @@ import topology, {
   runFailureScenario,
   runNativeRateScenario,
   runRateScenario,
+  runWiredRateScenario,
   runRestartScenario
 } from './staging-topology.mjs';
 
@@ -215,6 +216,30 @@ export class TopologyControl {
           caller: env.TOPOLOGY_CALLER_RATE,
           colo: env.TOPOLOGY_COLO_RATE,
           nonce: crypto.randomUUID().replaceAll('-', '')
+        });
+      }
+      if (name === 'wired_rate') {
+        let objects = 0;
+        const monitored = namespace => ({
+          idFromName: name => {
+            objects++;
+            return namespace.idFromName(name);
+          },
+          get: id => {
+            objects++;
+            return namespace.get(id);
+          }
+        });
+        const boundEnv = {
+          ...serviceEnv,
+          CALLER_GUARD: monitored(env.CALLER_GUARD),
+          ELIGIBILITY_GUARD: monitored(env.ELIGIBILITY_GUARD),
+          CALLER_RATE_LIMIT: env.TOPOLOGY_CALLER_RATE,
+          COLO_RATE_LIMIT: env.TOPOLOGY_COLO_RATE
+        };
+        return runWiredRateScenario({
+          service: { fetch: request => service.fetch(request, boundEnv) },
+          counters: async () => ({ objects })
         });
       }
       if (name === 'rate_refusal') {
