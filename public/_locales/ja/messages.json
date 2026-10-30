@@ -4851,6 +4851,31 @@
     "message": "1 件の送金を自動的にインポートできませんでした。",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "インポートが停止した理由: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "接続の問題",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "読み取れないノート",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "ノードによる拒否",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "理由を確認できません",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "明日",
     "englishSource": "Tomorrow"

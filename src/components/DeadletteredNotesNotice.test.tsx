@@ -11,10 +11,12 @@ import { DeadletteredNotesNotice } from './DeadletteredNotesNotice';
 // is real ("$count$" placeholders live in en.json).
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { count?: number }) =>
+    t: (key: string, params?: { count?: number; reasons?: string }) =>
       ['deadletteredNotesBody', 'deadletteredNotesBodyOne'].includes(key)
         ? `Visible ${key}${params?.count === undefined ? '' : `:${params.count}`}`
-        : key
+        : key === 'deadletteredNotesReasonSummary'
+          ? `Visible ${key}:${params?.reasons ?? ''}`
+          : key
   })
 }));
 
@@ -31,7 +33,7 @@ const mockCountStore = jest.fn(async () => stored.length);
 const mockList = jest.fn(async () => stored);
 let stored: Array<{ bytes: string; reason: string; failedAt: number; attempts: number }> = [];
 jest.mock('lib/miden/note-deadletter', () => ({
-  countDeadletteredNotes: () => mockCountStore(),
+  getNoteDeadletterSummary: () => mockCountStore().then(count => ({ count, reasons: ['transport', 'rejected'] })),
   listDeadletteredNotes: () => mockList()
 }));
 
@@ -40,12 +42,12 @@ jest.mock('lib/miden/note-deadletter', () => ({
 // captured rather than discarded, so what the component actually asks storage
 // for stays under test.
 const mockMutate = jest.fn();
-let mockCount = 0;
+let mockSummary: { count: number; reasons: string[] } | undefined = { count: 0, reasons: [] };
 let capturedFetcher: () => Promise<unknown> = async () => undefined;
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (_key: string, fetcher: () => Promise<unknown>) => {
     capturedFetcher = fetcher;
-    return { data: mockCount, mutate: mockMutate };
+    return { data: mockSummary, mutate: mockMutate };
   }
 }));
 
@@ -57,7 +59,7 @@ jest.mock('app/icons/v2', () => ({
 describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCount = 0;
+    mockSummary = { count: 0, reasons: [] };
     stored = [];
   });
 
@@ -74,13 +76,26 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('shows the count and a retry CTA when notes are dead-lettered', () => {
-    mockCount = 2;
+    mockSummary = { count: 2, reasons: ['transport', 'rejected'] };
 
     render(<DeadletteredNotesNotice />);
 
     expect(screen.getByText('deadletteredNotesTitle')).toBeInTheDocument();
     expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'connectivityRetry' })).toBeInTheDocument();
+  });
+
+  it('renders only the localized closed reason categories for mixed records', () => {
+    mockSummary = { count: 3, reasons: ['transport', 'malformed', 'unavailable'] };
+
+    render(<DeadletteredNotesNotice />);
+
+    expect(
+      screen.getByText(
+        'Visible deadletteredNotesReasonSummary:deadletteredNotesReasonTransport, deadletteredNotesReasonMalformed, deadletteredNotesReasonUnavailable'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/secret-|attempts|failedAt/i)).not.toBeInTheDocument();
   });
 
   // Nothing here renders the note bytes, and those bytes may be the only copy
@@ -94,7 +109,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
     ];
     render(<DeadletteredNotesNotice />);
 
-    await expect(capturedFetcher()).resolves.toBe(2);
+    await expect(capturedFetcher()).resolves.toEqual({ count: 2, reasons: ['transport', 'rejected'] });
     // The counting happens inside the store's module. Reading the records here
     // and taking `.length` would give the same number while decoding every note
     // body into this realm on a ten-second poll.
@@ -102,7 +117,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('says "note", not "notes", for a single dead-lettered note', () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
 
     render(<DeadletteredNotesNotice />);
 
@@ -111,7 +126,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('retry drains via the intercom action, then revalidates the signal', async () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
 
     render(<DeadletteredNotesNotice />);
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
@@ -122,7 +137,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('ignores a second press while the drain is in flight', async () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
     mockRequest.mockImplementationOnce(() => new Promise(() => {}));
 
     render(<DeadletteredNotesNotice />);
@@ -140,7 +155,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   // press again.
   it('re-enables retry when the drain never answers', async () => {
     jest.useFakeTimers();
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
     mockRequest.mockImplementationOnce(() => new Promise(() => {}));
 
     render(<DeadletteredNotesNotice />);
@@ -168,7 +183,7 @@ describe('user-visible dead-letter errors', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockReport.mockClear();
-    mockCount = 0;
+    mockSummary = { count: 0, reasons: [] };
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -178,7 +193,7 @@ describe('user-visible dead-letter errors', () => {
     [1, 'deadletteredNotesBodyOne', 'Visible deadletteredNotesBodyOne'],
     [3, 'deadletteredNotesBody', 'Visible deadletteredNotesBody:3']
   ] as const)('reports the fixed %s-note body identity %s after 1000 ms', (count, id, copy) => {
-    mockCount = count;
+    mockSummary = { count, reasons: ['transport'] };
     const view = render(<DeadletteredNotesNotice />);
     expect(screen.getByText(copy)).toBeInTheDocument();
     act(() => jest.advanceTimersByTime(999));
@@ -191,14 +206,17 @@ describe('user-visible dead-letter errors', () => {
   });
 
   it('keeps the plural episode through a count-only refresh', () => {
-    mockCount = 2;
+    mockSummary = { count: 2, reasons: ['transport'] };
     const view = render(<DeadletteredNotesNotice />);
     expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
-    mockCount = 4;
+    mockSummary = { count: 4, reasons: ['rejected'] };
     view.rerender(<DeadletteredNotesNotice />);
     expect(screen.getByText('Visible deadletteredNotesBody:4')).toBeInTheDocument();
+    expect(
+      screen.getByText('Visible deadletteredNotesReasonSummary:deadletteredNotesReasonRejected')
+    ).toBeInTheDocument();
     act(() => jest.advanceTimersByTime(1));
     expect(mockReport.mock.calls).toEqual([['deadletteredNotesBody', 'inline']]);
     act(() => jest.advanceTimersByTime(1000));
@@ -206,11 +224,11 @@ describe('user-visible dead-letter errors', () => {
   });
 
   it('does not report an empty or still-loading store', () => {
-    mockCount = undefined as unknown as number;
+    mockSummary = undefined;
     const view = render(<DeadletteredNotesNotice />);
     expect(view.container).toBeEmptyDOMElement();
     act(() => jest.advanceTimersByTime(1000));
-    mockCount = 0;
+    mockSummary = { count: 0, reasons: [] };
     view.rerender(<DeadletteredNotesNotice />);
     expect(view.container).toBeEmptyDOMElement();
     act(() => jest.advanceTimersByTime(1000));
@@ -218,7 +236,7 @@ describe('user-visible dead-letter errors', () => {
   });
 
   it('does not report a dead-letter notice cleared by a completed drain before dwell', async () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
     mockRequest.mockResolvedValueOnce({ type: 'RETRY_DEADLETTERED_NOTES_RESPONSE', requeued: 1 });
     const view = render(<DeadletteredNotesNotice />);
     expect(screen.getByText('Visible deadletteredNotesBodyOne')).toBeInTheDocument();
@@ -226,7 +244,7 @@ describe('user-visible dead-letter errors', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
     });
-    mockCount = 0;
+    mockSummary = { count: 0, reasons: [] };
     view.rerender(<DeadletteredNotesNotice />);
     expect(view.container).toBeEmptyDOMElement();
     act(() => jest.advanceTimersByTime(1000));

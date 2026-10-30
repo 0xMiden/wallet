@@ -1,38 +1,38 @@
 import json
-import os
 import subprocess
-import tempfile
-from PIL import Image
+
+import pyatspi
 
 windows = subprocess.check_output(['xdotool', 'search', '--onlyvisible', '--class', 'chromium'], timeout=5).decode().splitlines()
 if not windows:
     raise RuntimeError('Native Chromium window unavailable')
 geometry = subprocess.check_output(['xdotool', 'getwindowgeometry', '--shell', windows[0]], timeout=5).decode()
 box = {key: int(value) for key, value in (line.split('=', 1) for line in geometry.splitlines()) if key in ['X', 'Y', 'WIDTH', 'HEIGHT']}
-fd, path = tempfile.mkstemp(suffix='.png')
-os.close(fd)
-try:
-    subprocess.run(['import', '-window', 'root', path], timeout=10, check=True)
-    image = Image.open(path).convert('RGB')
-    columns = {}
-    for x in range(box['X'] + box['WIDTH'] * 55 // 100, min(image.width, box['X'] + box['WIDTH'])):
-        for y in range(max(0, box['Y'] + 48), min(image.height, box['Y'] + 100)):
-            r, g, b = image.getpixel((x, y))
-            if r > 180 and 70 < g < 180 and b < 140 and r - g > 40:
-                columns.setdefault(x, []).append(y)
-    groups = []
-    for x in sorted(columns):
-        if not groups or x - groups[-1][-1] > 3:
-            groups.append([])
-        groups[-1].append(x)
-    matches = []
-    for group in groups:
-        ys = [y for x in group for y in columns[x]]
-        width, height = group[-1] - group[0] + 1, max(ys) - min(ys) + 1
-        if 8 <= width <= 24 and 8 <= height <= 24:
-            matches.append([(group[0] + group[-1]) // 2, (min(ys) + max(ys)) // 2])
-    if len(matches) != 1:
-        raise RuntimeError('Rendered Bread toolbar glyph is not unique')
-    print(json.dumps(matches[0]))
-finally:
-    os.unlink(path)
+
+matches = []
+
+
+def visit(node, toolbar=False, page=False, depth=0):
+    if depth > 22:
+        return
+    try:
+        role = node.getRoleName()
+        toolbar = toolbar or role == 'tool bar'
+        page = page or role == 'document web'
+        if toolbar and not page and role == 'push button' and (node.name or '').split('\n', 1)[0] == 'Bread':
+            if node.getState().contains(pyatspi.STATE_SHOWING):
+                rect = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                x, y = rect.x + rect.width // 2, rect.y + rect.height // 2
+                if (rect.width > 0 and rect.height > 0 and box['X'] <= x < box['X'] + box['WIDTH']
+                        and box['Y'] <= y < box['Y'] + box['HEIGHT']):
+                    matches.append([x, y])
+        for child in node:
+            visit(child, toolbar, page, depth + 1)
+    except Exception:
+        return
+
+
+visit(pyatspi.Registry.getDesktop(0))
+if len(matches) != 1:
+    raise RuntimeError('Rendered Bread toolbar glyph is not unique')
+print(json.dumps(matches[0]))

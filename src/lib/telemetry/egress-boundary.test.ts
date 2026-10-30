@@ -3144,3 +3144,55 @@ it.each([
     expect(leaksIn(wireText())).toEqual([]);
   }
 );
+
+it('sends the closed mainnet code rejection origin on the actual outgoing envelope', async () => {
+  consentOn();
+  reportUserVisibleError('mainnetAccessCodeRejected', 'inline', {
+    kind: 'mainnet_access_code_rejection',
+    mainnetAccessCodeRejectionOrigin: 'registration_redemption'
+  } as never);
+  await flushEgress();
+  const wire = wireText();
+  expect(wire).toContain('"mainnetAccessCodeRejectionOrigin":"registration_redemption"');
+  expect(wire).not.toMatch(/ABCDEF123456|0x1234|98\.76/);
+  expect(leaksIn(wire)).toEqual([]);
+});
+
+it.each(['native_reown', 'wagmi'] as const)(
+  'sends only the closed bridge request client %s on the actual Sentry envelope',
+  async requestClient => {
+    consentOn();
+    const privateText = 'private-topic-123 refused 0x1234567890 amount 98.76 https://private.example.invalid/path';
+    const bridgeReceive = {
+      route: 'agglayer',
+      step: 'wallet_deposit',
+      requestClient,
+      cause: privateText
+    } as never;
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      bridgeReceive,
+      error: privateText
+    });
+    await flushEgress();
+
+    const events = sentryEvents();
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event === undefined) throw new Error('Expected one Sentry event');
+    const exception = objectAt(event, 'exception');
+    if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
+    const firstException = exception.values[0];
+    if (typeof firstException !== 'object' || firstException === null || Array.isArray(firstException)) {
+      throw new Error('Expected one Sentry exception object');
+    }
+    const value = stringAt(firstException as Record<string, unknown>, 'value');
+    expect(value).toContain(`wallet request client ${requestClient}`);
+    expect(value).toContain('evm error other');
+    for (const text of [privateText, 'private-topic-123', '0x1234567890', '98.76', 'private.example.invalid']) {
+      expect(wireText()).not.toContain(text);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  }
+);
