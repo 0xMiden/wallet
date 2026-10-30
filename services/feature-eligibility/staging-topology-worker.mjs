@@ -37,12 +37,7 @@ function fixedFetch(onLookup) {
   return async url => {
     if (String(url) === 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json')
       return Response.json(policy);
-    if (
-      [
-        'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.1',
-        'https://geoip.maxmind.com/geoip/v2.1/city/192.0.2.2'
-      ].includes(String(url))
-    ) {
+    if (/^https:\/\/geoip\.maxmind\.com\/geoip\/v2\.1\/city\/(?:192\.0\.2|198\.51\.100)\.(?:[1-9]|1[0-9])$/.test(String(url))) {
       onLookup();
       return Response.json({ country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
     }
