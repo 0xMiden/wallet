@@ -2694,6 +2694,20 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
     });
 
+    it('checkForNewNotes evicts the oldest seen note ID at the storage cap', () => {
+      const seenNoteIds = new Set(Array.from({ length: 4096 }, (_, index) => `seen-${index}`));
+      useWalletStore.setState({ seenNoteIds });
+
+      useWalletStore.getState().checkForNewNotes(['seen-new']);
+
+      const state = useWalletStore.getState();
+      expect(state.seenNoteIds.size).toBe(4096);
+      expect(state.seenNoteIds.has('seen-0')).toBe(false);
+      expect(state.seenNoteIds.has('seen-1')).toBe(true);
+      expect(state.seenNoteIds.has('seen-new')).toBe(true);
+      expect(state.isNoteToastVisible).toBe(true);
+    });
+
     it('checkForNewNotes records every new note as seen and toasts for a notifiable one', () => {
       useWalletStore.getState().checkForNewNotes(['auto', 'manual'], ['manual']);
       const state = useWalletStore.getState();
