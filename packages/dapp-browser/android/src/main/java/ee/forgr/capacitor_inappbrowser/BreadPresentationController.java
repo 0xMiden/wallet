@@ -912,7 +912,7 @@ final class BreadPresentationController {
         BreadMorphCard landing = landing(nativeCard);
         String id = "native-" + java.util.UUID.randomUUID();
         interactiveCollapse = true;
-        if (!collapse(nativeCard, 0, 0, id, null, null)) {
+        if (!collapse(nativeCard, 0, 0, id, null)) {
             interactiveCollapse = false;
             return false;
         }
