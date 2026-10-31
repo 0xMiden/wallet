@@ -606,9 +606,6 @@ const answerBalance = (balance: bigint | null) => {
     json: async () => (balance === null ? { error: { message: 'rpc down' } } : { result: word(balance) })
   }) as never;
 };
-const balanceTooLow = (balance: string, token: string) =>
-  `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
-
 interface BalanceRpcPayload {
   method: string;
   params?: unknown[];
@@ -696,6 +693,9 @@ const requireHeldBalanceRead = (requests: HeldBalanceRead[], expected: ExpectedB
     );
   return request;
 };
+const balanceTooLow = (balance: string, token: string) =>
+  `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
+
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
 // A balance the check refused for its amount, or could not read; every other failure carries no balance check.
 const BALANCE_CHECK_OF: Record<string, string> = {
@@ -2799,39 +2799,39 @@ describe('user-visible bridge deposit producers', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRealBridgeDisplays = true;
-    mockBalanceEncodingFailure = false;
-    mockLiveBridgeRow = undefined;
-    mockAvailability = {};
     mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
     mockFormGuardFrames = [];
     mockReviewGuardFrames = [];
     mockRestoreHeldFetch = undefined;
+    mockBalanceEncodingFailure = false;
+    mockLiveBridgeRow = undefined;
+    mockAvailability = {};
+    mockBridgeSnapshot = undefined;
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
     mockNativeReown = false;
-    mockBridgeSnapshot = undefined;
     mockWebProviderConnected = true;
     mockReadErc20Holdings = async () => mockHeldErc20s;
     mockLastCircleBalance = undefined;
     mockLastCircleBalanceValue = undefined;
     mockLastCircleLoading = undefined;
     Object.assign(epochState, idleEpoch);
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
     answerBalance(FUNDED);
     jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
     jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
-    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
     jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
   });
   afterEach(() => {
+    mockRestoreHeldFetch?.();
     jest.useRealTimers();
     mockRealBridgeDisplays = false;
-    mockBalanceEncodingFailure = false;
-    mockRestoreHeldFetch?.();
-    mockBridgeInCapUsd = null;
-    mockTokenPrices = {};
     mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
     mockFormGuardFrames = [];
     mockReviewGuardFrames = [];
+    mockBalanceEncodingFailure = false;
+    mockBridgeInCapUsd = null;
+    mockTokenPrices = {};
     mockPendingUsdMarkets.clear();
     mockPriceSymbols.clear();
     mockDepositTokens = [];
@@ -2842,10 +2842,10 @@ describe('user-visible bridge deposit producers', () => {
     mockLastCircleBalanceValue = undefined;
     mockLastCircleLoading = undefined;
     mockLiveBridgeRow = undefined;
+    mockBridgeSnapshot = undefined;
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
     mockWebProviderConnected = true;
-    mockBridgeSnapshot = undefined;
     jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
     jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
   });
@@ -2949,9 +2949,6 @@ describe('user-visible bridge deposit producers', () => {
     midenFaucetId: WBTC_FAUCET,
     scale: 2
   };
-  const typeErc20Amount = async () => {
-    renderScreen();
-    await settle();
   const NEXT_EVM_ADDRESS = '0x00000000000000000000000000000000000000e1';
   const ARC_CHAIN_ID = 5042002;
   const ARC_USDC = '0x3600000000000000000000000000000000000000';
@@ -3077,6 +3074,9 @@ describe('user-visible bridge deposit producers', () => {
     expect(first.canConfirm).toBe(false);
     return pending;
   };
+  const typeErc20Amount = async () => {
+    renderScreen();
+    await settle();
     act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress }));
     await settle();
     jest.useFakeTimers();
@@ -3084,9 +3084,6 @@ describe('user-visible bridge deposit producers', () => {
     await flushBridgePromises();
   };
 
-  it('withholds the empty token list while wallet holdings are loading', async () => {
-    mockTokenApiUrl = 'https://tokens.test';
-    let resolveHoldings!: (tokens: Erc20Holding[]) => void;
   it('identity guard holds Continue when the account changes for Circle USDC', async () => {
     useChainSpecificRpc();
     useCircleTestSnapshot();
@@ -3578,6 +3575,9 @@ describe('user-visible bridge deposit producers', () => {
     jest.useRealTimers();
   });
 
+  it('withholds the empty token list while wallet holdings are loading', async () => {
+    mockTokenApiUrl = 'https://tokens.test';
+    let resolveHoldings!: (tokens: Erc20Holding[]) => void;
     mockReadErc20Holdings = () =>
       new Promise<Erc20Holding[]>(resolve => {
         resolveHoldings = tokens => resolve(tokens);
