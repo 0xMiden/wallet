@@ -76,11 +76,11 @@ function withProbes({ agglayer = {}, epoch = {} }: DerivedPatch): BridgeConfigSn
   const chain = snapshot.derived.chains[11155111];
   if (!chain) throw new Error('The test chain is missing');
   const { indexer, ...chainAgglayer } = agglayer;
-  const { evmUsdc, ...providerEpoch } = epoch;
+  const { tokens, ...providerEpoch } = epoch;
   if (indexer) snapshot.derived.agglayer.indexer = indexer;
   snapshot.derived.epoch = { ...snapshot.derived.epoch, ...providerEpoch };
   chain.agglayer = { ...chain.agglayer, ...chainAgglayer };
-  if (evmUsdc) chain.epoch.evmUsdc = evmUsdc;
+  if (tokens) chain.epoch.tokens = { ...chain.epoch.tokens, ...tokens };
   return snapshot;
 }
 
@@ -172,14 +172,22 @@ it('requires the shared allocator only for Epoch operations', () => {
 });
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['fastBridgeIn']],
-  ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the Epoch EVM token', { epoch: { tokens: { USDC: ABSENT } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
   ['the Miden bridge account', { agglayer: { rollupId: ABSENT, tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
   ['the token registry', { agglayer: { tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']]
 ])('reports a confirmed absence of %s as not deployed', (_name, patch, affected) => {
   expectOnly(withProbes(patch), affected, { state: 'unavailable', reason: 'not-deployed' });
+});
+
+it('takes no Fast deposit while no Epoch token has a Miden faucet whose scale was read', () => {
+  const unscaled = withProbes({ epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } } });
+  expectOnly(unscaled, ['fastBridgeIn'], { state: 'unavailable', reason: 'not-configured' });
+});
+
+it('needs no testnet output faucet for a Fast deposit, as a mainnet document names none', () => {
+  expectOnly(withProbes({ epoch: { midenUsdcFaucet: SKIPPED } }), [], AVAILABLE);
 });
 
 it('refuses an empty registry even when the account exists', () => {
@@ -192,8 +200,7 @@ it('refuses an empty registry even when the account exists', () => {
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
-  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['fastBridgeIn']],
-  ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the EVM token', { epoch: { tokens: { USDC: ERROR } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
   ['the bridge account', { agglayer: { rollupId: ERROR, tokens: ERROR } }, ['bridgeIn', 'bridgeOut']]
@@ -236,7 +243,7 @@ it.each<[Probe<never>, string]>([
 });
 
 it('reports an absent dependency before a failed call', () => {
-  const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });
+  const snapshot = withProbes({ epoch: { allocator: ERROR, tokens: { USDC: ABSENT } } });
   expect(featureAvailability('fastBridgeIn', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
     reason: 'not-deployed'
   });
@@ -262,8 +269,11 @@ describe('the E2E collateral faucet', () => {
   const collateral: E2eOverrides = {
     earnCollateralFaucet: { faucetId: '0xab000000000000ab00000000000001', symbol: 'USDC', decimals: 6 }
   };
+  // No output faucet and a token with no Miden faucet scale: only the override makes a Fast deposit possible.
   function noFaucet() {
-    const snapshot = withProbes({ epoch: { midenUsdcFaucet: SKIPPED } });
+    const snapshot = withProbes({
+      epoch: { midenUsdcFaucet: SKIPPED, tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } }
+    });
     if (!snapshot.config) throw new Error('The test document is missing');
     snapshot.config['bridge-providers'].epoch.outputs = undefined;
     return snapshot;
