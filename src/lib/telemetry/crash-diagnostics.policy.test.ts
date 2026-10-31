@@ -69,6 +69,10 @@ const crashReportPolicy = (): string => {
   return section.slice(0, section.indexOf('\n#', 1));
 };
 
+const STARTUP_ELIGIBILITY_REQUEST_FAILURES =
+  jest.requireActual<{ STARTUP_ELIGIBILITY_REQUEST_FAILURES?: readonly string[] }>('lib/remote-config/geo')
+    .STARTUP_ELIGIBILITY_REQUEST_FAILURES ?? [];
+
 // The backticked values in the parenthetical that follows the field's phrase, so two fields in one sentence are
 // each read from their own list.
 const listedAfter = (text: string, phrase: string): string[] => {
@@ -87,6 +91,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['auth argument presence', AUTH_ARG_PRESENCE],
   ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
   ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
+  ['startup eligibility request failure', STARTUP_ELIGIBILITY_REQUEST_FAILURES],
   ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],
   ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],

@@ -2,6 +2,7 @@ import { MidenMessageType } from 'lib/miden/types';
 import {
   STARTUP_ELIGIBILITY_STAGES,
   STARTUP_ELIGIBILITY_REASONS,
+  STARTUP_ELIGIBILITY_REQUEST_FAILURES,
   STARTUP_ELIGIBILITY_RETRIES,
   type StartupEligibilityDiagnostics
 } from 'lib/remote-config/geo';
@@ -160,7 +161,16 @@ export const HOT_KEY_ROTATION_PENDING = ['yes', 'no'] as const;
 export type HotKeyRotationPending = (typeof HOT_KEY_ROTATION_PENDING)[number];
 
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
-export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
+export type StorageOperation =
+  | 'get'
+  | 'query'
+  | 'count'
+  | 'cursor'
+  | 'cursor_open'
+  | 'cursor_iteration'
+  | 'mutate'
+  | 'transaction'
+  | 'open';
 export type PageVisibility = 'visible' | 'hidden' | 'unknown';
 
 export const STORAGE_OWNERS: readonly StorageOwner[] = ['wallet_transactions', 'wallet_limits', 'wallet_database'];
@@ -169,6 +179,8 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
   'query',
   'count',
   'cursor',
+  'cursor_open',
+  'cursor_iteration',
   'mutate',
   'transaction',
   'open'
@@ -355,7 +367,8 @@ function annotateCrashAtBoundary(
       bridgeSourceRoute: suppliedSourceRoute,
       guardianSignerInSet: suppliedSignerInSet,
       guardianSigningKey: suppliedSigningKey,
-      hotKeyRotationPending: suppliedRotationPending
+      hotKeyRotationPending: suppliedRotationPending,
+      startupEligibilityRequestFailure: suppliedRequestFailure
     } = diagnostics;
     if (!preserveInner && (suppliedStep !== undefined || suppliedCompletionStep !== undefined))
       annotateGuardianProving(error, undefined);
@@ -415,7 +428,12 @@ function annotateCrashAtBoundary(
       safe.storageOwner = storageOwner;
       safe.storageOperation = storageOperation;
     }
-    const startupKeys = ['startupEligibilityStage', 'startupEligibilityReason', 'startupEligibilityRetry'] as const;
+    const startupKeys = [
+      'startupEligibilityStage',
+      'startupEligibilityReason',
+      'startupEligibilityRetry',
+      'startupEligibilityRequestFailure'
+    ] as const;
     if (startupKeys.some(key => key in diagnostics) || userErrorId !== undefined || suppliedSurface !== undefined) {
       startupKeys.forEach(key => {
         delete previous[key];
@@ -429,6 +447,9 @@ function annotateCrashAtBoundary(
       const startupEligibilityRetry = STARTUP_ELIGIBILITY_RETRIES.find(
         value => value === diagnostics.startupEligibilityRetry
       );
+      const startupEligibilityRequestFailure = STARTUP_ELIGIBILITY_REQUEST_FAILURES.find(
+        value => value === suppliedRequestFailure
+      );
       if (
         userErrorId === 'walletAccessUnavailableBody' &&
         userErrorSurface === 'startup' &&
@@ -436,7 +457,14 @@ function annotateCrashAtBoundary(
         startupEligibilityReason &&
         startupEligibilityRetry
       ) {
-        Object.assign(safe, { startupEligibilityStage, startupEligibilityReason, startupEligibilityRetry });
+        Object.assign(safe, {
+          startupEligibilityStage,
+          startupEligibilityReason,
+          startupEligibilityRetry,
+          ...(startupEligibilityReason === 'request_failed' && startupEligibilityRequestFailure
+            ? { startupEligibilityRequestFailure }
+            : {})
+        });
       }
     }
     // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
@@ -634,6 +662,7 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   delete snapshot.startupEligibilityStage;
   delete snapshot.startupEligibilityReason;
   delete snapshot.startupEligibilityRetry;
+  delete snapshot.startupEligibilityRequestFailure;
   const startup = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
   if (
     startup?.userErrorId === 'walletAccessUnavailableBody' &&
@@ -645,6 +674,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     snapshot.startupEligibilityStage = startup.startupEligibilityStage;
     snapshot.startupEligibilityReason = startup.startupEligibilityReason;
     snapshot.startupEligibilityRetry = startup.startupEligibilityRetry;
+    if (startup.startupEligibilityReason === 'request_failed' && startup.startupEligibilityRequestFailure)
+      snapshot.startupEligibilityRequestFailure = startup.startupEligibilityRequestFailure;
   }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;

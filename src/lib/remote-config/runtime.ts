@@ -18,7 +18,13 @@ import {
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import type { FeatureEligibility, GeoLookup, StartupEligibilityDiagnostics, StartupEligibilityReason } from './geo';
+import type {
+  FeatureEligibility,
+  GeoLookup,
+  StartupEligibilityDiagnostics,
+  StartupEligibilityReason,
+  StartupEligibilityRequestFailure
+} from './geo';
 import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
@@ -509,8 +515,11 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
       startupEligibilityReason: 'config_unavailable',
       startupEligibilityRetry: 'not_attempted'
     };
-    const onFailure = (reason: StartupEligibilityReason) => {
+    const onFailure = (reason: StartupEligibilityReason, requestFailure?: StartupEligibilityRequestFailure) => {
       diagnostics.startupEligibilityReason = reason;
+      if (reason === 'request_failed' && requestFailure !== undefined)
+        diagnostics.startupEligibilityRequestFailure = requestFailure;
+      else delete diagnostics.startupEligibilityRequestFailure;
     };
     try {
       const snapshot = await ensureBridgeConfig();
@@ -534,6 +543,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
             diagnostics.startupEligibilityStage = 'config_refresh';
             diagnostics.startupEligibilityReason = 'config_unavailable';
             diagnostics.startupEligibilityRetry = 'refresh_failed';
+            delete diagnostics.startupEligibilityRequestFailure;
           } else {
             diagnostics.startupEligibilityRetry = 'config_not_advanced';
           }
@@ -543,6 +553,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
     } catch {
       diagnostics.startupEligibilityReason =
         diagnostics.startupEligibilityStage === 'config_initialization' ? 'config_initialization_failed' : 'unexpected';
+      delete diagnostics.startupEligibilityRequestFailure;
       geo = { state: 'failed', diagnostics: { ...diagnostics } };
     }
     startupGeo = geo;

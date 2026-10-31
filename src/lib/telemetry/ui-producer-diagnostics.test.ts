@@ -1,4 +1,5 @@
 import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
   annotateUiProducer,
   snapshotUiProducer,
@@ -47,6 +48,40 @@ it('does not invoke getters, coercion, cause or hostile descriptor traps outside
   for (const value of values)
     expect(validateUiEvidence('raw_pending_activity_retry_failed', 'notice', value)).toBeUndefined();
   expect(getter).not.toHaveBeenCalled();
+});
+
+it('accepts only closed endpoint and gRPC status evidence for the network rejection notice', () => {
+  const evidence = {
+    kind: 'submission_rejected',
+    submissionRejectedEndpoint: 'submit_proven_transaction',
+    submissionRejectedStatus: 'invalid_argument'
+  } as const;
+  const root = new Error(
+    'private account mtst1private transaction 0x1234567890abcdef amount 4200 host private.example'
+  );
+  annotateCrash(root, { userErrorId: 'submissionRejectedByNetwork', userErrorSurface: 'notice' });
+  annotateUiProducer(root, 'submissionRejectedByNetwork', 'notice', evidence);
+
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: 'submissionRejectedByNetwork',
+    userErrorSurface: 'notice',
+    submissionRejectedEndpoint: 'submit_proven_transaction',
+    submissionRejectedStatus: 'invalid_argument'
+  });
+  expect(validateUiEvidence('submissionRejectedByNetwork', 'notice', evidence)).toEqual(evidence);
+  expect(validateUiEvidence('submissionUnanswered', 'status_screen', evidence)).toBeUndefined();
+  expect(
+    validateUiEvidence('submissionRejectedByNetwork', 'notice', {
+      ...evidence,
+      submissionRejectedEndpoint: 'https://private.example/rpc'
+    })
+  ).toBeUndefined();
+  expect(validateUiEvidence('submissionRejectedByNetwork', 'notice', { ...evidence, raw: 'private' })).toBeUndefined();
+  expect(SUBMIT_ENDPOINTS).toContain(evidence.submissionRejectedEndpoint);
+  expect(SUBMIT_GRPC_STATUSES).toContain(evidence.submissionRejectedStatus);
+  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toMatch(
+    /mtst1private|1234567890abcdef|4200|private\.example/
+  );
 });
 it('keeps service and validator roots separate from causes and clears invalid reannotations', () => {
   const error = new Error('private');

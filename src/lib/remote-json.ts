@@ -15,6 +15,16 @@ export type JsonFetch = (
   init: { cache: 'no-store'; headers: { Accept: string }; signal: AbortSignal }
 ) => Promise<JsonResponse>;
 
+export const BOUNDED_JSON_FAILURES = [
+  'transport_error',
+  'timeout',
+  'http_error',
+  'response_too_large',
+  'body_read_error',
+  'json_decode_error'
+] as const;
+export type BoundedJsonFailure = (typeof BOUNDED_JSON_FAILURES)[number];
+
 /**
  * The reason a request timer aborts with after `ms`, named as `AbortSignal.timeout` names it, so a
  * caller's error says the request timed out.
@@ -40,7 +50,12 @@ export async function withRequestTimeout<T>(ms: number, run: (signal: AbortSigna
   }
 }
 
-const tooLarge = () => new Error('Remote JSON response is too large');
+const tooLargeErrors = new WeakSet<Error>();
+const tooLarge = () => {
+  const error = new Error('Remote JSON response is too large');
+  tooLargeErrors.add(error);
+  return error;
+};
 
 /** The body as text, refused once it passes `maxBytes` bytes; `null` for a response that offers only json(). */
 async function readCappedText(response: JsonResponse, maxBytes: number): Promise<string | null> {
@@ -76,21 +91,51 @@ async function readCappedText(response: JsonResponse, maxBytes: number): Promise
 export function fetchBoundedJson(
   fetchFn: JsonFetch,
   url: string,
-  { maxBytes, timeoutMs }: { maxBytes: number; timeoutMs: number }
+  {
+    maxBytes,
+    timeoutMs,
+    onFailure
+  }: {
+    maxBytes: number;
+    timeoutMs: number;
+    onFailure?: (failure: BoundedJsonFailure) => void;
+  }
 ): Promise<unknown> {
   return withRequestTimeout(timeoutMs, async signal => {
-    const response = await fetchFn(url, { cache: 'no-store', headers: { Accept: 'application/json' }, signal });
-    if (!response.ok) {
-      const status = response.status === undefined ? '' : ` with HTTP ${response.status}`;
-      throw new Error(`Remote JSON request failed${status}`);
+    let failure: BoundedJsonFailure = 'transport_error';
+    try {
+      const response = await fetchFn(url, { cache: 'no-store', headers: { Accept: 'application/json' }, signal });
+      if (!response.ok) {
+        failure = 'http_error';
+        const status = response.status === undefined ? '' : ` with HTTP ${response.status}`;
+        throw new Error(`Remote JSON request failed${status}`);
+      }
+      failure = 'body_read_error';
+      // The declared length is the cheap rejection; the body is measured too, because a chunked or
+      // re-encoded response declares nothing useful.
+      if (Number(response.headers?.get('content-length') ?? '0') > maxBytes) throw tooLarge();
+      const raw = await readCappedText(response, maxBytes);
+      failure = 'json_decode_error';
+      if (raw === null) return await response.json();
+      const body: unknown = JSON.parse(raw);
+      return body;
+    } catch (error) {
+      if (error instanceof Error && tooLargeErrors.has(error)) failure = 'response_too_large';
+      else {
+        const abortedByRequestTimer = (signal: AbortSignal): boolean => {
+          if (!signal.aborted) return false;
+          const reason = signal.reason;
+          return reason === undefined || (reason instanceof DOMException && reason.name === 'TimeoutError');
+        };
+        if (abortedByRequestTimer(signal)) failure = 'timeout';
+      }
+      try {
+        onFailure?.(failure);
+      } catch {
+        // Diagnostic observers cannot change the request result.
+      }
+      throw error;
     }
-    // The declared length is the cheap rejection; the body is measured too, because a chunked or
-    // re-encoded response declares nothing useful.
-    if (Number(response.headers?.get('content-length') ?? '0') > maxBytes) throw tooLarge();
-    const raw = await readCappedText(response, maxBytes);
-    if (raw === null) return response.json();
-    const body: unknown = JSON.parse(raw);
-    return body;
   });
 }
 

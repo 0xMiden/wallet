@@ -72,11 +72,22 @@ jest.mock('./derive', () => ({
 
 const mockLookup = jest.fn<
   Promise<FeatureEligibility | null>,
-  [string, number, { onFailure?: (reason: string) => void }?]
+  [
+    string,
+    number,
+    {
+      onFailure?: (reason: string, requestFailure?: string) => void;
+    }?
+  ]
 >();
 jest.mock('./geo-lookup', () => ({
-  lookupFeatureEligibility: (network: string, version: number, options?: { onFailure?: (reason: string) => void }) =>
-    mockLookup(network, version, options)
+  lookupFeatureEligibility: (
+    network: string,
+    version: number,
+    options?: {
+      onFailure?: (reason: string, requestFailure?: string) => void;
+    }
+  ) => mockLookup(network, version, options)
 }));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
@@ -1636,7 +1647,7 @@ describe('startup eligibility', () => {
         return null;
       })
       .mockImplementationOnce(async (_network, _version, options) => {
-        options?.onFailure?.('request_failed');
+        options?.onFailure?.('request_failed', 'timeout');
         return null;
       });
     const result = await initFeatureEligibility();
@@ -1645,7 +1656,8 @@ describe('startup eligibility', () => {
       diagnostics: {
         startupEligibilityStage: 'eligibility_retry',
         startupEligibilityReason: 'request_failed',
-        startupEligibilityRetry: 'retry_failed'
+        startupEligibilityRetry: 'retry_failed',
+        startupEligibilityRequestFailure: 'timeout'
       }
     });
     expect(await initFeatureEligibility()).toBe(result);
@@ -1655,7 +1667,7 @@ describe('startup eligibility', () => {
   it('keeps a failed refresh distinct from the initial eligibility response and does not borrow a later failure', async () => {
     seed(13);
     failFetch();
-    let observed: ((reason: string) => void) | undefined;
+    let observed: ((reason: string, requestFailure?: string) => void) | undefined;
     mockLookup.mockImplementationOnce(async (_network, _version, options) => {
       observed = options?.onFailure;
       observed?.('version_mismatch');
