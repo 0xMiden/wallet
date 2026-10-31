@@ -220,6 +220,9 @@ const ForgotPassword: FC = () => {
           setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         }
+        case 'retry-guardian-probe':
+          if (seedPhrase.length > 0) probeResult.current = startGuardianProbe(seedPhrase);
+          break;
         case 'backup-seed-phrase':
           discardGuardianProbe();
           setSeedPhrase(generateMnemonic().split(' '));
@@ -311,7 +314,7 @@ const ForgotPassword: FC = () => {
           break;
       }
     },
-    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe, settleRecoverFlow]
+    [register, step, onboardingType, seedPhrase, startGuardianProbe, discardGuardianProbe, settleRecoverFlow]
   );
 
   // Handle mobile back button/gesture in forgot password flow

@@ -684,6 +684,32 @@ describe('ForgotPassword', () => {
     expect(clearedAt).toBeLessThan(registeredAt);
   });
 
+  it('retry-guardian-probe: reuses the entered seed and registers with the retry result', async () => {
+    const retryResult = {
+      ...PROBED_RESULT,
+      best: { ...PROBED_RESULT.best, endpoint: 'https://retry.example.com' }
+    };
+    mockProbeStart.mockResolvedValueOnce(PROBED_RESULT).mockResolvedValueOnce(retryResult);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'retry-guardian-probe' });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockProbeStart).toHaveBeenNthCalledWith(1, ['seed', 'words', 'here']);
+    expect(mockProbeStart).toHaveBeenNthCalledWith(2, ['seed', 'words', 'here']);
+    expect(mockProbeStart.mock.calls[1]?.[0]).toBe(mockProbeStart.mock.calls[0]?.[0]);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'fmt:seed words here',
+      true,
+      'https://retry.example.com'
+    );
+  });
+
   it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
