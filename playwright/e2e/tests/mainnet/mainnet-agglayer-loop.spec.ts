@@ -32,7 +32,6 @@ import {
 import { agglayerShortfall, bridgeLoops, midenFeeReserve } from '../../helpers/mainnet-bridge-plan';
 import {
   AGGLAYER_BRIDGE,
-  AGGLAYER_INDEXER,
   loadMainnetDocument,
   mainnetEvmKey,
   midenFeeProblem,
@@ -94,6 +93,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   const started = Date.now();
   test.setTimeout(TEST_MS);
   const doc = await loadMainnetDocument();
+  const indexerUrl = doc['bridge-providers'].agglayer.indexerUrl;
   const listed = bridgeLoops(Object.values(doc.supportedEvmChains)).some(loop => loop.kind === 'agglayer');
   test.skip(!listed, 'the mainnet config lists no AggLayer bridge on Ethereum');
   const signer = mainnetEvmKey();
@@ -114,7 +114,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
 
   // An indexer that cannot be read now could not settle tonight's exit either, so nothing is sent.
   const target = { rollupId: CEDAR_ROLLUP_ID, address: evm.address };
-  await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address);
+  await fetchIndexedDeposits(indexerUrl, evm.address);
   const ethBefore = await vaultBalance(walletA.page, 'ETH');
   const depositTx = await bridgeEthToMiden({
     key: signer,
@@ -142,7 +142,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   // Read again just before the bridge-out, so an exit filed during the landing is not mistaken for tonight's.
   // Three failed reads throw and skip the bridge-out, so a cursor from before the deposit is never reused.
   const cursor = await retried(async () =>
-    exitCursor(await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address), target)
+    exitCursor(await fetchIndexedDeposits(indexerUrl, evm.address), target)
   );
   record({ bridgedText: BRIDGE_OUT_ETH, bridgedWei: AGGLAYER_LOOP_WEI.toString(), exitCursor: cursor });
   await bridgeOutSlow(walletA, {
@@ -193,7 +193,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   while (Date.now() < deadline) {
     let exit: AgglayerDeposit | undefined;
     try {
-      exit = tonightsExit(await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address), {
+      exit = tonightsExit(await fetchIndexedDeposits(indexerUrl, evm.address), {
         ...target,
         afterDepositCnt: cursor,
         wei: AGGLAYER_LOOP_WEI,
@@ -264,7 +264,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
             chain,
             rpcUrl: mainnetRpc(1),
             bridge: AGGLAYER_BRIDGE,
-            indexerUrl: AGGLAYER_INDEXER,
+            indexerUrl,
             deposit: exit
           });
         } catch (error) {
