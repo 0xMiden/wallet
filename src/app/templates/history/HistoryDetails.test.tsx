@@ -3891,6 +3891,28 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('to')).toBeUndefined();
     });
 
+    it('shows 1.2 NEAR on both sides of an Agglayer withdrawal', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'NEAR', decimals: 6 });
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 1_200_000n,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xdest',
+          destinationNetwork: 0,
+          claimStatus: 'pending'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      const symbols = screen.getAllByText('NEAR').filter(el => el.classList.contains('text-text-muted'));
+      expect(symbols).toHaveLength(2);
+      expect(symbols[0]?.parentElement).toBe(symbols[1]?.parentElement);
+      expect(symbols[0]?.parentElement).toHaveTextContent('1.2NEAR1.2NEAR');
+    });
+
     it('shows a Slow-route bridge-out amount as entered, not cut to two decimals', async () => {
       // Real base-unit scaling: the default mock ignores decimals (`String(amount)`),
       // which can never produce a fractional string to assert against.
