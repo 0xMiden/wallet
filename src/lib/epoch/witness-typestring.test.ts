@@ -6,6 +6,7 @@ import {
 
 import {
   buildEpochTaskDataParams,
+  buildEVMToMidenIntent,
   buildEVMToMidenTaskDataParams,
   evmToMidenMinTokenOut,
   normalizeMidenIdToHex
@@ -101,5 +102,32 @@ describe('EVM to Miden reverse quote', () => {
 
   it('refuses a quote without a Miden output', () => {
     expect(() => buildEVMToMidenTaskDataParams({ ...base, minTokenOut: '0' })).toThrow('minTokenOut');
+  });
+
+  it("deposits an ERC-20 by its address, and the chain's native coin at the zero address", () => {
+    const erc20 = buildEVMToMidenTaskDataParams({ ...base, minTokenOut: '1500000' });
+    expect(erc20.intentData).toMatchObject({ isNative: false, depositTokenAddress: base.evmTokenAddress });
+
+    const native = buildEVMToMidenTaskDataParams({
+      ...base,
+      evmTokenAddress: '0x0000000000000000000000000000000000000000',
+      isNative: true,
+      minTokenOut: '500000000'
+    });
+    expect(native.intentData).toMatchObject({
+      isNative: true,
+      depositTokenAddress: '0x0000000000000000000000000000000000000000',
+      tokenInAmount: '0',
+      minTokenOut: '500000000'
+    });
+    expect(validateWitnessTypeString(native.extraDataTypestring, native.extraData)).toEqual({ valid: true });
+  });
+
+  it.each([false, true])('solves a deposit with the native flag it was quoted with (native=%s)', async isNative => {
+    const solveIntent = jest.fn(async () => ({ hash: '0xsolve' }));
+    const getTaskData = jest.fn(async () => ({ taskTypeString: 'task', intentData: {} }));
+    await buildEVMToMidenIntent({ getTaskData, solveIntent }, { ...base, isNative, minTokenOut: '1500000' });
+
+    expect(solveIntent).toHaveBeenCalledWith(expect.objectContaining({ isNative, collateralType: 'evm' }));
   });
 });
