@@ -588,8 +588,9 @@ async function probeEpochToken(
   } catch {
     return read;
   }
-  // A deposit converts the amount the user types with the faucet's own scale, so a faucet that cannot be read keeps
-  // the token off the deposit picker; a send needs only the id.
+  // A deposit converts the amount the user types with the faucet's own scale. A first read still has no scale, so
+  // the deposit picker omits the token while a send keeps the id, and a same-version refresh keeps the last scaled
+  // read of that faucet id through keepValuesRead.
   try {
     const faucet = await readFaucet(midenFaucetId);
     return {

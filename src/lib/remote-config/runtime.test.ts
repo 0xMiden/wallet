@@ -3,7 +3,7 @@ import { _resetGuardianRegistryForTest, getNetworkGuardians } from 'lib/miden-ch
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
 import type { FeatureAvailability, UnavailableReason } from './availability';
-import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig } from './derive';
+import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig, EpochTokenRead } from './derive';
 import { failedDerivation } from './derived-snapshot';
 import type { FeatureEligibility } from './geo';
 import {
@@ -23,7 +23,7 @@ import {
 import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 import type { SwapPairs } from './swap-pairs';
-import { selectEarnVaultCatalog, selectNativeEthFaucet, selectSwapPairs } from './values';
+import { selectEarnVaultCatalog, selectEpochDepositTokens, selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -895,6 +895,93 @@ describe('a re-derivation that cannot read a value', () => {
     // The catalogue the other realm stored reads back whole.
     expect(derived?.epoch.vaults).toEqual({ state: 'ok', value: [TEST_EARN_VAULT_INFO] });
     expect(mockStorage.get(DERIVED)).toEqual(derived);
+  });
+
+  it('keeps the last scaled read of a faucet the same document reads again with no scale', async () => {
+    const FAUCET = '0x537c15a622074e91188aa894456c52';
+    const OTHER_FAUCET = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const scaled: EpochTokenRead = {
+      symbol: 'USDC',
+      decimals: 18,
+      midenFaucetId: FAUCET,
+      midenSymbol: 'USDC',
+      midenDecimals: 6
+    };
+    const unscaled = (midenFaucetId: string): EpochTokenRead => ({ symbol: 'USDC', decimals: 18, midenFaucetId });
+    const epochDocument = (version: number, network = 'testnet'): BridgeConfig => {
+      const source = config(version, network);
+      const sepolia = source.supportedEvmChains.sepolia;
+      if (!sepolia) throw new Error('missing sepolia');
+      return {
+        ...source,
+        supportedEvmChains: {
+          ...source.supportedEvmChains,
+          sepolia: {
+            ...sepolia,
+            bridges: {
+              ...sepolia.bridges,
+              epoch: {
+                depositEnabled: true,
+                withdrawalEnabled: true,
+                tokens: {
+                  USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69', outputs: [] }
+                }
+              }
+            }
+          }
+        }
+      };
+    };
+    const epochRead = (source: BridgeConfig, value: EpochTokenRead): DerivedBridgeConfig => {
+      const base = derivedFor(source, Date.now());
+      return {
+        ...base,
+        chains: {
+          11155111: { ...SEPOLIA_SKIPPED, epoch: { tokens: { USDC: { state: 'ok', value } } } }
+        }
+      };
+    };
+    const serveEpoch = (version: number) =>
+      mockFetch.mockImplementation(async network => {
+        const entry = { config: epochDocument(version, network), fetchedAt: Date.now() };
+        mockStorage.set(`bridge_config_v1:${network}`, entry);
+        return entry;
+      });
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, scaled));
+    await initBridgeConfig();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([
+      expect.objectContaining({ key: 'USDC', midenFaucetId: FAUCET, midenSymbol: 'USDC', midenDecimals: 6 })
+    ]);
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([
+      expect.objectContaining({ key: 'USDC', midenDecimals: 6 })
+    ]);
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(OTHER_FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([]);
+    const replaced = getBridgeConfigSnapshot().derived;
+    expect(replaced?.chains[11155111]?.epoch.tokens.USDC).toEqual({ state: 'ok', value: unscaled(OTHER_FAUCET) });
+    expect(mockStorage.get(DERIVED)).toEqual(replaced);
+
+    serveEpoch(2);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([]);
+    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual({
+      state: 'ok',
+      value: unscaled(FAUCET)
+    });
   });
 });
 

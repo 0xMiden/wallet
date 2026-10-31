@@ -249,9 +249,11 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
 // last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
-// clears it, and liveness (allocator, indexer) always reports the latest read. Across a version only the swap
-// registry is kept, and only while the new document names the same solver: it prices IETH and IBTC for the spending
-// cap, and the solver, not the document, decides what it lists.
+// clears it, and liveness (allocator, indexer) always reports the latest read. A first read of a faucet still has no
+// scale, so the deposit picker omits the token while a send keeps the id, and a same-version refresh keeps the last
+// scaled read of that faucet id. Across a version only the swap registry is kept, and only while the new document
+// names the same solver: it prices IETH and IBTC for the spending cap, and the solver, not the document, decides
+// what it lists.
 function keepValuesRead(
   next: DerivedBridgeConfig,
   previous: DerivedBridgeConfig | null,
@@ -279,7 +281,22 @@ function keepValuesRead(
             tokens: Object.fromEntries(
               Object.entries(chain.epoch.tokens).map(([symbol, read]) => {
                 const earlier = before.epoch.tokens[symbol];
-                return [symbol, earlier ? kept(read, earlier) : read];
+                const keptRead = earlier ? kept(read, earlier) : read;
+                // Same faucet id, newly unscaled: the last scaled read of that id still stands.
+                if (
+                  earlier &&
+                  keptRead === read &&
+                  read.state === 'ok' &&
+                  read.value.midenFaucetId !== undefined &&
+                  read.value.midenDecimals === undefined &&
+                  earlier.state === 'ok' &&
+                  earlier.value.midenFaucetId === read.value.midenFaucetId &&
+                  earlier.value.midenSymbol !== undefined &&
+                  earlier.value.midenDecimals !== undefined
+                ) {
+                  return [symbol, earlier];
+                }
+                return [symbol, keptRead];
               })
             )
           }
