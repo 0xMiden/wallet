@@ -342,9 +342,73 @@ jobs:
           git worktree add --detach "$baseline_dir" "$BASELINE_SHA"
           cleanup() { git worktree remove --force "$baseline_dir"; }
           trap cleanup EXIT
+          # The worktree HEAD is the baseline commit. The checkout's HEAD manifest is the
+          # committed candidate; its working tree is that manifest plus the linked injection.
+          committed_manifest="$(mktemp)"
+          git -C "$GITHUB_WORKSPACE" show HEAD:package.json > "$committed_manifest"
+          overlay_status="$(
+            COMMITTED_MANIFEST="$committed_manifest" PATCHED_MANIFEST="$GITHUB_WORKSPACE/package.json" BASELINE_MANIFEST="$baseline_dir/package.json" node <<'PRESENTATION_BASELINE_OVERLAY'
+          const fs = require('fs');
+          const read = (path) => JSON.parse(fs.readFileSync(path, 'utf8'));
+          const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+          const field = (manifest, name) => (plain(manifest[name]) ? manifest[name] : {});
+          const committed = read(process.env.COMMITTED_MANIFEST);
+          const patched = read(process.env.PATCHED_MANIFEST);
+          const baselinePath = process.env.BASELINE_MANIFEST;
+          const baseline = read(baselinePath);
+          let changed = false;
+          for (const name of ['dependencies', 'devDependencies']) {
+            const committedField = field(committed, name);
+            const patchedField = field(patched, name);
+            if (!plain(baseline[name])) continue;
+            const baselineField = baseline[name];
+            for (const key of Object.keys(patchedField)) {
+              const patchedValue = patchedField[key];
+              if (typeof patchedValue !== 'string' || patchedValue === committedField[key]) continue;
+              if (!Object.prototype.hasOwnProperty.call(baselineField, key) || baselineField[key] === patchedValue) continue;
+              baselineField[key] = patchedValue;
+              changed = true;
+            }
+          }
+          const committedResolutions = field(committed, 'resolutions');
+          const patchedResolutions = field(patched, 'resolutions');
+          const hadResolutions = plain(baseline.resolutions);
+          const resolutions = hadResolutions ? baseline.resolutions : {};
+          let resolutionsChanged = false;
+          if (hadResolutions) {
+            for (const key of Object.keys(resolutions)) {
+              if (
+                Object.prototype.hasOwnProperty.call(committedResolutions, key) &&
+                !Object.prototype.hasOwnProperty.call(patchedResolutions, key)
+              ) {
+                delete resolutions[key];
+                resolutionsChanged = true;
+              }
+            }
+          }
+          for (const key of Object.keys(patchedResolutions)) {
+            if (patchedResolutions[key] === committedResolutions[key] || resolutions[key] === patchedResolutions[key]) continue;
+            resolutions[key] = patchedResolutions[key];
+            resolutionsChanged = true;
+          }
+          if (resolutionsChanged) {
+            if (!hadResolutions) baseline.resolutions = resolutions;
+            changed = true;
+          }
+          if (changed) fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2) + '\n');
+          process.stdout.write(changed ? 'changed\n' : 'unchanged\n');
+          PRESENTATION_BASELINE_OVERLAY
+          )" || exit 1
           (
             cd "$baseline_dir"
-            yarn install --frozen-lockfile
+            if [ "$overlay_status" = changed ]; then
+              yarn install --network-timeout 600000
+            elif [ "$overlay_status" = unchanged ]; then
+              yarn install --frozen-lockfile
+            else
+              echo "presentation baseline overlay printed: $overlay_status" >&2
+              exit 1
+            fi
             yarn test:e2e:android:build
             if ! (cd android && ./gradlew --stop); then
               echo "Gradle daemon shutdown failed; continuing with the comparison"

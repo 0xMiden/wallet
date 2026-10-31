@@ -626,7 +626,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
         {
           dependencies: {
             '@miden-sdk/miden-sdk': 'file:../web-sdk',
-            left: 'injected-left',
+            left: 'candidate-left',
             absent: 'injected-only'
           },
           devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
