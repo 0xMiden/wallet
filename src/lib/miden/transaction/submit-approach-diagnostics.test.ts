@@ -162,6 +162,46 @@ describe('submitApproach', () => {
     expect(submitApproach(ended)).toEqual({});
   });
 
+  // Every end writes an entry, so an entry alone proves no crossing: only its evidence or the submit stamp does.
+  it.each<ISubmitEvidence['source']>(['out-of-band', 'kill', 'end', 'pin', 'error-text'])(
+    'says nothing for an unstamped attempt holding only an evidence-less %s entry',
+    source => {
+      const ended = row({
+        stageTimestamps: { 'creating-proposal': PROPOSAL_AT },
+        submitEvidence: [
+          entry({
+            source,
+            refBlock: undefined,
+            expirationBlock: undefined,
+            endedBy: 'out-of-band',
+            candidateKept: true,
+            guardianProposalNonce: 3
+          })
+        ]
+      });
+      expect(submitApproach(ended)).toEqual({});
+    }
+  );
+
+  it('says nothing for a stamped attempt proven to have ended before its submit', () => {
+    expect(submitApproach(row({ submitEvidence: [entry({ preSubmitEnd: true })] }))).toEqual({});
+  });
+
+  it('reports an unstamped attempt ended from outside whose entry holds evidence', () => {
+    const ended = row({ stageTimestamps: {}, submitEvidence: [entry({ source: 'out-of-band' })] });
+    expect(submitApproach(ended)).toEqual({
+      submitApproachHidden: expect.any(String),
+      proofWindow: 'under_30_blocks'
+    });
+  });
+
+  it('reports a stamped attempt whose entry is an evidence-less end', () => {
+    const ended = row({
+      submitEvidence: [entry({ source: 'out-of-band', refBlock: undefined, expirationBlock: undefined })]
+    });
+    expect(submitApproach(ended)).toEqual({ submitApproachHidden: expect.any(String), proofWindow: 'unavailable' });
+  });
+
   it("says nothing for another attempt's evidence", () => {
     const stale = row({ stageTimestamps: {}, submitEvidence: [entry({ attemptId: 'a0' })] });
     expect(submitApproach(stale)).toEqual({});

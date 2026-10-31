@@ -347,18 +347,9 @@ it.each([
   try {
     await Repo.transactions.put(row({ submitEvidence: [historical(), current(entry)] }));
     expect((await run()).kind).toBe('never-committed');
-    // The window `submitApproach` reports comes after the calculation above, which it leaves as it was.
-    expect(reads).toEqual([
-      'find',
-      'candidate',
-      'candidate',
-      ...expected,
-      'find',
-      'candidate',
-      'candidate',
-      'reference',
-      'expiration'
-    ]);
+    // `submitApproach` comes after the calculation above, which it leaves as it was, and stops at this attempt's entry:
+    // it ended before its submit, so its proof window goes unread.
+    expect(reads).toEqual(['find', 'candidate', 'candidate', ...expected, 'find', 'candidate', 'candidate']);
   } finally {
     Repo.transactions.hook('updating').unsubscribe(updating);
   }

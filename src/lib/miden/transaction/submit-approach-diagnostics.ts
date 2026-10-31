@@ -52,14 +52,37 @@ export const proofWindowBucket = (row: ITransaction): ProofWindowBucket => {
   return blocks <= 180 ? '30_to_180_blocks' : 'over_180_blocks';
 };
 
-// Evidence counts as well as the stamp, because an offscreen `submitting` stamp is fire-and-forget and may never arrive.
-const reachedSubmit = (row: ITransaction): boolean => {
-  if (row.stageTimestamps?.submitting !== undefined) return true;
-  const entry = currentEntry(row);
-  return entry !== undefined && entry.preSubmitEnd !== true;
+const SUBMIT_CROSSING_EVIDENCE_FIELDS = [
+  'transactionId',
+  'initialCommitment',
+  'finalCommitment',
+  'initialNonce',
+  'outputNoteIds',
+  'nullifiers',
+  'refBlock',
+  'refBlockCommitment',
+  'expirationBlock'
+] as const;
+
+/** What the attempt's entry shows. An entry alone shows nothing: every end writes one, crossed or not. */
+export const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | 'unavailable' => {
+  if (row.attemptId === undefined) return 'unavailable';
+  const attempt = currentEntry(row);
+  if (attempt === undefined) return 'unavailable';
+  if (attempt.preSubmitEnd === true) return 'not_crossed';
+  return attempt.source === 'stage' || SUBMIT_CROSSING_EVIDENCE_FIELDS.some(field => attempt[field] !== undefined)
+    ? 'crossed'
+    : 'unavailable';
 };
 
-/** What a report says about the way to this row's submit; nothing for a row that never reached one. */
+// Either the entry or the stamp shows it, because an offscreen `submitting` stamp is fire-and-forget and may never
+// arrive. The stamp precedes the call, so it never outweighs a proven pre-submit end.
+const reachedSubmit = (row: ITransaction): boolean => {
+  const crossing = attemptSubmitCrossing(row);
+  return crossing === 'crossed' || (crossing === 'unavailable' && row.stageTimestamps?.submitting !== undefined);
+};
+
+/** What a report says about the way to this row's submit; nothing unless the row shows it reached one. */
 export const submitApproach = (
   row: ITransaction
 ): Pick<TerminalReportDiagnostics, 'submitApproachHidden' | 'proofWindow'> =>

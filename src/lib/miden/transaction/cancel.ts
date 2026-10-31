@@ -57,7 +57,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
-import { hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
+import { attemptSubmitCrossing, hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
 import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
@@ -462,28 +462,6 @@ const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
   const ageMs = nowMs - row.initiatedAt * 1000;
   if (!Number.isFinite(ageMs) || ageMs < MAX_QUEUED_AGE * 1000) return 'unavailable';
   return QUEUE_AGE_LIMITS.find(([limit]) => ageMs < limit)?.[1] ?? 'over_24h';
-};
-
-const SUBMIT_CROSSING_EVIDENCE_FIELDS = [
-  'transactionId',
-  'initialCommitment',
-  'finalCommitment',
-  'initialNonce',
-  'outputNoteIds',
-  'nullifiers',
-  'refBlock',
-  'refBlockCommitment',
-  'expirationBlock'
-] as const;
-
-const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | 'unavailable' => {
-  if (row.attemptId === undefined) return 'unavailable';
-  const attempt = row.submitEvidence?.find(({ attemptId }) => attemptId === row.attemptId);
-  if (attempt === undefined) return 'unavailable';
-  if (attempt.preSubmitEnd === true) return 'not_crossed';
-  return attempt.source === 'stage' || SUBMIT_CROSSING_EVIDENCE_FIELDS.some(field => attempt[field] !== undefined)
-    ? 'crossed'
-    : 'unavailable';
 };
 
 /**

@@ -9,14 +9,18 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import {
   cancelStaleQueuedTransactions,
+  cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  cancelTransactionById,
+  failInterruptedTransactions,
+  forceCaneclAllInProgressTransactions,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE
 } from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
 import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
-import { updateTransactionStatus } from './helper';
+import { markAttemptPreSubmitEnd, updateTransactionStatus } from './helper';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -926,6 +930,59 @@ describe('the way to a failed submit', () => {
     };
     await Repo.transactions.put(preparing);
     expect(await cancelTransaction(preparing, new Error(`opaque ${ACCOUNT}`))).toBe(true);
+    expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
+    expect(diagnostics()).not.toHaveProperty('proofWindow');
+  });
+
+  describe.each([
+    ['mobile', true],
+    ['off mobile', false]
+  ])('an attempt ended from outside its pipeline, %s', (_platform, mobile) => {
+    const ends: [string, (tx: ITransaction) => Promise<unknown>][] = [
+      ['the cold-start sweep', () => failInterruptedTransactions()],
+      ['the stuck reaper', () => cancelStuckTransactions()],
+      ['a user cancel', tx => cancelTransactionById(tx.id, USER_CANCELLED_TRANSACTION_REASON)],
+      ['a force cancel', () => forceCaneclAllInProgressTransactions()],
+      ['a kill', tx => cancelTransactionAfterPipelineStopped(tx, new OperationAbortedError('op', 'deadline'))]
+    ];
+
+    const ended = async (row: ITransaction, end: (tx: ITransaction) => Promise<unknown>) => {
+      jest.mocked(isMobile).mockReturnValue(mobile);
+      await Repo.transactions.put({ ...row, processingStartedAt: 1 });
+      await end(row);
+      expect(captured()).toHaveLength(1);
+    };
+
+    it.each(ends)('reports neither when %s meets an attempt short of its submit', async (_name, end) => {
+      await ended(
+        {
+          ...submitted(),
+          stage: 'proving',
+          stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS },
+          submitEvidence: undefined
+        },
+        end
+      );
+      expect(captured()[0]?.message).toContain('submit crossing unavailable');
+      expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
+      expect(diagnostics()).not.toHaveProperty('proofWindow');
+    });
+
+    it.each(ends)('reports both when %s meets a crossed attempt that lost its stamp', async (_name, end) => {
+      await ended({ ...submitted(), stageTimestamps: { 'creating-proposal': PROPOSAL_AT_MS } }, end);
+      expect(captured()[0]?.message).toContain('submit crossing crossed');
+      expect(diagnostics()).toMatchObject({
+        submitApproachHidden: mobile ? 'unavailable' : 'not_measured',
+        proofWindow: 'under_30_blocks'
+      });
+    });
+  });
+
+  it('reports neither for a stamped attempt the leaf proved ended before its submit', async () => {
+    await Repo.transactions.put(submitted());
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect(await cancelTransaction(submitted(), new Error(`opaque ${ACCOUNT}`))).toBe(true);
+    expect(captured()[0]?.message).toContain('submit crossing not_crossed');
     expect(diagnostics()).not.toHaveProperty('submitApproachHidden');
     expect(diagnostics()).not.toHaveProperty('proofWindow');
   });
