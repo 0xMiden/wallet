@@ -52,6 +52,31 @@ describe('IosWalletPage.screenshot', () => {
   });
 });
 
+describe('IosWalletPage app switching', () => {
+  it('starts watching for the hidden document before it leaves, and reports it on return', async () => {
+    const order: string[] = [];
+    const evalJs = jest.fn(async (body: string) => {
+      order.push(body.includes('addEventListener') ? 'watch' : 'read');
+      return true;
+    });
+    const page = new IosWalletPage({
+      cdp: { eval: evalJs } as unknown as CdpSession,
+      sim: {
+        background: jest.fn(async () => order.push('background')),
+        foreground: jest.fn(async () => order.push('foreground'))
+      } as unknown as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await page.leaveForeground();
+    const wentHidden = await page.returnToForeground();
+
+    expect(order).toEqual(['watch', 'background', 'foreground', 'read']);
+    expect(wentHidden).toBe(true);
+  });
+});
+
 describe('IosWalletPage.prepareSendReview', () => {
   it('scopes shared amount controls to the Send flow', async () => {
     const evalJs = jest.fn(async () => true);

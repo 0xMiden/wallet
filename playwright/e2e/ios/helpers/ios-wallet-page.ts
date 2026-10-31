@@ -537,6 +537,24 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
+  // ── App switching ───────────────────────────────────────────────────────
+
+  /** Leaves the app the way an app switch does. Its WebView notes going hidden, which `returnToForeground` reports. */
+  async leaveForeground(): Promise<void> {
+    await this.cdp.eval(
+      `window.__E2E_WENT_HIDDEN__ = false; ` +
+        `document.addEventListener('visibilitychange', function () { ` +
+        `if (document.hidden) window.__E2E_WENT_HIDDEN__ = true; }); return null;`
+    );
+    await this.sim.background(this.udid);
+  }
+
+  /** Returns to the running app and answers whether its document went hidden meanwhile. */
+  async returnToForeground(): Promise<boolean> {
+    await this.sim.foreground(this.udid, this.bundleId);
+    return ridingOut(() => this.cdp.eval<boolean>('return window.__E2E_WENT_HIDDEN__ === true;'));
+  }
+
   // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
 
   /**
