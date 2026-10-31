@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.10 (TBD)
+
+- [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
+
 ## 1.17.9 (2026-10-31)
 
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
