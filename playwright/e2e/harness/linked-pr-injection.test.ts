@@ -21,6 +21,9 @@ const GUARDED_EVENTS = ['push', 'workflow_dispatch'];
 const NOT_INJECTED =
   "steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
 const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'";
+const PRESENTATION_COMPARE_ONLY = "github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'";
+const PRESENTATION_COMPARE_TIMEOUT =
+  "${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
@@ -245,6 +248,12 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
     injects.every(step => keyOf(step, 'if') === undefined) &&
     runsOnPullRequest(file, jobs(file, text), job);
   if (injectsOnPullRequests) return undefined;
+  if (
+    file === 'e2e-dapp-browser.yml' &&
+    job.id === 'android-dapp-browser' &&
+    ceiling === PRESENTATION_COMPARE_TIMEOUT
+  )
+    return undefined;
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
@@ -464,6 +473,13 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     );
     expect(frozen.map(({ entry }) => entry)).toEqual(expect.arrayContaining(['build-chrome.yml build']));
     for (const { entry, step, job } of frozen) {
+      if (
+        entry === 'e2e-dapp-browser.yml android-dapp-browser' &&
+        keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
+      ) {
+        expect([entry, keyOf(step, 'if')]).toEqual([entry, PRESENTATION_COMPARE_ONLY]);
+        continue;
+      }
       expect([entry, keyOf(step, 'if')]).toEqual([entry, NOT_INJECTED]);
       expect([entry, job.steps.some(other => keyOf(other, 'if') === INJECTED && installs(other))]).toEqual([
         entry,
@@ -491,6 +507,16 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
   });
 
   it('gives a dispatch the time to build its linked PRs from source on top of an unchanged push ceiling', () => {
+    const presentationJob = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser');
+    const baselineInstall = presentationJob.steps.find(
+      step => keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(baselineInstall?.lines.some(line => /yarn install --frozen-lockfile/.test(line))).toBe(true);
+    expect(keyOf(baselineInstall!, 'if')).toBe(PRESENTATION_COMPARE_ONLY);
+    expect(presentationJob.keys['timeout-minutes']).toBe(PRESENTATION_COMPARE_TIMEOUT);
+    expect(
+      keyOf(presentationJob.steps.find(step => keyOf(step, 'name') === 'Run dApp browser E2E (Android)')!, 'if')
+    ).toBe("github.event_name != 'workflow_dispatch' || inputs.suite == 'all'");
     expect(
       workflowFiles.flatMap(file =>
         jobs(file, source(file)).flatMap(job => {
@@ -500,6 +526,12 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       )
     ).toEqual([]);
     const ceilings = guardedJobs.flatMap(({ file, job }) => {
+      if (
+        file === 'e2e-dapp-browser.yml' &&
+        job.id === 'android-dapp-browser' &&
+        job.keys['timeout-minutes'] === PRESENTATION_COMPARE_TIMEOUT
+      )
+        return ['e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180'];
       const [, dispatch, push] = DISPATCH_CEILING.exec(job.keys['timeout-minutes'] ?? '') ?? [];
       return dispatch === undefined ? [] : [`${file} ${job.id}: push ${push}, dispatch ${dispatch}`];
     });
@@ -516,7 +548,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 195',
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
-      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
+      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180',
       'e2e-dapp-browser.yml android-auth-tab-acceptance: push 60, dispatch 90',
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',

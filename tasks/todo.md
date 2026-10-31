@@ -609,6 +609,9 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [ ] Pass Android unit tests and the complete exact-head CI gate.
 - [x] Add opt-in native-tap Android E2E, FrameTimeline capture and comparison output.
 - [ ] Collect and inspect the before/after FrameTimeline artifacts and comparison report.
+- [x] Diagnose current CI red: `linked-pr-injection.test.ts` still treated the presentation-compare baseline install and 180-minute comparison timeout as ordinary push/dispatch installs.
+- [x] Update the workflow harness to assert the baseline install and extended timeout are limited to the presentation-compare dispatch.
+- [ ] Verify the named harness suite and mutation checks, then rerun exact-head CI after review.
 - [ ] Complete exact-head CI and the recorded independent review, then merge.
 
 Acceptance plan for the native-tap measurement:
