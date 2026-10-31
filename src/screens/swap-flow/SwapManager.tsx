@@ -261,6 +261,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   // Refreshed every 30 s while this page is on screen, so the price a review shows is one the
   // solver would still fill at.
   const pageActive = usePageActive();
+  const quoteEnabled = !sameToken && pairListed && (requestEdited ? offerPriceReady : minimumError === undefined);
   const swapQuote = useSwapQuote({
     offerToken,
     requestToken,
@@ -268,7 +269,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
     requestAmount: requestExceedsPrecision ? '' : requestAmount,
     requestEdited,
     slippageBps,
-    enabled: !sameToken && pairListed && (requestEdited ? offerPriceReady : minimumError === undefined),
+    enabled: quoteEnabled,
     active: pageActive && onSwapRoute
   });
   const { quoteNow } = swapQuote;
@@ -406,11 +407,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   // an expiry under the floor is reclaimed before a solver can fill it, and the review screen
   // is free to hand up nothing but values that pass this (see `expiry.ts` for the bounds).
   const validExpiry = isValidExpirySeconds(expirySecondsValue);
-  // The receive field is auto-derived: show a skeleton from the moment a pay
-  // amount is entered until the first quote lands (or errors). Subsequent edits
-  // recompute in place from the cached rate, so no skeleton flash there.
-  const requestCalculating = !sameToken && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
-  const offerCalculating = !sameToken && hasRequestAmount && requestEdited && !offerAmount && !quoteUnavailable;
+  // A derived field stays in its skeleton only while this input can still produce a quote.
+  const requestCalculating = quoteEnabled && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
+  const offerCalculating = quoteEnabled && hasRequestAmount && requestEdited && !offerAmount && !quoteUnavailable;
   const quoteMatches =
     swapQuote.quote !== undefined &&
     !swapQuote.loading &&
