@@ -35,7 +35,7 @@ test.describe('dApp Browser native presentation (Android)', () => {
     await server?.stop();
   });
 
-  test('native tap expands a minimized dApp and records FrameTimeline', async ({ walletA, steps }, testInfo) => {
+  test('native tap expands a minimized dApp and records FrameTimeline', async ({ walletA, steps }) => {
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
     });
@@ -81,14 +81,16 @@ test.describe('dApp Browser native presentation (Android)', () => {
       }
     };
 
+    const tracePath = path.join(steps.outputDir, `frame-timeline-${VARIANT}.pftrace`);
     if (FRAME_TIMELINE_CAPTURE) {
-      await captureFrameTimeline(walletA.serial, testInfo.outputPath(`frame-timeline-${VARIANT}.pftrace`), exercise);
+      await captureFrameTimeline(walletA.serial, tracePath, exercise);
     } else {
       await exercise();
     }
 
+    const metadataPath = path.join(steps.outputDir, `native-presentation-${VARIANT}.json`);
     await fs.writeFile(
-      testInfo.outputPath(`native-presentation-${VARIANT}.json`),
+      metadataPath,
       `${JSON.stringify(
         {
           variant: VARIANT,
@@ -100,5 +102,7 @@ test.describe('dApp Browser native presentation (Android)', () => {
         2
       )}\n`
     );
+    expect((await fs.stat(metadataPath)).size).toBeGreaterThan(0);
+    if (FRAME_TIMELINE_CAPTURE) expect((await fs.stat(tracePath)).size).toBeGreaterThan(0);
   });
 });
