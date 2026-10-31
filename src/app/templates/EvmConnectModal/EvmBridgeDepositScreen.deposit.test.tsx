@@ -16,7 +16,7 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { AgglayerDepositToken } from 'lib/remote-config/values';
+import type { AgglayerDepositToken, EpochDepositToken } from 'lib/remote-config/values';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
@@ -172,8 +172,11 @@ let mockAgglayerChainId: number | null = 11155111;
 let mockTokenApiUrl: string | undefined;
 // False: the source chain's Epoch route takes no deposit, so a token that chain does not offer has nowhere to move.
 let mockEpochDepositsListed = true;
+// The source chain's Epoch tokens, when a case lists other than its USDC.
+let mockEpochTokens: EpochDepositToken[] | null = null;
 afterEach(() => {
   mockEpochDepositsListed = true;
+  mockEpochTokens = null;
 });
 let mockHeldErc20s: Erc20Holding[] = [];
 jest.mock('lib/agglayer/token-holdings', () => ({ readErc20Holdings: async () => mockHeldErc20s }));
@@ -227,7 +230,8 @@ jest.mock('lib/remote-config/values', () => ({
       : null,
   // The source chain's Epoch route takes its USDC, delivered into the testnet output faucet.
   selectEpochDepositTokens: ({ config }: MockSnapshot, chainId: number) =>
-    mockEpochDepositsListed && config && chainId === config.supportedEvmChains.source.chainId
+    mockEpochTokens ??
+    (mockEpochDepositsListed && config && chainId === config.supportedEvmChains.source.chainId
       ? [
           {
             key: 'USDC',
@@ -240,7 +244,7 @@ jest.mock('lib/remote-config/values', () => ({
             midenDecimals: 6
           }
         ]
-      : [],
+      : []),
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
   selectBridgeInMaxBalanceUsd: () => mockBridgeInCapUsd,
   // Unless a case lists one, the document lists no deposit token and the registry holds none: the picker offers ETH
@@ -344,6 +348,7 @@ jest.mock('lib/walletconnect/config', () => ({
 /** The handlers the screen last rendered into the form and the drawers: a guard is driven through them directly. */
 let mockLastOpenTokenDrawer: () => void = () => undefined;
 let mockLastTokenSelect: (token: DepositToken) => void = () => undefined;
+let mockLastErc20Rows: { name: string }[] = [];
 let mockLastConnectAnother: () => void = () => undefined;
 
 // Step components stubbed down to the affordances the deposit path needs.
@@ -505,8 +510,17 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: DepositToken) => void }) => {
+  EvmBridgeTokenDrawer: ({
+    open,
+    onSelect,
+    erc20Rows = []
+  }: {
+    open: boolean;
+    onSelect: (token: DepositToken) => void;
+    erc20Rows?: { name: string }[];
+  }) => {
     mockLastTokenSelect = onSelect;
+    mockLastErc20Rows = erc20Rows;
     return open ? (
       <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
         ETH
@@ -3248,6 +3262,52 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
     mockDepositTokens = [];
+  });
+
+  const openFormWithErc20 = async (contractAddress: `0x${string}`) => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress }));
+    await settle();
+  };
+
+  it('keeps the test label on a registered ERC-20 that is the Epoch USDC', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    const contractAddress = TEST_EVM_USDC.address.toLowerCase() as `0x${string}`;
+    mockDepositTokens = [{ ...WBTC_LISTING, symbol: 'USDC', contractAddress, decimals: 18 }];
+
+    await openFormWithErc20(contractAddress);
+
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
+  });
+
+  it('keeps the symbol of a registered ERC-20 that is the picked Epoch token but not the USDC', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    const WETH = '0x00000000000000000000000000000000000000d2';
+    mockDepositTokens = [{ ...WBTC_LISTING, symbol: 'WETH', contractAddress: WETH, decimals: 18 }];
+    mockEpochTokens = [
+      {
+        key: 'WETH',
+        address: WETH,
+        chainId: TEST_EVM_CHAIN_ID,
+        symbol: 'WETH',
+        decimals: 18,
+        midenFaucetId: '0x00000000000000000000000000f1f2',
+        midenSymbol: 'WETH',
+        midenDecimals: 8
+      }
+    ];
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+
+    act(() => mockLastTokenSelect({ kind: 'epoch', key: 'WETH' }));
+    await settle();
+
+    expect(mockLastErc20Rows).toEqual([expect.objectContaining({ name: 'WETH' })]);
   });
 
   it('approves and bridges a listed ERC-20 at its own decimals and saves its delivery faucet', async () => {

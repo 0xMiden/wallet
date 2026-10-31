@@ -49,7 +49,8 @@ import {
   selectAgglayerDepositTokens,
   selectAgglayerRecoveryConfig,
   selectAgglayerRegistryToken,
-  selectEpochDepositTokens
+  selectEpochDepositTokens,
+  selectEvmUsdc
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
@@ -658,10 +659,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // True for a pick of an ERC-20 offered on the AggLayer chain, resolved in `erc20` or not.
   const erc20Picked = typeof token !== 'string' && token.kind === 'erc20';
   // The bridge's own USDC keeps its testnet label wherever it is picked from; any other ERC-20 is its symbol.
+  const bridgeUsdcAddress = selectEvmUsdc(bridgeConfig, sourceChainId)?.address.toLowerCase();
   const erc20Label = (candidate: OfferedErc20): string =>
-    evmUsdcAddress !== undefined && candidate.contractAddress === evmUsdcAddress.toLowerCase()
-      ? evmUsdcLabel(bridgeConfig, candidate.symbol)
-      : candidate.symbol;
+    candidate.contractAddress === bridgeUsdcAddress ? evmUsdcLabel(bridgeConfig, candidate.symbol) : candidate.symbol;
   const { tokenSymbol, tokenLabel } = (() => {
     if (fastKey !== null) return { tokenSymbol: usdcSymbol, tokenLabel: usdcLabel };
     if (erc20Picked) return { tokenSymbol: erc20?.symbol ?? '', tokenLabel: erc20 ? erc20Label(erc20) : '' };
