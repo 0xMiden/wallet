@@ -2090,13 +2090,13 @@ public class BreadPresentationControllerTest {
         float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
         float density = activity.getResources().getDisplayMetrics().density;
         assertTrue("the projected-travel gesture begins outside touch slop",
-            0.05f * distance > android.view.ViewConfiguration.get(activity).getScaledTouchSlop());
+            0.15f * distance > android.view.ViewConfiguration.get(activity).getScaledTouchSlop());
         assertTrue("the projected-travel fixture has a sub-fling collapse distance", distance / density < 450f);
 
         ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
             ReflectionHelpers.ClassParameter.from(float.class, 0f));
         try {
-            float speed = capsuleReleaseSpeedDpPerSecond(0.05f, 50, 0);
+            float speed = capsuleReleaseSpeedDpPerSecond(0.15f, 150, 0);
             assertTrue("the projected-travel gesture remains below the fling threshold", speed < 450f);
             verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
                 eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
@@ -2246,9 +2246,10 @@ public class BreadPresentationControllerTest {
 
     @Test @Config(shadows = PaintWebView.class)
     public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() throws Exception {
-        openMorph(false);
+        openMorph(true);
         reveal();
         ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        assertTrue("the fullscreen capsule is shown for the owned-touch fixture", capsule.isShown());
         int[] location = new int[2];
         capsule.getLocationOnScreen(location);
         long t = android.os.SystemClock.uptimeMillis();
