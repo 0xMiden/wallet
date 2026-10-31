@@ -13,14 +13,16 @@ const mockUsdc = {
   decimals: 6,
   chainId: 11155111
 };
-const mockGetEvmUsdc = jest.fn(() => mockUsdc);
+const mockGetEvmUsdc = jest.fn((_chainId: number, _faucetId: string) => mockUsdc);
 
 jest.mock('./bridge', () => ({
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args),
-  buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args)
+  buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args),
+  normalizeMidenIdToHex: (id: string) => `hex:${id}`
 }));
 jest.mock('lib/remote-config/values', () => ({
-  getEvmUsdc: () => mockGetEvmUsdc(),
+  getEpochOutputToken: (chainId: number, faucetId: string) => mockGetEvmUsdc(chainId, faucetId),
+  getEvmChainId: () => 11155111,
   getEpochAllocatorUrl: () => 'https://allocator.test'
 }));
 jest.mock('./chain', () => ({
@@ -185,6 +187,8 @@ describe('the configured output token', () => {
       quoteArgs.destinationAddress
     );
     expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ destinationNetwork: 84532 }));
+    // The output token is the first Epoch chain's token for the sent faucet, as hex.
+    expect(mockGetEvmUsdc).toHaveBeenCalledWith(11155111, 'hex:mtst1faucet');
     expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
       'tx-1',
       'not-applicable',

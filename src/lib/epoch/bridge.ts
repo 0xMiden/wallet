@@ -211,8 +211,8 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   const taskDataParams = {
     taskType: TaskType.GetTokenOut,
     intentData: {
-      isNative: false,
-      depositTokenAddress: params.evmTokenAddress,
+      isNative: params.isNative === true,
+      depositTokenAddress: params.isNative === true ? ZERO_ADDRESS : params.evmTokenAddress,
       // Reverse quote: the allocator derives the EVM `tokenIn` from minTokenOut.
       tokenInAmount: '0',
       outputTokenAddress: ZERO_ADDRESS,
@@ -252,7 +252,7 @@ export async function getEVMToMidenQuote(
     sponsorAddress: sponsorAddress as `0x${string}`,
     taskTypeString,
     intentData,
-    isNative: false
+    isNative: params.isNative === true
   });
 
   if (!quoteResult.success) {
@@ -292,7 +292,7 @@ export async function buildEVMToMidenIntent(
 
   try {
     const solveParams: SolveIntentParams = {
-      isNative: false,
+      isNative: params.isNative === true,
       sponsorAddress: params.evmSourceAddress as `0x${string}`,
       taskTypeString,
       intentData,

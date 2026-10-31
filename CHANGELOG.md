@@ -1,10 +1,15 @@
 # Changelog
 
-## 1.17.9 (TBD)
+## 1.17.10 (TBD)
 
 ### Changes
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+
+## 1.17.9 (2026-10-31)
+
+### Changes
+
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
@@ -50,6 +55,7 @@
 - [FIX][all] Bridge activity shows the saved destination chain, including Ethereum mainnet for Agglayer withdrawals.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
+- [CHANGE][all] An Epoch route of the bridge config lists any number of EVM tokens, each settling into the token-list faucet of its `midenSymbol`, and names the chain's native coin (native ETH, POL) at the zero address; faucet IDs use the shared account parser, a Fast send arrives as the route's token for the sent Miden token, and Polygon and Robinhood Chain are supported chains. Bridge in lists every chain with a deposit route and offers each Epoch token of the picked chain (native coins included), with Circle and Fast as the two routes for USDC where both name the same contract.
 
 ## 1.17.8 (2026-10-27)
 

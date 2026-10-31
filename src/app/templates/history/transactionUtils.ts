@@ -21,7 +21,12 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import {
+  bridgeInSourceLabel,
+  epochOutputIsBridgeUsdc,
+  evmUsdcLabel,
+  midenTokenLabel
+} from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
@@ -387,8 +392,11 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
-  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
+  // An Epoch row's EVM side takes the bridge USDC label only when the output is that token.
+  const outLabel =
+    entry.bridgeProvider === 'epoch' && epochOutputIsBridgeUsdc(snapshot, destinationChainId, outSymbol)
+      ? evmUsdcLabel(snapshot, outSymbol)
+      : outSymbol;
   return {
     inSymbol,
     outSymbol,
