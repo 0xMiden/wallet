@@ -4,6 +4,7 @@
 
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
+- [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header with vertical overscroll containment.
 
 ## 1.17.9 (2026-10-31)
 
@@ -49,7 +50,6 @@
 - [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Buy GameCoin from the new sale script with an explicit USDCx payment and Guardian fee authentication; select eligible offers by price and amount, and exclude the buyer's own sales.
 - [FIX][all] Import sent P2IDE notes from Guardian history during recovery so reclaimable notes can appear again.
-- [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header with vertical overscroll containment.
 - [FIX][all] Bridge activity shows the saved destination chain, including Ethereum mainnet for Agglayer withdrawals.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
