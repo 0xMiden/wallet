@@ -1,4 +1,8 @@
-import { setEligibilityFixtureState } from '../../helpers/feature-eligibility';
+import {
+  getEligibilityFixtureOrigin,
+  resetEligibilityFixtureOrigin,
+  setEligibilityFixtureState
+} from '../../helpers/feature-eligibility';
 import { expect, test } from '../fixtures/two-emulators';
 
 const EARN_SERVICE_DOWN =
@@ -16,11 +20,17 @@ test.afterEach(async () => {
 test('opens the wallet with Earn and Swap unavailable when the eligibility lookup fails', async ({
   walletA,
   steps
-}) => {
+}, testInfo) => {
   await walletA.createNewWallet();
+  await resetEligibilityFixtureOrigin();
   await setEligibilityFixtureState('unavailable');
   // The decision is made once per page realm, so the reload is what makes the wallet ask again.
   await walletA.lockWallet();
+  await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 10_000 }).toBe(true);
+  await testInfo.attach('eligibility-origin', {
+    body: JSON.stringify(await getEligibilityFixtureOrigin()),
+    contentType: 'application/json'
+  });
 
   await steps.step(
     'wallet_opens_without_access_gate',
