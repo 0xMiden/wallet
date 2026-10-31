@@ -126,6 +126,16 @@ test('eligibility verification selects every actual requested platform origin an
   }
 });
 
+test('eligibility allowlist docs require the Chrome extension origin for the release smoke check', () => {
+  const bullet = readFileSync(new URL('../../services/feature-eligibility/README.md', import.meta.url), 'utf8')
+    .split('\n')
+    .find(line => line.startsWith('- `FEATURE_ELIGIBILITY_ALLOWED_ORIGINS`'));
+  assert.ok(bullet);
+  assert.match(bullet, /release validation still requires the Chrome extension origin/);
+  assert.match(bullet, /runtime requests may omit Origin/);
+  assert.doesNotMatch(bullet, /absent-Origin extension requests need no entry/);
+});
+
 test('Java properties escaping protects special characters, newlines and Unicode passwords', async () => {
   const { javaPropertyEscape, androidSigningProperties } = await implementation();
   assert.equal(javaPropertyEscape(' leading =:#!\\\n\t\r\f\u00e9\ud83d\udd10'), '\\ leading\\ \\=\\:\\#\\!\\\\\\n\\t\\r\\f\\u00e9\\ud83d\\udd10');
