@@ -2453,7 +2453,7 @@ public class BreadPresentationControllerTest {
 
         callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
         callback.onBackProgressed(new BackEvent(280, 0, 1f, BackEvent.EDGE_LEFT));
-        webView.layout(0, 0, webView.getWidth() - 10, webView.getHeight() - 10);
+        resizePage(webView, root.getWidth() - 10, root.getHeight() - 10);
         assertFalse(ReflectionHelpers.getField(controller, "tracking"));
         assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
         assertNull(ReflectionHelpers.getField(controller, "morphId"));
