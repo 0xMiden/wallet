@@ -53,7 +53,7 @@ const RevealSeedPhrase: FC = () => {
   // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
   // each pop a page (Settings too); the hook fires once per location as a safety
   // net, and routes to the Settings root when the page was opened cold.
-  const popPage = useBackWithFallback('/settings');
+  const popPage = useBackWithFallback('/me');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
   // settles on a later task, so a reveal that resolves in between would otherwise

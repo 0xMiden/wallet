@@ -45,6 +45,8 @@ let mockRenderRoute: { name: string; animationIn: string; animationOut: string }
 const navigateToMock = jest.fn();
 const goBackMock = jest.fn();
 const navigateMock = jest.fn();
+const mockHistoryBack = jest.fn();
+let mockHistoryPosition = 0;
 
 const useMobileBackHandlerMock = jest.fn();
 let capturedBackHandler: (() => boolean | void) | null = null;
@@ -79,7 +81,11 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: (...a: unknown[]) => navigateMock(...a)
+  navigate: (...a: unknown[]) => navigateMock(...a),
+  goBack: () => mockHistoryBack(),
+  createLocationState: () => ({ historyPosition: mockHistoryPosition }),
+  listen: jest.fn(),
+  HistoryAction: { Replace: 'replace' }
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -192,6 +198,8 @@ const setExportStep = (renderName: string = EncryptedFileStep.ExportFilePassword
 };
 
 beforeEach(() => {
+  mockHistoryPosition = 0;
+  mockHistoryBack.mockClear();
   jest.clearAllMocks();
   mockActiveRoute = { name: EncryptedFileStep.WalletPassword };
   mockCardStack = [{ name: EncryptedFileStep.WalletPassword }];
@@ -228,18 +236,27 @@ describe('EncryptedFileFlow / wallet-password step', () => {
     expect(screen.getByTestId('wps-password')).toHaveTextContent('super-secret');
   });
 
-  it('closes the flow (navigate /settings) from the shared header back', () => {
+  it('pops the export page when Back is used after opening it from Profile', () => {
+    mockHistoryPosition = 1;
     setWalletStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('subpage-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(mockHistoryBack).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the flow (return to Profile) from the shared header back', () => {
+    setWalletStep();
+    renderFlow();
+    fireEvent.click(screen.getByTestId('subpage-back'));
+    expect(navigateMock).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('closes the flow when the wallet-password step goes back', () => {
     setWalletStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('wps-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('advances to the export-password step on next', () => {
@@ -292,7 +309,7 @@ describe('export chrome / renderStep', () => {
     setExportStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('subpage-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('renders the export-password step and wires its callbacks', () => {
@@ -343,9 +360,9 @@ describe('export chrome / renderStep', () => {
     fireEvent.click(screen.getByTestId('ec-back'));
     expect(goBackMock).toHaveBeenCalledTimes(1);
 
-    // Done -> onClose -> navigate('/settings').
+    // Done -> onClose -> navigate('/me', HistoryAction.Replace).
     fireEvent.click(screen.getByTestId('ec-done'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('falls back to empty strings for an unset complete-step password (?? branch)', () => {
@@ -392,7 +409,7 @@ describe('mobile back handler', () => {
     });
     expect(result).toBe(true);
     expect(goBackMock).not.toHaveBeenCalled();
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 

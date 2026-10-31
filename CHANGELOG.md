@@ -18,6 +18,8 @@
 - [CHANGE][all] Include the closed wallet request client in bridge approval and deposit failure diagnostics.
 - [CHANGE][all] Add 25%, 50%, 75% and Max amount shortcuts based on the spendable balance in Swap and Bridge.
 
+- [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
+
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.

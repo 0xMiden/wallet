@@ -227,7 +227,7 @@ describe('back navigation', () => {
 
     // Replace rather than push: the entry being left is the one the user
     // cannot return to.
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 
@@ -246,7 +246,7 @@ describe('back navigation', () => {
     render(<RotateGuardian />);
 
     expect(mobileBackHandler!()).toBe(true);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 

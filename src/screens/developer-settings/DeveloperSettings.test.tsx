@@ -1186,7 +1186,7 @@ describe('DeveloperSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replacestate');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replacestate');
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 

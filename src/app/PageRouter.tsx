@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -64,7 +64,6 @@ interface RouteContext {
   locked: boolean;
   hydrated: boolean;
   finishingOnboarding: boolean;
-  settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -219,7 +218,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
   // shown while a developer endpoint override is active. Placed ahead of the
-  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // generic `/settings/:tabSlug` route below so it matches first (that route's
   // pattern would otherwise swallow this path with tabSlug='network-endpoints').
   [
     '/settings/network-endpoints',
@@ -247,20 +246,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
-  // Me embeds the settings groups; this standalone root is a pushed page for the
-  // links that still open it (the accounts drawer, a sub-page's fallback back).
-  // Exact-matched and placed ahead of the generic route below, which keeps every
-  // `/settings/<slug>` flow unchanged.
+  // Old Settings links open Profile, which contains the settings menu.
+  ['/settings', onlyReady(() => <Woozie.Redirect to="/me" />)],
   [
-    '/settings',
-    onlyReady((_p, ctx) => (
-      <FullScreenPage entrance="slide">
-        <Settings rootScrollTop={ctx.settingsScrollTop} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/settings/:tabSlug?',
+    '/settings/:tabSlug',
     onlyReady(({ tabSlug }) => (
       <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
@@ -493,7 +482,6 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
-  const settingsScrollTop = useRef(0);
   const finishingOnboarding = useOnboardingFinishing();
 
   const ctx = useMemo<RouteContext>(
@@ -504,8 +492,7 @@ const PageRouter: FC = () => {
       ready: miden.ready,
       locked: miden.locked,
       hydrated: miden.hydrated,
-      finishingOnboarding,
-      settingsScrollTop
+      finishingOnboarding
     }),
     [appEnv.popup, appEnv.sidePanel, appEnv.fullPage, miden, finishingOnboarding]
   );
