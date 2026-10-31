@@ -4784,6 +4784,43 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
     });
 
+    it('re-executes a delegated swap past its window on the same approval and submits the fresh proof once', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_018], 1_018);
+      const executeRequest = G.__off.guardianExecuteRequest;
+      const submits: jest.Mock[] = [];
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => {
+        const proof = proofs[submits.length];
+        const submit = jest.fn(async () => {
+          events.push('submit');
+          return { apply: jest.fn(async () => {}) };
+        });
+        submits.push(submit);
+        return { ...(await executeRequest(...args)), prove: jest.fn(async () => ({ proof, submit })) };
+      });
+      const sendResponse = jest.fn();
+      // The leaf takes a swap's co-signed request like any other, so what makes this one a delegated swap is its call.
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([7, 7])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'gate', 'submit']);
+      expect(gates).toHaveLength(1);
+      expect(gates[0].evidence).toMatchObject({ refBlock: 1_018, expirationBlock: 1_038 });
+      expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+      const request = G.__off.deserializeTxRequest.mock.results[0]?.value;
+      expect(G.__off.guardianExecuteRequest.mock.calls.map((call: unknown[]) => call[1])).toEqual([request, request]);
+      expect(submits[0]).not.toHaveBeenCalled();
+      expect(submits[1]).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    });
+
     const initialCommitmentOf = (execution: number) => `0xinitial${execution}`;
 
     /** A result that says which execution it came from. */

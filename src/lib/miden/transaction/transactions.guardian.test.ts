@@ -5072,30 +5072,28 @@ describe('generateTransaction — Guardian routing', () => {
     expirationBlockNumber: () => refBlock + FEE_POLICY_WINDOW_BLOCKS
   });
 
+  const SEND_FIELDS = { type: 'send', secondaryAccountId: 'recipient', faucetId: 'faucet', amount: '1000' };
+
   /**
-   * A delegated guardian send on mobile whose first execute outlasts `blocksLostInExecute` blocks. A proof's reference
+   * A delegated guardian write on mobile whose first execute outlasts `blocksLostInExecute` blocks. A proof's reference
    * block is the height the last tip sync reached, so only an execution after a new sync can prove fresh.
    */
-  async function guardianSendOnMovingChain(txId: string, blocksLostInExecute: number) {
+  async function guardianWriteOnMovingChain(
+    txId: string,
+    fields: Record<string, unknown>,
+    blocksLostInExecute: number
+  ) {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockPlatformIsMobile = true;
     try {
       const result = makeResult();
-      txStore.push({
-        id: txId,
-        type: 'send',
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        amount: '1000',
-        delegateTransaction: true,
-        initiatedAt: Math.floor(Date.now() / 1000)
-      });
+      const tx = { id: txId, accountId: 'guardian-acc', delegateTransaction: true, ...fields };
+      txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
 
       mockGetOrCreateMultisigService.mockResolvedValue({
         createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+        createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
           authArg: () => undefined
@@ -5129,15 +5127,7 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       await generateTransaction(
-        {
-          id: txId,
-          type: 'send',
-          accountId: 'guardian-acc',
-          secondaryAccountId: 'recipient',
-          faucetId: 'faucet',
-          amount: '1000',
-          delegateTransaction: true
-        } as never,
+        tx as never,
         jest.fn(async () => new Uint8Array([2])),
         false,
         makeGuardianProvider(true)
@@ -5158,7 +5148,7 @@ describe('generateTransaction — Guardian routing', () => {
     'Guardian send (mobile): a proof %s the node`s limit is never submitted, and its fresh proof is, once (#2060)',
     async (position, blocksLostInExecute) => {
       const txId = `send-guardian-proof-${position}-node-limit`;
-      const { client, result, proofs } = await guardianSendOnMovingChain(txId, blocksLostInExecute);
+      const { client, result, proofs } = await guardianWriteOnMovingChain(txId, SEND_FIELDS, blocksLostInExecute);
       const [staleProof, freshProof] = proofs;
 
       expect(client.transactions.submitProven).not.toHaveBeenCalledWith(staleProof, result);
@@ -5168,6 +5158,31 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     }
   );
+
+  it('Guardian receive (mobile): a swap settlement claim past the window submits only its fresh proof, once (#2060)', async () => {
+    const txId = 'consume-swap-settlement-past-window';
+    const { client, result, proofs } = await guardianWriteOnMovingChain(
+      txId,
+      {
+        type: 'consume',
+        noteId: 'note-payback',
+        noteIds: ['note-payback'],
+        consumeEntryPoint: 'swap_settlement',
+        extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }
+      },
+      FEE_POLICY_WINDOW_BLOCKS + 10
+    );
+    const [staleProof, freshProof] = proofs;
+
+    expect(client.transactions.submitProven).not.toHaveBeenCalledWith(staleProof, result);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(2);
+    expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    expect(client.transactions.submitProven).toHaveBeenCalledWith(freshProof, result);
+    // This suite's stand-in result carries no input note to complete from, so the row's record of the crossing speaks.
+    expect(txStore.find(row => row.id === txId)?.submitEvidence).toEqual([
+      expect.objectContaining({ refBlock: freshProof?.refBlockNumber() })
+    ]);
+  });
 
   describe('a proof the chain keeps outrunning (#2060)', () => {
     const REF_BLOCK = 1_000;
