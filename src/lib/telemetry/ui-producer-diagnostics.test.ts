@@ -1,4 +1,5 @@
 import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
   annotateUiProducer,
   snapshotUiProducer,
@@ -8,7 +9,6 @@ import {
   annotateRecipientValidation,
   snapshotRecipientValidation
 } from './ui-producer-diagnostics';
-import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 const evidence = { kind: 'pending_retry', pendingRetryReason: 'row_missing' } as const;
 it('binds the exact reporting root and pair, clearing invalid reused evidence', () => {
   const error = new Error('private');
@@ -56,7 +56,9 @@ it('accepts only closed endpoint and gRPC status evidence for the network reject
     submissionRejectedEndpoint: 'submit_proven_transaction',
     submissionRejectedStatus: 'invalid_argument'
   } as const;
-  const root = new Error('private account mtst1private transaction 0x1234567890abcdef amount 4200 host private.example');
+  const root = new Error(
+    'private account mtst1private transaction 0x1234567890abcdef amount 4200 host private.example'
+  );
   annotateCrash(root, { userErrorId: 'submissionRejectedByNetwork', userErrorSurface: 'notice' });
   annotateUiProducer(root, 'submissionRejectedByNetwork', 'notice', evidence);
 
@@ -77,7 +79,9 @@ it('accepts only closed endpoint and gRPC status evidence for the network reject
   expect(validateUiEvidence('submissionRejectedByNetwork', 'notice', { ...evidence, raw: 'private' })).toBeUndefined();
   expect(SUBMIT_ENDPOINTS).toContain(evidence.submissionRejectedEndpoint);
   expect(SUBMIT_GRPC_STATUSES).toContain(evidence.submissionRejectedStatus);
-  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toMatch(/mtst1private|1234567890abcdef|4200|private\.example/);
+  expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toMatch(
+    /mtst1private|1234567890abcdef|4200|private\.example/
+  );
 });
 it('keeps service and validator roots separate from causes and clears invalid reannotations', () => {
   const error = new Error('private');
