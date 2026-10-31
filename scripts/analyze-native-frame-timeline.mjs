@@ -123,9 +123,8 @@ WITH markers AS (
 )
 SELECT w.trial, a.dur, a.jank_type
 FROM actual_frame_timeline_slice AS a
-JOIN process AS p ON p.upid = a.upid
 JOIN windows AS w ON a.ts BETWEEN w.start_ts AND w.end_ts
-WHERE p.name = 'com.miden.wallet' AND a.upid IS NOT NULL AND a.dur > 0
+WHERE a.layer_name GLOB 'TX - com.miden.wallet/*' AND a.upid IS NOT NULL AND a.dur > 0
 ORDER BY w.trial, a.ts;
 `;
 
