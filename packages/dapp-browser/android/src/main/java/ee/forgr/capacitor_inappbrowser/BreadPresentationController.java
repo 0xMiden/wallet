@@ -871,8 +871,9 @@ final class BreadPresentationController {
             if (tracker != null) tracker.addMovement(event);
             float end;
             if (capsuleReducedMotion) {
-                end = capsuleProgress(event.getY());
-                if (end <= 1 - COMMIT_TRAVEL) minimizeFromBackWithoutPreview();
+                tracker.computeCurrentVelocity(1000);
+                end = releaseEnd(capsuleProgress(event.getY()), capsuleProgressVelocity(tracker.getYVelocity()));
+                if (end < 0.5f) minimizeFromBackWithoutPreview();
             } else {
                 String collapseId = morphId;
                 end = release(true);
@@ -1105,17 +1106,24 @@ final class BreadPresentationController {
         tracker.computeCurrentVelocity(1000);
         float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
         float velocity = capsule ? capsuleProgressVelocity(vy) : velocity(morph.card(), vx, vy);
-        float travel = morph.progress() + PROJECTION_SECONDS * velocity - grabStart;
-        float speed = (float) Math.hypot(vx, vy) / owner.getContext().getResources().getDisplayMetrics().density;
-        float end = grabTarget;
-        if (speed >= FLICK_DP_PER_SECOND && Math.abs(velocity) > 0.01f) end = velocity > 0 ? 1 : 0;
-        else if (Math.abs(travel) >= COMMIT_TRAVEL) end = travel > 0 ? 1 : 0;
+        float end = releaseEnd(morph.progress(), velocity);
         tracking = false;
         released = true;
         interactiveCollapse = false;
         headTo(end);
         emit("retargeted", end, false, velocity);
         morph.animateTo(end, morph.card(), velocity, BreadMorphPhysics.RELEASE);
+        return end;
+    }
+
+    private float releaseEnd(float progress, float progressVelocity) {
+        tracker.computeCurrentVelocity(1000);
+        float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
+        float speed = (float) Math.hypot(vx, vy) / owner.getContext().getResources().getDisplayMetrics().density;
+        float travel = progress + PROJECTION_SECONDS * progressVelocity - grabStart;
+        float end = grabTarget;
+        if (speed >= FLICK_DP_PER_SECOND && Math.abs(progressVelocity) > 0.01f) end = progressVelocity > 0 ? 1 : 0;
+        else if (Math.abs(travel) >= COMMIT_TRAVEL) end = travel > 0 ? 1 : 0;
         return end;
     }
 
