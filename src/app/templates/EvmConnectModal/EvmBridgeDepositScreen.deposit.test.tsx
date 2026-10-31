@@ -346,8 +346,8 @@ let mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'S
 jest.mock('lib/walletconnect/config', () => ({
   ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
-  // Every chain a case names as the Epoch route's, as the registry holds each chain a parsed document keeps.
-  SUPPORTED_CHAINS: [{ id: 11155111 }, { id: 84532 }],
+  // Circle's test source and every chain an Epoch route case reads.
+  SUPPORTED_CHAINS: [{ id: 5042002 }, { id: 11155111 }, { id: 84532 }],
   getChain: (chainId: number) => mockGetChain(chainId)
 }));
 
@@ -3209,7 +3209,7 @@ describe('user-visible bridge deposit producers', () => {
     expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
   });
 
-  it('identity guard holds Continue when Circle availability turns off', async () => {
+  it('drops the Circle balance before falling back to ETH when Circle availability turns off', async () => {
     useChainSpecificRpc();
     useCircleTestSnapshot();
     const view = await renderSelectedAmount('CIRCLE_USDC');
@@ -3225,7 +3225,7 @@ describe('user-visible bridge deposit producers', () => {
       },
       'usdcx-confirm-route'
     );
-    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('ETH');
   });
 
   it('shows an unreadable balance and holds Continue after an Epoch balance read fails', async () => {
@@ -3598,6 +3598,7 @@ describe('user-visible bridge deposit producers', () => {
   });
 
   it('passes a failed Circle balance to the token drawer as unreadable', async () => {
+    useCircleTestSnapshot();
     answerBalance(null);
     renderScreen();
     await settle();
