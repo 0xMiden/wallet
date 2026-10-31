@@ -2326,6 +2326,35 @@ describe('a failed claim follows its row (#2060)', () => {
     expect(result.current.items[0]?.holdUntil).toBeUndefined();
   });
 
+  it.each([
+    ['forward past the deadline', (capturedAt: number) => capturedAt + GUARDIAN_PENDING_HOLD_SEC + 60],
+    ['back behind the evidence', (capturedAt: number) => capturedAt - 60]
+  ])('ends the hold within a second of a clock stepped %s, as its countdown does', async (_label, steppedToSec) => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    const capturedAt = nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30;
+    settle([proven('tx-one', { capturedAt })]);
+    expect(result.current.items[0]?.holdUntil).toBe(capturedAt + GUARDIAN_PENDING_HOLD_SEC);
+
+    jest.setSystemTime(steppedToSec(capturedAt) * 1000);
+    act(() => {
+      jest.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items[0]?.holdUntil).toBeUndefined();
+  });
+
+  it('reads the hold again every second without rebuilding the items while nothing moved', async () => {
+    jest.useFakeTimers();
+    const { result } = await accepted();
+    settle([proven('tx-one', { capturedAt: nowSec() - GUARDIAN_PENDING_HOLD_SEC + 30 })]);
+    const { items } = result.current;
+
+    act(() => {
+      jest.advanceTimersByTime(5_000);
+    });
+    expect(result.current.items).toBe(items);
+  });
+
   describe('on a claim that holds its notes', () => {
     const heldRow = (evidence: Partial<ISubmitEvidence> = {}): MockRow => ({
       id: 'tx-held',

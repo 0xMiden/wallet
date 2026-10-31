@@ -311,9 +311,10 @@ export function useActivityClaims() {
         }
         return next ?? previous;
       });
-      // A hold ends with no write to its row, so no emission would ever take its notice down.
+      // A hold ends with no write to its row, so no emission would ever take its notice down. Its countdown reads the
+      // wall clock every second, so this does too: a timer set for the whole hold leaves Retry off after a clock step.
       if (holds.size > 0) {
-        holdEnds = setTimeout(() => publish(rows), Math.min(...holds.values()) * 1000 - Date.now());
+        holdEnds = setTimeout(() => publish(rows), Math.min(1_000, Math.min(...holds.values()) * 1000 - Date.now()));
       }
     };
     // A freeze holds the timer up, so the way back reads the clock rather than wait out what it had left.
