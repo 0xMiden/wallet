@@ -1850,13 +1850,13 @@ describe('crash-report egress', () => {
         expect(evidence.requestErrors).toBe(1);
         expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
           storageOwner: 'wallet_transactions',
-          storageOperation: 'cursor',
+          storageOperation: 'cursor_iteration',
           pageVisibility: 'hidden'
         });
         expect(event.tags).toEqual({
           network: 'testnet',
           storage_owner: 'wallet_transactions',
-          storage_operation: 'cursor'
+          storage_operation: 'cursor_iteration'
         });
         expect(event.tags).not.toHaveProperty('page_visibility');
         expect(increment).toBeGreaterThan(0);
@@ -1902,9 +1902,9 @@ describe('crash-report egress', () => {
         expect(wireText()).toContain('"pageVisibility":"hidden"');
         expect(wireText()).not.toContain('"page_visibility"');
         expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
-        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storageOperation":"cursor_iteration"');
         expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
-        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expect(wireText()).toContain('"storage_operation":"cursor_iteration"');
         expectNoStoragePoison(wireText());
         const event = sentryEvents()[0];
         if (event === undefined) throw new Error('missing cursor report');
@@ -2415,8 +2415,9 @@ describe('user-visible error reports', () => {
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
     reporter('walletAccessUnavailableBody', 'startup', {
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
+      startupEligibilityReason: 'request_failed',
       startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout',
       raw: POISON.mnemonic12,
       account: POISON.compositePublicKey
     });
@@ -2425,8 +2426,9 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
       startupEligibilityStage: 'eligibility_retry',
-      startupEligibilityReason: 'version_mismatch',
-      startupEligibilityRetry: 'retry_failed'
+      startupEligibilityReason: 'request_failed',
+      startupEligibilityRetry: 'retry_failed',
+      startupEligibilityRequestFailure: 'timeout'
     });
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('raw');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('account');
