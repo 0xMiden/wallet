@@ -68,7 +68,7 @@ Before adding deployment credentials, configure the `feature-eligibility-product
 Store `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` and `FEATURE_ELIGIBILITY_CALLER_HASH_SECRET` only in this protected environment. Restrict the Cloudflare token to the intended account and Worker deployment permissions. Before the first deployment, remove any repository-wide copies of these production credentials so workflows outside the environment cannot access them. Configure these repository variables so the deployment and all platform builds share them:
 
 - `FEATURE_ELIGIBILITY_URL`: full public HTTPS URL ending `/v1/eligibility`.
-- `FEATURE_ELIGIBILITY_ALLOWED_ORIGINS`: JSON array of exact origins that need browser CORS access; absent-Origin extension requests need no entry.
+- `FEATURE_ELIGIBILITY_ALLOWED_ORIGINS`: JSON array of exact origins used for browser CORS and release smoke checks. In this configuration, runtime requests may omit Origin and are accepted without an allowlist entry; release validation still requires the Chrome extension origin in this array for its store-release smoke check.
 - `MAXMIND_DAILY_QUERY_LIMIT`: explicitly selected positive daily attempted-query budget.
 
 Create or select the Cloudflare account's Worker hostname before the first release and set the public URL above. Publish the geo policy in wallet-config before the first geo-enabled wallet release. Readiness always verifies the published policy version; it exercises MaxMind authentication only when an enabled feature actually needs a place check. It can spend up to two normal lookup reservations per deployment. The checked-in zero budget intentionally prevents an unconfigured production release.
