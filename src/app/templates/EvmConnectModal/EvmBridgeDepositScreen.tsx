@@ -121,6 +121,8 @@ const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
 // The address a chain's native coin is deposited at, on AggLayer and on an Epoch route alike.
 const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
+// Circle's USDC and AggLayer's native coin share an Epoch token only when both name the same contract.
+const sameTokenContract = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 // The source chains a USDCx deposit can start from on this network family, as the network drawer lists them.
 // Every read, signer call and receipt wait below takes its chain from the chosen `UsdcxSourceChain` entry.
 const MOCK_USDC_GET_BALANCE_ABI = [
@@ -559,24 +561,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     () => selectEpochDepositTokens(bridgeConfig, sourceChainId),
     [bridgeConfig, sourceChainId]
   );
-  // A token is one token whatever the provider: on a chain whose Epoch route takes the same token, picking the Fast
-  // route for Circle's USDC or AggLayer's ETH deposits the Epoch route's token of that key.
-  const sharedFastKey = (() => {
-    switch (token) {
-      case 'CIRCLE_USDC':
-        return 'USDC';
-      case 'ETH':
-        return 'ETH';
-      default:
-        return null;
-    }
-  })();
-  const sharedFastToken =
-    sharedFastKey === null ? undefined : epochTokens.find(candidate => candidate.key === sharedFastKey);
+  // Circle's USDC and AggLayer's native ETH offer the Epoch route only for an Epoch token on the picked chain
+  // whose contract is that provider's contract.
+  const circleOffered = usdcxSource !== undefined && usdcxAvailable;
+  const epochTokenAt = (contract: string | undefined) =>
+    contract === undefined ? undefined : epochTokens.find(candidate => sameTokenContract(candidate.address, contract));
+  const circleFastToken = epochTokenAt(circleOffered ? usdcxSource?.usdc : undefined);
+  const agglayerFastToken = epochTokenAt(agglayerChain !== null ? NATIVE_TOKEN_ADDRESS : undefined);
+  const sharedFastToken = token === 'CIRCLE_USDC' ? circleFastToken : token === 'ETH' ? agglayerFastToken : undefined;
   // The token's own Epoch key: the Epoch route is its only route, but for the Epoch USDC's AggLayer one.
   const ownFastKey = epochTokenKey(token);
-  // The Epoch key the deposit runs on: the token's own, or the shared one while the Fast route is picked.
-  const fastKey = sharedFastKey !== null ? (route === 'epoch' ? sharedFastKey : null) : ownFastKey;
+  // The matched token's key, and only while that Circle or ETH pick is on the Fast route.
+  const fastKey =
+    token === 'CIRCLE_USDC' || token === 'ETH'
+      ? route === 'epoch' && sharedFastToken !== undefined
+        ? sharedFastToken.key
+        : null
+      : ownFastKey;
   const fastToken = fastKey === null ? null : (epochTokens.find(candidate => candidate.key === fastKey) ?? null);
   // The Fast pair, named for the USDC it first carried: the picked Epoch token and the Miden faucet the solver delivers
   // it into. While the route lists no such token the Fast route reads unavailable, and nothing below quotes or bridges.
@@ -704,20 +705,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // cannot flip a deposit on its way to, or on, Review.
   const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
   // What the picked chain offers, in the order a token it does not offer falls back to: Circle USDC, then native ETH,
-  // then each Epoch token. Where Circle carries USDC, or AggLayer ETH, the Epoch route's token of that key is the same
-  // token, offered under Circle's or AggLayer's row with Fast as its other route. A registered ERC-20 is offered
-  // wherever ETH is, and is never a fallback.
-  const circleOffered = usdcxSource !== undefined && usdcxAvailable;
+  // then each Epoch token. An Epoch token that names the same contract as Circle's USDC or AggLayer's native ETH is
+  // that row, with Fast as its other route. A registered ERC-20 is offered wherever ETH is, and is never a fallback.
   const ownRowCarries = useCallback(
-    (key: string) => (key === 'USDC' && circleOffered) || (key === 'ETH' && agglayerChain !== null),
-    [circleOffered, agglayerChain]
+    (entry: { address: string }) =>
+      (circleFastToken !== undefined && sameTokenContract(entry.address, circleFastToken.address)) ||
+      (agglayerFastToken !== undefined && sameTokenContract(entry.address, agglayerFastToken.address)),
+    [circleFastToken, agglayerFastToken]
   );
   const fallbackTokens = useMemo(() => {
     const tokens: DepositToken[] = [];
     if (circleOffered) tokens.push('CIRCLE_USDC');
     if (agglayerChain) tokens.push('ETH');
     for (const candidate of epochTokens) {
-      if (!ownRowCarries(candidate.key)) tokens.push({ kind: 'epoch', key: candidate.key });
+      if (!ownRowCarries(candidate)) tokens.push({ kind: 'epoch', key: candidate.key });
     }
     return tokens;
   }, [circleOffered, epochTokens, agglayerChain, ownRowCarries]);
@@ -734,12 +735,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     selectToken(first);
     setRoute(routeForToken(first));
   }, [onAmountStep, tokenOffered, bridgeConfig.status, usdcxPending, fallbackTokens, selectToken]);
-  // Circle's USDC or AggLayer's ETH on the Fast route moves back to its own route on a chain whose Epoch route does not
-  // take that token.
+  // A Circle or ETH pick on the Fast route moves back to its own route when no Epoch token names the same contract,
+  // including after the picked chain changes.
   useEffect(() => {
     if (confirming.current || !onAmountStep) return;
-    if (sharedFastKey !== null && route === 'epoch' && sharedFastToken === undefined) setRoute(routeForToken(token));
-  }, [onAmountStep, token, route, sharedFastKey, sharedFastToken]);
+    if ((token === 'CIRCLE_USDC' || token === 'ETH') && route === 'epoch' && sharedFastToken === undefined) {
+      setRoute(routeForToken(token));
+    }
+  }, [onAmountStep, token, route, sharedFastToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const configuredFastAvailability = useFeatureAvailability('fastBridgeIn', {
@@ -766,9 +769,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     return configuredSlowAvailability;
   })();
-  // The Fast card is open to an Epoch token the route lists, and to ETH or Circle's USDC while it lists the same token.
+  // The Fast card is open to an Epoch token the route lists, and to Circle's USDC or AggLayer's ETH while an Epoch
+  // token on this chain names the same contract.
   const fastAvailability = useMemo<FeatureAvailability>(() => {
-    if (sharedFastKey !== null) {
+    if (token === 'CIRCLE_USDC' || token === 'ETH') {
       return sharedFastToken
         ? configuredFastAvailability
         : { state: 'unavailable', reason: 'not-configured', detail: 'The Epoch route lists no such token here' };
@@ -780,7 +784,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') };
     }
     return configuredFastAvailability;
-  }, [sharedFastKey, sharedFastToken, ownFastKey, fastToken, configuredFastAvailability, t]);
+  }, [token, sharedFastToken, ownFastKey, fastToken, configuredFastAvailability, t]);
 
   // The connected wallet's balance of each registered ERC-20, by its lowercase address, read together.
   const [erc20Balances, setErc20Balances] = useState<Record<string, BridgeBalance>>({});
@@ -2200,7 +2204,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             />
           );
         case ReceiveStep.ShowBridgePageRoute:
-          // Circle's USDC takes Circle, or Fast where the chain's Epoch route takes USDC too; any other token picks
+          // Circle's USDC takes Circle, or Fast where an Epoch token names the same contract; any other token picks
           // between Fast and Slow.
           if (token === 'CIRCLE_USDC') {
             return (
@@ -2384,13 +2388,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         chainId={sourceChainId}
         circleUsdcAddress={usdcxSource?.usdc}
         // The picked chain's tokens: Circle USDC where it is Circle's source, ETH and the registered ERC-20s where it is
-        // the AggLayer chain, and every token its Epoch route takes. USDC and ETH are one row each: where Circle carries
-        // USDC or AggLayer carries ETH, Epoch is its other route, chosen on the route step.
+        // the AggLayer chain, and every token its Epoch route takes. An Epoch token that names the same contract as
+        // Circle's USDC or AggLayer's native ETH is that row, and Epoch is its other route.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         ethLoading={ethBalance.loading}
         circleUsdcBalance={circleOffered ? circleUsdcBalance.formatted : undefined}
         epochRows={epochTokens.flatMap((candidate): DepositEpochRow[] => {
-          if (ownRowCarries(candidate.key)) return [];
+          if (ownRowCarries(candidate)) return [];
           const balance = epochBalances[candidate.key] ?? EMPTY_BALANCE;
           return [
             {
