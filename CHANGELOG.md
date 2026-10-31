@@ -3,6 +3,7 @@
 ## 1.17.10 (TBD)
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
+- [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
 
 ## 1.17.9 (2026-10-31)
