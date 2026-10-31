@@ -356,6 +356,40 @@ public class BreadPresentationControllerTest {
             targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
     }
 
+    @Test public void prepareMorphRenewsAnActiveCooldownFromTheSecondRequest() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = ReflectionHelpers.getField(target, "presentation");
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        WebViewRegistry.getShared().register("target", target);
+        assertWarmupEligible(target, targetPresentation);
+        prepareMorph("target", 600);
+
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700));
+        prepareMorph("target", 600);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100));
+
+        assertTrue("a repeated prepare renews the warmup cooldown past the original deadline",
+            ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
+        assertWarmupActive(target, targetPresentation);
+        assertEquals("a renewed warmup remains hidden from accessibility",
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, targetDecor.getImportantForAccessibility());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(640));
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10));
+
+        assertFalse(ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
+        assertFalse("the renewed warmup cools down after its second deadline", target.isShowing());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("a renewed warmup cooldown clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("a renewed warmup cooldown restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
+    }
+
     @Test @Config(sdk = 28) public void warmDialogIsNotAuthPresentable() {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
