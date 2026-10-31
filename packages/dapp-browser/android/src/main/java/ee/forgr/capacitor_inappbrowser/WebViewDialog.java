@@ -118,7 +118,8 @@ public class WebViewDialog extends Dialog {
     private BreadAuthController auth;
     private Object presentationBackDispatcher;
     private Object presentationBackCallback;
-    private boolean backShouldMinimize;
+    private enum BackAction { PAGE, MINIMIZE, DISMISS, NONE }
+    private BackAction backAction = BackAction.NONE;
     private boolean backPreviewStarted;
     private boolean backGestureStarted;
     private boolean permanentlyClosed;
@@ -171,8 +172,8 @@ public class WebViewDialog extends Dialog {
             presentationBackCallback = new OnBackAnimationCallback() {
                 @Override public void onBackStarted(BackEvent event) {
                     backGestureStarted = true;
-                    backShouldMinimize = shouldMinimizeOnBack();
-                    backPreviewStarted = backShouldMinimize && presentation.beginBackPreview();
+                    backAction = currentBackAction();
+                    backPreviewStarted = backAction == BackAction.MINIMIZE && presentation.beginBackPreview();
                 }
 
                 @Override public void onBackProgressed(BackEvent event) {
@@ -182,7 +183,7 @@ public class WebViewDialog extends Dialog {
                 @Override public void onBackCancelled() {
                     if (backPreviewStarted && presentation != null) presentation.cancelBackPreview();
                     backPreviewStarted = false;
-                    backShouldMinimize = false;
+                    backAction = BackAction.NONE;
                     backGestureStarted = false;
                 }
 
@@ -198,34 +199,50 @@ public class WebViewDialog extends Dialog {
             (OnBackInvokedCallback) presentationBackCallback);
     }
 
+    private boolean pageHandlesBack() {
+        return _webView != null && _webView.canGoBack()
+            && (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview());
+    }
+
     private boolean shouldMinimizeOnBack() {
         if (permanentlyClosed || managedClosing() || managedClose == null || presentation == null
             || _options.getDisableGoBackOnNativeApplication() || !presentation.canMinimizeFromBack()) return false;
-        boolean pageCanGoBack = _webView != null && _webView.canGoBack()
-            && (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview());
-        return !pageCanGoBack;
+        return !pageHandlesBack();
+    }
+
+    private BackAction currentBackAction() {
+        if (permanentlyClosed || managedClosing()) return BackAction.NONE;
+        if (pageHandlesBack()) return BackAction.PAGE;
+        if (shouldMinimizeOnBack()) return BackAction.MINIMIZE;
+        if (!_options.getDisableGoBackOnNativeApplication()) return BackAction.DISMISS;
+        return BackAction.NONE;
+    }
+
+    private void performBackAction(BackAction action, boolean preview) {
+        if (action == BackAction.PAGE) {
+            if (_webView != null) _webView.goBack();
+        } else if (action == BackAction.MINIMIZE) {
+            if (presentation == null) return;
+            if (preview) presentation.commitBackPreview();
+            else presentation.minimizeFromBackWithoutPreview();
+        } else if (action == BackAction.DISMISS) {
+            dismiss();
+        }
     }
 
     private void finishPredictiveBack() {
-        boolean minimize = (backGestureStarted ? backShouldMinimize : shouldMinimizeOnBack())
-            && !permanentlyClosed && !managedClosing() && presentation != null;
+        BackAction action = backGestureStarted ? backAction : currentBackAction();
         boolean preview = backPreviewStarted;
-        backShouldMinimize = false;
+        backAction = BackAction.NONE;
         backPreviewStarted = false;
         backGestureStarted = false;
         if (permanentlyClosed || managedClosing()) return;
-        if (minimize) {
-            if (preview) presentation.commitBackPreview();
-            else presentation.minimizeFromBackWithoutPreview();
-        } else {
-            onBackPressed();
-        }
+        performBackAction(action, preview);
     }
 
     private void invokeBackWithoutPreview() {
         if (permanentlyClosed || managedClosing()) return;
-        if (shouldMinimizeOnBack() && presentation != null) presentation.minimizeFromBackWithoutPreview();
-        else onBackPressed();
+        performBackAction(currentBackAction(), false);
     }
 
     @SuppressLint("NewApi")
@@ -237,7 +254,7 @@ public class WebViewDialog extends Dialog {
         }
         presentationBackDispatcher = null;
         presentationBackCallback = null;
-        backShouldMinimize = false;
+        backAction = BackAction.NONE;
         backPreviewStarted = false;
         backGestureStarted = false;
     }
@@ -2958,11 +2975,7 @@ public class WebViewDialog extends Dialog {
 
     @Override
     public void onBackPressed() {
-        if (
-            _webView != null &&
-            _webView.canGoBack() &&
-            (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview())
-        ) {
+        if (pageHandlesBack()) {
             _webView.goBack();
         } else if (!_options.getDisableGoBackOnNativeApplication()) {
             dismiss();
