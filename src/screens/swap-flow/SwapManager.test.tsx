@@ -8,6 +8,7 @@ import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { TokenPrices } from 'lib/prices/binance';
 import type { GeoLookup } from 'lib/remote-config/geo';
 import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
@@ -2974,6 +2975,23 @@ describe('SwapFlow / SwapManager', () => {
   describe('an open spending-limit challenge holds the review still', () => {
     const breach = breachAssessment();
 
+    const authorizeAfterMinimumQuoteChanges = async (price: number, observedAt: number, expectedError: string) => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      renderFlow();
+      setOffer('10');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletState.tokenPrices = {
+        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt }
+      };
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent(expectedError);
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    };
+
     const openChallengeThenMoveMarket = async () => {
       mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
       const view = renderFlow();
@@ -2986,6 +3004,16 @@ describe('SwapFlow / SwapManager', () => {
       view.rerender(<SwapFlow />);
       return view;
     };
+
+    it('rechecks the offer minimum when spending-limit authorization follows a price drop', async () => {
+      expect.assertions(4);
+      await authorizeAfterMinimumQuoteChanges(0.09, Date.now(), 'swapBelowMinimum');
+    });
+
+    it('reports an unavailable minimum when the quote expires during spending-limit authorization', async () => {
+      expect.assertions(4);
+      await authorizeAfterMinimumQuoteChanges(1, Date.now() - USD_QUOTE_MAX_AGE_MS - 1, 'swapMinimumPriceUnavailable');
+    });
 
     it('sends the amount the press reviewed when the challenge is approved after the market moves', async () => {
       await openChallengeThenMoveMarket();
@@ -3108,6 +3136,37 @@ describe('SwapFlow / SwapManager', () => {
         mockWalletState.assessSpendingLimit.mock.invocationCallOrder[0]!
       );
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+    });
+
+    it('rechecks the offer minimum after the fresh quote resolves', async () => {
+      let resolveQuote!: (quote: NonNullable<typeof mockSwapQuoteResult.quote>) => void;
+      mockQuoteNow.mockImplementationOnce(
+        () =>
+          new Promise<NonNullable<typeof mockSwapQuoteResult.quote>>(resolve => {
+            resolveQuote = resolve;
+          })
+      );
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+        await Promise.resolve();
+      });
+
+      expect(mockQuoteNow).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+      mockWalletState.tokenPrices = {
+        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+      };
+
+      await act(async () => resolveQuote(mockSwapQuoteResult.quote!));
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBelowMinimum');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
     });
 
     it('refuses an ask the price has moved past, shows the fresh quote and rebuilds the wallet-built amount', async () => {
