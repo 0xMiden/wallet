@@ -541,7 +541,7 @@ async function refreshSettlingHit(
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) return undefined;
 
-      let state: StateObject;
+      let state: StateObject | undefined;
       try {
         state = await withTimeout(
           client.getState(hit.accountId),
@@ -549,12 +549,14 @@ async function refreshSettlingHit(
           `guardian settling state at ${hit.endpoint}`
         );
       } catch {
-        return undefined;
+        state = undefined;
       }
       if (signal?.aborted) return undefined;
 
-      const decoded = decodeStates([state]);
-      if (decoded.commitments.get(normalizeHex(hit.accountId)) === normalizeHex(chainCommitment)) return state;
+      if (state) {
+        const decoded = decodeStates([state]);
+        if (decoded.commitments.get(normalizeHex(hit.accountId)) === normalizeHex(chainCommitment)) return state;
+      }
 
       const remainingAfterReadMs = deadline - Date.now();
       if (remainingAfterReadMs <= 0) return undefined;

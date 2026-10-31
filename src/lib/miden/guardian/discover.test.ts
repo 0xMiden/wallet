@@ -59,6 +59,8 @@ interface FakeOperator {
   stateFailWith?: Error;
   /** Makes getState reject the first N calls, then succeed — exercises the retry. */
   stateFailFirst?: number;
+  /** Makes selected getState calls fail after the initial state is already served. */
+  stateFailOnCalls?: number[];
   /** Makes the lookup reject the first N calls, then succeed — exercises the lookup retry. */
   lookupFailFirst?: number;
   delayMs?: number;
@@ -178,6 +180,9 @@ jest.mock('@openzeppelin/guardian-client', () => ({
       operator.stateCalls = (operator.stateCalls ?? 0) + 1;
       if (operator.stateFailWith) throw operator.stateFailWith;
       if (operator.stateFailFirst && operator.stateCalls <= operator.stateFailFirst) {
+        throw new Error('transient state failure');
+      }
+      if (operator.stateFailOnCalls?.includes(operator.stateCalls)) {
         throw new Error('transient state failure');
       }
       const stateIndex = operator.stateCalls - 1;
@@ -470,6 +475,30 @@ describe('discoverGuardianForSeed', () => {
     expect(mockSigners).toHaveLength(2);
     expect(mockSigners[1]).not.toBe(mockSigners[0]);
     expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: true });
+  });
+
+  it('retries a failed settling state read until the Guardian publishes the matching state', async () => {
+    jest.useFakeTimers();
+    try {
+      mockBackend.set(LAMBDA, {
+        accounts: ['acct-1'],
+        stateCommitmentSequence: { 'acct-1': ['old-state', 'old-state', 'chain-state'] },
+        stateNonceSequence: { 'acct-1': [4n, 4n, 5n] },
+        stateFailOnCalls: [2],
+        deltas: { 5: 'chain-state' }
+      });
+      mockChainCommitments.set('acct-1', 'chain-state');
+
+      const discovery = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+      await jest.advanceTimersByTimeAsync(2_000);
+      const result = await discovery;
+
+      expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+      expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(3);
+      expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: true });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('does not wait when the next Guardian delta is not the chain candidate', async () => {
