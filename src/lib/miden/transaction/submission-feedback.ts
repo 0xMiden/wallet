@@ -1,7 +1,7 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { carriesIndefiniteSubmitOutcome, isApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcFailure } from 'lib/telemetry/transaction-failure';
-import type { SubmissionFeedbackBranch } from 'lib/telemetry/ui-producer-diagnostics';
+import type { SubmissionFeedbackBranch, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
   isAccountBlockedError,
@@ -23,6 +23,7 @@ export type SubmissionMessageKey =
   | 'submissionUnanswered';
 
 export interface SubmissionFeedback {
+  errorDiagnostics?: UiEvidenceInput;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   kind: SubmissionFeedbackKind;
   messageKey: SubmissionMessageKey;
@@ -102,7 +103,21 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   if (guardian === 'rejected') return pack('rejected', 'submissionRejectedByGuardian', raw);
   if (guardian === 'unanswered')
     return { ...pack('unanswered', 'submissionUnanswered', raw), submissionFeedbackBranch: 'guardian_unanswered' };
-  if (classified === 'refused') return pack('rejected', 'submissionRejectedByNetwork', raw);
+  if (classified === 'refused') {
+    const failure = submitGrpcFailure(raw) ?? (raw === display ? undefined : submitGrpcFailure(display));
+    return {
+      ...pack('rejected', 'submissionRejectedByNetwork', raw),
+      ...(failure === undefined
+        ? {}
+        : {
+            errorDiagnostics: {
+              kind: 'submission_rejected',
+              submissionRejectedEndpoint: failure.endpoint,
+              submissionRejectedStatus: failure.status
+            }
+          })
+    };
+  }
   if (classified === 'unknown')
     return { ...pack('unanswered', 'submissionUnanswered', raw), submissionFeedbackBranch: 'grpc_unknown' };
   if (classified === 'pre-submit') return undefined;

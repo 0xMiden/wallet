@@ -152,6 +152,8 @@ The App also sends a short diagnostic history of each swap, so that a failed swa
 
 Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
 
+A recognized network rejection notice may also report `submissionRejectedEndpoint` (one of `submit_proven_transaction`, `submit_proven_batch`, `get_transaction_encryption_key` or `other`) and `submissionRejectedStatus` (one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded`, `unknown`, `not_found`, `invalid_argument`, `permission_denied`, `already_exists`, `resource_exhausted`, `failed_precondition`, `out_of_range`, `unimplemented`, `unauthenticated` or `other`). These closed values identify only the submit method and gRPC status. No endpoint URL, response text, transaction data or account details are sent.
+
 Please read "What scrubbing can and cannot promise" below, which is the honest limit of this.
 
 ### What we never collect
