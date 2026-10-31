@@ -637,6 +637,7 @@ describe('SwapFlow / SwapManager', () => {
       mockQuoteSwap.mockResolvedValue(quoteAt('2', 5n, {}, { offeredAmount: 1n }));
       renderFlow();
       setOffer('0.99');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
       await act(async () => jest.advanceTimersByTime(1000));
       expect(mockQuoteSwap).not.toHaveBeenCalled();
       expect(screen.getByTestId('sa-status')).toHaveTextContent('swapBelowMinimum');
@@ -650,12 +651,17 @@ describe('SwapFlow / SwapManager', () => {
     }
   });
 
-  it('blocks quotes when the USD price is unavailable', () => {
+  it('blocks quotes and the receive skeleton when the USD price is unavailable', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
     mockWalletState.tokenPrices = {};
     renderFlow();
     setOffer('10');
     expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
     expect(screen.getByTestId('sa-status')).toHaveTextContent('swapMinimumPriceUnavailable');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
   });
 
   it('quotes a sub-$1 receive target when the derived offer meets the minimum', async () => {
@@ -728,10 +734,39 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(mockQuoteSwap).not.toHaveBeenCalled();
       expect(screen.getByTestId('sa-status')).toHaveTextContent('swapMinimumPriceUnavailable');
+      expect(screen.getByTestId('sa-offer-loading')).toHaveTextContent('false');
     } finally {
       cleanup();
       jest.useRealTimers();
     }
+  });
+
+  it('does not calculate the receive side of an unlisted pair', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockSolverPairs = [['faucet-C', 'faucet-D']];
+    renderFlow();
+    setOffer('10');
+
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPairNotListed');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+  });
+
+  it('does not calculate the pay side of an unlisted pair', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockSolverPairs = [['faucet-C', 'faucet-D']];
+    renderFlow();
+    setRequest('2');
+
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPairNotListed');
+    expect(screen.getByTestId('sa-offer-loading')).toHaveTextContent('false');
   });
 
   it('quotes an unpriced receive token when the derived offer meets the minimum', async () => {
