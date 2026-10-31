@@ -2260,8 +2260,8 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void reducedMotionCapsuleReleaseIsolatesVerticalFlingFromProjectedTravel() throws Exception {
         openMorph(false);
-        reveal();
         layoutMorphRoot(2400f);
+        reveal();
         WebViewRegistry.getShared().setMorphCard(hostCardInside(0.02f, 0.02f, 0.06f, 0.06f));
         float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
         float density = activity.getResources().getDisplayMetrics().density;
@@ -2330,8 +2330,8 @@ public class BreadPresentationControllerTest {
         ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
             ReflectionHelpers.ClassParameter.from(float.class, 1f));
         openMorph(false);
-        reveal();
         layoutMorphRoot(2400f);
+        reveal();
         BreadMorphCard host = hostCardInside(0.92f, 0.48f, 0.98f, 0.52f);
         assertTrue(collapse(host, "page-vector"));
         BreadMorphController morph = driver();
@@ -2384,8 +2384,8 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void capsuleReleaseReportsNullMorphIdWhenReduceMotionChangesBeforeActionUp() throws Exception {
         openMorph(false);
-        reveal();
         layoutMorphRoot(2400f);
+        reveal();
         WebViewRegistry.getShared().setMorphCard(hostCardInside(0.02f, 0.02f, 0.06f, 0.06f));
         float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
         float density = activity.getResources().getDisplayMetrics().density;
