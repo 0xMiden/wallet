@@ -36,6 +36,17 @@ export async function markFrameTimeline(serial: string, message: string): Promis
   await adb(serial, ['shell', 'log', '-p', 'i', '-t', TRACE_TAG, message]);
 }
 
+export function buildFrameTimelineConfig(): string {
+  return [
+    'buffers { size_kb: 8192 fill_policy: RING_BUFFER }',
+    `duration_ms: ${TRACE_DURATION_MS}`,
+    'data_sources { config { name: "android.surfaceflinger.frametimeline" } }',
+    `data_sources { config { name: "android.log" android_log_config { ` +
+      `min_prio: PRIO_INFO filter_tags: "${TRACE_TAG}" log_ids: LID_DEFAULT } } }`,
+    ''
+  ].join('\n');
+}
+
 export async function captureFrameTimeline(
   serial: string,
   tracePath: string,
@@ -44,14 +55,7 @@ export async function captureFrameTimeline(
   await fs.mkdir(path.dirname(tracePath), { recursive: true });
   const stem = path.basename(tracePath).replace(/[^a-zA-Z0-9_.-]/g, '_');
   const remoteTrace = `/data/misc/perfetto-traces/${stem}-${process.pid}-${Date.now()}`;
-  const config = [
-    'buffers { size_kb: 8192 fill_policy: RING_BUFFER }',
-    `duration_ms: ${TRACE_DURATION_MS}`,
-    'data_sources { config { name: "android.surfaceflinger.frametimeline" } }',
-    `data_sources { config { name: "android.log" android_log_config { ` +
-      `min_prio: PRIO_INFO filter_tags: "${TRACE_TAG}" log_ids: LID_MAIN } } }`,
-    ''
-  ].join('\n');
+  const config = buildFrameTimelineConfig();
 
   const child = spawn('adb', ['-s', serial, 'shell', 'perfetto', '--txt', '-c', '-', '-o', remoteTrace], {
     stdio: ['pipe', 'pipe', 'pipe']

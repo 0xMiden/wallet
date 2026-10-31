@@ -1,6 +1,11 @@
 import { cssRectCenterToScreen, parseWebViewScreenBounds } from './native-presentation-coordinates';
+import { buildFrameTimelineConfig } from './native-presentation-trace';
 
 describe('native presentation trace helpers', () => {
+  it('uses the Perfetto Android main log buffer enum', () => {
+    expect(buildFrameTimelineConfig()).toContain('log_ids: LID_DEFAULT');
+  });
+
   it('uses the largest WebView belonging to the wallet package', () => {
     const xml = [
       '<hierarchy>',
