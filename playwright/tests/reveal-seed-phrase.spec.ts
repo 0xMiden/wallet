@@ -42,11 +42,12 @@ test.describe('reveal recovery phrase', () => {
 
   // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
   // (dapp-provider.spec.ts does the same): onboarding 420s, goto 30s, Settings tab 30s,
-  // Recovery Phrase row+page 20s, Reveal+warning 20s, View+auth page 30s, password+Continue
-  // +pending 30s, word grid 20s, Hide 10s, Reveal again 15s, warning View <=10s, View+auth
-  // page (dark) 30s, password+Continue+pending (dark) 30s = 695s.
+  // Profile legacy-route checks 60s, Recovery Phrase row+page 20s, Reveal+warning 20s,
+  // View+auth page 30s, password+Continue+pending 30s, word grid 20s, Hide 10s, Reveal
+  // again 15s, warning View <=10s, View+auth page (dark) 30s, password+Continue+pending
+  // (dark) 30s = 755s.
   test('through the real UI, twice, and once in dark mode', async ({ extensionContext, extensionId }, testInfo) => {
-    test.setTimeout(750_000);
+    test.setTimeout(810_000);
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
@@ -60,6 +61,17 @@ test.describe('reveal recovery phrase', () => {
     const profileTab = walletPage.getByRole('button', { name: 'Profile', exact: true });
     await profileTab.waitFor({ state: 'visible', timeout: 20_000 });
     await profileTab.click({ timeout: 10_000 });
+
+    await walletPage.goto(`${fullpageUrl}#/settings`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await expect.poll(() => walletPage.evaluate(() => window.location.hash)).toBe('#/me');
+    await expect(profileTab).toBeVisible();
+    await walletPage.screenshot({ path: testInfo.outputPath('profile-settings-light.png') });
+
+    await walletPage.goto(`${fullpageUrl}#/settings`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await expect.poll(() => walletPage.evaluate(() => window.location.hash)).toBe('#/me');
+    await expect(profileTab).toBeVisible();
+    await walletPage.evaluate(() => document.documentElement.classList.add('dark'));
+    await walletPage.screenshot({ path: testInfo.outputPath('profile-settings-dark.png') });
 
     await walletPage.getByTestId('Settings/RecoveryPhraseButton').click({ timeout: 10_000 });
     await walletPage.getByTestId('recovery-phrase-settings').waitFor({ state: 'visible', timeout: 10_000 });
