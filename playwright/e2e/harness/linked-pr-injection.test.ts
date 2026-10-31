@@ -473,14 +473,13 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     );
     expect(frozen.map(({ entry }) => entry)).toEqual(expect.arrayContaining(['build-chrome.yml build']));
     for (const { entry, step, job } of frozen) {
-      if (
+      const isPresentationBaselineInstall =
         entry === 'e2e-dapp-browser.yml android-dapp-browser' &&
-        keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
-      ) {
-        expect([entry, keyOf(step, 'if')]).toEqual([entry, PRESENTATION_COMPARE_ONLY]);
-        continue;
-      }
-      expect([entry, keyOf(step, 'if')]).toEqual([entry, NOT_INJECTED]);
+        keyOf(step, 'name') === 'Build baseline APK for presentation comparison';
+      expect([entry, keyOf(step, 'if')]).toEqual([
+        entry,
+        isPresentationBaselineInstall ? PRESENTATION_COMPARE_ONLY : NOT_INJECTED
+      ]);
       expect([entry, job.steps.some(other => keyOf(other, 'if') === INJECTED && installs(other))]).toEqual([
         entry,
         true

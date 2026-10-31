@@ -611,6 +611,8 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [ ] Collect and inspect the before/after FrameTimeline artifacts and comparison report.
 - [x] Diagnose current CI red: `linked-pr-injection.test.ts` still treated the presentation-compare baseline install and 180-minute comparison timeout as ordinary push/dispatch installs.
 - [x] Update the workflow harness to assert the baseline install and extended timeout are limited to the presentation-compare dispatch.
+- [x] Diagnose exact-head run 41165198245: the E2E harness convention gate rejected an `expect` nested in the conditional baseline-install case.
+- [x] Refactor that assertion so the expected guard is selected before an unconditional assertion.
 - [ ] Verify the named harness suite and mutation checks, then rerun exact-head CI after review.
 - [ ] Complete exact-head CI and the recorded independent review, then merge.
 
