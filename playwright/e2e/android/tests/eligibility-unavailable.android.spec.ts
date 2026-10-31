@@ -27,8 +27,10 @@ test('opens the wallet with Earn and Swap unavailable when the eligibility looku
   // The decision is made once per page realm, so the reload is what makes the wallet ask again.
   await walletA.lockWallet();
   await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 10_000 }).toBe(true);
+  const eligibilityOrigin = await getEligibilityFixtureOrigin();
+  expect(eligibilityOrigin).toEqual({ observed: true, origin: 'http://localhost' });
   await testInfo.attach('eligibility-origin', {
-    body: JSON.stringify(await getEligibilityFixtureOrigin()),
+    body: JSON.stringify(eligibilityOrigin),
     contentType: 'application/json'
   });
 

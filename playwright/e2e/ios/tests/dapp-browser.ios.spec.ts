@@ -51,8 +51,10 @@ test.describe('dApp Browser (iOS)', () => {
     await resetEligibilityFixtureOrigin();
     await walletA.lockWallet();
     await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 10_000 }).toBe(true);
+    const eligibilityOrigin = await getEligibilityFixtureOrigin();
+    expect(eligibilityOrigin).toEqual({ observed: true, origin: 'capacitor://localhost' });
     await testInfo.attach('eligibility-origin', {
-      body: JSON.stringify(await getEligibilityFixtureOrigin()),
+      body: JSON.stringify(eligibilityOrigin),
       contentType: 'application/json'
     });
     await walletA.unlockWallet();

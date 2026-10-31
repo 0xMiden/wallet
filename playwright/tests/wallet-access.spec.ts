@@ -74,8 +74,10 @@ for (const state of ['loading', 'restricted', 'unavailable', 'allowed'] satisfie
     await expect
       .poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 })
       .toBe(true);
+    const eligibilityOrigin = await getEligibilityFixtureOrigin();
+    expect(eligibilityOrigin).toEqual({ observed: true, origin: `chrome-extension://${extensionId}` });
     await info.attach('eligibility-origin', {
-      body: JSON.stringify(await getEligibilityFixtureOrigin()),
+      body: JSON.stringify(eligibilityOrigin),
       contentType: 'application/json'
     });
     await attachScreenshot(page, info, `wallet-access-${state}`);
