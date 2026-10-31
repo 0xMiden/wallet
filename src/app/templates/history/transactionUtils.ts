@@ -21,7 +21,12 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import {
+  bridgeInSourceLabel,
+  epochOutputIsBridgeUsdc,
+  evmUsdcLabel,
+  midenTokenLabel
+} from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
@@ -364,6 +369,12 @@ export interface BridgeRowDisplay {
  */
 export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  // Agglayer stores a bridge network ID separately from the EVM chain ID in its saved route.
+  const destinationChainId =
+    entry.bridgeProvider === 'agglayer'
+      ? (entry.bridgeAgglayerRoute?.chainId ?? DEFAULT_CHAIN_ID)
+      : (entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID);
+  const network = getChain(destinationChainId)?.name ?? String(destinationChainId);
   if (entry.bridgeProvider === 'usdcx') {
     return {
       inSymbol,
@@ -372,17 +383,20 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
       providerLabel: 'Circle xReserve',
-      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      network,
       status: bridgeStatusOf(entry)
     };
   }
-  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
+  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? inSymbol : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
-  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
+  // An Epoch row's EVM side takes the bridge USDC label only when the output is that token.
+  const outLabel =
+    entry.bridgeProvider === 'epoch' && epochOutputIsBridgeUsdc(snapshot, destinationChainId, outSymbol)
+      ? evmUsdcLabel(snapshot, outSymbol)
+      : outSymbol;
   return {
     inSymbol,
     outSymbol,
@@ -390,7 +404,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     outLabel,
     outAmount,
     providerLabel,
-    network: 'Sepolia',
+    network,
     status: bridgeStatusOf(entry)
   };
 };

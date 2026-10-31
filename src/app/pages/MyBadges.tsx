@@ -25,8 +25,8 @@ const BadgeCard: React.FC<{ badge: BadgeDefinition; earned: boolean }> = ({ badg
     >
       <BadgeMedallion badge={badge} earned={earned} />
       <h3 className="mt-4 text-row-title font-extrabold text-ink">{t(badge.titleI18nKey)}</h3>
-      <p className="mt-1 text-caption-heading text-muted">{t(badge.descriptionI18nKey)}</p>
-      <span className="mt-auto pt-3">
+      <p className="mt-1 text-caption-heading font-bold text-muted">{t(badge.descriptionI18nKey)}</p>
+      <span className="mt-auto pt-2">
         <Pill size="xs" tone={earned ? 'positive' : 'inactive'}>
           {t(earned ? 'badgeEarned' : badge.available ? 'locked' : 'badgesStatComingSoon')}
         </Pill>

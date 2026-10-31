@@ -266,6 +266,7 @@ export function upsertEvidenceEntry(
 // Fixed field order, so two writers that built the same entry in different key orders still compare equal.
 const canonicalEntry = (entry: ISubmitEvidence): unknown[] => [
   entry.attemptId,
+  entry.submitContext ?? null,
   entry.capturedAt,
   entry.source,
   entry.transactionId ?? null,

@@ -10,6 +10,7 @@ import { ReactComponent as AddCircle } from './add-circle.svg';
 import { ReactComponent as Add } from './add.svg';
 import { ReactComponent as AddressBook } from './address-book.svg';
 import { ReactComponent as Apps } from './apps.svg';
+import { ReactComponent as Arcade } from './arcade.svg';
 import { ReactComponent as ArrowDown } from './arrow-down.svg';
 import { ReactComponent as ArrowLeft } from './arrow-left.svg';
 import { ReactComponent as ArrowRightDownFill } from './arrow-right-down-fill.svg';
@@ -131,6 +132,7 @@ export enum IconName {
   Add = 'add',
   AddressBook = 'address-book',
   Apps = 'apps',
+  Arcade = 'arcade',
   ArrowDown = 'arrow-down',
   ArrowLeft = 'arrow-left',
   ArrowRightDownFill = 'arrow-right-down-fill',
@@ -264,6 +266,8 @@ const IconSwitch = (props: IconProps) => {
       return <AddressBook {...props} />;
     case IconName.Apps:
       return <Apps {...props} />;
+    case IconName.Arcade:
+      return <Arcade {...props} />;
     case IconName.ArrowDown:
       return <ArrowDown {...props} />;
     case IconName.ArrowLeft:

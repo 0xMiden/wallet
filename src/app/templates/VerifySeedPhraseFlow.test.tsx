@@ -1002,6 +1002,35 @@ describe('seed removal', () => {
     expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_remove_failed', 'inline');
   });
 
+  it('shows the removed screen when removal is acknowledged but the refresh stays pending', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockResolvedValueOnce('pending');
+    try {
+      render(<VerifySeedPhraseFlow remove />);
+      await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+      fireEvent.click(screen.getByText('continue'));
+      await screen.findByText('removeSeedPhraseWriteDown');
+      fireEvent.click(screen.getByText('continue'));
+      await screen.findByTestId('quiz-submit');
+      fireEvent.click(screen.getByTestId('quiz-submit'));
+      await screen.findByText('removeSeedPhraseConfirmation');
+      fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+      const state = await screen.findByTestId('verify-seed-state');
+      expect(within(state).getByRole('status').textContent).toBe('seedPhraseRemoved');
+      expect(within(state).getByText('close')).toBeTruthy();
+      expect(screen.queryByText('seedRemovalFailed')).not.toBeInTheDocument();
+      expect(screen.queryByText('tryAgain')).not.toBeInTheDocument();
+      expect(screen.queryByText('removeSeedPhraseConfirm')).not.toBeInTheDocument();
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
+  });
+
   it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
     ['removing', 'seedRemovalIncomplete'],
     ['removed', 'seedPhraseRemoved'],

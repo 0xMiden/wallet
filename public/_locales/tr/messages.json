@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Para ekleyin ve harcanabilir hale gelmesini bekleyin.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "İlk Alma",
@@ -4852,6 +4852,31 @@
     "message": "1 transfer otomatik olarak içe aktarılamadı.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "İçe aktarma şu nedenle durduruldu: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Bağlantı sorunu",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Okunamayan not",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Düğüm tarafından reddedildi",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Neden kullanılamıyor",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Yarın",
     "englishSource": "Tomorrow"
@@ -4975,6 +5000,34 @@
   "exploreNoResultsDescription": {
     "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
     "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Miden'de Finans",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Paranız, varsayılan olarak gizlidir",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Miden üzerine kurulu uygulamalarla işlem yapın, ödeme yapın ve ödeme alın.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "Öne Çıkanlar",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Herhangi bir tokeni özel olarak takas edin",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "On şehir bulun, rakiplerinizi yenin",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Başka hiç kimsenin göremeyeceği maaş bordrosu",
+    "englishSource": "Payroll nobody else can see"
   },
   "minimize": {
     "message": "Küçült",
@@ -5708,6 +5761,10 @@
   "receiveShareCaption": {
     "message": "Adresinizi gönderin",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "Başka bir ağdan",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "Kopyala",

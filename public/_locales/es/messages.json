@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "Añade fondos y espera a que estén disponibles para gastar.",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "Primera recepción",
@@ -4857,6 +4857,31 @@
     "message": "No se pudo importar automáticamente 1 transferencia.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "Importación detenida por: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Problema de conexión",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Nota ilegible",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Rechazo del nodo",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Motivo no disponible",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Mañana",
     "englishSource": "Tomorrow"
@@ -4980,6 +5005,34 @@
   "exploreNoResultsDescription": {
     "message": "Prueba con otro nombre o pega la URL de una dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Finanzas en Miden",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "Tu dinero, privado por defecto",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Opera, paga y recibe pagos con aplicaciones desarrolladas en Miden.",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "Destacado",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "Opera con cualquier token, de forma privada",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "Encuentra diez ciudades, vence a tus rivales",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "Nómina que nadie más puede ver",
+    "englishSource": "Payroll nobody else can see"
   },
   "minimize": {
     "message": "Minimizar",
@@ -5713,6 +5766,10 @@
   "receiveShareCaption": {
     "message": "Envía tu dirección",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "Desde otra red",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "Copiar",

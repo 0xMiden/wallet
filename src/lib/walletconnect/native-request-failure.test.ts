@@ -76,13 +76,29 @@ it('requires exact prefix and mandatory enums', () => {
   expect(REOWN_NATIVE_ORIGINS).toEqual([
     'argument_validation',
     'unconfigured',
+    'request_construction_error',
+    'request_call_error',
     'publish_error',
     'wallet_error',
     'request_expired',
     'session_deleted',
     'other'
   ]);
-  expect(REOWN_WALLET_RESPONSE_CODES).toEqual(['user_rejected', 'invalid_params', 'internal_error', 'other']);
+  expect(REOWN_WALLET_RESPONSE_CODES).toEqual([
+    'user_rejected',
+    'invalid_params',
+    'internal_error',
+    'provider_unauthorized',
+    'method_unsupported',
+    'provider_disconnected',
+    'chain_disconnected',
+    'chain_switch_failed',
+    'request_invalid',
+    'rpc_unavailable',
+    'transaction_rejected',
+    'rpc_limited',
+    'other'
+  ]);
   expect(REOWN_REQUEST_AGES).toEqual(['under_30s', '30_to_120s', '120_to_300s', 'over_300s', 'unknown']);
   expect(REOWN_PUBLICATIONS).toEqual(['confirmed', 'unobserved']);
   expect(REOWN_BACKGROUND_ANSWERS).toEqual(['yes', 'no']);
@@ -366,5 +382,50 @@ it('reads each named field once and never reads unknown fields', () => {
     walletResponseCode: 'other',
     requestAge: '120_to_300s',
     published: 'confirmed'
+  });
+});
+
+it.each(['request_construction_error', 'request_call_error'])(
+  'accepts iOS fixed call origin %s without a wallet response',
+  origin => {
+    const { validateReownNativeFailure } = jest.requireActual<BoundaryModule>('./native-request-failure');
+    expect(
+      validateReownNativeFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })
+    ).toEqual({
+      nativeOrigin: origin,
+      requestAge: 'unknown',
+      published: 'unobserved'
+    });
+  }
+);
+
+it.each([
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited'
+])('retains the closed native wallet response category %s without raw fields', category => {
+  const { decodeReownNativeFailureCode } =
+    jest.requireActual<typeof import('./native-request-failure')>('./native-request-failure');
+  const envelope =
+    'REOWN_NATIVE_REQUEST_FAILURE:' +
+    JSON.stringify({
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: category,
+      requestAge: 'unknown',
+      published: 'unobserved',
+      rawCode: -32003,
+      message: 'private'
+    });
+  expect(decodeReownNativeFailureCode(envelope)).toEqual({
+    nativeOrigin: 'wallet_error',
+    walletResponseCode: category,
+    requestAge: 'unknown',
+    published: 'unobserved'
   });
 });

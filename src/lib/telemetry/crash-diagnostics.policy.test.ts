@@ -14,6 +14,7 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from 'lib/walletconnect/native-request-failure';
 
+import { BRIDGE_RECEIVE_REQUEST_CLIENTS } from './bridge-receive-failure';
 import {
   BACKGROUND_AGES,
   COMPLETION_GUARDS,
@@ -126,7 +127,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['; wallet response code', REOWN_WALLET_RESPONSE_CODES],
   ['; request age', REOWN_REQUEST_AGES],
   ['; publication observation', REOWN_PUBLICATIONS],
-  ['; background observation', REOWN_BACKGROUND_ANSWERS]
+  ['; background observation', REOWN_BACKGROUND_ANSWERS],
+  ['wallet request client', BRIDGE_RECEIVE_REQUEST_CLIENTS]
 ];
 
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {
@@ -197,4 +199,47 @@ it.each([
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it.each([
+  [
+    'earnPositionsLoadStage',
+    ['configuration', 'owner_lookup', 'request', 'response_decode', 'position_decode', 'unrecorded']
+  ],
+  ['earnPositionsLoadOutcome', ['complete_failure', 'partial_failure']]
+])('documents the exact Earn load observations for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it('documents every closed burnFeeFailure value', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'burnFeeFailure'))).toEqual(
+    new Set([
+      'configuration_failed',
+      'native_asset_failed',
+      'request_build_failed',
+      'dry_run_failed',
+      'result_decode_failed',
+      'probe_mismatch',
+      'busy_exhausted',
+      'request_failed',
+      'estimate_failed'
+    ])
+  );
+});
+
+it.each<[string, readonly string[]]>([
+  ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['mainnetAccessCodeRejectionOrigin', ['eligibility_check', 'registration_redemption']],
+  ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
+  [
+    'uiFailureKind',
+    ['network', 'rpc', 'proving', 'validation', 'storage', 'access_denied', 'timeout', 'unknown', 'unavailable']
+  ]
+])('documents exact caller categories for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+it('documents the exact retry notice origins', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'retryNoticeOrigin'))).toEqual(
+    new Set(['history_primary', 'history_earn_receive', 'history_payback', 'status_screen'])
+  );
 });

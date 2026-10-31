@@ -1064,7 +1064,7 @@
   },
   "badgeFirstDepositDescription": {
     "message": "資金を追加し、使用可能になるまで待ちましょう。",
-    "englishSource": "Add funds and wait for them to become spendable."
+    "englishSource": "Add funds and wait until spendable."
   },
   "badgeFirstReceive": {
     "message": "初めての受け取り",
@@ -4851,6 +4851,31 @@
     "message": "1 件の送金を自動的にインポートできませんでした。",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "インポートが停止した理由: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "接続の問題",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "読み取れないノート",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "ノードによる拒否",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "理由を確認できません",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "明日",
     "englishSource": "Tomorrow"
@@ -4974,6 +4999,34 @@
   "exploreNoResultsDescription": {
     "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
     "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreFinanceHeroEyebrow": {
+    "message": "Midenの金融",
+    "englishSource": "Finance on Miden"
+  },
+  "exploreFinanceHeroTitle": {
+    "message": "あなたの資金は、デフォルトで非公開です",
+    "englishSource": "Your money, private by default"
+  },
+  "exploreFinanceHeroDescription": {
+    "message": "Miden上に構築されたアプリを使って、取引、支払い、入金を行ってください。",
+    "englishSource": "Trade, pay and get paid with apps built on Miden."
+  },
+  "exploreFeatured": {
+    "message": "注目記事",
+    "englishSource": "Featured"
+  },
+  "exploreFeaturedPort0Headline": {
+    "message": "あらゆるトークンを、非公開で取引する",
+    "englishSource": "Trade any token, privately"
+  },
+  "exploreFeaturedGeoquizzHeadline": {
+    "message": "10の都市を見つけ、ライバルたちに打ち勝て",
+    "englishSource": "Find ten cities, beat your rivals"
+  },
+  "exploreFeaturedQashHeadline": {
+    "message": "他者には見えない給与明細",
+    "englishSource": "Payroll nobody else can see"
   },
   "minimize": {
     "message": "最小化",
@@ -5707,6 +5760,10 @@
   "receiveShareCaption": {
     "message": "アドレスを送る",
     "englishSource": "Send your address"
+  },
+  "receiveCrossChainCaption": {
+    "message": "別のネットワークからの情報",
+    "englishSource": "From another network"
   },
   "copy": {
     "message": "コピー",

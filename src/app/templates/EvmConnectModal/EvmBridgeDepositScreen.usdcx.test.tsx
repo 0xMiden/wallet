@@ -368,7 +368,15 @@ jest.mock('./EvmBridgeDepositStatus', () => {
 });
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) =>
+  EvmBridgeTokenDrawer: ({
+    open,
+    onSelect,
+    epochRows
+  }: {
+    open: boolean;
+    onSelect: (token: 'ETH' | 'CIRCLE_USDC' | 'USDC' | { kind: 'epoch'; key: string }) => void;
+    epochRows?: readonly { key: string }[];
+  }) =>
     open ? (
       <div>
         <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
@@ -380,6 +388,15 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         <button data-testid="pick-usdc" onClick={() => onSelect('USDC')}>
           bridge USDC
         </button>
+        {(epochRows ?? []).map(row => (
+          <button
+            key={row.key}
+            data-testid={`pick-epoch-${row.key}`}
+            onClick={() => onSelect({ kind: 'epoch', key: row.key })}
+          >
+            {row.key}
+          </button>
+        ))}
       </div>
     ) : null
 }));
@@ -418,18 +435,25 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     onConfirm,
     fee,
     notice,
-    sourceChainId
+    sourceChainId,
+    fast
   }: {
     confirmDisabled?: boolean;
     onConfirm: () => void;
     fee?: string;
     notice?: string;
     sourceChainId: number;
+    fast?: { onSelect: () => void };
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
       <span data-testid="usdcx-route-notice">{notice}</span>
       <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
+      {fast && (
+        <button data-testid="circle-fast" onClick={fast.onSelect}>
+          fast
+        </button>
+      )}
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
       </button>
@@ -438,9 +462,20 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
-  Route: ({ onConfirm, fastAvailability }: { onConfirm: () => void; fastAvailability: { state: string } }) => (
+  Route: ({
+    onConfirm,
+    onRouteChange,
+    fastAvailability
+  }: {
+    onConfirm: () => void;
+    onRouteChange: (route: 'epoch') => void;
+    fastAvailability: { state: string };
+  }) => (
     <div>
       <span data-testid="fast-availability">{fastAvailability.state}</span>
+      <button data-testid="pick-fast" onClick={() => onRouteChange('epoch')}>
+        fast
+      </button>
       <button data-testid="fast-slow-route-confirm" onClick={onConfirm}>
         fast/slow
       </button>
@@ -488,13 +523,19 @@ const BALANCE_CHECK_OF: Record<string, string> = {
   usdcxDepositFeeAboveBalance: 'too_low',
   bridgeDepositBalanceReadFailed: 'read_failed'
 };
-const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+const failedAt = (
+  step: string,
+  error: string,
+  errorId = 'raw_bridge_deposit_failed',
+  requestClient?: 'native_reown' | 'wagmi'
+) => ({
   error,
   errorId,
   failure: {
     step,
     cause: expect.any(Error),
-    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] })
+    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] }),
+    ...(requestClient === undefined ? {} : { requestClient })
   }
 });
 /** The library error the crash report names for the cause the last failure write handed it. */
@@ -511,6 +552,14 @@ const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') 
   fireEvent.click(screen.getByTestId('open-token-drawer'));
   await settle();
   fireEvent.click(screen.getByTestId(testId));
+  await settle();
+};
+
+/** Picks the source network `id` in the network drawer. */
+const pickNetwork = async (id: string) => {
+  fireEvent.click(screen.getByTestId('open-network-drawer'));
+  await settle();
+  fireEvent.click(screen.getByTestId(`pick-network-${id}`));
   await settle();
 };
 
@@ -681,6 +730,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     renderScreen();
 
     await pickToken('pick-circle-usdc');
+    // ETH is offered on the chain that has the AggLayer route, so that chain is picked first.
+    await pickNetwork('sepolia');
     await pickToken('pick-eth');
     await reachRouteStep();
 
@@ -737,12 +788,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
   });
 
-  it('moves ETH picked from Circle USDC to the AggLayer route, which names its chain and continues', async () => {
+  it('moves to the AggLayer route once its chain is picked and ETH chosen, and continues', async () => {
     mockBridgeSnapshot = withAgglayerEth(withoutEpochUsdc(), route => route);
     renderScreen();
     await settle();
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
 
+    await pickNetwork('sepolia');
     await pickToken('pick-eth');
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
     fireEvent.click(screen.getByTestId('set-amount'));
@@ -1598,6 +1650,234 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(epochState.quoteEVMToMiden).not.toHaveBeenCalled();
   });
 
+  // Two chains whose Epoch routes list the same token entry: only the chain tells their balances apart.
+  const sameEpochTokenOnTwoChains = (): BridgeConfigSnapshot => {
+    const { config, derived } = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const epoch = {
+      depositEnabled: true,
+      withdrawalEnabled: true,
+      tokens: { ETH: { contractAddress: '0x0000000000000000000000000000000000000000' as const, outputs: [] } }
+    };
+    const reads = {
+      ...derived!.chains[11155111]!,
+      epoch: {
+        tokens: {
+          ETH: {
+            state: 'ok' as const,
+            value: {
+              symbol: 'ETH',
+              decimals: 18,
+              midenFaucetId: '0x00000000000000000000000000e2e1',
+              midenSymbol: 'ETH',
+              midenDecimals: 8
+            }
+          }
+        }
+      }
+    };
+    return {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...config!,
+        supportedEvmChains: {
+          sepolia: { chainId: 11155111, bridges: { epoch } },
+          'base-sepolia': { chainId: 84532, bridges: { epoch } }
+        }
+      },
+      derived: { ...derived!, chains: { 11155111: reads, 84532: reads } }
+    };
+  };
+
+  it('rereads the Epoch balance on a chain that lists the same token entry', async () => {
+    mockBridgeSnapshot = sameEpochTokenOnTwoChains();
+    global.fetch = jest.fn(async (url: string) => ({
+      json: async () => ({ result: word(url.endsWith('/84532') ? 2n * 10n ** 18n : 0n) })
+    })) as never;
+    renderScreen();
+    await settle();
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+
+    await pickNetwork('base-sepolia');
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^84532$/);
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^true$/);
+  });
+
+  const CIRCLE_SEPOLIA_USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+  const NATIVE_ETH_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+  const OTHER_ETH_ADDRESS = '0x00000000000000000000000000000000000000c1' as const;
+  const QUOTED_OTHER_ETH = '0x00000000000000000000000000000000000000C1';
+  const QUOTE_ACCOUNT = '0x1111111111111111111111111111111111111111';
+
+  /** Sepolia's Epoch USDC retargeted at `contractAddress`, leaving Circle's USDC where the snapshot names it. */
+  const withSepoliaEpochUsdc = (contractAddress: `0x${string}`): BridgeConfigSnapshot => {
+    const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const sepolia = snapshot.config!.supportedEvmChains.sepolia!;
+    const epoch = sepolia.bridges.epoch!;
+    return {
+      ...snapshot,
+      config: {
+        ...snapshot.config!,
+        supportedEvmChains: {
+          ...snapshot.config!.supportedEvmChains,
+          sepolia: {
+            ...sepolia,
+            bridges: {
+              ...sepolia.bridges,
+              epoch: {
+                ...epoch,
+                tokens: { ...epoch.tokens, USDC: { ...epoch.tokens.USDC!, contractAddress } }
+              }
+            }
+          }
+        }
+      }
+    };
+  };
+
+  /** AggLayer on Sepolia plus an Epoch ETH at `contractAddress` whose derived read names a faucet. */
+  const withSepoliaEpochEth = (contractAddress: `0x${string}`): BridgeConfigSnapshot => {
+    const snapshot = withAgglayerEth(TEST_BRIDGE_CONFIG_SNAPSHOT, route => route);
+    const sepolia = snapshot.config!.supportedEvmChains.sepolia!;
+    const epoch = sepolia.bridges.epoch!;
+    const derived = snapshot.derived!;
+    const chain = derived.chains[11155111]!;
+    return {
+      ...snapshot,
+      config: {
+        ...snapshot.config!,
+        supportedEvmChains: {
+          ...snapshot.config!.supportedEvmChains,
+          sepolia: {
+            ...sepolia,
+            bridges: {
+              ...sepolia.bridges,
+              epoch: { ...epoch, tokens: { ...epoch.tokens, ETH: { contractAddress, outputs: [] } } }
+            }
+          }
+        }
+      },
+      derived: {
+        ...derived,
+        chains: {
+          ...derived.chains,
+          11155111: {
+            ...chain,
+            epoch: {
+              tokens: {
+                ...chain.epoch.tokens,
+                ETH: {
+                  state: 'ok',
+                  value: {
+                    symbol: 'ETH',
+                    decimals: 18,
+                    midenFaucetId: '0x00000000000000000000000000e2e1',
+                    midenSymbol: 'ETH',
+                    midenDecimals: 18
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+  };
+
+  const backToAmount = async () => {
+    fireEvent.click(screen.getByTestId('page-back'));
+    await settle();
+  };
+
+  // Sepolia's Circle USDC and Epoch USDC are different contracts, so each keeps its own row and its own route.
+  it('keeps Sepolia Epoch USDC when its contract differs from Circle', async () => {
+    renderScreen();
+    await settle();
+    await pickNetwork('sepolia');
+    await reachRouteStep();
+
+    expect(screen.queryByTestId('circle-fast')).not.toBeInTheDocument();
+    await backToAmount();
+    await pickToken('pick-usdc');
+
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evmTokenAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+        isNative: false
+      }),
+      QUOTE_ACCOUNT
+    );
+  });
+
+  // The same contract, spelled in lowercase on the Epoch route, is still Circle's USDC: Fast quotes that contract.
+  it('shares Fast when Circle and Epoch name the same USDC contract', async () => {
+    mockBridgeSnapshot = withSepoliaEpochUsdc('0x1c7d4b196cb0c7b01d743fbc6116a902379c7238');
+    renderScreen();
+    await settle();
+    await pickNetwork('sepolia');
+    await reachRouteStep();
+
+    expect(screen.getByTestId('circle-fast')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('circle-fast'));
+    await settle();
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({ evmTokenAddress: CIRCLE_SEPOLIA_USDC, isNative: false }),
+      QUOTE_ACCOUNT
+    );
+
+    await backToAmount();
+    await pickToken('pick-usdc');
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+  });
+
+  // An Epoch token keyed ETH at another contract is its own row. Native ETH then has no Fast route.
+  it('lists Epoch ETH on its own contract beside native ETH', async () => {
+    mockBridgeSnapshot = withSepoliaEpochEth(OTHER_ETH_ADDRESS);
+    renderScreen();
+    await settle();
+    await pickNetwork('sepolia');
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-epoch-ETH'));
+    await settle();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({ evmTokenAddress: QUOTED_OTHER_ETH, isNative: false }),
+      QUOTE_ACCOUNT
+    );
+    await pickToken('pick-eth');
+    await reachRouteStep();
+    expect(screen.getByTestId('fast-availability')).toHaveTextContent(/^unavailable$/);
+  });
+
+  // The zero address is AggLayer's native ETH, so that Epoch row is the Fast route of the native pick.
+  it('shares Fast when Epoch ETH is the native coin', async () => {
+    mockBridgeSnapshot = withSepoliaEpochEth(NATIVE_ETH_ADDRESS);
+    renderScreen();
+    await settle();
+    await pickNetwork('sepolia');
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+
+    expect(screen.queryByTestId('pick-epoch-ETH')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    await reachRouteStep();
+    fireEvent.click(screen.getByTestId('pick-fast'));
+    await settle();
+
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({ evmTokenAddress: NATIVE_ETH_ADDRESS, isNative: true }),
+      QUOTE_ACCOUNT
+    );
+  });
+
   const deferred = <T,>() => {
     let resolve!: (value: T) => void;
     let reject!: (reason: Error) => void;
@@ -1676,7 +1956,15 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'false'));
       const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
       expect(failedWrites).toEqual(
-        outcome === 'rejected' ? [['bridge-tx', 'failed', failedAt('wallet_deposit', 'User rejected')]] : []
+        outcome === 'rejected'
+          ? [
+              [
+                'bridge-tx',
+                'failed',
+                failedAt('wallet_deposit', 'User rejected', undefined, native ? 'native_reown' : 'wagmi')
+              ]
+            ]
+          : []
       );
     }
   );
@@ -1911,7 +2199,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
         error: error.message,
         errorId: 'raw_bridge_deposit_failed',
-        failure: { step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', cause: error }
+        failure: {
+          step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt',
+          cause: error,
+          ...(stage === 'prompt' ? { requestClient: native ? 'native_reown' : 'wagmi' } : {})
+        }
       });
       const lastCall = jest.mocked(updateBridgedReceivePhase).mock.calls.at(-1);
       expect(lastCall?.[2]?.failure?.cause).toBe(error);

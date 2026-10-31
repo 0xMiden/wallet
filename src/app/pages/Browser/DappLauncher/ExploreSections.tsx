@@ -8,7 +8,7 @@
  * tab bars' spring, and sections it shows rise in without the stagger.
  */
 
-import React, { type FC } from 'react';
+import React, { type FC, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -17,7 +17,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
-import { getFaviconUrl, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
+import { type ExploreItem, getFaviconUrl, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
+import { cn } from 'lib/ui/util';
 
 import { AppList, AppRow } from './AppRow';
 import { FeaturedCard } from './FeaturedCard';
@@ -26,10 +27,50 @@ import { TileRow } from './TileRow';
 interface SectionBodyProps {
   resolved: ResolvedExploreSection;
   recents: RecentDapp[];
+  headlines: Record<string, string>;
   onOpen: (url: string) => void;
 }
 
-const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
+/** Several featured cards in one scrolling row, with a dot per card under it. */
+const FeaturedRow: FC<{ items: ExploreItem[]; headlines: Record<string, string>; onOpen: (url: string) => void }> = ({
+  items,
+  headlines,
+  onOpen
+}) => {
+  const [active, setActive] = useState(0);
+  return (
+    <>
+      <TileRow
+        onScroll={row => {
+          const card = row.firstElementChild;
+          if (!(card instanceof HTMLElement)) return;
+          // 12px: the row's `gap-3`.
+          setActive(Math.min(items.length - 1, Math.round(row.scrollLeft / (card.offsetWidth + 12))));
+        }}
+      >
+        {items.map(item => (
+          <FeaturedCard
+            key={item.id}
+            item={item}
+            headline={headlines[item.id]}
+            onOpen={onOpen}
+            className="w-[85%] shrink-0 snap-start"
+          />
+        ))}
+      </TileRow>
+      <div aria-hidden="true" className="mt-3 flex justify-center gap-1.5">
+        {items.map((item, i) => (
+          <span
+            key={item.id}
+            className={cn('h-1.5 rounded-full transition-all', i === active ? 'w-4 bg-muted' : 'w-1.5 bg-hairline')}
+          />
+        ))}
+      </div>
+    </>
+  );
+};
+
+const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, headlines, onOpen }) => {
   const { section, items } = resolved;
 
   switch (section.kind) {
@@ -37,17 +78,11 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
       if (items.length === 1 && items[0]) {
         return (
           <div className="px-4">
-            <FeaturedCard item={items[0]} onOpen={onOpen} />
+            <FeaturedCard item={items[0]} headline={headlines[items[0].id]} onOpen={onOpen} />
           </div>
         );
       }
-      return (
-        <TileRow>
-          {items.map(item => (
-            <FeaturedCard key={item.id} item={item} onOpen={onOpen} className="w-[85%] shrink-0 snap-start" />
-          ))}
-        </TileRow>
-      );
+      return <FeaturedRow items={items} headlines={headlines} onOpen={onOpen} />;
     case 'list':
       return (
         <div className="px-4">
@@ -78,6 +113,8 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
   }
 };
 
+const NO_HEADLINES: Record<string, string> = {};
+
 export interface ExploreEmptyState {
   /** Keys the state, so a different one animates in. */
   key: string;
@@ -90,6 +127,8 @@ export interface ExploreSectionsProps {
   /** The sections the current chip shows, from `resolveExploreSections`. */
   sections: ResolvedExploreSection[];
   recents: RecentDapp[];
+  /** Featured cards' headlines by item id; a card without one shows its tagline. */
+  headlines?: Record<string, string>;
   /** What to show when there are no sections: "coming soon" for a chip, "no results" for a search. */
   empty: ExploreEmptyState;
   onOpen: (url: string) => void;
@@ -104,6 +143,7 @@ export interface ExploreSectionsProps {
 export const ExploreSections: FC<ExploreSectionsProps> = ({
   sections,
   recents,
+  headlines = NO_HEADLINES,
   empty,
   onOpen,
   reveal,
@@ -158,7 +198,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
                     {section.title}
                   </SectionHeader>
                 </div>
-                <SectionBody resolved={resolved} recents={recents} onOpen={onOpen} />
+                <SectionBody resolved={resolved} recents={recents} headlines={headlines} onOpen={onOpen} />
               </motion.section>
             );
           })

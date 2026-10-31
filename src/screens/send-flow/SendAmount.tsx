@@ -9,7 +9,7 @@ import { NetworkChip } from 'components/NetworkChip';
 import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
-import { AnimatedNumber, Pill } from 'components/ui';
+import { AnimatedNumber } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
@@ -19,11 +19,13 @@ import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { balanceFormatterFor, formatBalance } from './amount-format';
+import { AmountShortcuts } from './AmountShortcuts';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
@@ -35,6 +37,7 @@ export interface SendAmountProps {
   isValidAmount: boolean;
   /** Untranslated error key from the send form. */
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /** The values of the error copy's placeholders. */
   errorValues?: Record<string, string>;
   recipientAddress: string;
@@ -64,6 +67,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   isValidAmount,
   error,
   errorValues,
+  errorDiagnostics,
   recipientAddress,
   maxDisabled,
   tokenHeld,
@@ -76,7 +80,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
-  const [maxSelection, setMaxSelection] = useState(0);
+  const [shortcutSelection, setShortcutSelection] = useState(0);
   // The field shows the keystroke at once. A later `amount` from the form replaces it,
   // including Max and a restored draft.
   const [draft, setDraft] = useState(amount);
@@ -128,10 +132,11 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         decimalsLimit={token ? token.decimals : 6}
         scaleIsKnown={!!token?.scaleIsKnown}
         value={draft}
-        tokenIntentKey={maxSelection}
+        tokenIntentKey={shortcutSelection}
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
+        errorDiagnostics={errorDiagnostics}
         showDivider={false}
         data-testid="send-amount-input"
         onValueChange={value => {
@@ -140,6 +145,22 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           onAmountChange(next);
         }}
       />
+
+      {token && (
+        <AmountShortcuts
+          balance={token.balance}
+          decimals={token.decimals}
+          scaleIsKnown={scaleIsKnown}
+          maxAmount={formatBalance(balanceLowerBound(token.balance, token.decimals))}
+          onAmountChange={value => {
+            setShortcutSelection(selection => selection + 1);
+            onAmountChange(value);
+          }}
+          disabled={maxDisabled}
+          testIdPrefix="send-amount"
+          className="text-accent-send-ink"
+        />
+      )}
 
       <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
@@ -186,30 +207,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               )}
             </span>
           </button>
-          <AnimatePresence initial={false}>
-            {token && scaleIsKnown && token.balance > 0 && (
-              <motion.span
-                key="max"
-                className="inline-flex shrink-0"
-                initial={{ opacity: 0, scale: 0.85 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.85 }}
-                transition={transition}
-              >
-                <Pill
-                  onClick={() => {
-                    setMaxSelection(selection => selection + 1);
-                    onAmountChange(formatBalance(balanceLowerBound(token.balance, token.decimals)));
-                  }}
-                  disabled={maxDisabled}
-                  className="text-accent-send-ink"
-                  data-testid="send-amount-max"
-                >
-                  {t('max')}
-                </Pill>
-              </motion.span>
-            )}
-          </AnimatePresence>
         </div>
 
         <div className="mx-4 border-t border-rule-default" />

@@ -8,6 +8,11 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { TextAction } from 'components/ui/TextAction';
 import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH, type MainnetAccessOutcome } from 'lib/mainnet-access';
 import { isMobile } from 'lib/platform';
+import {
+  classifyUiFailure,
+  snapshotMainnetAccessCheckFailure,
+  type UiEvidenceInput
+} from 'lib/telemetry/ui-producer-diagnostics';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
@@ -35,6 +40,7 @@ export interface MainnetCodeEntry {
   code: string;
   complete: boolean;
   failure: MainnetCodeFailure | null;
+  failureDiagnostics?: UiEvidenceInput;
   submitting: boolean;
   pasting: boolean;
   changeCode: (next: string) => void;
@@ -56,6 +62,11 @@ export function useMainnetCodeEntry({
 }: MainnetCodeEntryOptions): MainnetCodeEntry {
   const [code, setCode] = useState('');
   const [failure, setFailure] = useState<MainnetCodeFailure | null>(rejected ? 'rejected' : null);
+  const [failureDiagnostics, setFailureDiagnostics] = useState<UiEvidenceInput | undefined>(() =>
+    rejected
+      ? { kind: 'mainnet_access_code_rejection', mainnetAccessCodeRejectionOrigin: 'registration_redemption' }
+      : undefined
+  );
   const [submitting, setSubmitting] = useState(false);
   const [pasting, setPasting] = useState(false);
   // A check answers for the code it was asked about, here: closing the entry (a sheet keeps it mounted through its
@@ -75,6 +86,7 @@ export function useMainnetCodeEntry({
     codeGeneration.current += 1;
     setCode(next);
     setFailure(null);
+    setFailureDiagnostics(undefined);
   }, []);
 
   const offerCode = useCallback((offered: string) => {
@@ -90,6 +102,7 @@ export function useMainnetCodeEntry({
       changeCode(value.replace(/[^A-Za-z0-9]/g, '').slice(0, MAINNET_ACCESS_CODE_LENGTH));
     } catch {
       setFailure('clipboard');
+      setFailureDiagnostics(undefined);
     } finally {
       setPasting(false);
     }
@@ -100,6 +113,7 @@ export function useMainnetCodeEntry({
     if (!active || !complete || submitting || pasting) return;
     setSubmitting(true);
     setFailure(null);
+    setFailureDiagnostics(undefined);
     const generation = codeGeneration.current;
     const opening = closings.current;
     const current = () => closings.current === opening && codeGeneration.current === generation;
@@ -107,8 +121,15 @@ export function useMainnetCodeEntry({
       let outcome: MainnetAccessOutcome;
       try {
         outcome = await check(code);
-      } catch {
-        if (current()) setFailure('unchecked');
+      } catch (error) {
+        if (current()) {
+          setFailure('unchecked');
+          setFailureDiagnostics({
+            kind: 'mainnet_access_check',
+            mainnetAccessCheckFailure: snapshotMainnetAccessCheckFailure(error) ?? 'unrecorded',
+            uiFailureKind: classifyUiFailure(error)
+          });
+        }
         return;
       }
       if (!current()) return;
@@ -118,6 +139,10 @@ export function useMainnetCodeEntry({
           break;
         case 'rejected':
           setFailure('rejected');
+          setFailureDiagnostics({
+            kind: 'mainnet_access_code_rejection',
+            mainnetAccessCodeRejectionOrigin: 'eligibility_check'
+          });
           break;
       }
     } finally {
@@ -125,7 +150,7 @@ export function useMainnetCodeEntry({
     }
   };
 
-  return { code, complete, failure, submitting, pasting, changeCode, offerCode, pasteCode, submit };
+  return { code, complete, failure, failureDiagnostics, submitting, pasting, changeCode, offerCode, pasteCode, submit };
 }
 
 export interface MainnetCodeEntryFieldsProps {
@@ -177,7 +202,11 @@ export const MainnetCodeEntryFields: React.FC<MainnetCodeEntryFieldsProps> = ({ 
         data-testid={`${testIdPrefix}-code`}
       />
       <span className="px-1 text-caption text-muted">{t('mainnetAccessHint')}</span>
-      <ErrorLine errorId={failure === null ? null : FAILURE_IDS[failure]} data-testid={`${testIdPrefix}-error`}>
+      <ErrorLine
+        errorId={failure === null ? null : FAILURE_IDS[failure]}
+        errorDiagnostics={entry.failureDiagnostics}
+        data-testid={`${testIdPrefix}-error`}
+      >
         {failureMessage()}
       </ErrorLine>
     </div>

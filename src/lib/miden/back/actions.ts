@@ -61,6 +61,7 @@ import {
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  GetStateResponse,
   GuardianRecoveryAction,
   GuardianSyncStatus,
   EstimateUsdcxBurnFeeRequest,
@@ -73,12 +74,12 @@ import {
   WalletAccount,
   WalletMessageType,
   WalletSettings,
-  WalletState,
   WalletStatus
 } from 'lib/shared/types';
 import { resolveTelemetryContext } from 'lib/telemetry/context';
 import { sendEvent } from 'lib/telemetry/sink';
 import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
+import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -185,24 +186,25 @@ export async function init() {
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<WalletState> {
+export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return toFront(state);
+      return { ...toFront(state), backendInitialized: true };
     }
   } catch {
     // store not initialized yet
   }
-  // Return Idle immediately so the UI can render while backend inits.
+  // Pending Idle must not hydrate the frontend as a real onboarding state.
   return {
     status: 0,
     accounts: [],
     currentAccount: null,
     networks: [],
     settings: null,
-    ownMnemonic: null
-  } as WalletState;
+    ownMnemonic: null,
+    backendInitialized: false
+  };
 }
 
 export async function isDAppEnabled() {
@@ -1150,9 +1152,12 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
   return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
     const estimate = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
     const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
+    const failure = burnFeeFailureOf(estimate);
     return estimate.outcome === 'measured'
       ? { type, outcome: 'measured', feeReserve: estimate.reserve.toString() }
-      : { type, outcome: estimate.outcome };
+      : estimate.outcome === 'failed' && failure
+        ? { type, outcome: 'failed', failure }
+        : { type, outcome: estimate.outcome };
   });
 }
 

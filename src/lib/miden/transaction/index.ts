@@ -90,7 +90,6 @@ import {
   cancelTransactionAfterPipelineStopped,
   endAttemptInThisRealm,
   markStartedInThisRealm,
-  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -680,19 +679,33 @@ const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean =
 
 /**
  * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
- * an equal or stronger look for this same incarnation, and a failed write leaves the in-memory look in place.
+ * an equal or stronger bound look for this incarnation. A captured incarnation cannot write onto its replacement;
+ * a failed write leaves the in-memory look in place.
  */
 const persistQueueSighting = (
-  row: QueueAdmissionMember & { queueSighting?: QueueSighting },
+  row: QueueAdmissionMember & {
+    queueSighting?: QueueSighting;
+    queueSightingAt?: number;
+    queueSightingSeq?: number | null;
+  },
   observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
 ): void => {
-  if (!row.id || !upgradedQueueSighting(row.queueSighting, observation)) return;
+  const current =
+    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
+      ? row.queueSighting
+      : undefined;
+  if (!row.id || !upgradedQueueSighting(current, observation)) return;
   const initiatedAt = row.initiatedAt;
   const queuedSeq = row.queuedSeq ?? null;
   void Repo.transactions
     .where({ id: row.id })
     .modify(stored => {
-      const next = upgradedQueueSighting(stored.queueSighting, observation);
+      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
+      const current =
+        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
+          ? stored.queueSighting
+          : undefined;
+      const next = upgradedQueueSighting(current, observation);
       if (!next) return false;
       stored.queueSighting = next;
       stored.queueSightingAt = initiatedAt;
@@ -1561,7 +1574,8 @@ const generateTransactionWithProvider = async (
             transaction,
             transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
               ? reconcileError
-              : error
+              : error,
+            transaction.attemptId
           );
         }
         return;
@@ -1598,7 +1612,7 @@ const generateTransactionWithProvider = async (
         );
         await recordBridgeNoteLanded(transaction.id);
         await recordLandedTransactionId(transaction.id, error);
-        await cancelTransactionAfterPipelineStopped(transaction, error);
+        await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
         return;
       }
       // `bridged-send` is in this list too, and by the ordering above it can only
@@ -1936,7 +1950,7 @@ const generateTransactionWithProvider = async (
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only — send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransactionAfterPipelineStopped(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
     return;
   }
@@ -4917,7 +4931,7 @@ export const generateTransactionsLoop = async (
         await recordBridgeNoteLanded(tx.id);
         if (!hasLeftQueue(tx)) {
           await recordLandedTransactionId(tx.id, e);
-          await cancelTransactionAfterPipelineStopped(tx, e);
+          await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
         }
         return false;
       }
@@ -4974,11 +4988,11 @@ export const generateTransactionsLoop = async (
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && !hasLeftQueue(tx)) {
-      await cancelTransactionAfterPipelineStopped(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
       // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
       // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
-      await markTransactionUnconfirmed(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     }
     return false;
   } finally {

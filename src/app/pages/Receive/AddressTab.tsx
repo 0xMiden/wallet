@@ -62,6 +62,8 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 interface ReceiveActionTileProps {
   icon: IconName;
+  /** The glyph's size in the circle; a glyph that reads small at `xs` can take a step up. */
+  iconSize?: 'xs' | 'sm';
   title: string;
   /** A second line under the title; a tile with none draws only its title. */
   caption?: string;
@@ -74,6 +76,7 @@ interface ReceiveActionTileProps {
 /** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
 const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   icon,
+  iconSize = 'xs',
   title,
   caption,
   onClick,
@@ -98,7 +101,7 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
         data-testid={dataTestId}
       >
         <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
-          <Icon name={icon} size="xs" />
+          <Icon name={icon} size={iconSize} />
         </IconCircle>
         <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
           <span data-slot="title" className="truncate text-row-title text-ink">
@@ -314,7 +317,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {crossChainOnNetwork && (
               <ReceiveActionTile
                 icon={IconName.CrossChain}
+                iconSize="sm"
                 title={t('crossChain')}
+                caption={t('receiveCrossChainCaption')}
                 // No source named here: the bridge screen lists the chains the remote config offers.
                 onClick={onBridgeDeposit}
                 disabled={isFeatureBlocked(crossChain)}

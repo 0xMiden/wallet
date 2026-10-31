@@ -6,7 +6,7 @@ jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
 
 function fakePage(inviteOnly: boolean) {
   const clicks: string[] = [];
-  const visible = new Set(inviteOnly ? ['onboarding-no-code'] : ['#import-link']);
+  const visible = new Set(['#import-link']);
   function locator(id: string): unknown {
     const self = {
       waitFor: jest.fn(async () => {}),
@@ -15,8 +15,9 @@ function fakePage(inviteOnly: boolean) {
       first: () => self,
       click: async () => {
         clicks.push(id);
-        if (id === '#import-link') visible.add('onboarding-network-notice-acknowledge');
-        if (id === 'no-code-sheet-recover' || id === 'onboarding-network-notice-acknowledge') {
+        if (id === '#import-link')
+          visible.add(inviteOnly ? 'import-select-type' : 'onboarding-network-notice-acknowledge');
+        if (id === 'onboarding-network-notice-acknowledge') {
           visible.delete('onboarding-network-notice-acknowledge');
           visible.add('import-select-type');
         }
@@ -27,10 +28,10 @@ function fakePage(inviteOnly: boolean) {
   return { clicks, page: { getByTestId: locator, locator } as unknown as Page };
 }
 
-it('uses real recovery through the no-code sheet on invite-only Welcome without a network notice', async () => {
+it('opens recovery from invite-only Welcome without a network notice', async () => {
   const { clicks, page } = fakePage(true);
   await openTelemetryImportType(page);
-  expect(clicks).toEqual(['onboarding-no-code', 'no-code-sheet-recover']);
+  expect(clicks).toEqual(['#import-link']);
 });
 
 it('keeps the existing test-network recovery and explicit notice acknowledgement', async () => {

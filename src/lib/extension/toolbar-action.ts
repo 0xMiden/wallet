@@ -1,8 +1,8 @@
 export async function initializeToolbarAction(api: typeof chrome): Promise<void> {
   try {
-    await api.action.setPopup({ popup: '' });
     if (!api.sidePanel?.setPanelBehavior) throw new Error('Sidebar unavailable');
     await api.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    await api.action.setPopup({ popup: '' });
   } catch (error) {
     console.warn('[Toolbar] Sidebar unavailable; using popup fallback:', error);
     try {
