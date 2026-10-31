@@ -2520,6 +2520,28 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void morphNotifiesNavbarWhenWarmExpandKeepsDialogShowing() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        dialog.prepareMorph(600);
+        assertTrue(dialog.isShowing());
+        assertEquals(View.INVISIBLE, dialog.getWindow().getDecorView().getVisibility());
+        WebViewRegistry.getShared().register("warm-navbar", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
+            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
+        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
+        PluginCall call = morphCall("warm-navbar", null, nextSequence(), "expanded",
+            cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
+        plugin.morph(call);
+        assertTrue(accepted(call));
+        assertTrue(dialog.isShowing());
+        verify(navbar).notifyDialogVisibilityChanged(dialog);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void setMorphTargetIsReadByTheNativeCollapse() throws Exception {
         openMorph(true);
         reveal();
