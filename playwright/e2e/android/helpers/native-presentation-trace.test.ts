@@ -1,9 +1,22 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { cssRectCenterToScreen, parseWebViewScreenBounds } from './native-presentation-coordinates';
 import { buildFrameTimelineConfig } from './native-presentation-trace';
 
 describe('native presentation trace helpers', () => {
   it('uses the Perfetto Android main log buffer enum', () => {
     expect(buildFrameTimelineConfig()).toContain('log_ids: LID_DEFAULT');
+  });
+
+  it('selects wallet FrameTimeline slices by layer name', () => {
+    const analyzer = readFileSync(path.resolve(__dirname, '../../../../scripts/analyze-native-frame-timeline.mjs'), 'utf8');
+
+    expect(analyzer).toContain("a.layer_name GLOB 'TX - com.miden.wallet/*'");
+    expect(analyzer).not.toContain('JOIN process AS p');
+    expect(analyzer).not.toContain("p.name = 'com.miden.wallet'");
+    expect(analyzer).toContain('a.upid IS NOT NULL');
+    expect(analyzer).toContain('a.dur > 0');
+    expect(analyzer).toContain('FrameTimeline query returned no frame rows');
   });
 
   it('uses the largest WebView belonging to the wallet package', () => {
