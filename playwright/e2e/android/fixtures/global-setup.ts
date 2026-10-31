@@ -4,7 +4,9 @@ import * as path from 'path';
 import { EmulatorControl } from '../helpers/emulator-control';
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
-const APK_PATH = path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+const APK_PATH =
+  process.env.ANDROID_E2E_APK_PATH ??
+  path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 
 /**
  * Validate the debug APK exists, then reserve and boot the emulator pair.

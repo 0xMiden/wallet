@@ -21,6 +21,9 @@ const GUARDED_EVENTS = ['push', 'workflow_dispatch'];
 const NOT_INJECTED =
   "steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
 const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'";
+const PRESENTATION_COMPARE_ONLY = "github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'";
+const PRESENTATION_COMPARE_TIMEOUT =
+  "${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
@@ -245,6 +248,12 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
     injects.every(step => keyOf(step, 'if') === undefined) &&
     runsOnPullRequest(file, jobs(file, text), job);
   if (injectsOnPullRequests) return undefined;
+  if (
+    file === 'e2e-dapp-browser.yml' &&
+    job.id === 'android-dapp-browser' &&
+    ceiling === PRESENTATION_COMPARE_TIMEOUT
+  )
+    return undefined;
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
@@ -464,7 +473,13 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     );
     expect(frozen.map(({ entry }) => entry)).toEqual(expect.arrayContaining(['build-chrome.yml build']));
     for (const { entry, step, job } of frozen) {
-      expect([entry, keyOf(step, 'if')]).toEqual([entry, NOT_INJECTED]);
+      const isPresentationBaselineInstall =
+        entry === 'e2e-dapp-browser.yml android-dapp-browser' &&
+        keyOf(step, 'name') === 'Build baseline APK for presentation comparison';
+      expect([entry, keyOf(step, 'if')]).toEqual([
+        entry,
+        isPresentationBaselineInstall ? PRESENTATION_COMPARE_ONLY : NOT_INJECTED
+      ]);
       expect([entry, job.steps.some(other => keyOf(other, 'if') === INJECTED && installs(other))]).toEqual([
         entry,
         true
@@ -491,6 +506,16 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
   });
 
   it('gives a dispatch the time to build its linked PRs from source on top of an unchanged push ceiling', () => {
+    const presentationJob = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser');
+    const baselineInstall = presentationJob.steps.find(
+      step => keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(baselineInstall?.lines.some(line => /yarn install --frozen-lockfile/.test(line))).toBe(true);
+    expect(keyOf(baselineInstall!, 'if')).toBe(PRESENTATION_COMPARE_ONLY);
+    expect(presentationJob.keys['timeout-minutes']).toBe(PRESENTATION_COMPARE_TIMEOUT);
+    expect(
+      keyOf(presentationJob.steps.find(step => keyOf(step, 'name') === 'Run dApp browser E2E (Android)')!, 'if')
+    ).toBe("github.event_name != 'workflow_dispatch' || inputs.suite == 'all'");
     expect(
       workflowFiles.flatMap(file =>
         jobs(file, source(file)).flatMap(job => {
@@ -500,6 +525,12 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       )
     ).toEqual([]);
     const ceilings = guardedJobs.flatMap(({ file, job }) => {
+      if (
+        file === 'e2e-dapp-browser.yml' &&
+        job.id === 'android-dapp-browser' &&
+        job.keys['timeout-minutes'] === PRESENTATION_COMPARE_TIMEOUT
+      )
+        return ['e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180'];
       const [, dispatch, push] = DISPATCH_CEILING.exec(job.keys['timeout-minutes'] ?? '') ?? [];
       return dispatch === undefined ? [] : [`${file} ${job.id}: push ${push}, dispatch ${dispatch}`];
     });
@@ -516,7 +547,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 195',
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
-      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
+      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180',
       'e2e-dapp-browser.yml android-auth-tab-acceptance: push 60, dispatch 90',
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
@@ -543,6 +574,111 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       "github.event_name != 'pull_request'",
       "github.event_name != 'pull_request'"
     ]);
+  });
+
+  it('overlays only linked dependency revisions onto the presentation baseline', () => {
+    const sourceText = source('e2e-dapp-browser.yml');
+    expect(sourceText).toContain("<<'PRESENTATION_BASELINE_OVERLAY'");
+    const step = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser').steps.find(
+      item => keyOf(item, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(step).toBeDefined();
+    const script = step!.lines.join('\n');
+    expect(script).toContain('git -C "$GITHUB_WORKSPACE" show HEAD:package.json');
+    expect(script).toContain('yarn install --network-timeout 600000');
+    expect(script).toContain('yarn install --frozen-lockfile');
+    const overlay =
+      /node <<'PRESENTATION_BASELINE_OVERLAY'\n([\s\S]*?)\nPRESENTATION_BASELINE_OVERLAY/.exec(script)?.[1];
+    expect(overlay).toBeDefined();
+
+    const dir = mkdtempSync(join(tmpdir(), 'presentation-baseline-overlay-'));
+    try {
+      const committed = join(dir, 'committed.json');
+      const patched = join(dir, 'patched.json');
+      const baseline = join(dir, 'baseline.json');
+      const runOverlay = (committedManifest: unknown, patchedManifest: unknown, baselineManifest: unknown) => {
+        writeFileSync(committed, JSON.stringify(committedManifest));
+        writeFileSync(patched, JSON.stringify(patchedManifest));
+        writeFileSync(baseline, JSON.stringify(baselineManifest));
+        const result = spawnSync(process.execPath, ['-e', overlay!], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            COMMITTED_MANIFEST: committed,
+            PATCHED_MANIFEST: patched,
+            BASELINE_MANIFEST: baseline
+          }
+        });
+        expect([result.status, result.stderr]).toEqual([0, '']);
+        return { output: result.stdout.trim(), bytes: readFileSync(baseline, 'utf8') };
+      };
+
+      const changed = runOverlay(
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.3', left: 'candidate-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.17.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.3',
+            left: 'candidate-resolution',
+            shared: 'shared-resolution'
+          }
+        },
+        {
+          dependencies: {
+            '@miden-sdk/miden-sdk': 'file:../web-sdk',
+            left: 'candidate-left',
+            absent: 'injected-only'
+          },
+          devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+          resolutions: {
+            left: 'candidate-resolution',
+            shared: 'shared-resolution',
+            '**/@openzeppelin/guardian-client': 'file:../guardian'
+          }
+        },
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.2', left: 'baseline-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.16.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.2',
+            left: 'baseline-resolution',
+            shared: 'baseline-shared',
+            other: 'baseline-other'
+          }
+        }
+      );
+      expect(changed.output).toBe('changed');
+      expect(JSON.parse(changed.bytes)).toEqual({
+        dependencies: { '@miden-sdk/miden-sdk': 'file:../web-sdk', left: 'baseline-left' },
+        devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+        resolutions: {
+          left: 'baseline-resolution',
+          shared: 'baseline-shared',
+          other: 'baseline-other',
+          '**/@openzeppelin/guardian-client': 'file:../guardian'
+        }
+      });
+
+      const absentBaselineBytes = JSON.stringify({ dependencies: { left: 'baseline-left' } });
+      writeFileSync(baseline, absentBaselineBytes);
+      const absentBaseline = runOverlay(
+        { dependencies: { absent: '0.1.0' }, resolutions: {} },
+        { dependencies: { absent: 'file:../linked' }, resolutions: {} },
+        { dependencies: { left: 'baseline-left' } }
+      );
+      expect([absentBaseline.output, absentBaseline.bytes]).toEqual(['unchanged', absentBaselineBytes]);
+
+      const identicalBytes = JSON.stringify({ dependencies: { left: 'same' }, resolutions: { left: 'same' } });
+      writeFileSync(baseline, identicalBytes);
+      const identical = runOverlay(
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } }
+      );
+      expect([identical.output, identical.bytes]).toEqual(['unchanged', identicalBytes]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

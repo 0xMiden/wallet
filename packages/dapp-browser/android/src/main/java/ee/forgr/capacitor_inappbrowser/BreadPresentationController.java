@@ -58,6 +58,7 @@ final class BreadPresentationController {
     private static final float CROSSFADE_PROGRESS = 0.35f;
     private static final long COLLAPSE_CROSSFADE_MS = 100;
     private static final long EXPAND_CROSSFADE_MS = 120;
+    private static final long WARMUP_GRACE_MS = 150;
     private static final Interpolator EASE_OUT = new DecelerateInterpolator();
     static final int TOUCH_PASS = 0, TOUCH_CONSUME = 1, TOUCH_CANCEL = 2;
     private static final float COMMIT_TRAVEL = 0.30f;
@@ -132,6 +133,10 @@ final class BreadPresentationController {
     private Insets safeArea = Insets.NONE;
     private int theme = FALLBACK;
     private boolean appliedFullscreen;
+    private boolean warmed;
+    private Runnable warmCooldown;
+    private int warmAccessibilityImportance;
+    private int warmAddedWindowFlags;
     private final FullscreenRotation dialogRotation = new FullscreenRotation();
     private final FullscreenRotation hostRotation = new FullscreenRotation();
     // Resume insets can still describe the hidden fullscreen frame; keep the browser snapshot.
@@ -437,6 +442,68 @@ final class BreadPresentationController {
         return false;
     }
 
+    void prepareMorph(long durationMs) {
+        BreadPresentationState.Phase phase = state.phase();
+        if (flying() || capturing || state.surfaceVisibility() || owner.managedClosing()
+            || (phase != BreadPresentationState.Phase.VISIBLE
+            && phase != BreadPresentationState.Phase.TEMPORARILY_HIDDEN)) return;
+        Window window = owner.getWindow();
+        if (window == null) return;
+        if (warmed) {
+            if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
+            warmCooldown = () -> finishWarmup(true);
+            handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
+            return;
+        }
+        if (owner.isShowing()) return;
+        restoreWindow();
+        warmAccessibilityImportance = window.getDecorView().getImportantForAccessibility();
+        warmed = true;
+        addWarmWindowFlags(window);
+        owner.applyPresentationVisibility(true);
+        hideWarmDecor(window);
+        warmCooldown = () -> finishWarmup(true);
+        handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
+    }
+
+    boolean unseenWarm() { return warmed && !state.surfaceVisibility(); }
+
+    boolean retireUnseenWarm() {
+        if (!unseenWarm()) return false;
+        finishWarmup(true);
+        return true;
+    }
+
+    private void addWarmWindowFlags(Window window) {
+        int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        warmAddedWindowFlags = flags & ~window.getAttributes().flags;
+        window.addFlags(flags);
+    }
+
+    private void hideWarmDecor(Window window) {
+        View decor = window.getDecorView();
+        decor.setVisibility(View.INVISIBLE);
+        decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+    }
+
+    private void finishWarmup(boolean hide) {
+        if (!warmed || owner.managedClosing()) return;
+        warmed = false;
+        if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
+        warmCooldown = null;
+        Window window = owner.getWindow();
+        if (window == null) return;
+        View decor = window.getDecorView();
+        decor.setVisibility(View.VISIBLE);
+        decor.setImportantForAccessibility(warmAccessibilityImportance);
+        if (warmAddedWindowFlags != 0) window.clearFlags(warmAddedWindowFlags);
+        warmAddedWindowFlags = 0;
+        if (hide && !state.surfaceVisibility() && state.phase() != BreadPresentationState.Phase.CLOSED) {
+            owner.applyPresentationVisibility(false);
+            decor.setImportantForAccessibility(warmAccessibilityImportance);
+        }
+    }
+
     private boolean collapse(BreadMorphCard card, float vx, float vy, String id, Integer sequence) {
         boolean flying = flying();
         if (!flying && (posed || !owner.isShowing() || !state.surfaceVisibility())) return false;
@@ -476,7 +543,7 @@ final class BreadPresentationController {
 
     private boolean expand(BreadMorphCard card, float vx, float vy, String id, Integer revision, Integer sequence) {
         boolean flying = flying();
-        if (!posed && owner.isShowing()) return false;
+        if (!posed && owner.isShowing() && !warmed) return false;
         boolean previous = state.effectiveVisibility();
         if (!state.requestVisibility(true, revision, sequence, SystemClock.uptimeMillis())) return false;
         if (!state.surfaceVisibility() || container.getWidth() == 0 || container.getHeight() == 0) {
@@ -954,6 +1021,7 @@ final class BreadPresentationController {
         List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
         captureWaiters.clear();
         for (Consumer<Bitmap> waiter : waiters) waiter.accept(null);
+        finishWarmup(true);
         restoreWindow();
         state.close();
         cancelPaint();
@@ -1079,11 +1147,24 @@ final class BreadPresentationController {
             owner.presentationChanged(state.fullscreen(), state.policyResolved(), state.policyRevision());
         }
         if (!state.surfaceVisibility()) {
-            owner.applyPresentationVisibility(false);
+            if (warmed) {
+                Window window = owner.getWindow();
+                View decor = window == null ? null : window.peekDecorView();
+                if (decor == null || decor.getParent() == null) {
+                    owner.applyPresentationVisibility(true);
+                    window = owner.getWindow();
+                    if (window != null) {
+                        decor = window.getDecorView();
+                        decor.setVisibility(View.INVISIBLE);
+                        decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+                    }
+                } else if (decor.getVisibility() != View.INVISIBLE) decor.setVisibility(View.INVISIBLE);
+            } else owner.applyPresentationVisibility(false);
             restoreWindow();
             renderCover();
             return;
         }
+        finishWarmup(false);
         applyWindow();
         owner.applyPresentationVisibility(true);
         if (supported && navigationListener == null) {

@@ -1450,10 +1450,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     && java.util.Objects.equals(lifetime, call.getString("managedHostCloseToken"))
                     && (lifetime == null || call.getInt("visibilitySequence") != null);
                 if (current) {
-                    boolean shown = dialog.isShowing();
                     accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
                         call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
-                    if (shown != dialog.isShowing() && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
+                    if (accepted && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
                 }
             } catch (Exception e) {
                 Log.e("InAppBrowser", "morph failed: " + e.getMessage());
@@ -1477,8 +1476,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     public void prepareMorph(PluginCall call) {
         Integer requested = call.getInt("durationMs");
         long duration = requested == null ? BreadFrameBoost.DURATION_MS : Math.max(0, Math.min(2000, requested));
+        String id = call.getString("id");
         this.getActivity().runOnUiThread(() -> {
             BreadFrameBoost.hold(getBridge() == null ? null : getBridge().getWebView(), duration);
+            WebViewDialog target = id == null ? null : WebViewRegistry.getShared().get(id);
+            if (target != null) target.prepareMorph(duration);
             call.resolve();
         });
     }
