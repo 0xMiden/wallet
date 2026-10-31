@@ -325,21 +325,19 @@ describe('fetchBoundedJson', () => {
       const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason');
       Object.defineProperty(AbortSignal.prototype, 'reason', { configurable: true, get: () => undefined });
       try {
-        await body();
+        return await body();
       } finally {
         if (descriptor) Object.defineProperty(AbortSignal.prototype, 'reason', descriptor);
         else Reflect.deleteProperty(AbortSignal.prototype, 'reason');
       }
     };
 
-    const expectLegacyTimeout = async (fetchFn: JsonFetch) =>
+    const runLegacyTimeout = async (fetchFn: JsonFetch) =>
       withoutAbortSignalReason(async () => {
         const onFailure = jest.fn();
         const read = fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure)).catch((error: unknown) => error);
         await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
-        await expect(read).resolves.toMatchObject({ name: 'AbortError' });
-        expect(onFailure).toHaveBeenCalledTimes(1);
-        expect(onFailure).toHaveBeenCalledWith('timeout');
+        return { read, onFailure };
       });
 
     it.each(['pending fetch', 'body read'])(
@@ -377,7 +375,10 @@ describe('fetchBoundedJson', () => {
           });
         }
 
-        await expectLegacyTimeout(fetchFn);
+        const { read, onFailure } = await runLegacyTimeout(fetchFn);
+        await expect(read).resolves.toMatchObject({ name: 'AbortError' });
+        expect(onFailure).toHaveBeenCalledTimes(1);
+        expect(onFailure).toHaveBeenCalledWith('timeout');
       }
     );
   });
