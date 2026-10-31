@@ -23,11 +23,21 @@ function makePage(): Page {
  */
 function makeSendPage(
   tokenIds: string[],
-  opts: { appearOnWait?: string[]; waitForError?: string; countError?: string } = {}
-): { page: Page; clickedTokenIds: string[] } {
+  opts: {
+    appearOnWait?: string[];
+    waitForError?: string;
+    countError?: string;
+    tokenSymbols?: string[];
+    appearSymbolOnWait?: string[];
+    symbolAppearanceTimeoutMs?: number;
+  } = {}
+): { page: Page; clickedTokenIds: string[]; clickedTokenSymbols: string[]; symbolWaitTimeouts: number[] } {
   const appearOnWait = opts.appearOnWait ?? [];
   const present = new Set(tokenIds);
+  const presentSymbols = new Set(opts.tokenSymbols ?? []);
   const clickedTokenIds: string[] = [];
+  const clickedTokenSymbols: string[] = [];
+  const symbolWaitTimeouts: number[] = [];
   const noopLocator = {
     waitFor: jest.fn(async () => undefined),
     fill: jest.fn(async () => undefined),
@@ -46,9 +56,47 @@ function makeSendPage(
     goto: jest.fn(async () => undefined),
     waitForFunction: jest.fn(async () => undefined),
     evaluate: jest.fn(async () => undefined),
-    getByTestId: jest.fn(() => noopLocator),
+    getByTestId: jest.fn((testId: string) => {
+      if (testId === 'send-token-selector' || testId === 'send-token-search') return noopLocator;
+      const symbol = testId.startsWith('send-token-') ? testId.slice('send-token-'.length) : undefined;
+      if (symbol === undefined) return noopLocator;
+      const waitFor = jest.fn(async (options?: { timeout?: number }) => {
+        const timeout = options?.timeout ?? 0;
+        symbolWaitTimeouts.push(timeout);
+        if (
+          opts.appearSymbolOnWait?.includes(symbol) &&
+          (opts.symbolAppearanceTimeoutMs === undefined || timeout >= opts.symbolAppearanceTimeoutMs)
+        ) {
+          presentSymbols.add(symbol);
+        }
+        if (!presentSymbols.has(symbol)) throw new Error(`token row ${symbol} did not attach`);
+      });
+      const click = jest.fn(async () => clickedTokenSymbols.push(symbol));
+      return {
+        waitFor,
+        count: jest.fn(async () => (presentSymbols.has(symbol) ? 1 : 0)),
+        first: () => ({ waitFor, click }),
+        click
+      };
+    }),
     locator: jest.fn((selector: string) => {
       if (selector === 'body') return noopLocator;
+      if (selector === '[data-testid^="send-token-"]') {
+        const symbols = () => [...presentSymbols];
+        return {
+          count: jest.fn(async () => symbols().length),
+          nth: (index: number) => {
+            const symbol = symbols()[index] ?? '';
+            return {
+              getAttribute: jest.fn(async () => `send-token-${symbol}`),
+              click: jest.fn(async () => clickedTokenSymbols.push(symbol))
+            };
+          },
+          first: () => ({
+            click: jest.fn(async () => clickedTokenSymbols.push(symbols()[0] ?? ''))
+          })
+        };
+      }
       const match = selector.match(/^\[data-token-id=(.+)\]$/);
       const tokenId = JSON.parse(match?.[1] ?? '""') as string;
       return {
@@ -72,7 +120,7 @@ function makeSendPage(
     })
   } as unknown as Page;
 
-  return { page, clickedTokenIds };
+  return { page, clickedTokenIds, clickedTokenSymbols, symbolWaitTimeouts };
 }
 
 function installBalanceState(state: Record<string, unknown>, notes: Array<Record<string, unknown>>): void {
@@ -407,6 +455,30 @@ describe('ChromeWalletPage balance scoping', () => {
 });
 
 describe('ChromeWalletPage exact token selection', () => {
+  it('waits for the requested symbol row and never selects a different token', async () => {
+    const { page, clickedTokenSymbols, symbolWaitTimeouts } = makeSendPage([], {
+      tokenSymbols: ['OTHER'],
+      appearSymbolOnWait: ['TST'],
+      symbolAppearanceTimeoutMs: 25_000
+    });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'TST' });
+
+    expect(symbolWaitTimeouts).toContain(30_000);
+    expect(clickedTokenSymbols).toEqual(['TST']);
+  });
+
+  it('fails when the requested symbol is absent instead of selecting a different token', async () => {
+    const { page, clickedTokenSymbols } = makeSendPage([], { tokenSymbols: ['OTHER'] });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'TST' })
+    ).rejects.toThrow('symbol "TST"');
+    expect(clickedTokenSymbols).toEqual([]);
+  });
+
   it('selects the requested token id when two rows share a symbol', async () => {
     const { page, clickedTokenIds } = makeSendPage(['faucet-a', 'faucet-b']);
     const wallet = new ChromeWalletPage(page, 'test');
