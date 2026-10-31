@@ -444,11 +444,18 @@ final class BreadPresentationController {
 
     void prepareMorph(long durationMs) {
         BreadPresentationState.Phase phase = state.phase();
-        if (warmed || flying() || capturing || state.surfaceVisibility() || owner.managedClosing()
-            || owner.isShowing() || (phase != BreadPresentationState.Phase.VISIBLE
+        if (flying() || capturing || state.surfaceVisibility() || owner.managedClosing()
+            || (phase != BreadPresentationState.Phase.VISIBLE
             && phase != BreadPresentationState.Phase.TEMPORARILY_HIDDEN)) return;
         Window window = owner.getWindow();
         if (window == null) return;
+        if (warmed) {
+            if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
+            warmCooldown = () -> finishWarmup(true);
+            handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
+            return;
+        }
+        if (owner.isShowing()) return;
         restoreWindow();
         warmAccessibilityImportance = window.getDecorView().getImportantForAccessibility();
         warmed = true;
