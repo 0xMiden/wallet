@@ -575,6 +575,111 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       "github.event_name != 'pull_request'"
     ]);
   });
+
+  it('overlays only linked dependency revisions onto the presentation baseline', () => {
+    const sourceText = source('e2e-dapp-browser.yml');
+    expect(sourceText).toContain("<<'PRESENTATION_BASELINE_OVERLAY'");
+    const step = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser').steps.find(
+      item => keyOf(item, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(step).toBeDefined();
+    const script = step!.lines.join('\n');
+    expect(script).toContain('git -C "$GITHUB_WORKSPACE" show HEAD:package.json');
+    expect(script).toContain('yarn install --network-timeout 600000');
+    expect(script).toContain('yarn install --frozen-lockfile');
+    const overlay =
+      /node <<'PRESENTATION_BASELINE_OVERLAY'\n([\s\S]*?)\nPRESENTATION_BASELINE_OVERLAY/.exec(script)?.[1];
+    expect(overlay).toBeDefined();
+
+    const dir = mkdtempSync(join(tmpdir(), 'presentation-baseline-overlay-'));
+    try {
+      const committed = join(dir, 'committed.json');
+      const patched = join(dir, 'patched.json');
+      const baseline = join(dir, 'baseline.json');
+      const runOverlay = (committedManifest: unknown, patchedManifest: unknown, baselineManifest: unknown) => {
+        writeFileSync(committed, JSON.stringify(committedManifest));
+        writeFileSync(patched, JSON.stringify(patchedManifest));
+        writeFileSync(baseline, JSON.stringify(baselineManifest));
+        const result = spawnSync(process.execPath, ['-e', overlay!], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            COMMITTED_MANIFEST: committed,
+            PATCHED_MANIFEST: patched,
+            BASELINE_MANIFEST: baseline
+          }
+        });
+        expect([result.status, result.stderr]).toEqual([0, '']);
+        return { output: result.stdout.trim(), bytes: readFileSync(baseline, 'utf8') };
+      };
+
+      const changed = runOverlay(
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.3', left: 'candidate-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.17.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.3',
+            left: 'candidate-resolution',
+            shared: 'shared-resolution'
+          }
+        },
+        {
+          dependencies: {
+            '@miden-sdk/miden-sdk': 'file:../web-sdk',
+            left: 'injected-left',
+            absent: 'injected-only'
+          },
+          devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+          resolutions: {
+            left: 'candidate-resolution',
+            shared: 'shared-resolution',
+            '**/@openzeppelin/guardian-client': 'file:../guardian'
+          }
+        },
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.2', left: 'baseline-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.16.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.2',
+            left: 'baseline-resolution',
+            shared: 'baseline-shared',
+            other: 'baseline-other'
+          }
+        }
+      );
+      expect(changed.output).toBe('changed');
+      expect(JSON.parse(changed.bytes)).toEqual({
+        dependencies: { '@miden-sdk/miden-sdk': 'file:../web-sdk', left: 'baseline-left' },
+        devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+        resolutions: {
+          left: 'baseline-resolution',
+          shared: 'baseline-shared',
+          other: 'baseline-other',
+          '**/@openzeppelin/guardian-client': 'file:../guardian'
+        }
+      });
+
+      const absentBaselineBytes = JSON.stringify({ dependencies: { left: 'baseline-left' } });
+      writeFileSync(baseline, absentBaselineBytes);
+      const absentBaseline = runOverlay(
+        { dependencies: { absent: '0.1.0' }, resolutions: {} },
+        { dependencies: { absent: 'file:../linked' }, resolutions: {} },
+        { dependencies: { left: 'baseline-left' }, resolutions: {} }
+      );
+      expect([absentBaseline.output, absentBaseline.bytes]).toEqual(['unchanged', absentBaselineBytes]);
+
+      const identicalBytes = JSON.stringify({ dependencies: { left: 'same' }, resolutions: { left: 'same' } });
+      writeFileSync(baseline, identicalBytes);
+      const identical = runOverlay(
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } }
+      );
+      expect([identical.output, identical.bytes]).toEqual(['unchanged', identicalBytes]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('the rule itself', () => {
