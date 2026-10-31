@@ -1267,6 +1267,47 @@ describe('bridge rows testnet bridge USDC label', () => {
     ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
   });
 
+  it('labels an Epoch output whose symbol is the route USDC read, and keeps ETH and WETH', () => {
+    const derived = TEST_BRIDGE_CONFIG_SNAPSHOT.derived;
+    const chain = derived?.chains[11155111];
+    const read = chain?.epoch.tokens.USDC;
+    if (!derived || !chain || !read || read.state !== 'ok') throw new Error('The test USDC read is missing');
+    const usdcE: BridgeConfigSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      derived: {
+        ...derived,
+        chains: {
+          ...derived.chains,
+          11155111: {
+            ...chain,
+            epoch: {
+              ...chain.epoch,
+              tokens: {
+                ...chain.epoch.tokens,
+                USDC: { state: 'ok', value: { ...read.value, symbol: 'USDC.e' } }
+              }
+            }
+          }
+        }
+      }
+    };
+    expect(
+      bridgeRowDisplay(usdcE, bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'USDC.e' })).outLabel
+    ).toBe('Test Epoch USDC');
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'ETH', bridgeOutputAmount: '2' })
+      )
+    ).toMatchObject({ outSymbol: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'WETH', bridgeOutputAmount: '2' })
+      ).outLabel
+    ).toBe('WETH');
+  });
+
   it('leaves an Agglayer ETH row on ETH', () => {
     expect(
       bridgeInRowDisplay(
