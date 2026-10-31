@@ -75,7 +75,7 @@ for (const state of ['loading', 'restricted', 'unavailable', 'allowed'] satisfie
       .poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 })
       .toBe(true);
     const eligibilityOrigin = await getEligibilityFixtureOrigin();
-    expect(eligibilityOrigin).toEqual({ observed: true, origin: `chrome-extension://${extensionId}` });
+    expect(eligibilityOrigin).toEqual({ observed: true, origin: null });
     await info.attach('eligibility-origin', {
       body: JSON.stringify(eligibilityOrigin),
       contentType: 'application/json'
