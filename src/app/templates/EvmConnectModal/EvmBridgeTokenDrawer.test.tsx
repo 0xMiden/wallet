@@ -5,6 +5,9 @@ import { render, screen, within } from '@testing-library/react';
 import { EvmBridgeTokenDrawer, type OfferedErc20 } from './EvmBridgeTokenDrawer';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('components/TokenUsdValue', () => ({
+  UsdValue: ({ amount }: { amount: string }) => <span data-testid="token-usd-value">{amount}</span>
+}));
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -104,7 +107,59 @@ describe('EvmBridgeTokenDrawer', () => {
     expect(onSelect).toHaveBeenCalledWith({ kind: 'erc20', contractAddress: wbtc.contractAddress });
   });
 
-  it('hides zero and unavailable balances but keeps a positive balance that displays as zero', () => {
+  it('keeps a known zero hidden and an unread ERC-20 selectable', () => {
+    const token: OfferedErc20 = {
+      symbol: 'WBTC',
+      contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06',
+      decimals: 8
+    };
+    const onSelect = jest.fn();
+    const props = {
+      open: true,
+      onOpenChange: jest.fn(),
+      selected: 'ETH',
+      ethBalance: '0',
+      ethBalanceValue: 0n,
+      onSelect
+    } satisfies React.ComponentProps<typeof EvmBridgeTokenDrawer>;
+    const { rerender } = render(
+      <EvmBridgeTokenDrawer {...props} erc20Rows={[{ token, name: 'WBTC', balance: '0', value: 0n }]} />
+    );
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('bridgeDepositNoTokenBalance');
+
+    rerender(<EvmBridgeTokenDrawer {...props} erc20Rows={[{ token, name: 'WBTC', balance: '0', value: null }]} />);
+    const unreadErc20 = screen.getByTestId(`bridge-token-ERC20_${token.contractAddress}`);
+    expect(within(unreadErc20).getByText('unavailable')).toBeInTheDocument();
+    expect(within(unreadErc20).queryByText('0 WBTC')).not.toBeInTheDocument();
+    expect(within(unreadErc20).queryByTestId('token-usd-value')).not.toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositNoTokenBalance')).not.toBeInTheDocument();
+    unreadErc20.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'erc20', contractAddress: token.contractAddress });
+  });
+
+  it('shows a failed ETH balance as selectable and unavailable', () => {
+    const onSelect = jest.fn();
+    render(
+      <EvmBridgeTokenDrawer
+        open
+        onOpenChange={jest.fn()}
+        selected="ETH"
+        ethBalance="0"
+        ethBalanceValue={null}
+        ethLoading={false}
+        onSelect={onSelect}
+      />
+    );
+    const unreadEth = screen.getByTestId('bridge-token-ETH');
+    expect(within(unreadEth).getByText('unavailable')).toBeInTheDocument();
+    expect(within(unreadEth).queryByText('0 ETH')).not.toBeInTheDocument();
+    expect(within(unreadEth).queryByTestId('token-usd-value')).not.toBeInTheDocument();
+    unreadEth.click();
+    expect(onSelect).toHaveBeenCalledWith('ETH');
+  });
+
+  it('keeps a positive balance that displays as zero', () => {
     const token: OfferedErc20 = {
       symbol: 'WBTC',
       contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06',
@@ -118,16 +173,7 @@ describe('EvmBridgeTokenDrawer', () => {
       ethBalanceValue: 0n,
       onSelect: jest.fn()
     } satisfies React.ComponentProps<typeof EvmBridgeTokenDrawer>;
-    const { rerender } = render(
-      <EvmBridgeTokenDrawer {...props} erc20Rows={[{ token, name: 'WBTC', balance: '0', value: 0n }]} />
-    );
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('bridgeDepositNoTokenBalance');
-
-    rerender(<EvmBridgeTokenDrawer {...props} erc20Rows={[{ token, name: 'WBTC', balance: '0', value: null }]} />);
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
-
-    rerender(
+    render(
       <EvmBridgeTokenDrawer
         {...props}
         ethBalanceValue={1n}
@@ -139,17 +185,58 @@ describe('EvmBridgeTokenDrawer', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('keeps Circle USDC available at zero balance', () => {
-    render(
-      <EvmBridgeTokenDrawer
-        open
-        onOpenChange={jest.fn()}
-        selected="CIRCLE_USDC"
-        circleUsdcBalance="0"
-        onSelect={jest.fn()}
-      />
-    );
-    expect(screen.getByTestId('bridge-token-CIRCLE_USDC')).toBeInTheDocument();
+  it('keeps Circle USDC available at zero balance and labels a failed read unavailable', () => {
+    const onSelect = jest.fn();
+    const props = {
+      open: true,
+      onOpenChange: jest.fn(),
+      selected: 'CIRCLE_USDC' as const,
+      circleUsdcBalance: '0',
+      circleUsdcBalanceValue: 0n,
+      onSelect
+    };
+    const { rerender } = render(<EvmBridgeTokenDrawer {...props} />);
+    const knownZero = screen.getByTestId('bridge-token-CIRCLE_USDC');
+    expect(within(knownZero).getByText('0 USDC')).toBeInTheDocument();
+    expect(within(knownZero).getByTestId('token-usd-value')).toBeInTheDocument();
+
+    rerender(<EvmBridgeTokenDrawer {...props} circleUsdcBalanceValue={null} circleUsdcLoading={false} />);
+    const unreadCircle = screen.getByTestId('bridge-token-CIRCLE_USDC');
+    expect(within(unreadCircle).getByText('unavailable')).toBeInTheDocument();
+    expect(within(unreadCircle).queryByText('0 USDC')).not.toBeInTheDocument();
+    expect(within(unreadCircle).queryByTestId('token-usd-value')).not.toBeInTheDocument();
+    unreadCircle.click();
+    expect(onSelect).toHaveBeenCalledWith('CIRCLE_USDC');
+  });
+
+  it('waits for Circle balance before showing the empty state', () => {
+    const props = {
+      open: true,
+      onOpenChange: jest.fn(),
+      selected: 'ETH' as const,
+      ethBalance: '0',
+      ethBalanceValue: 0n,
+      erc20Rows: [],
+      onSelect: jest.fn()
+    };
+    render(<EvmBridgeTokenDrawer {...props} circleUsdcLoading />);
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+    expect(screen.queryByText('bridgeDepositNoTokenBalance')).not.toBeInTheDocument();
+  });
+
+  it('waits for wallet holdings before showing the empty state', () => {
+    const props = {
+      open: true,
+      onOpenChange: jest.fn(),
+      selected: 'ETH' as const,
+      ethBalance: '0',
+      ethBalanceValue: 0n,
+      erc20Rows: [],
+      onSelect: jest.fn()
+    };
+    render(<EvmBridgeTokenDrawer {...props} erc20ListLoading />);
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+    expect(screen.queryByText('bridgeDepositNoTokenBalance')).not.toBeInTheDocument();
   });
 
   it('puts the token rows in an inner scroll area', () => {

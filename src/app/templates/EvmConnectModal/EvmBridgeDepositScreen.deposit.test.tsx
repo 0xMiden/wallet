@@ -173,7 +173,11 @@ let mockAgglayerUsdc: string | undefined;
 // The test network's token API, which offers the wallet's holdings: none unless a case sets one.
 let mockTokenApiUrl: string | undefined;
 let mockHeldErc20s: Erc20Holding[] = [];
-jest.mock('lib/agglayer/token-holdings', () => ({ readErc20Holdings: async () => mockHeldErc20s }));
+let mockReadErc20Holdings: () => Promise<Erc20Holding[]> = async () => mockHeldErc20s;
+jest.mock('lib/agglayer/token-holdings', () => ({ readErc20Holdings: () => mockReadErc20Holdings() }));
+let mockLastCircleBalance: string | undefined;
+let mockLastCircleBalanceValue: bigint | null | undefined;
+let mockLastCircleLoading: boolean | undefined;
 // The document's bridge-in ceiling: none unless a case sets one.
 let mockBridgeInCapUsd: number | null = null;
 // The ERC-20s the document lists for the AggLayer chain, as the derivation verified them.
@@ -488,12 +492,32 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: DepositToken) => void }) => {
+  EvmBridgeTokenDrawer: ({
+    open,
+    onSelect,
+    erc20ListLoading,
+    circleUsdcBalance,
+    circleUsdcBalanceValue,
+    circleUsdcLoading
+  }: {
+    open: boolean;
+    onSelect: (token: DepositToken) => void;
+    erc20ListLoading?: boolean;
+    circleUsdcBalance?: string;
+    circleUsdcBalanceValue?: bigint | null;
+    circleUsdcLoading?: boolean;
+  }) => {
     mockLastTokenSelect = onSelect;
+    mockLastCircleBalance = circleUsdcBalance;
+    mockLastCircleBalanceValue = circleUsdcBalanceValue;
+    mockLastCircleLoading = circleUsdcLoading;
     return open ? (
-      <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
-        ETH
-      </button>
+      <>
+        <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
+          ETH
+        </button>
+        {erc20ListLoading && <span data-testid="holdings-pending" />}
+      </>
     ) : null;
   }
 }));
@@ -2665,6 +2689,10 @@ describe('user-visible bridge deposit producers', () => {
     mockSnapshot = READY_SNAPSHOT;
     mockNativeReown = false;
     mockWebProviderConnected = true;
+    mockReadErc20Holdings = async () => mockHeldErc20s;
+    mockLastCircleBalance = undefined;
+    mockLastCircleBalanceValue = undefined;
+    mockLastCircleLoading = undefined;
     Object.assign(epochState, idleEpoch);
     answerBalance(FUNDED);
     jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
@@ -2682,6 +2710,10 @@ describe('user-visible bridge deposit producers', () => {
     mockDepositTokens = [];
     mockTokenApiUrl = undefined;
     mockHeldErc20s = [];
+    mockReadErc20Holdings = async () => mockHeldErc20s;
+    mockLastCircleBalance = undefined;
+    mockLastCircleBalanceValue = undefined;
+    mockLastCircleLoading = undefined;
     mockLiveBridgeRow = undefined;
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
@@ -2798,6 +2830,41 @@ describe('user-visible bridge deposit producers', () => {
     fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
     await flushBridgePromises();
   };
+
+  it('withholds the empty token list while wallet holdings are loading', async () => {
+    mockTokenApiUrl = 'https://tokens.test';
+    let resolveHoldings!: (tokens: Erc20Holding[]) => void;
+    mockReadErc20Holdings = () =>
+      new Promise<Erc20Holding[]>(resolve => {
+        resolveHoldings = tokens => resolve(tokens);
+      });
+    answerBalance(0n);
+    renderScreen();
+    await settle();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    await settle();
+
+    expect(screen.getByTestId('pick-eth')).toBeInTheDocument();
+    expect(screen.getByTestId('holdings-pending')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveHoldings([]);
+      await Promise.resolve();
+    });
+    await settle();
+    expect(screen.queryByTestId('holdings-pending')).not.toBeInTheDocument();
+  });
+
+  it('passes a failed Circle balance to the token drawer as unreadable', async () => {
+    answerBalance(null);
+    renderScreen();
+    await settle();
+    await settle();
+
+    expect(mockLastCircleBalance).toBe('0');
+    expect(mockLastCircleBalanceValue).toBeNull();
+    expect(mockLastCircleLoading).toBe(false);
+  });
 
   it('holds an ERC-20 deposit its own quote takes past the ceiling, though it would clear at par', async () => {
     mockPriceSymbols.set(WBTC_FAUCET, 'BTC');

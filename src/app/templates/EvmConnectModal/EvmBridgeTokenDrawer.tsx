@@ -35,6 +35,7 @@ interface TokenRow {
   /** Formatted balance for display (from the connected EVM wallet). */
   balance: string;
   loading?: boolean;
+  unreadable?: boolean;
 }
 
 export interface EvmBridgeTokenDrawerProps {
@@ -52,6 +53,8 @@ export interface EvmBridgeTokenDrawerProps {
    * drawn only when the balance is given, which the host does where that route can start.
    */
   circleUsdcBalance?: string;
+  /** Circle USDC's base-unit balance; null marks a settled read failure. */
+  circleUsdcBalanceValue?: bigint | null;
   /** The Circle USDC row's name: the token's symbol and its network. */
   circleUsdcLabel?: string;
   circleUsdcLoading?: boolean;
@@ -62,6 +65,8 @@ export interface EvmBridgeTokenDrawerProps {
   erc20Rows?: DepositErc20Row[];
   /** True while the registered token list could not be read: the drawer says so instead of showing fewer tokens. */
   erc20Unavailable?: boolean;
+  /** True while the wallet holdings request is unresolved. */
+  erc20ListLoading?: boolean;
   onSelect: (token: DepositToken) => void;
 }
 
@@ -80,19 +85,29 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   ethBalanceValue,
   ethLoading,
   circleUsdcBalance,
+  circleUsdcBalanceValue,
   circleUsdcLabel,
   circleUsdcLoading,
   erc20Rows = [],
   erc20Unavailable = false,
+  erc20ListLoading,
   onSelect
 }) => {
   const { t } = useTranslation();
   const prices = useWalletStore(state => state.tokenPrices);
 
   const rows: TokenRow[] = [];
-  const balancesLoading = ethLoading || erc20Rows.some(row => row.loading);
-  if (ethBalance !== undefined && ethBalanceValue !== null && ethBalanceValue !== undefined && ethBalanceValue > 0n) {
-    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, loading: ethLoading });
+  const balancesLoading = ethLoading || circleUsdcLoading || erc20ListLoading || erc20Rows.some(row => row.loading);
+  if (
+    ethBalance !== undefined &&
+    !ethLoading &&
+    ethBalanceValue !== null &&
+    ethBalanceValue !== undefined &&
+    ethBalanceValue > 0n
+  ) {
+    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance });
+  } else if (ethBalance !== undefined && !ethLoading && ethBalanceValue === null) {
+    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, unreadable: true });
   }
   if (circleUsdcBalance !== undefined) {
     rows.push({
@@ -100,11 +115,23 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       name: circleUsdcLabel ?? 'USDC',
       logoSymbol: 'USDC',
       balance: circleUsdcBalance,
-      loading: circleUsdcLoading
+      loading: circleUsdcLoading,
+      unreadable: !circleUsdcLoading && circleUsdcBalanceValue === null
     });
   }
   for (const { token, name, balance, value, loading } of erc20Rows) {
-    if (value === null || value <= 0n) continue;
+    if (loading) continue;
+    if (value === null) {
+      rows.push({
+        token: { kind: 'erc20', contractAddress: token.contractAddress },
+        name,
+        logoSymbol: token.symbol,
+        balance,
+        unreadable: true
+      });
+      continue;
+    }
+    if (value <= 0n) continue;
     rows.push({
       token: { kind: 'erc20', contractAddress: token.contractAddress },
       name,
@@ -123,7 +150,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
 
         <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4" data-testid="bridge-token-scroll">
           <ListGroup>
-            {rows.map(({ token, name, logoSymbol, balance, loading }) => (
+            {rows.map(({ token, name, logoSymbol, balance, loading, unreadable }) => (
               <ListRow
                 accent="receive"
                 key={depositTokenKey(token)}
@@ -131,6 +158,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
                 subtitle={
                   loading ? (
                     t('loading')
+                  ) : unreadable ? (
+                    t('unavailable')
                   ) : (
                     <div>
                       {`${balance} ${name}`}

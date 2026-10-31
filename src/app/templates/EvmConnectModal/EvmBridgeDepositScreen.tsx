@@ -2266,6 +2266,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         ethBalanceValue={ethBalance.value}
         ethLoading={ethBalance.loading}
         circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
+        circleUsdcBalanceValue={circleUsdcBalance.value}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}
         erc20Rows={
@@ -2288,6 +2289,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           agglayerChain !== null &&
           ((depositTokens === null && bridgeConfig.status !== 'loading') || holdings.status === 'error')
         }
+        erc20ListLoading={holdings.status === 'loading'}
         onSelect={handleTokenSelect}
       />
       <EvmBridgeNetworkDrawer
