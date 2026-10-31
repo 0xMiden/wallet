@@ -2452,6 +2452,14 @@
     "message": "Cette paire ne peut plus être échangée. Revenez en arrière et choisissez un autre jeton.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "Proposez au moins 1 $ d’actifs à échanger.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "Le cours en USD n’est pas disponible. Veuillez réessayer dans quelques instants.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "Prix indisponible. Veuillez réessayer dans quelques instants.",
     "englishSource": "Price unavailable. Try again shortly."
