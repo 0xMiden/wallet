@@ -13,6 +13,7 @@ import { queueOutgoingTransaction, spendsOf } from './queue';
 import { SpendingLimitAuthorizationRequiredError, SpendingLimitConfiguration } from './types';
 import { resolveSpendsUsd } from './valuation';
 
+jest.mock('../recovery/financial-writer');
 jest.mock('./valuation', () => ({ resolveSpendsUsd: jest.fn() }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);

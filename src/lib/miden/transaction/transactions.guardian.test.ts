@@ -90,12 +90,14 @@ import {
   ConsumeTransaction,
   ISubmitEvidence,
   ITransactionStage,
+  StageDetail,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+import { checkpointTransactionRecovery } from '../recovery/checkpoint';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 jest.mock('lib/miden/swap/balance', () => ({
   assertSwapVaultBalance: jest.fn(async () => {}),
@@ -443,6 +445,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     WasmWebClient: {
       createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
+    },
+    NoteFile: {
+      fromOutputNote: (note: RecoveryOutputFixture) => ({ serialize: () => note.serialize(), free: () => {} })
     }
   };
 });
@@ -458,14 +463,16 @@ const mockDispatchGuardianPipeline = jest.fn();
 // The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
 // gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it.
 const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
-  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const candidateGate = a[6];
+  const gate = typeof candidateGate === 'function' ? candidateGate : undefined;
+  const recovery = { requestBytes: new Uint8Array([1]), notes: [] };
   const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
   try {
     const result = await mockDispatchGuardianPipeline(...a);
-    await gate?.();
+    await gate?.(undefined, recovery);
     return result;
   } catch (error) {
-    if (!hasErrorBeforeSubmit(error)) await gate?.();
+    if (!hasErrorBeforeSubmit(error)) await gate?.(undefined, recovery);
     throw error;
   }
 };
@@ -500,10 +507,17 @@ jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
 
+interface RecoveryOutputFixture {
+  id(): { toString(): string };
+  metadata(): { noteType(): unknown };
+  serialize(): Uint8Array;
+}
+
 const makeResult = () => ({
   executedTransaction: () => ({
     id: () => ({ toHex: () => 'exec-tx-hash' }),
     outputNotes: () => ({ notes: () => [] }),
+    userOutputNotes: (): RecoveryOutputFixture[] => [],
     inputNotes: () => ({ notes: () => [] })
   }),
   serialize: () => new Uint8Array([9, 9, 9])
@@ -2339,13 +2353,18 @@ describe('generateTransaction — Guardian routing', () => {
       // The PSWAP note the swap creates, which completion reads its order id from.
       const orderNote = {
         id: () => ({ toString: () => 'pswap-note' }),
+        serialize: () => new Uint8Array([7, 1]),
         metadata: () => ({ noteType: () => NoteType.Public }),
         intoFull: () => ({ recipient: () => ({ serialNum: () => ({ toFelts: () => [{}, { asInt: () => 7n }] }) }) })
       };
       const base = makeResult();
       const executed = base.executedTransaction();
       const result = Object.assign(base, {
-        executedTransaction: () => ({ ...executed, outputNotes: () => ({ notes: () => [orderNote] }) })
+        executedTransaction: () => ({
+          ...executed,
+          outputNotes: () => ({ notes: () => [orderNote] }),
+          userOutputNotes: () => [orderNote]
+        })
       });
       const client = Object.assign(makeClientApi(result, apply), { getSyncHeight: jest.fn(async () => 100) });
       mockGetMidenClient.mockResolvedValue({
@@ -4662,7 +4681,7 @@ describe('generateTransaction — Guardian routing', () => {
     ).toBeUndefined();
   });
 
-  it('Guardian send: an eviction during delegated proving retires a late submit-stage stamp', async () => {
+  it('Guardian send: an eviction during delegated proving refuses capture before a late submit-stage stamp', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     resetConnectivityState();
@@ -4731,7 +4750,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.transactions.submitProven).not.toHaveBeenCalled();
     expect(abandonCandidate).toHaveBeenCalledWith(5);
     const stored = txStore.find(row => row.id === txId);
-    expect(stored?.submitEvidence).toEqual(expect.arrayContaining([expect.objectContaining({ preSubmitEnd: true })]));
+    expect(stored?.submitEvidence).toEqual([expect.objectContaining({ source: 'kill', endedBy: 'kill' })]);
     expect(stored?.submitEvidence).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -6742,7 +6761,11 @@ describe('generateTransaction — Guardian routing', () => {
 
       it.each([
         ['drops its stamp', async (_onStage: (stage: ITransactionStage) => Promise<void>) => {}],
-        ["reports 'submitting'", async (onStage: (stage: ITransactionStage) => Promise<void>) => onStage('submitting')]
+        [
+          "reports 'submitting'",
+          async (onStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
+            onStage('submitting', { reliable: false })
+        ]
       ])(
         'an offscreen attempt on a row that cannot await a verdict, whose leaf %s before a submit failure and whose abandon fails, leaves no mark, so the next send does not retry it',
         async (_label, stamp) => {
@@ -9576,9 +9599,11 @@ describe('generateTransaction — Guardian routing', () => {
       // An earlier test's unconsumed one-shot answer would otherwise stand in for this implementation.
       mockDispatchGuardianPipeline.mockReset();
       mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
-        const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+        const candidateGate = a[6];
+        const gate = typeof candidateGate === 'function' ? candidateGate : undefined;
+        const recovery = { requestBytes: new Uint8Array([1]), notes: [] };
         expect(gate).toBeDefined();
-        gateAnswer = await gate?.();
+        gateAnswer = await gate?.(undefined, recovery);
         throw new Error('stop after the gate');
       });
       const provider = {
@@ -12407,12 +12432,26 @@ describe('generateTransaction — Guardian routing', () => {
   // #1233: only `completeCustomTransaction` relays an execute's private notes, and a landed execute
   // never ran it. The executed transaction says how many it produced; unreadable, the recipient the
   // request named says whether any were owed.
-  const privateOutputNote = { metadata: () => ({ noteType: () => NoteType.Private }) };
-  const publicOutputNote = { metadata: () => ({ noteType: () => NoteType.Public }) };
+  const privateOutputNote = {
+    id: () => ({ toString: () => 'private-output' }),
+    serialize: () => new Uint8Array([7, 2]),
+    metadata: () => ({ noteType: () => NoteType.Private }),
+    intoFull: () => ({ free: () => {} })
+  };
+  const secondPrivateOutputNote = {
+    ...privateOutputNote,
+    id: () => ({ toString: () => 'private-output-2' }),
+    serialize: () => new Uint8Array([7, 3])
+  };
+  const publicOutputNote = {
+    id: () => ({ toString: () => 'public-output' }),
+    serialize: () => new Uint8Array([7, 4]),
+    metadata: () => ({ noteType: () => NoteType.Public })
+  };
   it.each([
     {
       label: 'two private output notes',
-      notes: [privateOutputNote, publicOutputNote, privateOutputNote],
+      notes: [privateOutputNote, publicOutputNote, secondPrivateOutputNote],
       recipient: undefined,
       delivery: 'undelivered',
       message: 'Executed - 2 private notes could not be delivered'
@@ -12454,6 +12493,7 @@ describe('generateTransaction — Guardian routing', () => {
     const result = Object.assign(makeResult(), {
       executedTransaction: () => ({
         ...makeResult().executedTransaction(),
+        userOutputNotes: () => notes ?? (recipient ? [privateOutputNote] : []),
         outputNotes: () => {
           if (notes === null) throw new Error('recursive use of an object detected');
           return { notes: () => notes };
@@ -12491,6 +12531,14 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.noteDelivery).toBe(delivery);
     expect(row.displayMessage).toBe(message);
     expect(row.transactionId).toBe('exec-tx-hash');
+    const captured = jest.mocked(checkpointTransactionRecovery).mock.calls.find(([id]) => id === txId)?.[1];
+    const beforeSubmitNotes = notes ?? (recipient ? [privateOutputNote] : []);
+    expect(captured?.notes.map(note => ({ id: note.id, bytes: Array.from(note.noteFile) }))).toEqual(
+      beforeSubmitNotes
+        .filter(note => note.metadata().noteType() !== NoteType.Public)
+        .map(note => ({ id: note.id().toString(), bytes: Array.from(note.serialize()) }))
+    );
+    expect(captured?.notes.some(note => note.id === 'public-output')).toBe(false);
   });
 
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store
@@ -14734,6 +14782,12 @@ beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
 });
 
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
+}));
 it('records only directly examined admission decisions without extra eligibility reads', async () => {
   jest.clearAllMocks();
   txStore.length = 0;

@@ -138,7 +138,7 @@ jest.mock('lib/miden/activity', () => ({
   },
   findPendingBridgeInByEarnWithdrawTxId: jest.fn()
 }));
-jest.mock('lib/miden/repo', () => ({ transactions: { where: jest.fn(), filter: jest.fn() } }));
+jest.mock('lib/miden/repo', () => ({ transactions: { where: jest.fn(), filter: jest.fn(), get: jest.fn() } }));
 
 const EVM_OWNER = '0x1111111111111111111111111111111111111111';
 const UNDERLYING = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
@@ -211,6 +211,7 @@ beforeEach(() => {
 });
 
 function wireWithdrawal(row: ITransaction | undefined) {
+  jest.mocked(Repo.transactions.get).mockResolvedValue(row);
   const modify = jest.fn(async (mutate: (tx: ITransaction) => void) => {
     if (!row) return 0;
     mutate(row);
@@ -1283,6 +1284,12 @@ function memoryWithdrawals() {
   const rows = new Map<string, LiveWithdrawal>();
   const registry: PendingBridgeInIntent[] = [];
   const clone = (row: LiveWithdrawal): LiveWithdrawal => ({ ...row, extraInputs: { ...row.extraInputs } });
+  jest.mocked(Repo.transactions.get).mockImplementation(
+    jest.fn().mockImplementation(async (key: unknown) => {
+      const row = typeof key === 'string' ? rows.get(key) : undefined;
+      return row ? clone(row) : undefined;
+    })
+  );
   jest.mocked(Repo.transactions.where).mockImplementation(
     jest.fn().mockImplementation(({ id }: { id: string }) => ({
       first: jest.fn().mockImplementation(async () => {
@@ -2151,3 +2158,7 @@ describe('reviewed withdrawals', () => {
     }
   );
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

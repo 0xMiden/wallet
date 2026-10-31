@@ -323,14 +323,16 @@ const mockDispatchGuardianPipeline = jest.fn();
 // `mockLeafOpensGate` off for a leaf that stopped before its gate.
 let mockLeafOpensGate = true;
 const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
-  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const callback = a[6];
+  const gate = typeof callback === 'function' ? callback : undefined;
   const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
   try {
     const result = await mockDispatchGuardianPipeline(...a);
-    if (mockLeafOpensGate) await gate?.();
+    if (mockLeafOpensGate) await gate?.(undefined, { requestBytes: new Uint8Array([1]), notes: [] });
     return result;
   } catch (error) {
-    if (mockLeafOpensGate && !hasErrorBeforeSubmit(error)) await gate?.();
+    if (mockLeafOpensGate && !hasErrorBeforeSubmit(error))
+      await gate?.(undefined, { requestBytes: new Uint8Array([1]), notes: [] });
     throw error;
   }
 };
@@ -439,6 +441,7 @@ jest.mock('lib/store', () => ({
 const makeResult = (bytes: number[] = [9, 9, 9]) => ({
   executedTransaction: () => ({
     id: () => ({ toHex: () => 'exec-tx-hash' }),
+    userOutputNotes: () => [],
     outputNotes: () => ({ notes: () => [] }),
     inputNotes: () => ({ notes: () => [] })
   }),
@@ -2463,10 +2466,12 @@ describe('guardian leaf per-step stage stamps (PR #524 × #260)', () => {
     // invoking that callback at the same three points.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockImplementation(async (..._args: unknown[]) => {
-      const onStage = _args[4] as (s: string) => Promise<void>;
+      const callback = _args[4];
+      if (typeof callback !== 'function') throw new Error('Stage callback missing');
+      const onStage = callback;
       await onStage('executing');
       await onStage('proving');
-      await onStage('submitting');
+      await onStage('submitting', { reliable: false });
       return makeResult();
     });
     arrange('stage-parity-on', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
@@ -3162,8 +3167,9 @@ describe('guardian offscreen submit gate (#1644)', () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     let seenAtGate: Record<string, unknown> | undefined;
     mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
-      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
-      expect(await gate({ refBlock: 9 })).toBe(true);
+      const gate = a[6];
+      if (typeof gate !== 'function') throw new Error('Submit gate missing');
+      expect(await gate({ refBlock: 9 }, { requestBytes: new Uint8Array(TR_BYTES), notes: [] })).toBe(true);
       seenAtGate = { ...(txStore.find(r => r.id === 'gate-records') as Record<string, unknown>) };
       mockLeafOpensGate = false;
       throw new OperationAbortedError('op-kill', 'deadline');
@@ -3182,8 +3188,9 @@ describe('guardian offscreen submit gate (#1644)', () => {
     mockLeafOpensGate = false;
     let pending: Promise<boolean> | undefined;
     mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
-      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
-      pending = gate();
+      const gate = a[6];
+      if (typeof gate !== 'function') throw new Error('Submit gate missing');
+      pending = gate(undefined, { requestBytes: new Uint8Array(TR_BYTES), notes: [] });
       throw new OperationAbortedError('op-kill', 'deadline');
     });
     mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
@@ -4289,4 +4296,11 @@ jest.mock('lib/miden/swap/balance', () => ({
   assertSwapVaultBalance: jest.fn(async () => {}),
   readSwapFeeContext: jest.fn(async () => ({})),
   assertSwapAccountBalance: jest.fn()
+}));
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
 }));

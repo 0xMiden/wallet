@@ -19,6 +19,9 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import { assertCanonicalNoteRequest } from 'lib/miden/recovery/canonical-note-readback';
+import { prepareOffscreenRetainedNoteReceipt, type RetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
+import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -27,6 +30,7 @@ import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
   getMidenClient,
+  getMidenClientForRecovery,
   getCurrentWasmLockHold,
   assertWasmHoldCurrent,
   withWasmClientLock,
@@ -49,9 +53,22 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  getStorageHealth,
+  initializeStorageHealth,
+  type StorageRecoveryCapability
+} from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEndpointState,
+  getEffectiveNetworkName,
+  sameEndpointState,
+  whenEndpointOverridesLoaded,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import {
   annotateOffscreenDeadline,
@@ -75,6 +92,8 @@ import {
   type OffscreenDeadlineTimer,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
+  type OffscreenNoteAcquisitionRequest,
+  type OffscreenNoteAcquisitionResponse,
   type OffscreenSendDto,
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
@@ -105,6 +124,11 @@ import {
   GuardianHistoryFeeLookupError,
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
+import { decodeRecoveryCapture } from '../recovery/capture';
+import { StorageContinuityError } from '../recovery/continuity';
+import { decodeSdkRecoverySnapshot, type SdkRecoverySnapshot } from '../recovery/sdk-snapshot';
+import { toSerializable } from '../recovery/serialization';
+import type { RecoveryCapture } from '../recovery/types';
 import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 
@@ -335,6 +359,13 @@ const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
 const COMMIT_WAIT_DEADLINE_MS = 150_000;
 
 interface InFlightOp {
+  acquisition: {
+    retain: ReturnType<typeof captureNoteAcquisitionRetainer>;
+    epoch: number;
+    network: string;
+    endpoints: EndpointState;
+    receipt?: ReturnType<typeof prepareOffscreenRetainedNoteReceipt>;
+  };
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
   resolveResult: (resultB64: string | null) => void;
   reject: (err: unknown) => void;
@@ -426,7 +457,7 @@ const opStageCallbacks = new Map<string, StageCallback>();
  * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
  * happen.
  */
-export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+export type SubmitGate = (evidence?: SubmitEvidenceFields, recovery?: RecoveryCapture) => Promise<boolean>;
 
 /** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
@@ -497,6 +528,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // not off a code. Arriving as a bare `Error` it read as an ordinary failure,
     // which for a send lets Retry mint a second payment while the abandoned
     // offscreen op is still able to submit. Same argument as `finishOpError`'s.
+    if (resp.errorName === 'StorageContinuityError') {
+      reject(new StorageContinuityError());
+      return;
+    }
     if (resp.errorName === 'WasmClientPoisonedError') {
       // `errorReason` names the mechanism that fired in the offscreen realm; an
       // older/garbled payload without a recognizable one is still an eviction,
@@ -579,7 +614,11 @@ function rejectAllInFlight(
  */
 async function onDeadline(op_id: string): Promise<void> {
   const op = inFlight.get(op_id);
-  if (!op) return; // already settled
+  if (!op) return;
+  if (op.method === 'readStorageContinuity') {
+    finishOpError(op_id, new Error('Storage continuity read timed out'));
+    return;
+  } // already settled
   // Defensive: a paused op's timer is cleared, so onDeadline shouldn't fire for
   // it — but if a stale timer callback races the pause, do nothing.
   if (op.paused) return;
@@ -629,18 +668,47 @@ async function dispatchOp(
   method: string,
   args: unknown[],
   deadlineMs: number | null,
-  critical: boolean
+  critical: boolean,
+  recoveryCapability?: StorageRecoveryCapability,
+  recoveryReceipt?: ReturnType<typeof prepareOffscreenRetainedNoteReceipt>
 ): Promise<string | null> {
+  const retainAcquisition = captureNoteAcquisitionRetainer();
+  const recoveryHold = recoveryCapability ? getCurrentWasmLockHold() : undefined;
+  const recoveryEndpoints = recoveryCapability ? getEndpointState() : undefined;
+  const recoveryNetwork = recoveryCapability ? getEffectiveNetworkName() : undefined;
+  const check = () => {
+    if (!recoveryCapability) {
+      assertStorageHealthy();
+      return;
+    }
+    if (method !== 'readStorageContinuity' && method !== 'restoreStorageRecovery')
+      throw new Error('Invalid recovery operation');
+    assertStorageRecoveryAllowed(recoveryCapability);
+    if (!recoveryHold || !recoveryEndpoints) throw new Error('Storage recovery requires a current owner');
+    assertWasmHoldCurrent(recoveryHold, 'offscreen recovery readiness');
+    retainAcquisition.assertSinkCurrent();
+    recoveryReceipt?.assertCurrent();
+    if (recoveryNetwork !== getEffectiveNetworkName() || !sameEndpointState(recoveryEndpoints, getEndpointState()))
+      throw new Error('Storage recovery scope changed');
+  };
+  let storageEpoch = getStorageHealth().epoch;
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
-    await ensureOffscreenDocument();
+    check();
+    await initializeStorageHealth();
+    check();
+    storageEpoch = getStorageHealth().epoch;
+    await ensureOffscreenDocument(recoveryCapability, check);
+    check();
+    // The sync alarm may arrive before the realm has loaded its persisted override.
+    await whenEndpointOverridesLoaded();
+    check();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
   }
-  // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
-  // envelope carries would still be the build's network. The load settles even when it fails.
-  await whenEndpointOverridesLoaded();
+  const acquisitionEndpoints = getEndpointState();
+  const acquisitionNetwork = getEffectiveNetworkName();
   let argsB64: string[];
   try {
     argsB64 = args.map(encodeArg);
@@ -648,6 +716,7 @@ async function dispatchOp(
     throw markErrorBeforeSubmit(error);
   }
   return new Promise<string | null>((resolve, reject) => {
+    check();
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
     // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
     // WASM mutex (issue #260 flip-prep #3), so queue-wait behind other ops on that
@@ -671,6 +740,13 @@ async function dispatchOp(
           )
         : null;
     inFlight.set(op_id, {
+      acquisition: {
+        retain: retainAcquisition,
+        epoch: storageEpoch,
+        network: acquisitionNetwork,
+        endpoints: acquisitionEndpoints,
+        receipt: recoveryReceipt
+      },
       resolveResult: resolve,
       reject,
       timer,
@@ -684,13 +760,18 @@ async function dispatchOp(
     });
 
     const envelope: OffscreenCallRequest = {
+      recoveryAccess: recoveryCapability && {
+        epoch: recoveryCapability.epoch,
+        expiresAt: recoveryCapability.expiresAt
+      },
+      storageHealth: getStorageHealth(),
       target: OFFSCREEN_TARGET,
       type: OFFSCREEN_CALL,
       op_id,
       method,
       argsB64,
       deadline_ms: deadlineMs,
-      endpoints: getEndpointState()
+      endpoints: acquisitionEndpoints
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
     // closed), or reject ("message port closed"). All three are handled: a
@@ -809,6 +890,40 @@ export async function handleOffscreenSignRequest(
   }
 }
 
+export async function handleOffscreenNoteAcquisition(
+  msg: OffscreenNoteAcquisitionRequest
+): Promise<OffscreenNoteAcquisitionResponse> {
+  const op = inFlight.get(msg.op_id);
+  const check = () => {
+    if (!op || !op.started || inFlight.get(msg.op_id) !== op) throw new Error('Acquisition operation ended');
+    if (op.acquisition.receipt) {
+      op.acquisition.retain.assertSinkCurrent();
+      op.acquisition.receipt.assertCurrent();
+    } else assertStorageHealthy(op.acquisition.epoch);
+    if (
+      msg.epoch !== op.acquisition.epoch ||
+      msg.network !== op.acquisition.network ||
+      !sameEndpointState(op.acquisition.endpoints, getEndpointState())
+    )
+      throw new Error('Acquisition scope changed');
+  };
+  try {
+    check();
+    if (!op) throw new Error('Acquisition operation ended');
+    const notes = decodeAcquiredNotes(msg.notes);
+    if (op.acquisition.receipt) {
+      op.acquisition.receipt.acknowledge(notes);
+      check();
+      return { ok: true, op_id: msg.op_id };
+    }
+    const assertRetained = await op.acquisition.retain(notes, op.acquisition.network, check);
+    assertRetained();
+    return { ok: true, op_id: msg.op_id };
+  } catch {
+    return { ok: false, op_id: msg.op_id };
+  }
+}
+
 /**
  * Answer the Guardian leaf's submit gate (#1644). Opens only for an op this worker still runs and whose leaf records
  * the crossing: an op a kill, a lost reply or its own settle took out of `inFlight` is refused, so the offscreen leaf
@@ -816,14 +931,18 @@ export async function handleOffscreenSignRequest(
  * while the crossing is written finds it recorded, which only keeps the candidate.
  */
 export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest): Promise<OffscreenSubmitGateResponse> {
+  assertStorageHealthy();
+  const healthEpoch = getStorageHealth().epoch;
   const { op_id } = msg;
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
   try {
-    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+    if (!(await gate(msg.evidence, decodeRecoveryCapture(msg.recovery))))
+      return { ok: false, error: `op ${op_id} has already settled` };
   } catch (err) {
     return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
   }
+  assertStorageHealthy(healthEpoch);
   return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
 }
 
@@ -987,6 +1106,11 @@ async function dispatchOffscreenWrite(
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
   if (submitGate) opSubmitGates.set(op_id, submitGate);
+  else if (onStage)
+    opSubmitGates.set(op_id, async (evidence, recovery) => {
+      await onStage('submitting', { evidence, recovery });
+      return true;
+    });
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
@@ -1077,6 +1201,87 @@ export function dispatchGuardianPipeline(
  * is a strict pass-through to the inline singleton — a no-op vs. today.
  */
 export const midenClientProxy = {
+  async restoreStorageRecovery(
+    command: import('../recovery/sdk-restore').SdkRecoveryCommand,
+    capability: StorageRecoveryCapability,
+    receipt?: RetainedNoteReceipt
+  ): Promise<void> {
+    assertStorageRecoveryAllowed(capability);
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('Storage recovery requires a WASM hold');
+      const client = await getMidenClientForRecovery(capability);
+      assertStorageRecoveryAllowed(capability);
+      assertWasmHoldCurrent(hold, 'before inline storage reconstruction');
+      await client.restoreStorageRecovery(
+        command,
+        capability,
+        () => assertWasmHoldCurrent(hold, 'during inline storage reconstruction'),
+        receipt
+      );
+    } else {
+      let prepared: ReturnType<typeof prepareOffscreenRetainedNoteReceipt> | undefined;
+      if (receipt) {
+        if (command.kind !== 'note') throw new Error('Invalid retained note recovery');
+        await getWasmOrThrow();
+        prepared = prepareOffscreenRetainedNoteReceipt(receipt, capability, command.note, command.accountId);
+      }
+      await dispatchOp(
+        newOpId(),
+        'restoreStorageRecovery',
+        [toSerializable(command), prepared?.context],
+        5000,
+        false,
+        capability,
+        prepared
+      );
+    }
+    assertStorageRecoveryAllowed(capability);
+  },
+  async readStorageContinuity(
+    accountIds: string[],
+    includeNotes: boolean,
+    capability?: StorageRecoveryCapability,
+    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = [],
+    canonicalNoteFamilies: import('../recovery/types').RecoveryNoteEntry[] = []
+  ): Promise<SdkRecoverySnapshot> {
+    const check = () => {
+      if (capability) assertStorageRecoveryAllowed(capability);
+      else assertStorageHealthy();
+    };
+    check();
+    assertCanonicalNoteRequest(canonicalNoteFamilies);
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = capability ? await getMidenClientForRecovery(capability) : await getMidenClient();
+      check();
+      return client.readStorageContinuity(accountIds, includeNotes, check, retainedNotes, canonicalNoteFamilies);
+    }
+    const result = await dispatchOp(
+      newOpId(),
+      'readStorageContinuity',
+      [accountIds, includeNotes, toSerializable(retainedNotes), toSerializable(canonicalNoteFamilies)],
+      5000,
+      false,
+      capability
+    );
+    check();
+    if (result === null) throw new Error('Missing storage continuity response');
+    const decoded: unknown = JSON.parse(Buffer.from(result, 'base64').toString());
+    return decodeSdkRecoverySnapshot(decoded, canonicalNoteFamilies);
+  },
+
+  async initializeStorageGeneration(
+    generation: string,
+    previousGeneration: string | null,
+    epoch: number
+  ): Promise<void> {
+    assertStorageHealthy(epoch);
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable())
+      return (await getMidenClient()).initializeStorageGeneration(generation, previousGeneration, epoch);
+    await this.call('initializeStorageGeneration', [generation, previousGeneration, epoch], { deadlineMs: 5000 });
+    assertStorageHealthy(epoch);
+  },
+
   /** Generic RPC — forward `method(args)` to the offscreen doc, deadline-guarded. */
   call(method: string, args: unknown[], opts?: { deadlineMs?: number | null }): Promise<string | null> {
     return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null);

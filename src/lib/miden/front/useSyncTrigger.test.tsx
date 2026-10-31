@@ -19,6 +19,7 @@ import {
   type WasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import * as storageHealth from 'lib/miden/storage-health';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_SYNC_BACKOFF_MS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
 import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
@@ -28,10 +29,12 @@ import { __resetSyncFuseStateForTests, requestImmediateSync, useSyncTrigger } fr
 
 const storeState: {
   status: WalletStatus;
+  storageAvailability: storageHealth.StorageAvailability;
   accounts: Array<{ publicKey: string; type: WalletType }>;
   setSyncStatus: jest.Mock;
 } = {
   status: WalletStatus.Ready,
+  storageAvailability: { status: 'healthy', epoch: 0 },
   accounts: [],
   setSyncStatus: jest.fn()
 };
@@ -49,6 +52,12 @@ jest.mock('lib/store', () => {
     getIntercom: (...args: unknown[]) => mockGetIntercom(...args)
   };
 });
+
+jest.mock('lib/miden/storage-health', () => ({
+  ...jest.requireActual('lib/miden/storage-health'),
+  initializeStorageHealth: jest.fn(async () => {}),
+  getStorageHealth: jest.fn(() => ({ status: 'healthy', epoch: 0 }))
+}));
 
 const mockSyncState = jest.fn(async (..._args: unknown[]) => {});
 const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ syncState: mockSyncState }));
@@ -167,6 +176,7 @@ describe('useSyncTrigger', () => {
     jest.clearAllMocks();
     window.location.hash = '';
     storeState.status = WalletStatus.Ready;
+    storeState.storageAvailability = { status: 'healthy', epoch: 0 };
     storeState.accounts = [];
     mockIsExtension.mockReturnValue(false);
     // Restore a succeeding sync default (tests below install persistent
@@ -305,6 +315,58 @@ describe('useSyncTrigger', () => {
     const { unmount } = render(<HookHost />);
     await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
     unmount();
+  });
+
+  it('resumes the native sync loop once storage recovers while Ready', async () => {
+    const unavailable: storageHealth.StorageHealth = {
+      status: 'unavailable',
+      epoch: 1,
+      reason: 'continuity',
+      backend: 'wallet',
+      operation: 'validate',
+      time: 0
+    };
+    let health: storageHealth.StorageHealth = unavailable;
+    storeState.storageAvailability = unavailable;
+    jest.spyOn(storageHealth, 'initializeStorageHealth').mockResolvedValue();
+    jest.spyOn(storageHealth, 'getStorageHealth').mockImplementation(() => health);
+    const { rerender, unmount } = render(<HookHost />);
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    health = { status: 'healthy', epoch: 2 };
+    storeState.storageAvailability = health;
+    rerender(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    unmount();
+  });
+
+  it('stops and restarts one native sync loop across health transitions', async () => {
+    let health: storageHealth.StorageHealth = { status: 'healthy', epoch: 0 };
+    jest.spyOn(storageHealth, 'initializeStorageHealth').mockResolvedValue();
+    jest.spyOn(storageHealth, 'getStorageHealth').mockImplementation(() => health);
+    const { rerender, unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(1));
+    health = {
+      status: 'unavailable',
+      epoch: 1,
+      reason: 'continuity',
+      backend: 'wallet',
+      operation: 'validate',
+      time: 0
+    };
+    storeState.storageAvailability = health;
+    rerender(<HookHost />);
+    requestImmediateSync();
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    health = { status: 'healthy', epoch: 2 };
+    storeState.storageAvailability = health;
+    rerender(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalledTimes(2));
+    unmount();
+    requestImmediateSync();
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(2);
   });
 
   it('mobile/desktop: drives syncState directly and flips the store sync flag', async () => {

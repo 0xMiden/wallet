@@ -83,6 +83,11 @@ jest.mock('lib/platform', () => ({
   isDesktop: () => true,
   isExtension: () => false
 }));
+jest.mock('lib/platform/storage-adapter', () => {
+  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
+  const storage = new actual.DesktopStorage();
+  return { ...actual, getStorageProvider: () => storage, default: () => storage };
+});
 
 jest.mock('lib/miden-chain/faucet-api', () => ({
   // The real error class: wallet-prompts constructs it, and callers classify by it.

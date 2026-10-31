@@ -36,6 +36,7 @@ export interface PasscodeScreenProps {
   announcement?: string;
   /** A text action centred under the keypad (unlock's "Forgot passcode?"). */
   action?: React.ReactNode;
+  secondaryAction?: React.ReactNode;
   'data-testid'?: string;
 }
 
@@ -63,6 +64,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   biometricDisabled,
   announcement,
   action,
+  secondaryAction,
   'data-testid': dataTestId
 }) => {
   useUserVisibleError(isError ? errorId : null, 'passcode');
@@ -111,9 +113,13 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
             disabled={disabled}
             biometricDisabled={biometricDisabled}
           />
-          {action && (
-            <div className="mt-4 flex justify-center" data-testid="passcode-screen-action">
+          {(action || secondaryAction) && (
+            <div
+              className={cn('mt-4 flex justify-center', secondaryAction && 'flex-col items-center gap-2')}
+              data-testid="passcode-screen-action"
+            >
               {action}
+              {secondaryAction}
             </div>
           )}
         </div>

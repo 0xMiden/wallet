@@ -46,8 +46,10 @@ import {
   setConnectivityReporter,
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
+import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_NOTE_ACQUISITION,
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
@@ -81,6 +83,16 @@ import type {
   SwapTransaction
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
+import { captureRecoveryNotes } from 'lib/miden/recovery/capture';
+import { withRemoteRetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
+import {
+  installNoteAcquisitionSink,
+  uninstallNoteAcquisitionSink,
+  type NoteAcquisitionSink
+} from 'lib/miden/recovery/note-acquisition';
+import { decodeCanonicalNoteFamilies, decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
+import { toSerializable } from 'lib/miden/recovery/serialization';
+import type { RecoveryCapture, RecoveryNoteEntry } from 'lib/miden/recovery/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
@@ -119,8 +131,25 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  adoptStorageHealth,
+  assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  withStorageRecoveryAccess,
+  type StorageRecoveryCapability,
+  configureStorageHealthTransport,
+  getStorageHealth,
+  initializeStorageHealth,
+  subscribeStorageHealth
+} from 'lib/miden/storage-health';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
-import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  adoptEndpointState,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
@@ -282,9 +311,19 @@ setOperationTransport(async event => {
 const proveWorker = new ProveWorkerClient();
 installLocalProveTransport(proveWorker);
 
+configureStorageHealthTransport(async () =>
+  chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_STORAGE_HEALTH })
+);
+subscribeStorageHealth(health => {
+  if (health.status === 'unavailable') {
+    void chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_STORAGE_FAILURE, health }).catch(() => {});
+  }
+});
+
 let initPromise: Promise<void> | null = null;
 
 async function init() {
+  await initializeStorageHealth();
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
@@ -475,19 +514,38 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
 // pre-submit step.
-async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
+async function passSubmitGate(
+  context: DispatchContext,
+  evidence?: SubmitEvidenceFields,
+  recovery?: RecoveryCapture
+): Promise<void> {
+  assertStorageHealthy();
+  const epoch = getStorageHealth().epoch;
   const { op_id } = context;
   if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
   const request: OffscreenSubmitGateRequest = {
     target: SW_TARGET,
     type: OFFSCREEN_SUBMIT_GATE,
     op_id,
+    recovery: toSerializable(recovery),
     ...(evidence === undefined ? {} : { evidence })
   };
   const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
   if (resp?.ok !== true) {
     throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
   }
+  assertStorageHealthy(epoch);
+  assertWasmHoldCurrent(context.hold, 'after recovery journal acknowledgment');
+  if (context.settled) throw new Error('offscreen submit gate: operation settled');
+}
+
+async function stageWithSubmitGate(
+  context: DispatchContext,
+  stage: ITransactionStage,
+  detail?: import('lib/miden/db/types').StageDetail
+): Promise<void> {
+  if (stage === 'submitting') await passSubmitGate(context, detail?.evidence, detail?.recovery);
+  postStageEvent(context, stage, detail?.evidence);
 }
 
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
@@ -549,6 +607,8 @@ type DispatchFn = (
  * successor's backstop (issue #775).
  */
 type DispatchContext = {
+  readonly recoveryCapability?: StorageRecoveryCapability;
+  acknowledgeRetainedNote?: (note: RecoveryNoteEntry) => Promise<void>;
   readonly op_id: string;
   /**
    * Non-nullable on purpose. `handleCall` is the only producer and builds it
@@ -616,6 +676,68 @@ const DISPATCH: Record<string, DispatchFn> = {
     // so return null. Nothing to serialize here means nothing to re-hydrate on
     // the SW — serializing a result no one reads would be pure waste.
     await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen sync'));
+    return null;
+  },
+
+  readStorageContinuity: async (
+    context,
+    client,
+    accountIds: string[],
+    includeNotes: boolean,
+    retained?: unknown,
+    canonical?: unknown
+  ) => {
+    const notes = decodeRetainedRecoveryNotes(retained);
+    const families = decodeCanonicalNoteFamilies(canonical);
+    const result = await client.readStorageContinuity(
+      accountIds,
+      includeNotes,
+      () => {
+        assertWasmHoldCurrent(context.hold, 'during storage continuity read');
+        if (context.recoveryCapability) assertStorageRecoveryAllowed(context.recoveryCapability);
+      },
+      notes,
+      families
+    );
+    return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
+  },
+  restoreStorageRecovery: async (context, client, value: unknown, retained: unknown) => {
+    const capability = context.recoveryCapability;
+    if (!capability) throw new Error('Missing storage recovery capability');
+    const { decodeSdkRecoveryCommand } = await import('lib/miden/recovery/sdk-restore');
+    assertStorageRecoveryAllowed(capability);
+    assertWasmHoldCurrent(context.hold, 'before storage reconstruction');
+    const command = decodeSdkRecoveryCommand(value);
+    const check = () => {
+      assertWasmHoldCurrent(context.hold, 'during storage reconstruction');
+      if (context.settled || client.isDisposed) throw new Error('Recovery operation ended');
+    };
+    if (retained !== undefined && retained !== null) {
+      if (command.kind !== 'note' || !context.acknowledgeRetainedNote)
+        throw new Error('Invalid retained recovery operation');
+      await withRemoteRetainedNoteReceipt(
+        retained,
+        command.note,
+        command.accountId,
+        capability,
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        check,
+        context.acknowledgeRetainedNote,
+        receipt => client.restoreStorageRecovery(command, capability, check, receipt)
+      );
+    } else await client.restoreStorageRecovery(command, capability, check);
+    return null;
+  },
+  initializeStorageGeneration: async (
+    context,
+    client,
+    generation: string,
+    previousGeneration: string | null,
+    epoch: number
+  ) => {
+    await client.initializeStorageGeneration(generation, previousGeneration, epoch, () =>
+      assertWasmHoldCurrent(context.hold, 'during storage generation initialization')
+    );
     return null;
   },
 
@@ -873,7 +995,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      stageWithSubmitGate(context, stage, detail)
     );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
@@ -903,9 +1025,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
-    );
+    const result = await client.sendTransaction(tx, (stage, detail) => stageWithSubmitGate(context, stage, detail));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
@@ -941,7 +1061,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     const result = await client.swapTransaction(
       tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      (stage, detail) => stageWithSubmitGate(context, stage, detail),
       feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
@@ -966,7 +1086,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      (stage, detail) => stageWithSubmitGate(context, stage, detail)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
@@ -1144,7 +1264,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
         await passSubmitGate(
           context,
-          readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+          readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold),
+          captureRecoveryNotes(txResult, trBytes, () => getCurrentWasmLockHold() === hold)
         );
         // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
@@ -1386,7 +1507,8 @@ onWasmClientPoisoned(() => {
   // nothing to mark.
   void poisoned?.then(client => client.markPoisoned()).catch(() => {});
 });
-function getOrCreateClient(): Promise<MidenClientInterface> {
+function getOrCreateClient(capability?: StorageRecoveryCapability): Promise<MidenClientInterface> {
+  if (capability) assertStorageRecoveryAllowed(capability);
   if (!clientPromise) {
     // Fail closed: a client built before any state arrived would run on the build's network.
     if (!adoptedEndpoints) return Promise.reject(new Error('no network state adopted from the service worker'));
@@ -1416,11 +1538,17 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     currentSignLiveness = liveness;
     const startedGeneration = wasmClientGeneration();
     recordProveTiming('getOrCreateClient: creating the offscreen client');
-    const created: Promise<MidenClientInterface> = MidenClientInterface.create({
-      signCallback: makeOffscreenSignViaSW(liveness),
-      useWorker: false
-    })
+    const options = { signCallback: makeOffscreenSignViaSW(liveness), useWorker: false };
+    const created: Promise<MidenClientInterface> = (
+      capability ? MidenClientInterface.createForRecovery(capability, options) : MidenClientInterface.create(options)
+    )
       .then(client => {
+        try {
+          if (capability) assertStorageRecoveryAllowed(capability);
+        } catch (error) {
+          client.free();
+          throw error;
+        }
         recordProveTiming('getOrCreateClient: client created');
         // A poisoning that lands while this create is in flight nulls the memo
         // synchronously, but a dispatch already awaiting THIS promise is ahead
@@ -1496,6 +1624,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       return;
     }
     adoptEndpoints(msg.endpoints);
+    adoptStorageHealth(msg.storageHealth);
+    await stepBeforeSubmit(initializeStorageHealth);
     await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
     if (!dispatch) {
@@ -1543,7 +1673,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // writes are legitimately long (they sign and prove) and have their own deadlines.
     const lockOptions =
       msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
-    const execute = async (hold: WasmLockHold) => {
+    const execute = async (hold: WasmLockHold, capability?: StorageRecoveryCapability) => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -1551,7 +1681,12 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // the poison hook had already dropped (issue #775). Same reasoning as the
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
-      const client = await stepBeforeSubmit(getOrCreateClient);
+      if (capability) assertStorageRecoveryAllowed(capability);
+      else assertStorageHealthy();
+      const healthEpoch = getStorageHealth().epoch;
+      const client = await stepBeforeSubmit(() => getOrCreateClient(capability));
+      if (capability) assertStorageRecoveryAllowed(capability);
+      else assertStorageHealthy(healthEpoch);
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons
@@ -1591,7 +1726,65 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // knowable (issue #775) — and threaded in as the dispatch's first
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
-      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false, recoveryCapability: capability };
+      const acquisitionNetwork = getEffectiveNetworkName();
+      const acquisitionEndpoints = msg.endpoints;
+      const assertAcquisitionOwner = (network: string) => {
+        assertWasmHoldCurrent(hold, 'offscreen note acquisition');
+        if (
+          context.settled ||
+          client.isDisposed ||
+          network !== acquisitionNetwork ||
+          getEffectiveNetworkName() !== acquisitionNetwork ||
+          !adoptedEndpoints ||
+          !sameEndpointState(acquisitionEndpoints, adoptedEndpoints)
+        )
+          throw new Error('Acquisition operation changed');
+      };
+      const acknowledgeAcquisition = async (notes: RecoveryNoteEntry[], network: string, check: () => void) => {
+        check();
+        const response: unknown = await withRpcTimeout(
+          () =>
+            chrome.runtime.sendMessage({
+              target: SW_TARGET,
+              type: OFFSCREEN_NOTE_ACQUISITION,
+              op_id: context.op_id,
+              network,
+              epoch: healthEpoch,
+              notes: toSerializable(notes)
+            }),
+          'offscreen-note-acquisition',
+          { retries: 0 }
+        );
+        check();
+        if (
+          !response ||
+          typeof response !== 'object' ||
+          !('ok' in response) ||
+          response.ok !== true ||
+          !('op_id' in response) ||
+          response.op_id !== context.op_id
+        )
+          throw new Error('Acquisition retention was refused');
+      };
+      const acquisitionSink: NoteAcquisitionSink = async (notes, network, assertSource) => {
+        const check = () => {
+          assertSource();
+          assertAcquisitionOwner(network);
+          assertStorageHealthy(healthEpoch);
+        };
+        await acknowledgeAcquisition(notes, network, check);
+      };
+      if (capability) {
+        context.acknowledgeRetainedNote = async note => {
+          const check = () => {
+            assertStorageRecoveryAllowed(capability);
+            assertAcquisitionOwner(acquisitionNetwork);
+          };
+          await acknowledgeAcquisition([note], acquisitionNetwork, check);
+        };
+      }
+      installNoteAcquisitionSink(acquisitionSink);
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1600,6 +1793,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         // after this point, its stamps are about a step the SW has already been
         // told the outcome of (see `postStageEvent`).
         context.settled = true;
+        uninstallNoteAcquisitionSink(acquisitionSink);
         // Only if it is still OURS. An evicted dispatch keeps running and can
         // settle long after a successor installed its own id; clearing blindly
         // would leave the healthy successor with no ambient id, so its
@@ -1609,7 +1803,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       }
     };
     let resultBytes: Uint8Array | null;
-    if (msg.method === 'tryGetAccount') {
+    if (msg.recoveryAccess) {
+      if (msg.method !== 'readStorageContinuity' && msg.method !== 'restoreStorageRecovery')
+        throw new Error('Invalid recovery operation');
+      resultBytes = await withStorageRecoveryAccess(
+        msg.recoveryAccess.epoch,
+        msg.recoveryAccess.expiresAt,
+        capability => withWasmClientLock(hold => execute(hold, capability), lockOptions)
+      );
+    } else if (msg.method === 'tryGetAccount') {
       const read = await tryWithWasmClientLock(execute, {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'claim-fee'
@@ -1708,6 +1910,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
+  if (msg?.recoveryAccess && _sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, op_id: msg.op_id, error: 'Unauthorized recovery read', errorBeforeSubmit: true });
+    return false;
+  }
 
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {

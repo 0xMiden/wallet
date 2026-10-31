@@ -1562,3 +1562,34 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     });
   });
 });
+
+it.each(['epoch', 'agglayer', 'usdcx'])(
+  'Task4C2 owners keeps an attempted %s source unresolved when no hash was returned',
+  async provider => {
+    rows.push({
+      id: 'ambiguous-attempt',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider, phase: 'submitting', sourceSubmission: 'attempted' }
+    });
+    await reconcileBridgedReceives();
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
+  }
+);
+it('Task4C2 owners still closes a proven never-started orphan without a source hash', async () => {
+  rows.push({
+    id: 'never-started',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider: 'agglayer', phase: 'submitting', sourceSubmission: 'not-started' }
+  });
+  await reconcileBridgedReceives();
+  expect(updatePhase).toHaveBeenCalledWith(
+    'never-started',
+    'failed',
+    expect.objectContaining({ failure: expect.objectContaining({ step: 'submission_interrupted' }) })
+  );
+});

@@ -17,11 +17,20 @@ import {
 } from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus } from './db/types';
+import { fromSerializable, mapValues, toSerializable } from './recovery/serialization';
 import { PersistedSpendingLimit } from './spending-limits/types';
+import {
+  assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  reportStorageFailure,
+  type StorageRecoveryCapability
+} from './storage-health';
 
 export enum Table {
   Transactions = 'transactions',
-  SpendingLimits = 'spendingLimits'
+  SpendingLimits = 'spendingLimits',
+  RecoveryDebits = 'recoveryDebits',
+  Metadata = 'metadata'
 }
 
 /**
@@ -266,6 +275,33 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  target
+    .version(3.2)
+    .stores({ [Table.Metadata]: 'id' })
+    .upgrade(async tx => {
+      await tx.table(Table.Metadata).put({ id: 'generation', generation: crypto.randomUUID(), origin: 'migrated' });
+    });
+  target
+    .version(3.3)
+    .stores({
+      [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, '[badgeNetwork+status+type]', 'recoveryDebitAt'),
+      [Table.RecoveryDebits]: 'id, accountId, initiatedAt, authorizationId'
+    })
+    .upgrade(async tx => {
+      await tx
+        .table<ITransaction, string>(Table.Transactions)
+        .toCollection()
+        .modify(row => {
+          const stamp = recoveryDebitTimestamp(row);
+          if (stamp === row.recoveryDebitAt) return false;
+          row.recoveryDebitAt = stamp;
+          return undefined;
+        });
+    });
+  target.on('populate', async tx => {
+    await tx.table(Table.Metadata).put({ id: 'generation', generation: crypto.randomUUID(), origin: 'fresh' });
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -287,12 +323,30 @@ function defineSchema(target: Dexie): void {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
             }
+            if (req.type === 'add' || req.type === 'put') {
+              const rows: readonly ITransaction[] = req.values;
+              return table.mutate({
+                ...req,
+                values: rows.map(row => ({ ...row, recoveryDebitAt: recoveryDebitTimestamp(row) }))
+              });
+            }
             return table.mutate(req);
           }
         };
       }
     })
   });
+}
+
+function recoveryDebitTimestamp(row: ITransaction): number | undefined {
+  if (
+    row.restoredFromBackup ||
+    !['send', 'swap', 'bridged-send', 'earn-deposit', 'execute'].includes(row.type) ||
+    (row.spentUsd === undefined && row.spendingLimitAuthorizationId === undefined)
+  )
+    return undefined;
+  if (!isPlaceableInitiatedAt(row.initiatedAt)) throw new Error('Invalid recovery debit timestamp');
+  return row.initiatedAt;
 }
 
 // The one construction path, so the production db and `createSchemaFor`'s replay cannot differ.
@@ -304,15 +358,70 @@ function defineSchema(target: Dexie): void {
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // above, which walk the whole table.
 function buildTridentDb(name: string): Dexie {
-  const target = new Dexie(name, { modifyChunkSize: 25 });
+  const target = new Dexie(name, { modifyChunkSize: 25, chromeTransactionDurability: 'strict' });
   defineSchema(target);
   installWalletStorageDiagnostics(target);
   return target;
 }
 
+const recoveryConsumerOpeners = new WeakMap<Dexie, () => Promise<Dexie>>();
+
+export async function openWalletConsumerForRecovery(capability: StorageRecoveryCapability): Promise<void> {
+  assertStorageRecoveryAllowed(capability);
+  const open = recoveryConsumerOpeners.get(db);
+  if (!open) throw new Error('Wallet consumer recovery unavailable');
+  await open();
+  assertStorageRecoveryAllowed(capability);
+  const marker: unknown = await metadata.get('generation');
+  assertStorageRecoveryAllowed(capability);
+  if (typeof marker !== 'object' || marker === null) throw new Error('Wallet consumer readback unavailable');
+}
+
+/** Scoped recovery writes use the same schema and retain the deadline check at every native transaction. */
+export async function openWalletRecoveryStore(capability: StorageRecoveryCapability): Promise<Dexie> {
+  assertStorageRecoveryAllowed(capability);
+  const target = new Dexie(db.name, { modifyChunkSize: 25, chromeTransactionDurability: 'strict' });
+  defineSchema(target);
+  target.use({
+    stack: 'dbcore',
+    name: 'WalletRecoveryAccess',
+    level: 11,
+    create: down => ({
+      ...down,
+      transaction: (...args) => {
+        assertStorageRecoveryAllowed(capability);
+        return down.transaction(...args);
+      },
+      table: name => {
+        const table = down.table(name);
+        return {
+          ...table,
+          mutate: request => {
+            assertStorageRecoveryAllowed(capability);
+            return table.mutate(request).then(result => {
+              assertStorageRecoveryAllowed(capability);
+              return result;
+            });
+          }
+        };
+      }
+    })
+  });
+  try {
+    await target.open();
+    assertStorageRecoveryAllowed(capability);
+    return target;
+  } catch (error) {
+    target.close();
+    reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
+    throw error;
+  }
+}
+
 function walletTableOwner(name: string): StorageOwner | undefined {
   if (name === Table.Transactions) return 'wallet_transactions';
   if (name === Table.SpendingLimits) return 'wallet_limits';
+  if (name === Table.RecoveryDebits) return 'wallet_transactions';
   return undefined;
 }
 
@@ -325,10 +434,12 @@ function observeWalletStorage<T>(
     // Keep the invoked promise's chain and Dexie's active transaction zone.
     return invoke().then(undefined, (error: unknown) => {
       annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+      reportStorageFailure(error, { backend: 'wallet', operation });
       throw error;
     });
   } catch (error) {
     annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+    reportStorageFailure(error, { backend: 'wallet', operation });
     throw error;
   }
 }
@@ -354,9 +465,18 @@ function installWalletStorageDiagnostics(target: Dexie): void {
         const store = stores.length === 1 ? stores[0] : undefined;
         const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
         try {
-          return down.transaction(...args);
+          if (args[1] !== 'readonly') assertStorageHealthy();
+          const native = down.transaction(...args);
+          if ('addEventListener' in native && typeof native.addEventListener === 'function') {
+            const observe = () =>
+              reportStorageFailure(Reflect.get(native, 'error'), { backend: 'wallet', operation: 'transaction' });
+            native.addEventListener('error', observe);
+            native.addEventListener('abort', observe);
+          }
+          return native;
         } catch (error) {
           annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
+          reportStorageFailure(error, { backend: 'wallet', operation: 'transaction' });
           throw error;
         }
       };
@@ -379,15 +499,21 @@ function installWalletStorageDiagnostics(target: Dexie): void {
               cursor === null ? null : observeWalletCursor(cursor, owner)
             );
           const mutate: DBCoreTable['mutate'] = (...args) =>
-            observeWalletStorage(() => table.mutate(...args), owner, 'mutate').then(
-              (response: DBCoreMutateResponse) => {
-                // DBCore resolves partial failures; Dexie builds the public aggregate later.
-                for (const failure of Object.values(response.failures)) {
-                  annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
-                }
-                return response;
+            observeWalletStorage(
+              () => {
+                assertStorageHealthy();
+                return table.mutate(...args);
+              },
+              owner,
+              'mutate'
+            ).then((response: DBCoreMutateResponse) => {
+              // DBCore resolves partial failures; Dexie builds the public aggregate later.
+              for (const failure of Object.values(response.failures)) {
+                annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
+                reportStorageFailure(failure, { backend: 'wallet', operation: 'mutate' });
               }
-            );
+              return response;
+            });
           return { ...table, get, getMany, query, count, openCursor, mutate };
         }
       };
@@ -396,7 +522,9 @@ function installWalletStorageDiagnostics(target: Dexie): void {
   target.use(middleware);
 
   const open = target.open;
+  recoveryConsumerOpeners.set(target, () => open.call(target));
   const rejectOpen = (error: unknown): never => {
+    reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
     // A failed upgrade can already identify a table through Dexie's error links.
     const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
     if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
@@ -406,6 +534,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
   };
   const observedOpen: Dexie['open'] = function (this: Dexie, ...args) {
     try {
+      assertStorageHealthy();
       return open.apply(this, args).then(undefined, rejectOpen);
     } catch (error) {
       return rejectOpen(error);
@@ -416,7 +545,10 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 
 export const db = buildTridentDb('TridentMain');
 
+export const metadata = db.table<import('./recovery/continuity').WalletStoreGeneration, string>(Table.Metadata);
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+export const recoveryDebits = db.table<import('./recovery/types').RecoveryDebitEntry, string>(Table.RecoveryDebits);
 
 /** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
 export interface HistoryIndexCursor {
@@ -521,135 +653,6 @@ export function createSchemaFor(name: string): Dexie {
 
 function indexes(...items: string[]) {
   return items.join(',');
-}
-
-/**
- * Marker for a BigInt that survived `JSON.stringify`. Rows carry BigInt in more
- * than one place — the top-level `amount`, `extraInputs.requestedAmount` and
- * `orderId` on a swap, `assetTotals[].amount` on a batch claim — and hand-listing
- * them in both directions has silently broken the export before: any field added
- * later lands in the untouched rest-spread and throws "Do not know how to
- * serialize a BigInt" at `JSON.stringify`, which the export screen reports as
- * success while writing no file. Walk the value instead, so a new BigInt field
- * anywhere on a row costs nothing here.
- */
-const BIGINT_TAG = '$bigint';
-
-interface TaggedBigInt {
-  [BIGINT_TAG]: string;
-}
-
-/**
- * `$bigint$`, `$bigint$$`, … — the escaped forms of real data that happens to
- * have the tag's exact shape.
- *
- * The tag is a reserved word in a namespace the wallet does not control: rows
- * carry `extraInputs`, which holds objects a dApp had a hand in. An object that
- * is literally `{"$bigint": "…"}` would come back from a round-trip as a BigInt
- * rather than as itself — and when its string is not a number, `BigInt()` throws
- * and takes the whole import down with it, from data a dApp chose. Escaping by
- * appending a `$` on the way out and stripping one on the way back in is
- * reversible at every nesting level, so no object can be mistaken for a tag.
- */
-const ESCAPED_BIGINT_TAG = /^\$bigint\$+$/;
-
-/**
- * Only a canonical decimal integer is a tag this code wrote — `toString()` on a
- * BigInt produces nothing else. Anything else under the key is foreign data that
- * merely borrowed the name, and is left exactly as it is rather than fed to
- * `BigInt()` to throw.
- */
-const CANONICAL_BIGINT = /^-?(0|[1-9]\d*)$/;
-
-/** The object's only own key, or undefined if it does not have exactly one. */
-const soleKeyOf = (value: object): string | undefined => {
-  if (Array.isArray(value)) return undefined;
-  const keys = Object.keys(value);
-  return keys.length === 1 ? keys[0] : undefined;
-};
-
-// Requires the tag to be the object's ONLY key. A tagged BigInt this code wrote
-// never has siblings, so anything that does is real data that merely resembles
-// the tag — and collapsing it to a BigInt would silently discard every other
-// field on it.
-const isTaggedBigInt = (value: object): value is TaggedBigInt => {
-  if (soleKeyOf(value) !== BIGINT_TAG) return false;
-  const tagged: unknown = Reflect.get(value, BIGINT_TAG);
-  return typeof tagged === 'string' && CANONICAL_BIGINT.test(tagged);
-};
-
-/**
- * Byte fields are written as plain number arrays (`toSerializable` turns every
- * `Uint8Array` into one) and restored by name.
- */
-const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
-
-/**
- * A transaction row nests two or three levels. The bound exists so a malformed
- * file fails here, in the pure mapping step, instead of surviving the walk to
- * become a partial write — and so a hostile dump cannot recurse the walker into
- * a stack overflow. `importDb` replaces the table atomically, so a failure at
- * either point costs the user nothing; failing early just keeps the reason close
- * to the cause.
- */
-const MAX_WALK_DEPTH = 64;
-
-/**
- * These are cryptographic request/result blobs. A byte that did not survive the
- * file intact is not a cosmetic defect — it is a different blob, and nothing
- * downstream re-checks it, so the only place the damage can still be noticed is
- * here. `Uint8Array` silently truncates whatever it is handed (`999` stores as
- * `231`, `-1` as `255`, a string as `0`), which is exactly the wrong behaviour
- * for a value whose whole purpose is to be exact.
- */
-const isByteValue = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255;
-
-const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
-  if (!value.every(isByteValue)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
-  return Uint8Array.from(value);
-};
-
-const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
-  if (depth > MAX_WALK_DEPTH) throw new Error('exportDb: transaction row nested too deeply');
-  if (typeof value === 'bigint') return { [BIGINT_TAG]: value.toString() };
-  if (value instanceof Uint8Array) return Array.from(value);
-  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1));
-  if (typeof value === 'object' && value !== null) {
-    const mapped = mapValues(value, (entry, key) => toSerializable(entry, key, depth + 1));
-    const sole = soleKeyOf(mapped);
-    // Real data wearing the tag's shape, escaped so the import walk gives it
-    // back rather than reading it as a number this code wrote.
-    if (sole !== undefined && (sole === BIGINT_TAG || ESCAPED_BIGINT_TAG.test(sole))) {
-      return { [`${sole}$`]: mapped[sole] };
-    }
-    return mapped;
-  }
-  return value;
-};
-
-const fromSerializable = (value: unknown, key?: string, depth = 0): unknown => {
-  if (depth > MAX_WALK_DEPTH) throw new Error('importDb: dump nested too deeply');
-  const isByteField = key !== undefined && BYTE_FIELDS.has(key);
-  if (Array.isArray(value)) {
-    // Legacy dumps stored byte arrays untagged, so they are restored by name.
-    if (isByteField) return bytesFromArray(value, key);
-    return value.map(entry => fromSerializable(entry, undefined, depth + 1));
-  }
-  if (typeof value === 'object' && value !== null) {
-    if (isTaggedBigInt(value)) return BigInt(value[BIGINT_TAG]);
-    if (isByteField) throw new Error(`importDb: ${key} is not a byte array`);
-    const sole = soleKeyOf(value);
-    if (sole !== undefined && ESCAPED_BIGINT_TAG.test(sole)) {
-      return { [sole.slice(0, -1)]: fromSerializable(Reflect.get(value, sole), undefined, depth + 1) };
-    }
-    return mapValues(value, (entry, entryKey) => fromSerializable(entry, entryKey, depth + 1));
-  }
-  return value;
-};
-
-function mapValues(source: object, transform: (value: unknown, key: string) => unknown): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(source).map(([key, value]) => [key, transform(value, key)]));
 }
 
 /** `number` is accepted because the pre-tag importer coerced it through `BigInt`. */
@@ -808,6 +811,7 @@ export async function importDb(dump: string): Promise<void> {
         ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
+      Reflect.deleteProperty(imported, 'restoredFromJournal');
       return neutralizeUnfinishedTransaction(imported);
     });
 
@@ -824,9 +828,33 @@ export async function importDb(dump: string): Promise<void> {
     // schema either way.
     const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
     await clearGuardianHistoryCheckpoints();
-    await db.transaction('rw', transactions, async () => {
+    await db.transaction('rw', transactions, recoveryDebits, async () => {
       await transactions.clear();
+      await recoveryDebits.clear();
       await transactions.bulkAdd(transactionsToImport);
     });
+  }
+}
+
+/** A disposable store probes strict commit/readback without granting ordinary wallet writes. */
+export async function probeWalletStorage(capability: StorageRecoveryCapability): Promise<void> {
+  assertStorageRecoveryAllowed(capability);
+  const probe = new Dexie(`miden-storage-probe-${crypto.randomUUID()}`, { chromeTransactionDurability: 'strict' });
+  probe.version(1).stores({ probe: 'id' });
+  try {
+    await probe.open();
+    assertStorageRecoveryAllowed(capability);
+    const table = probe.table<{ id: string; value: string }, string>('probe');
+    await table.put({ id: 'probe', value: 'strict-readback' });
+    assertStorageRecoveryAllowed(capability);
+    const readback = await table.get('probe');
+    if (readback?.value !== 'strict-readback') throw new Error('Storage probe readback mismatch');
+    assertStorageRecoveryAllowed(capability);
+  } catch (error) {
+    reportStorageFailure(error, { backend: 'wallet', operation: 'validate' });
+    throw error;
+  } finally {
+    probe.close();
+    await probe.delete();
   }
 }

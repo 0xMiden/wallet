@@ -54,6 +54,7 @@ import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
+import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
@@ -529,6 +530,24 @@ const PageRouter: FC = () => {
   useRetireLockoutOnReady(miden.ready);
 
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+
+  const availability = miden.storageAvailability;
+  if (availability?.status !== 'healthy') {
+    if (availability?.status !== 'unavailable') return <RootSuspenseFallback />;
+    const lifecycleRoute =
+      pathname === '/developer-settings' ||
+      pathname === '/settings/network-endpoints' ||
+      pathname === '/reset-wallet' ||
+      pathname === '/reset-required' ||
+      pathname === '/forgot-password' ||
+      pathname === '/forgot-password-info';
+    if (pathname === '/storage-recovery')
+      return <StorageRecoveryPage onBack={() => Woozie.navigate('/', Woozie.HistoryAction.Replace)} />;
+    if (!lifecycleRoute && !miden.locked) return <StorageRecoveryPage />;
+    if (miden.locked && !lifecycleRoute)
+      return <Unlock onStorageRecovery={() => Woozie.navigate('/storage-recovery')} />;
+    return <>{page}</>;
+  }
 
   // Locking must remove all wallet pages without waiting for an animation, so
   // the layer stack is skipped until the wallet is ready, unlocked and hydrated.

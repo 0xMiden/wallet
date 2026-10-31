@@ -342,6 +342,30 @@ describe('GC purchase spending-limit admission', () => {
     expect(await Repo.transactions.count()).toBe(0);
   });
 
+  it('counts retained recovery debits when admitting a purchase in the atomic consume transaction', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(40_000_000n);
+    const retainedId = 'gc-retained-debit';
+    await Repo.recoveryDebits.put({
+      kind: 'debit',
+      id: retainedId,
+      accountId: ACCOUNT,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      spentUsd: 20_000_000n
+    });
+    try {
+      await expect(initiateGcPurchaseTransaction(ACCOUNT, quote, false)).rejects.toBeInstanceOf(
+        SpendingLimitAuthorizationRequiredError
+      );
+      expect(await Repo.transactions.count()).toBe(0);
+      await Repo.recoveryDebits.delete(retainedId);
+      const id = await initiateGcPurchaseTransaction(ACCOUNT, quote, false);
+      expect(await Repo.transactions.get(id)).toMatchObject({ spentUsd: 40_000_000n });
+    } finally {
+      await Repo.recoveryDebits.delete(retainedId);
+    }
+  });
+
   it('stamps the authorized pay leg and deduplicates a repeated tap', async () => {
     await saveLimit();
     jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);

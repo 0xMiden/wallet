@@ -126,3 +126,7 @@ it('completes the same verified attempt when its nonce persistence was interrupt
   expect(mockRow.extraInputs.phase).toBe('received');
   expect(mockRow.amount).toBe(99n);
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

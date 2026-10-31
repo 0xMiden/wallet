@@ -210,3 +210,7 @@ describe('the configured output token', () => {
     expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
   });
 });
+
+jest.mock('./receipt', () => ({
+  createEpochReceiptOwner: () => ({ hooks: undefined, preparation: () => undefined, retentionFailed: () => false })
+}));

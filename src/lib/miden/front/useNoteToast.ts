@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 
-import { getPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import {
+  getPersistedSeenNoteIds,
+  persistSeenNoteIds,
+  retainLatestSeenNoteIds
+} from 'lib/miden/back/note-checker-storage';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
@@ -36,7 +40,7 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
       .then(persisted => {
         if (persisted.size > 0) {
           useWalletStore.setState(state => ({
-            seenNoteIds: new Set([...state.seenNoteIds, ...persisted])
+            seenNoteIds: retainLatestSeenNoteIds([...persisted, ...state.seenNoteIds])
           }));
         }
       })
@@ -56,7 +60,7 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
       isFirstFetch.current = false;
 
       // Seed seen notes directly to avoid showing toast
-      const updatedIds = new Set([...useWalletStore.getState().seenNoteIds, ...currentNoteIds]);
+      const updatedIds = retainLatestSeenNoteIds([...useWalletStore.getState().seenNoteIds, ...currentNoteIds]);
       useWalletStore.setState({ seenNoteIds: updatedIds });
 
       // On extension: persist the seed so service worker inherits

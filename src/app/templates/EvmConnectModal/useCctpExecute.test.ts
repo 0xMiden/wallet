@@ -90,7 +90,10 @@ it('keeps the saved hash when the receipt request fails', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   const { result, unmount } = renderHook(useCctpExecute);
   await expect(result.current('row', 84532, leg)).resolves.toBe(hash);
-  expect(updateBridgedReceivePhase).toHaveBeenCalledTimes(1);
+  expect(updateBridgedReceivePhase).toHaveBeenCalledTimes(2);
+  expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('row', 'delivering', {
+    cctp: { sourceDomain: 6, executeTxHash: hash }
+  });
   unmount();
   warn.mockRestore();
 });

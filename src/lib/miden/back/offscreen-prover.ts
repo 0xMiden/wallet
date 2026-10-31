@@ -1,3 +1,9 @@
+import {
+  assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  initializeStorageHealth,
+  type StorageRecoveryCapability
+} from 'lib/miden/storage-health';
 // Service-worker-side helpers for the offscreen prover document.
 //
 // Why offscreen: the wallet's MV3 service worker can't spawn Web Workers, so
@@ -132,13 +138,29 @@ export async function hasOffscreenDocument(): Promise<boolean> {
   return all.some(c => c.url.endsWith(OFFSCREEN_URL));
 }
 
-export async function ensureOffscreenDocument(): Promise<void> {
+export async function ensureOffscreenDocument(
+  capability?: StorageRecoveryCapability,
+  assertCurrent?: () => void
+): Promise<void> {
+  const check = () => {
+    if (capability) assertStorageRecoveryAllowed(capability);
+    else assertStorageHealthy();
+    assertCurrent?.();
+  };
+  check();
+  await initializeStorageHealth();
+  check();
   // Cheap re-check before locking — common case is doc already up.
-  if (await hasOffscreenDocument()) return;
+  const exists = await hasOffscreenDocument();
+  check();
+  if (exists) return;
   await withLifecycleLock(async () => {
+    check();
     // Re-check inside the lock; another caller may have created it while
     // we were queued.
-    if (await hasOffscreenDocument()) return;
+    const opened = await hasOffscreenDocument();
+    check();
+    if (opened) return;
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_URL,
       // 'WORKERS' is the documented justification for needing Web Workers.
@@ -146,11 +168,14 @@ export async function ensureOffscreenDocument(): Promise<void> {
       justification:
         'Multi-threaded WASM proving via wasm-bindgen-rayon. SWs cannot spawn Web Workers; this document hosts the rayon thread pool used by the Miden prover.'
     });
+    check();
     // Wait for the offscreen doc to signal it finished init (rayon pool up,
     // WASM loaded). Without this gate the first prove races against the
     // cold start and the message lands on a not-yet-ready listener.
     await waitForOffscreenReady();
+    check();
   });
+  check();
 }
 
 /**

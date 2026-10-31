@@ -381,3 +381,137 @@ describe('offscreen-prover', () => {
     });
   });
 });
+
+describe('Task4C3N0 recovery document readiness', () => {
+  let cleanup: () => Promise<void> = async () => {};
+
+  beforeEach(() => {
+    jest.resetModules();
+    installChromeMock();
+  });
+
+  afterEach(async () => {
+    await cleanup();
+    uninstallChromeMock();
+  });
+
+  async function fixture() {
+    const health = await import('lib/miden/storage-health');
+    const mod = await import('./offscreen-prover');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    cleanup = () => health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+    const ensure = (
+      capability?: import('lib/miden/storage-health').StorageRecoveryCapability,
+      assertCurrent: () => void = () => {}
+    ): Promise<void> => Reflect.apply(mod.ensureOffscreenDocument, mod, [capability, assertCurrent]);
+    return { health, ensure };
+  }
+
+  it.each([true, false])(
+    'allows genuine recovery readiness with existing document=%s while unavailable',
+    async exists => {
+      const { health, ensure } = await fixture();
+      docExists = exists;
+      health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+      const incident = health.getStorageHealth();
+      let settled = false;
+      const outcome = health
+        .withStorageRecoveryAccess(incident.epoch, Date.now() + 4000, async capability => {
+          await ensure(capability);
+          return 'ready';
+        })
+        .catch(() => 'refused');
+      void outcome.then(() => {
+        settled = true;
+      });
+      for (let index = 0; index < 20 && !settled && fakeChrome.runtime.onMessage.listeners.length === 0; index++)
+        await flush();
+      fireReady();
+      expect(await outcome).toBe('ready');
+      expect(fakeChrome.offscreen?.createDocument).toHaveBeenCalledTimes(exists ? 0 : 1);
+      expect(health.getStorageHealth()).toEqual(incident);
+      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['ordinary caller', 'forged capability', 'released capability', 'repeated incident'])(
+    'refuses %s before a document lookup or creation',
+    async scenario => {
+      const { health, ensure } = await fixture();
+      health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+      const epoch = health.getStorageHealth().epoch;
+      let expired: import('lib/miden/storage-health').StorageRecoveryCapability | undefined;
+      await health.withStorageRecoveryAccess(epoch, Date.now() + 4000, async capability => {
+        expired = capability;
+      });
+      const invoke = async () => {
+        if (scenario === 'ordinary caller') return ensure();
+        if (scenario === 'forged capability') return ensure({ epoch, expiresAt: Date.now() + 4000 });
+        if (scenario === 'released capability') return ensure(expired);
+        return health.withStorageRecoveryAccess(epoch, Date.now() + 4000, async capability => {
+          health.markStorageUnavailable('backing-store', { backend: 'sdk', operation: 'query' });
+          await ensure(capability);
+        });
+      };
+      const outcome = await invoke().then(
+        () => 'ready',
+        () => 'refused'
+      );
+      expect(outcome).toBe('refused');
+      expect(fakeChrome.offscreen?.hasDocument).not.toHaveBeenCalled();
+      expect(fakeChrome.offscreen?.createDocument).not.toHaveBeenCalled();
+      expect(health.getStorageHealth().status).toBe('unavailable');
+      expect(health.getStorageHealth().epoch).toBe(epoch);
+    }
+  );
+
+  it.each(['new incident', 'retired owner', 'expired during lookup'])(
+    'refuses %s after the existing-document await before acknowledging readiness',
+    async scenario => {
+      const { health, ensure } = await fixture();
+      let release: () => void = () => {};
+      let entered: () => void = () => {};
+      const atLookup = new Promise<void>(resolve => {
+        entered = resolve;
+      });
+      fakeChrome.offscreen!.hasDocument = jest.fn(() => {
+        entered();
+        return new Promise<boolean>(resolve => {
+          release = () => resolve(true);
+        });
+      });
+      let current = true;
+      let readiness = 'pending';
+      const started = Date.now();
+      const clock = jest.spyOn(Date, 'now');
+      const operation = health
+        .withStorageRecoveryAccess(health.getStorageHealth().epoch, started + 4000, async capability => {
+          readiness = await ensure(capability, () => {
+            if (!current) throw new Error('Readiness owner retired');
+          }).then(
+            () => 'ready',
+            () => 'refused'
+          );
+        })
+        .catch(() => undefined);
+      try {
+        expect(await Promise.race([atLookup.then(() => true), operation.then(() => false)])).toBe(true);
+        if (scenario === 'new incident')
+          health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+        if (scenario === 'retired owner') current = false;
+        if (scenario === 'expired during lookup') clock.mockReturnValue(started + 5000);
+        release();
+        await operation;
+        expect(readiness).toBe('refused');
+        expect(fakeChrome.offscreen?.createDocument).not.toHaveBeenCalled();
+        expect(fakeChrome.runtime.onMessage.addListener).not.toHaveBeenCalled();
+        expect(health.getStorageHealth().status).toBe(scenario === 'new incident' ? 'unavailable' : 'healthy');
+      } finally {
+        clock.mockRestore();
+        release();
+        await operation;
+      }
+    }
+  );
+});

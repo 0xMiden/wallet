@@ -4,6 +4,7 @@ import {
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
+import type { IEpochExecutionReceipt } from 'lib/miden/db/types';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -75,6 +76,7 @@ export interface CreateBridgeP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  epochExecution?: IEpochExecutionReceipt;
 }
 
 /**
@@ -149,7 +151,8 @@ export async function createBridgeP2IDENote(
       undefined,
       undefined,
       undefined,
-      args.allocatorUrl
+      args.allocatorUrl,
+      args.epochExecution
     );
 
     // Row exists now (Queued) — let the caller navigate to the progress screen

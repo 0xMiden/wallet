@@ -310,3 +310,50 @@ describe('user-visible strict-authentication errors', () => {
     expect(mockReport.mock.calls).toEqual([]);
   });
 });
+
+describe('Task5 recovery authenticated action component', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetPlatform.mockReturnValue('desktop');
+    mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
+    mockVerify.mockResolvedValue(undefined);
+  });
+
+  it('submits the typed backend operation once without prompting for verification first', async () => {
+    const action = jest.fn().mockResolvedValue(undefined);
+    const onResult = jest.fn();
+    render(
+      <StrictActionAuthentication
+        reason="Disposable recovery operation"
+        authenticatedAction={action}
+        onResult={onResult}
+      />
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(action).toHaveBeenCalledWith(undefined);
+    expect(mockVerify).not.toHaveBeenCalled();
+    expect(onResult).toHaveBeenCalledWith('authenticated');
+  });
+
+  it('discards completion after unmount while keeping one operation in flight', async () => {
+    const work = deferred();
+    const action = jest.fn(() => work.promise);
+    const onResult = jest.fn();
+    const view = render(
+      <StrictActionAuthentication
+        reason="Disposable recovery operation"
+        authenticatedAction={action}
+        onResult={onResult}
+      />
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => {
+      work.resolve();
+    });
+    expect(onResult).not.toHaveBeenCalled();
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+});

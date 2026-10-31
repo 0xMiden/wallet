@@ -8,6 +8,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -38,8 +39,9 @@ export function requestImmediateSync(): void {
   for (const listener of immediateSyncListeners) listener();
 }
 
-function triggerSync(intercom: ReturnType<typeof getIntercom>) {
-  if (isInsideSendFlow() || isTestSyncPaused()) return;
+async function triggerSync(intercom: ReturnType<typeof getIntercom>) {
+  await initializeStorageHealth();
+  if (getStorageHealth().status !== 'healthy' || isInsideSendFlow() || isTestSyncPaused()) return;
   intercom
     .request({ type: WalletMessageType.SyncRequest })
     .then(() => {
@@ -48,7 +50,7 @@ function triggerSync(intercom: ReturnType<typeof getIntercom>) {
         .getState()
         .accounts.filter(acc => acc.type === WalletType.Guardian)
         .map(acc => acc.publicKey);
-      if (guardianAccountKeys.length > 0) {
+      if (getStorageHealth().status === 'healthy' && guardianAccountKeys.length > 0) {
         syncGuardianAccounts().catch(() => {});
       }
     })
@@ -96,6 +98,7 @@ function isInsideSendFlow(): boolean {
  */
 export function useSyncTrigger() {
   const status = useWalletStore(s => s.status);
+  const storageStatus = useWalletStore(s => s.storageAvailability.status);
 
   useEffect(() => {
     if (status !== WalletStatus.Ready) return;
@@ -145,6 +148,8 @@ export function useSyncTrigger() {
 
     const runAndSchedule = async () => {
       if (cancelled) return;
+      await initializeStorageHealth();
+      if (getStorageHealth().status !== 'healthy') return;
       if (isRunning) {
         retryAfterCurrentRun = true;
         return;
@@ -179,6 +184,8 @@ export function useSyncTrigger() {
           // A sync's WASM work would land mid-swipe; hold it until the pager settles (capped, never dropped).
           await whenInteractionIdle();
           if (cancelled) return;
+          await initializeStorageHealth();
+          if (getStorageHealth().status !== 'healthy') return;
           // The swipe may have landed on Send (or a prove page) meanwhile; the guards above still apply.
           if (isTestSyncPaused() || isInsideSendFlow() || window.location.href.includes('generating-transaction'))
             return;
@@ -257,6 +264,8 @@ export function useSyncTrigger() {
             // whereas skipping the clear here could strand it true with no owner
             // at all.)
             if (cancelled) return;
+            await initializeStorageHealth();
+            if (getStorageHealth().status !== 'healthy') return;
 
             // The sync just imported any new notes; surface them NOW instead of
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
@@ -283,7 +292,7 @@ export function useSyncTrigger() {
             // park on the same parked endpoint. Gating there rather than here is what
             // makes it hold for the extension's trigger too, and what lets a wallet with
             // one parked guardian account keep syncing its healthy ones.
-            if (guardianAccountKeys.length > 0) {
+            if (getStorageHealth().status === 'healthy' && guardianAccountKeys.length > 0) {
               // NOT awaited, deliberately. `MultisigService.runSync` retries in a
               // loop and each attempt is its own lock hold, so awaiting it put
               // the guardian endpoint in charge of this loop's cadence: while it
@@ -435,6 +444,7 @@ export function useSyncTrigger() {
 
     const retryNow = () => {
       if (cancelled) return;
+      if (getStorageHealth().status !== 'healthy') return;
       forceNextRun = true;
       if (isRunning) {
         retryAfterCurrentRun = true;
@@ -453,5 +463,5 @@ export function useSyncTrigger() {
       immediateSyncListeners.delete(retryNow);
       if (timer) clearTimeout(timer);
     };
-  }, [status]);
+  }, [status, storageStatus]);
 }

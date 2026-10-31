@@ -10,6 +10,7 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import {
   type CrossChainQuote,
+  type EpochReceiptHooks,
   type EVMToMidenQuote,
   buildCrossChainIntent,
   buildEVMToMidenIntent,
@@ -19,6 +20,7 @@ import {
 import { getEvmConnection, switchWebWalletChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { readEpochIntentStatus } from './intent-status';
+import { createEpochReceiptOwner } from './receipt';
 import { getEpochSdk } from './sdk';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
@@ -54,6 +56,7 @@ interface EpochState {
 }
 
 interface MidenExecuteOpts {
+  recovery?: EpochReceiptHooks;
   collateralType?: CollateralType;
   midenSourceAccount?: string;
   createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
@@ -225,6 +228,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     try {
       const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+      if (inputs?.sourceSubmission === 'attempted' || inputs?.sourceSubmission === 'known' || inputs?.epochExecution) {
+        set({ status: 'failed', error: 'Epoch submission requires reconciliation' });
+        return;
+      }
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
       // namespace declares Sepolia but MetaMask's active chain can still be
@@ -253,12 +260,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,
-        preFetchedQuote: quote as EVMToMidenQuote
+        preFetchedQuote: quote as EVMToMidenQuote,
+        recovery: createEpochReceiptOwner(sdk, () => bridgeReceiveTxId).hooks
       });
       console.log('[epoch] EVM→Miden intent', intent);
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
-        if (bridgeReceiveTxId) {
+        if (bridgeReceiveTxId && !intent.executionUncertain) {
           // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,
@@ -352,6 +360,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     }
     set({ status: 'signing', error: null, compactWatchClosed: false });
     try {
+      if (!opts?.recovery) throw new Error('Miden execution requires a retained collateral owner');
       const allocatorUrl = getEpochAllocatorUrl();
       const sdk = await getEpochSdk({ forMidenFlow: true, allocatorUrl });
       if (!sdk) throw new Error('Connect an EVM wallet first');
@@ -360,7 +369,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         preFetchedQuote: quote as CrossChainQuote,
         collateralType: opts?.collateralType,
         midenSourceAccount: opts?.midenSourceAccount,
-        createMidenP2IDENote: opts?.createMidenP2IDENote
+        createMidenP2IDENote: opts?.createMidenP2IDENote,
+        recovery: opts.recovery
       });
       console.log('[epoch] Miden→EVM intent', intent);
       if (intent.error) {

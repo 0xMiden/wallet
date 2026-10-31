@@ -1958,7 +1958,10 @@ describe('transactions utilities', () => {
               async (_tx: unknown, onStage?: (stage: string, detail?: object) => Promise<void>) => {
                 await onStage?.('executing');
                 await onStage?.('proving');
-                await onStage?.('submitting', submitting);
+                await onStage?.('submitting', {
+                  ...submitting,
+                  recovery: { requestBytes: new Uint8Array([1]), notes: [] }
+                });
                 submit();
                 throw new Error('stopped after the submit');
               }
@@ -2113,7 +2116,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
 
     jest.doMock('lib/platform', () => ({
       isMobile: jest.fn(() => false),
-      isExtension: jest.fn(() => false)
+      isExtension: jest.fn(() => false),
+      isDesktop: jest.fn(() => false)
     }));
 
     jest.doMock('shared/logger', () => ({
@@ -2148,6 +2152,9 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     };
 
     // ---- Phase 1: Network up, transaction succeeds ----
+    const health = require('../storage-health');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
     networkUp = true;
     txStore.push({
       id: 'tx-1',
@@ -2539,7 +2546,8 @@ describe('completeCustomTransaction (isolated)', () => {
 
     jest.doMock('lib/platform', () => ({
       isMobile: jest.fn(() => false),
-      isExtension: jest.fn(() => false)
+      isExtension: jest.fn(() => false),
+      isDesktop: jest.fn(() => false)
     }));
 
     let ITransactionStatus: any;
@@ -2571,3 +2579,12 @@ describe('completeCustomTransaction (isolated)', () => {
     expect(dbTx.completedAt).toEqual(expect.any(Number));
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
+}));

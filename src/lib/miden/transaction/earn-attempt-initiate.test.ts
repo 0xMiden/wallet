@@ -62,3 +62,7 @@ it('records the source decimals a retry falls back on', async () => {
   await initiateEarnWithdrawTransaction('account', 10n, 'owner', 'market', 'faucet', '10', 'USDC', 'attempt-1', 123, 6);
   expect(mockAdded[0]?.extraInputs).toEqual(expect.objectContaining({ sourceDecimals: 6 }));
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

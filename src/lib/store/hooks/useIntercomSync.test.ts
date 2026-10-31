@@ -182,6 +182,33 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
     expect(get).toHaveBeenCalledTimes(reads);
   });
 
+  it('does not apply an older initial response after a newer broadcast refetch', async () => {
+    let finishInitial!: (value: unknown) => void;
+    let listener!: (message: unknown) => void;
+    intercom.request
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishInitial = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'new' } });
+    intercom.subscribe.mockImplementation((callback: (message: unknown) => void) => {
+      listener = callback;
+      return () => {};
+    });
+    const sync = _g.__intSyncTest.walletState.syncFromBackend;
+    renderHook(() => useIntercomSync());
+    await act(async () => {
+      listener({ type: WalletMessageType.StateUpdated });
+    });
+    await act(async () => {
+      finishInitial({ ...readyResponse, state: { status: 'Ready', accounts: [], revision: 'old' } });
+    });
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledWith(expect.objectContaining({ revision: 'new' }));
+  });
+
   it('skips the one-shot balance rehydrate when the runtime is gone by the time the state arrives', async () => {
     intercom.request.mockResolvedValue({
       ...readyResponse,

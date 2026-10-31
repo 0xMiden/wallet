@@ -6,7 +6,9 @@ import { SWRConfig, useSWRConfig } from 'swr';
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses, positionsBudgetDelayMs } from 'lib/epoch';
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { metadata } from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { Probe } from 'lib/remote-config/derive';
@@ -30,11 +32,15 @@ const mockEarnDepositRows: Array<{
   extraInputs: { protocol?: string; evmRecipient?: string; marketUid?: string };
 }> = [];
 
-jest.mock('lib/miden/repo', () => ({
-  transactions: {
-    filter: () => ({ toArray: async () => mockEarnDepositRows })
-  }
-}));
+jest.mock('lib/miden/repo', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+  return {
+    metadata: actual.metadata,
+    transactions: {
+      filter: () => ({ toArray: async () => mockEarnDepositRows })
+    }
+  };
+});
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
@@ -47,6 +53,13 @@ jest.mock('lib/platform', () => ({
   isDesktop: () => true,
   isExtension: () => false
 }));
+
+jest.mock('lib/platform/storage-adapter', () => {
+  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
+  const desktop = new actual.DesktopStorage();
+  const getStorageProvider = () => desktop;
+  return { ...actual, getStorageProvider, default: getStorageProvider };
+});
 
 // A wallet reset rediscovers the native asset over RPC.
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -227,13 +240,22 @@ const STORAGE_KEY = EARN_POSITIONS_STORAGE_PREFIX + JSON.stringify(KEY);
 const readStored = () => fetchFromStorage<{ at: number; result: EarnPositionsResult }>(STORAGE_KEY);
 
 describe('useEarnPositions', () => {
+  let previousLocks: PropertyDescriptor | undefined;
+
   beforeEach(() => {
+    previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
     mockEarnDepositRows.length = 0;
     jest.clearAllMocks();
     localStorage.clear();
     mockAccount.publicKey = 'miden-account';
     mockAccount.evmAddress = '0xABCDEF';
     mockConfigSnapshot = READY;
+  });
+
+  afterEach(() => {
+    if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
+    else Reflect.deleteProperty(navigator, 'locks');
   });
 
   it.each([
@@ -1449,6 +1471,11 @@ describe('useEarnPositions', () => {
 
       await clearStorage(false);
 
+      expect(await metadata.get('generation')).toEqual({
+        id: 'generation',
+        generation: expect.any(String),
+        origin: 'authorized'
+      });
       expect(await readStored()).toBeNull();
       jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(() => undefined));
       const { result } = renderCold();

@@ -12,6 +12,43 @@ export const TOKENS_METADATA_SCHEMA_STORAGE_KEY = 'tokens_base_metadata_schema';
  */
 export const TOKENS_METADATA_SCHEMA_VERSION = 2;
 
+export const TOKENS_METADATA_MAX_ENTRIES = 512;
+export const TOKENS_METADATA_MAX_BYTES = 1_048_576;
+export const TOKENS_METADATA_ENTRY_MAX_BYTES = 16_384;
+const encoder = new TextEncoder();
+
+function stableMetadata(metadata: Record<string, AssetMetadata>): string {
+  return JSON.stringify(
+    Object.entries(metadata)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, value]) => [
+        id,
+        Object.entries(value)
+          .filter(([, field]) => field !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right))
+      ])
+  );
+}
+
+function boundedMetadata(cached: Record<string, AssetMetadata>, incoming: Record<string, AssetMetadata>) {
+  const merged = new Map(Object.entries(cached));
+  for (const [id, metadata] of Object.entries(incoming)) {
+    merged.delete(id);
+    merged.set(id, metadata);
+  }
+  const retained: [string, AssetMetadata][] = [];
+  let bytes = 2;
+  for (const [id, metadata] of [...merged].reverse()) {
+    const entryBytes = encoder.encode(JSON.stringify({ [id]: metadata })).byteLength;
+    const nextBytes = bytes + entryBytes - 2 + (retained.length > 0 ? 1 : 0);
+    if (entryBytes > TOKENS_METADATA_ENTRY_MAX_BYTES || nextBytes > TOKENS_METADATA_MAX_BYTES) continue;
+    retained.push([id, metadata]);
+    bytes = nextBytes;
+    if (retained.length === TOKENS_METADATA_MAX_ENTRIES) break;
+  }
+  return Object.fromEntries(retained.reverse());
+}
+
 const tokensBaseMetadataWriteQueue = new PQueue({ concurrency: 1 });
 
 // The check runs one time in each realm. A failed check clears this value, so the next call tries again.
@@ -24,7 +61,8 @@ export async function updateTokensBaseMetadata(
 ): Promise<void> {
   await tokensBaseMetadataWriteQueue.add(async () => {
     const cached = (await readMetadata()) ?? {};
-    await writeMetadata({ ...cached, ...toSet });
+    const next = boundedMetadata(cached, toSet);
+    if (stableMetadata(cached) !== stableMetadata(next)) await writeMetadata(next);
   });
 }
 

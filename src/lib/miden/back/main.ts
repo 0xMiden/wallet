@@ -13,6 +13,7 @@ import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmatio
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
+  handleOffscreenNoteAcquisition,
   handleOffscreenStageEvent,
   handleOffscreenSubmitGate,
   markOpStarted,
@@ -21,6 +22,7 @@ import {
 } from 'lib/miden/back/miden-client-proxy';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
+  OFFSCREEN_NOTE_ACQUISITION,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_PROVE_MARKER,
@@ -39,6 +41,7 @@ import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { adoptStorageHealth, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -51,7 +54,10 @@ import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
+import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from './offscreen-codec';
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
+import { installFinancialRecoveryBackend } from '../recovery/financial-backend';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { NoteExportType } from '../sdk/constants';
 import {
   assertWasmHoldCurrent,
@@ -70,6 +76,10 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 let startupHydration: Promise<void> = Promise.resolve();
 
 export async function start() {
+  installProviderReceiptBackend(Actions.checkpointProviderReceipt);
+  installFinancialRecoveryBackend((accountId, entry, expectedEpoch) =>
+    Actions.checkpointFinancialRecovery(accountId, entry, expectedEpoch)
+  );
   console.log('Miden background script started');
   let hydrated: () => void = () => undefined;
   startupHydration = new Promise<void>(resolve => {
@@ -263,12 +273,17 @@ function registerOffscreenSignHandler(): void {
           sign_id?: string;
           stage?: ITransactionStage;
           evidence?: unknown;
+          recovery?: unknown;
           category?: ConnectivityCategory;
           active?: boolean;
           ts?: number;
           line?: string;
           id?: unknown;
           scope?: unknown;
+          health?: unknown;
+          network?: unknown;
+          epoch?: unknown;
+          notes?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -285,6 +300,21 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_NOTE_ACQUISITION) {
+      if (sender.url !== chrome.runtime.getURL('offscreen.html') || typeof m.op_id !== 'string') return false;
+      void handleOffscreenNoteAcquisition({
+        op_id: m.op_id,
+        network: m.network,
+        epoch: m.epoch,
+        notes: m.notes
+      }).then(sendResponse);
+      return true;
+    }
+    if (m.type === OFFSCREEN_STORAGE_HEALTH || m.type === OFFSCREEN_STORAGE_FAILURE) {
+      if (m.type === OFFSCREEN_STORAGE_FAILURE) adoptStorageHealth(m.health);
+      void initializeStorageHealth().then(() => sendResponse(getStorageHealth()));
+      return true;
+    }
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;
@@ -371,7 +401,8 @@ function registerOffscreenSignHandler(): void {
         target: SW_TARGET,
         type: OFFSCREEN_SUBMIT_GATE,
         op_id: m.op_id,
-        evidence: parseSubmitEvidence(m.evidence)
+        evidence: parseSubmitEvidence(m.evidence),
+        recovery: m.recovery
       }).then(sendResponse, (err: unknown) =>
         sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
       );
@@ -721,6 +752,41 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SignTransactionResponse,
         signature
+      };
+    case WalletMessageType.FinancialRecoveryRequest:
+      await Actions.checkpointFinancialRecovery(req.accountId, req.entry, req.expectedEpoch);
+      return { type: WalletMessageType.FinancialRecoveryResponse };
+    case WalletMessageType.ProviderReceiptRequest:
+      await Actions.checkpointProviderReceipt(req.row, req.expectedEpoch);
+      return { type: WalletMessageType.ProviderReceiptResponse };
+    case WalletMessageType.ExportRecoveryDataRequest:
+      return {
+        type: WalletMessageType.ExportRecoveryDataResponse,
+        content: await Actions.exportRecoveryDataFile(
+          req.filePassword,
+          req.expectedEpoch,
+          req.operationId,
+          req.credential
+        )
+      };
+    case WalletMessageType.ImportRecoveryDataRequest:
+      return {
+        type: WalletMessageType.ImportRecoveryDataResponse,
+        ...(await Actions.importRecoveryDataFile(
+          req.content,
+          req.filePassword,
+          req.expectedEpoch,
+          req.operationId,
+          req.credential
+        ))
+      };
+    case WalletMessageType.CancelRecoveryDataRequest:
+      await Actions.cancelRecoveryDataOperation(req.operationId);
+      return { type: WalletMessageType.CancelRecoveryDataResponse };
+    case WalletMessageType.StorageRecoveryRequest:
+      return {
+        type: WalletMessageType.StorageRecoveryResponse,
+        ...(await Actions.recoverWalletStorage(req.operation, req.expectedEpoch))
       };
     case WalletMessageType.SignWordRequest:
       const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);

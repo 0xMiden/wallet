@@ -1069,6 +1069,9 @@ describe('closed queue facts without failure text', () => {
   });
 });
 
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));
 it('binds the selected stuck start to the committed cancellation report', async () => {
   await Repo.transactions.put(row({ processingStartedAt: SESSION_STARTED_AT - 3600 }));
   await cancelStuckTransactions();

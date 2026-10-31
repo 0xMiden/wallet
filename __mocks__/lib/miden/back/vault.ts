@@ -11,6 +11,10 @@ export class Vault {
     return state.exists;
   }
 
+  static async hasRetainedCustody() {
+    return false;
+  }
+
   static async spawn(_password: string, _mnemonic?: string, ownMnemonic?: boolean) {
     state.exists = true;
     const account = {
@@ -37,6 +41,10 @@ export class Vault {
 
   static async getCurrentAccountPublicKey() {
     return state.currentAccount?.publicKey ?? null;
+  }
+
+  async verifyStorageContinuity() {
+    return true;
   }
 
   async fetchAccounts() {

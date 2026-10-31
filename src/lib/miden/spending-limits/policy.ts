@@ -7,12 +7,10 @@ import {
   parsePersistedSpendingLimit,
   toPersistedSpendingLimit
 } from './types';
+import { MAX_WINDOW_SECONDS } from './window';
 import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 
-const DAY_SECONDS = 24 * 60 * 60;
-
-/** The only rolling window, and so the bound on the history read. */
-export const MAX_WINDOW_SECONDS = DAY_SECONDS;
+export { MAX_WINDOW_SECONDS } from './window';
 
 const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set([
   'send',

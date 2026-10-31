@@ -1,3 +1,10 @@
+import { recoveryDebit, historyWithRecoveryDebits } from '../recovery/financial';
+import {
+  checkpointFinancialChange,
+  verifyFinancialRecovery,
+  withFinancialRecoveryLock
+} from '../recovery/financial-writer';
+import { assertStorageHealthy, getStorageHealth } from '../storage-health';
 import { canonicalSpendingLimitIdentity, sameSpendingLimitIdentity } from './identity';
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
@@ -72,7 +79,7 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
     //
     // One read transaction, so the counts and the read below are one snapshot; on the enforcement
     // path it nests inside the caller's rw scope.
-    return await Repo.db.transaction('r', Repo.transactions, async () => {
+    return await Repo.db.transaction('r', Repo.transactions, Repo.recoveryDebits, async () => {
       // A row the index cannot place (missing, NaN, null) and a negative one both fall outside
       // `aboveOrEqual(0)`, so one count finds every row the window read below would never hand the
       // policy's fatal timestamp guard; a non-number key sorts above every number, so it stays in
@@ -81,16 +88,19 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
         Repo.transactions.count(),
         Repo.transactions.where('initiatedAt').aboveOrEqual(0).count()
       ]);
-      if (total > placed) return await Repo.transactions.toArray();
+      if (total > placed) return historyWithRecoveryDebits(await Repo.transactions.toArray(), now);
       // Bounded by the rolling window through the `initiatedAt` index the schema already declares:
       // an older row is dropped by the policy anyway, so reading the whole table only bought a scan
       // that grows with total history - on the write path, inside the rw lock, deserializing every
       // row's request/result blobs. A future-dated row is still at or above this bound, so the
       // policy's own timestamp handling still sees it.
-      return await Repo.transactions
-        .where('initiatedAt')
-        .aboveOrEqual(now - MAX_WINDOW_SECONDS)
-        .toArray();
+      return historyWithRecoveryDebits(
+        await Repo.transactions
+          .where('initiatedAt')
+          .aboveOrEqual(now - MAX_WINDOW_SECONDS)
+          .toArray(),
+        now
+      );
     });
   } catch {
     throw unavailable('transaction history read failed');
@@ -130,7 +140,9 @@ const authorizationMatches = async (
   ) {
     return false;
   }
-  const uses = await Repo.transactions.where('spendingLimitAuthorizationId').equals(authorization.id).count();
+  const uses =
+    (await Repo.transactions.where('spendingLimitAuthorizationId').equals(authorization.id).count()) +
+    (await Repo.recoveryDebits.where('authorizationId').equals(authorization.id).count());
   return uses === 0;
 };
 
@@ -200,34 +212,66 @@ export const admitOutgoingTransaction = async <T extends ITransaction>(
  * write lock. `spends` is what the row moves, per faucet: one for ordinary outgoing transactions,
  * or several from a dApp custom request's approval-time dry run.
  */
-export const queueOutgoingTransaction = async (
+const prepareOutgoingTransaction = async (
   transaction: ITransaction,
   spends: readonly IConsumedAssetTotal[],
-  authorization?: SpendingLimitAuthorization,
-  now: number = Math.floor(Date.now() / 1000),
-  beforeInsert?: () => Promise<void>
+  authorization: SpendingLimitAuthorization | undefined,
+  now: number,
+  beforeInsert: (() => Promise<void>) | undefined,
+  insert: (row: ITransaction) => Promise<void>
 ): Promise<void> => {
   // An account with no cap must pay for neither a price lookup nor a window scan - but the insert
   // itself still has to happen inside a write lock, or a saveSpendingLimit committing between this
   // probe and the add admits a row that is never assessed and never stamped with spentUsd.
   if ((await readPolicy(transaction.accountId)) === undefined) {
-    const inserted = await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
-      if ((await readPolicy(transaction.accountId)) !== undefined) return false;
-      await beforeInsert?.();
-      await Repo.transactions.add(transaction);
-      return true;
-    });
+    const inserted = await Repo.db.transaction(
+      'rw',
+      Repo.spendingLimits,
+      Repo.transactions,
+      Repo.recoveryDebits,
+      async () => {
+        if ((await readPolicy(transaction.accountId)) !== undefined) return false;
+        await beforeInsert?.();
+        await insert(transaction);
+        return true;
+      }
+    );
     if (inserted) return;
     // A cap was created between the probe and the lock. Fall through to the full path, which
     // resolves the price outside the lock and assesses under it.
   }
 
   const price = await resolveOutgoingSpendUsd(spends, now);
-  await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
+  await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, Repo.recoveryDebits, async () => {
     await beforeInsert?.();
-    await Repo.transactions.add(await admitOutgoingTransaction(transaction, spends, price, authorization, now));
+    await insert(await admitOutgoingTransaction(transaction, spends, price, authorization, now));
   });
 };
+
+export const queueOutgoingTransaction = async (
+  transaction: ITransaction,
+  spends: readonly IConsumedAssetTotal[],
+  authorization?: SpendingLimitAuthorization,
+  now: number = Math.floor(Date.now() / 1000),
+  beforeInsert?: () => Promise<void>
+): Promise<void> =>
+  withFinancialRecoveryLock(async () => {
+    const epoch = getStorageHealth().epoch;
+    await verifyFinancialRecovery(transaction.accountId);
+    let planned: ITransaction | undefined;
+    await prepareOutgoingTransaction(transaction, spends, authorization, now, beforeInsert, async row => {
+      planned = row;
+    });
+    if (planned === undefined) throw unavailable('queue preparation did not produce a row');
+    const row = planned;
+    const debit = recoveryDebit(row, transaction.accountId, now);
+    if (debit) await checkpointFinancialChange(debit);
+    await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, Repo.recoveryDebits, async () => {
+      assertStorageHealthy(epoch);
+      await beforeInsert?.();
+      await Repo.transactions.add(row);
+    });
+  });
 
 /** The single-asset spend list an ordinary outgoing row states through its own fields. */
 export const spendsOf = (transaction: QueueableOutgoingTransaction): IConsumedAssetTotal[] => [

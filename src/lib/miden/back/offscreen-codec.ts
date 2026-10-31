@@ -61,6 +61,20 @@ export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
  * fire-and-forget {@link OFFSCREEN_STAGE_EVENT} cannot show: its absence proves nothing. */
 export const OFFSCREEN_SUBMIT_GATE = 'OFFSCREEN_SUBMIT_GATE' as const;
 
+export const OFFSCREEN_NOTE_ACQUISITION = 'OFFSCREEN_NOTE_ACQUISITION' as const;
+
+export interface OffscreenNoteAcquisitionRequest {
+  op_id: string;
+  network: unknown;
+  epoch: unknown;
+  notes: unknown;
+}
+
+export interface OffscreenNoteAcquisitionResponse {
+  op_id: string;
+  ok: boolean;
+}
+
 /** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
  * just WON the offscreen WASM mutex and is about to execute. The SW arms that
  * write's deadline HERE — at execution start — rather than at dispatch, so the
@@ -165,6 +179,8 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  * storage, so it runs every call on the network the call names (#1482).
  */
 export interface OffscreenCallRequest {
+  recoveryAccess?: { epoch: number; expiresAt: number };
+  storageHealth?: import('../storage-health').StorageHealth;
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_CALL;
   op_id: string;
@@ -261,6 +277,7 @@ export interface OffscreenSignRequest {
 /** offscreen → SW submit gate request. See {@link OFFSCREEN_SUBMIT_GATE}. `evidence` is the submit evidence the
  * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. */
 export interface OffscreenSubmitGateRequest {
+  recovery?: unknown;
   target: typeof SW_TARGET;
   type: typeof OFFSCREEN_SUBMIT_GATE;
   op_id: string;
@@ -535,3 +552,11 @@ export type OffscreenNativeAssetEvent = {
   id: string;
   scope: string;
 };
+
+export const OFFSCREEN_STORAGE_HEALTH = 'OFFSCREEN_STORAGE_HEALTH';
+export const OFFSCREEN_STORAGE_FAILURE = 'OFFSCREEN_STORAGE_FAILURE';
+export interface OffscreenStorageHealthMessage {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_STORAGE_HEALTH | typeof OFFSCREEN_STORAGE_FAILURE;
+  health?: import('../storage-health').StorageHealth;
+}

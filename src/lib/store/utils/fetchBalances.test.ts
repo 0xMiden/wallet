@@ -139,6 +139,7 @@ describe('fetchBalances', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    useWalletStore.setState({ storageAvailability: { status: 'healthy', epoch: 0 } });
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
@@ -162,7 +163,7 @@ describe('fetchBalances', () => {
     // fetch goes to the node that just parked. On the default backstop a 5s balance poll
     // then owned this realm's only WASM mutex for 300s. The label is what names it in the
     // eviction log and keys its fuse.
-    mockGetAccount.mockResolvedValueOnce(null);
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
     lockOptionsSeen.length = 0;
 
     await fetchBalances('my-address', {});
@@ -172,7 +173,7 @@ describe('fetchBalances', () => {
 
   it('bounds and labels a waiting read exactly like a skipping one (#1123)', async () => {
     // A read that queues for the lock is still a balance probe: same ceiling, same fuse key.
-    mockGetAccount.mockResolvedValueOnce(null);
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
     lockOptionsSeen.length = 0;
     mockTryWithWasmClientLock.mockClear();
 
@@ -198,7 +199,7 @@ describe('fetchBalances', () => {
     // Falsifier: the gate is the fuse and nothing else. Put it out and the very next
     // refresh reads again — the fuse must never become a one-way door.
     noteSyncSuccess('balances');
-    mockGetAccount.mockResolvedValueOnce(null);
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
     expect(await fetchBalances('my-address', {})).not.toBeNull();
     expect(mockGetAccount).toHaveBeenCalledTimes(1);
     __resetSyncFuseStateForTests();
@@ -259,7 +260,7 @@ describe('fetchBalances', () => {
     // clears the fuse is the one the fused cadence eventually lets through.
     const realNow = performance.now();
     const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
-    mockGetAccount.mockResolvedValueOnce(null);
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
     await fetchBalances('my-address', {});
     nowSpy.mockRestore();
     expect(isSyncFused('balances')).toBe(false);
@@ -300,7 +301,7 @@ describe('fetchBalances', () => {
     // directly, which would only re-test the ledger.
     const realNow = performance.now();
     const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
-    mockGetAccount.mockResolvedValueOnce(null);
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
     await fetchBalances('my-address', {}, { waitForLock: true });
     nowSpy.mockRestore();
     expect(isSyncFused('balances')).toBe(false);
@@ -318,10 +319,21 @@ describe('fetchBalances', () => {
     expect(mockGetAccount).not.toHaveBeenCalled();
   });
 
-  it('returns default MIDEN balance when account not found', async () => {
+  it('storage-loss regression: rejects an absent SDK account instead of fabricating a native zero balance', async () => {
     mockGetAccount.mockResolvedValueOnce(null);
 
-    const result = (await fetchBalances('unknown-address', {}))!;
+    try {
+      await expect(fetchBalances('unknown-address', {})).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      const health = await import('lib/miden/storage-health');
+      await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+    }
+  });
+
+  it('storage-loss regression: preserves a genuine zero balance for a present SDK account', async () => {
+    mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }), nonce: accountNonce });
+
+    const result = (await fetchBalances('present-empty-account', {}))!;
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
@@ -357,17 +369,21 @@ describe('fetchBalances', () => {
     expect(row.balance).toBe(Number('12345678901234567890'));
   });
 
-  it('returns empty list when account not found AND native-asset discovery has not resolved', async () => {
-    // Pre-discovery state: getFaucetIdSetting returns '' / undefined, so we
-    // can't fabricate a "0 MIDEN" row and must return [] so the UI renders a
-    // skeleton instead of a misattributed token.
+  it('storage-loss regression: rejects an absent SDK account before native-asset discovery resolves', async () => {
     const { getFaucetIdSetting } = jest.requireMock('lib/miden/assets');
-    getFaucetIdSetting.mockReturnValueOnce(undefined);
+    getFaucetIdSetting.mockReturnValue(undefined);
     mockGetAccount.mockResolvedValueOnce(null);
 
-    const result = (await fetchBalances('unknown-address', {}))!;
-
-    expect(result).toEqual([]);
+    try {
+      try {
+        await expect(fetchBalances('unknown-address', {})).rejects.toThrow('StorageUnavailableError');
+      } finally {
+        const health = await import('lib/miden/storage-health');
+        await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+      }
+    } finally {
+      getFaucetIdSetting.mockReturnValue('miden-faucet-id');
+    }
   });
 
   it('returns balances for account with assets', async () => {

@@ -9,6 +9,8 @@ import {
 import { markEarnWithdrawAccepted, markEarnWithdrawNotSent, prepareEarnWithdrawExecution } from './complete';
 import { IEarnWithdrawPreparedExecution, ITransaction, ITransactionStatus } from '../db/types';
 
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: jest.fn(async () => {}) }));
+
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
   AccountId: {
@@ -27,6 +29,7 @@ let mockSkipModify = false;
 let current = true;
 jest.mock('lib/miden/repo', () => ({
   transactions: {
+    get: async (id: string) => (mockRow?.id === id ? mockRow : undefined),
     where: ({ id }: { id: string }) => ({
       modify: async (mutate: (row: ITransaction) => void) => {
         mockBeforeModify?.();

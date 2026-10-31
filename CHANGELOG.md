@@ -1,6 +1,14 @@
 # Changelog
 
+## 1.17.10 (TBD)
+
+### Changes
+
+- [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+
 ## 1.17.9 (2026-10-31)
+
+### Changes
 
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.

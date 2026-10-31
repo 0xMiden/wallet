@@ -8595,5 +8595,179 @@
   "arcadePostingPolicy": {
     "message": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "지갑 저장 공간 사용 불가",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "지갑 데이터를 확인할 수 없습니다. 저장소가 확인될 때까지 잔액 및 지갑 작업이 일시 중지됩니다.",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "제출된 거래는 여전히 완료될 수 있습니다. 다시 시도하기 전에 거래 상태를 확인하십시오.",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "저장소 확인",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "복구 데이터를 사용하여 재구축",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "제출된 거래 내역 확인",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "저장된 지갑 데이터를 확인 중...",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "검사가 완료되지 않았습니다. 지갑 작업은 일시 중지된 상태입니다.",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "저장소는 아직 검증되지 않았습니다. 지갑 관련 작업은 계속 일시 중지된 상태입니다.",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "인증된 계정: $verifiedAccounts$ 중 $expectedAccounts$. 인증된 입력값: $verifiedInputs$ 중 $expectedInputs$.",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "복구 데이터 파일 저장",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "복구 데이터 파일을 준비 중입니다...",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "복구 데이터를 저장할 수 없습니다",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "복구 데이터 파일을 전달할 수 없습니다. 이 사본을 사용하기 전에 다시 시도해 주십시오.",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "복구 데이터",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "저장됨",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "최종 확인된 복구 데이터의 이 암호화된 사본을 본 기기 외부에 보관하고, 해당 비밀번호를 안전하게 관리하십시오. 이 데이터에는 최신 계정이나 활동 내역이 포함되지 않을 수 있습니다.",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "이 파일에는 귀하의 서명 키나 복구 문구가 포함되어 있지 않습니다.",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "서명자의 접근 권한을 별도로 복원한 후, 이 데이터를 가져오고 지갑 저장소를 확인한 다음 거래를 다시 시도하십시오.",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "복구 데이터",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "복구 데이터 내보내기",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "복구 데이터 가져오기",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "마지막으로 확인된 복구 데이터를 이 기기 외부에 보관된 파일로 내보내십시오. 이 파일에는 최신 계정이나 활동 내역이 포함되지 않을 수 있습니다. 이 파일에는 서명 키나 복구 문구가 포함되어 있지 않습니다. 가져오기 전에 서명자 접근 권한을 별도로 복원하십시오.",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataImportDescription": {
+    "message": "이전에 내보낸 복구 데이터 파일을 선택하세요. 이 파일에는 서명 키나 복구 구문이 포함되어 있지 않으므로 서명 접근 권한을 별도로 복원해야 합니다.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "복구 데이터 파일을 암호화할 비밀번호를 입력하세요.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
+  "recoveryDataChooseFile": {
+    "message": "복구 데이터 파일 선택",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "선택한 파일 지우기",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "복구 파일 비밀번호",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "복구 데이터에 접근하려면 지갑 보호기를 통해 인증하십시오.",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "보관된 복구 데이터",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "가져온 증거 자료는 지갑 활동을 재개하지 않습니다. 지갑 저장소를 확인하고 재구성한 다음, 제출된 거래를 조정하고 나서 다시 시도하십시오.",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "복구 파일의 비밀번호가 잘못되었습니다.",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "이 파일은 유효한 복구 데이터 파일이 아닙니다.",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "이 복구 파일 버전은 지원되지 않습니다.",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "복구 데이터 파일의 크기가 제한을 초과했습니다.",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "이 복구 데이터는 다른 네트워크에 속합니다.",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "이 복구 데이터는 보관 중인 지갑 계정과 일치하지 않습니다.",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "검증된 복구 데이터는 제공되지 않습니다.",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "복구 데이터",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "선택한 복구 파일을 읽을 수 없습니다. 파일을 다시 선택하고 다시 시도하십시오.",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }

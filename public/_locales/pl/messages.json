@@ -8597,5 +8597,179 @@
   "arcadePostingPolicy": {
     "message": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "Przechowywanie w portfelu niedostępne",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Nie udało się zweryfikować danych portfela. Salda i operacje portfela są wstrzymane do czasu sprawdzenia pamięci.",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "Zgłoszona transakcja może nadal zostać zrealizowana. Przed ponowną próbą sprawdź jej status.",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "Sprawdź miejsce przechowywania",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "Odbudowa na podstawie danych odzyskiwania",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "Sprawdź przesłane transakcje",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "Sprawdzanie zachowanych danych portfela...",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "Sprawdzenie nie mogło zostać zakończone. Operacje w portfelu pozostają wstrzymane.",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "Przechowywanie nie zostało zweryfikowane. Działania związane z portfelem pozostają wstrzymane.",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "Zweryfikowane konta: $verifiedAccounts$ z $expectedAccounts$. Zweryfikowane dane wejściowe: $verifiedInputs$ z $expectedInputs$.",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "Zapisz plik danych odzyskiwania",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "Przygotowywanie pliku danych odzyskiwania...",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "Nie udało się zapisać danych odzyskiwania",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "Nie udało się dostarczyć pliku z danymi do odzyskiwania. Spróbuj ponownie, zanim zaczniesz polegać na tej kopii.",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "Dane odzyskiwania",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "zapisano",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "Przechowuj tę zaszyfrowaną kopię ostatnich zweryfikowanych danych odzyskiwania poza tym urządzeniem i zabezpiecz hasło do niej. Może ona nie zawierać nowszych kont ani aktywności.",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "Ten plik nie zawiera Twoich kluczy podpisujących ani frazy odzyskiwania.",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "Najpierw przywróć dostęp podpisującego, a następnie zaimportuj te dane i sprawdź zawartość portfela przed ponowną próbą przeprowadzenia transakcji.",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "Dane odzyskiwania",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "Eksportuj dane odzyskiwania",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "Importuj dane odzyskiwania",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "Wyeksportuj ostatnie zweryfikowane dane odzyskiwania do pliku przechowywanego poza tym urządzeniem. Plik ten może nie zawierać nowszych kont ani aktywności. Plik ten nie zawiera kluczy podpisujących ani frazy odzyskiwania. Przed importem przywróć dostęp podpisującego oddzielnie.",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataImportDescription": {
+    "message": "Wybierz wcześniej wyeksportowany plik danych odzyskiwania. Nie zawiera on kluczy podpisywania ani frazy odzyskiwania, dlatego dostęp do podpisywania należy przywrócić osobno.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Wprowadź hasło, aby zaszyfrować plik danych odzyskiwania.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
+  "recoveryDataChooseFile": {
+    "message": "Wybierz plik danych odzyskiwania",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "Wyczyść wybrany plik",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "Hasło do pliku odzyskiwania",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "Zautentyfikuj się za pomocą swojego urządzenia zabezpieczającego portfel, aby uzyskać dostęp do danych odzyskiwania.",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "Zachowane dane odzyskiwania",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "Zaimportowane dane nie przywracają aktywności portfela. Należy sprawdzić i odbudować pamięć portfela, a następnie uzgodnić przesłane transakcje przed ponowną próbą.",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "Hasło do pliku odzyskiwania jest nieprawidłowe.",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "To nie jest prawidłowy plik danych odzyskiwania.",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "Ta wersja pliku odzyskiwania nie jest obsługiwana.",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "Plik danych odzyskiwania przekracza limit rozmiaru.",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "Te dane odzyskiwania należą do innej sieci.",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "Te dane odzyskiwania nie pokrywają się z zachowanymi kontami portfela.",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "Zweryfikowane dane dotyczące odzyskiwania nie są dostępne.",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "Dane odzyskiwania",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "Nie można odczytać wybranego pliku odzyskiwania. Wybierz go ponownie i spróbuj jeszcze raz.",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }

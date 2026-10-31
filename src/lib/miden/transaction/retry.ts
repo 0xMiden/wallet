@@ -2,6 +2,7 @@ import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { annotatePendingRetry, type PendingRetryReason } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
@@ -40,6 +41,13 @@ import {
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
+import { recoveryDebit } from '../recovery/financial';
+import {
+  checkpointFinancialChange,
+  verifyFinancialRecovery,
+  withFinancialRecoveryLock
+} from '../recovery/financial-writer';
+import { toSerializable } from '../recovery/serialization';
 
 /**
  * Types whose failed row can simply be re-queued through the FIFO loop.
@@ -446,7 +454,130 @@ type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
  * Unconfirmed, plus the entries' evidence against what Retry judged and wrote: pipeline stamps stay outside the lock,
  * so a stamp that lands after the judging read counts as a change.
  */
-const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimFeeContext): Promise<RequeueWrite> =>
+const requeueRow = (live: ITransaction, plan: RequeuePlan, initiatedAt: number, queuedSeq: number): ITransaction => {
+  const dbTx = { ...live };
+  // Cleared first, so the send branch below reads them as it always has.
+  if (plan.clearFlags) {
+    dbTx.mayHaveSubmitted = undefined;
+    dbTx.cancelledInFlightAt = undefined;
+  }
+  dbTx.status = ITransactionStatus.Queued;
+  dbTx.initiatedAt = initiatedAt;
+  // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
+  // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
+  // requeued row keeping its old (smaller) sequence would sort AHEAD of a
+  // transaction queued in the same second, which is the opposite of the FIFO
+  // order the tie-break exists to impose.
+  dbTx.queuedSeq = queuedSeq;
+  dbTx.processingStartedAt = undefined;
+  dbTx.attemptId = undefined;
+  delete dbTx.failureDiagnostics;
+  dbTx.completedAt = undefined;
+  dbTx.stage = undefined;
+  // Clear the stage stamps with the stage. `setTransactionStage` is
+  // first-entry-wins (#524), so leaving the FAILED attempt's boundaries behind
+  // would make the retried attempt's steps render that attempt's durations -
+  // and only `complete` would be re-stamped. This matters now that the retry
+  // footer (#483) is reachable at all: #507 removed the receipt auto-close, so
+  // a failed receipt stays up until the user acts on it.
+  dbTx.stageTimestamps = undefined;
+  dbTx.nextEligibleAt = undefined;
+  // A deliberate retry earns a fresh unauthorized-retry budget. Carrying the
+  // spent deadline over would make the new attempt terminal on its FIRST
+  // unauthorized failure, so a row that had exhausted its budget would behave
+  // worse under Retry than an identical send the user initiated from scratch.
+  dbTx.unauthorizedRetryUntil = undefined;
+  // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
+  // attempts had doubled (#1223).
+  dbTx.requeueStreak = undefined;
+  dbTx.lastDeferral = undefined;
+  dbTx.queueSighting = undefined;
+  dbTx.queueSightingAt = undefined;
+  dbTx.queueSightingSeq = undefined;
+  dbTx.preflightSync = undefined;
+  dbTx.preflightSyncAt = undefined;
+  dbTx.preflightSyncSeq = undefined;
+  // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
+  dbTx.guardianBusy = undefined;
+  dbTx.error = undefined;
+  dbTx.rawError = undefined;
+  dbTx.displayMessage = undefined;
+  dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
+  // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
+  dbTx.neverCommittedAt = undefined;
+  // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
+  const failedPreSubmit = plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
+  // A `send` row's cached bytes only exist for a GUARDIAN recallable send
+  // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
+  // rebuilds its request on every call and never reads `requestBytes`. Those
+  // bytes froze an absolute reclaim height and the outgoing asset as built at
+  // first attempt, so a retry has to rebuild them to stand any chance of
+  // succeeding. But they also pin the note id, which is the ONLY thing that
+  // makes the chain reject a duplicate - hence the gate; see
+  // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
+  //
+  // No other requeueable type may be cleared, whatever its stage. A swap's
+  // bytes must be reused byte-identically (the PSWAP flow requires it). A
+  // `bridged-send` carries a pre-built note whose attachment this builder
+  // cannot reproduce - the Epoch mandate binding, or the AggLayer B2AGG
+  // destination - and behind an Epoch row the intent is already spent, so the
+  // answer for a broken one is a new intent, not a fresh note.
+  //
+  // Scoped to `send` on both arms because `send` is the only type whose bytes
+  // this gate can drop; writing the flag onto a swap or bridged-send row would
+  // persist a signal nothing reads and imply a guard those types don't have.
+  if (dbTx.type === 'send') {
+    // Read off the LIVE row rather than the snapshot taken at the top of this
+    // function: `verifySendLanded` above makes a network round trip, and
+    // `markMayHaveSubmitted` writes that field and nothing else, so a crossing
+    // recorded during that window sails through the status/stage re-check
+    // untouched. Deciding from the snapshot would clear the bytes of a send
+    // that had just broadcast. IndexedDB serializes the two writes, so by the
+    // time this callback runs the flag is committed and visible.
+    const submitPossible =
+      dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit;
+
+    if (!submitPossible) {
+      dbTx.requestBytes = undefined;
+    } else if (dbTx.requestBytes !== undefined && !failedPreSubmit) {
+      // Persist the STAGE's verdict before the stage is forgotten, so the next
+      // failure - which may land early and look pre-submit - still keeps these
+      // bytes. Two conditions, and both are load-bearing:
+      //
+      //   - only when bytes EXIST. The flag's whole job is to protect them,
+      //     and `mayHaveSubmitted` is permanent. Writing it to a byteless row
+      //     protects nothing and instead manufactures a crossing that never
+      //     happened, which the refusal above then reads as fact: a plain send
+      //     is never stage-narrowed (its pipeline stamps 'sending' once, at
+      //     pickup, and that is deliberately not pre-submit), so EVERY plain
+      //     send would earn the flag on its first requeue and be refused on
+      //     its second - the vault-slot failure this release fixes included.
+      //     Nothing is lost by the scoping: bytes are persisted to the row
+      //     before they are ever submitted (`ensureGuardianRecallableSend-
+      //     RequestBytes`), so a byteless attempt provably never broadcast.
+      //   - only from the STAGE. A live `cancelledInFlightAt` also makes a
+      //     submit possible, but it says "we don't know YET" and expires
+      //     saying so (see its docstring); it also survives the reset below on
+      //     its own, so it needs no persisting. Promoting it here would freeze
+      //     an unresolved maybe into a permanent yes and pin the request -
+      //     with it the frozen absolute reclaim height - for good, which is
+      //     the bricking this field was split in two to avoid.
+      dbTx.mayHaveSubmitted = true;
+    }
+  }
+  return dbTx;
+};
+
+const retryIdentity = (row: ITransaction): string => JSON.stringify(toSerializable(row));
+
+const commitRequeue = async (
+  txId: string,
+  plan: RequeuePlan,
+  candidate: ITransaction,
+  original: string,
+  epoch: number,
+  feeContext?: ClaimFeeContext
+): Promise<RequeueWrite> =>
   Repo.db.transaction('rw', Repo.transactions, async (): Promise<RequeueWrite> => {
     const live = await Repo.transactions.where({ id: txId }).first();
     if (
@@ -456,7 +587,9 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
     ) {
       return 'declined';
     }
-    if (evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
+    assertStorageHealthy(epoch);
+    if (evidenceKey(live.submitEvidence) !== plan.baseline || retryIdentity(live) !== original)
+      return 'evidence-changed';
     let decision: ReturnType<typeof claimFeeDecisions>[number] | undefined;
     if (live.type === 'consume' && feeContext !== undefined) {
       const ahead = await getClaimFeeAhead(live.accountId, txId);
@@ -481,129 +614,62 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       ) {
         return false;
       }
-      if (evidenceKey(dbTx.submitEvidence) !== plan.baseline) {
+      assertStorageHealthy(epoch);
+      if (evidenceKey(dbTx.submitEvidence) !== plan.baseline || retryIdentity(dbTx) !== original) {
         result = 'evidence-changed';
         return false;
       }
-      // Cleared first, so the send branch below reads them as it always has.
-      if (plan.clearFlags) {
-        dbTx.mayHaveSubmitted = undefined;
-        dbTx.cancelledInFlightAt = undefined;
-      }
-      dbTx.status = ITransactionStatus.Queued;
-      if (decision !== undefined) dbTx.feeAdmission = decision.admission;
-      dbTx.initiatedAt = Math.floor(Date.now() / 1000);
-      // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
-      // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
-      // requeued row keeping its old (smaller) sequence would sort AHEAD of a
-      // transaction queued in the same second, which is the opposite of the FIFO
-      // order the tie-break exists to impose.
-      dbTx.queuedSeq = nextQueuedSeq();
-      dbTx.processingStartedAt = undefined;
-      dbTx.attemptId = undefined;
       delete dbTx.failureDiagnostics;
-      dbTx.completedAt = undefined;
-      dbTx.stage = undefined;
-      // Clear the stage stamps with the stage. `setTransactionStage` is
-      // first-entry-wins (#524), so leaving the FAILED attempt's boundaries behind
-      // would make the retried attempt's steps render that attempt's durations -
-      // and only `complete` would be re-stamped. This matters now that the retry
-      // footer (#483) is reachable at all: #507 removed the receipt auto-close, so
-      // a failed receipt stays up until the user acts on it.
-      dbTx.stageTimestamps = undefined;
-      dbTx.nextEligibleAt = undefined;
-      // A deliberate retry earns a fresh unauthorized-retry budget. Carrying the
-      // spent deadline over would make the new attempt terminal on its FIRST
-      // unauthorized failure, so a row that had exhausted its budget would behave
-      // worse under Retry than an identical send the user initiated from scratch.
-      dbTx.unauthorizedRetryUntil = undefined;
-      // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
-      // attempts had doubled (#1223).
-      dbTx.requeueStreak = undefined;
-      dbTx.lastDeferral = undefined;
-      dbTx.queueSighting = undefined;
-      dbTx.queueSightingAt = undefined;
-      dbTx.queueSightingSeq = undefined;
-      dbTx.preflightSync = undefined;
-      dbTx.preflightSyncAt = undefined;
-      dbTx.preflightSyncSeq = undefined;
-      // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
-      dbTx.guardianBusy = undefined;
-      dbTx.error = undefined;
-      dbTx.rawError = undefined;
-      dbTx.displayMessage = undefined;
-      dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
-      // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
-      dbTx.neverCommittedAt = undefined;
-      // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
-      const failedPreSubmit =
-        plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
-      // A `send` row's cached bytes only exist for a GUARDIAN recallable send
-      // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
-      // rebuilds its request on every call and never reads `requestBytes`. Those
-      // bytes froze an absolute reclaim height and the outgoing asset as built at
-      // first attempt, so a retry has to rebuild them to stand any chance of
-      // succeeding. But they also pin the note id, which is the ONLY thing that
-      // makes the chain reject a duplicate - hence the gate; see
-      // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
-      //
-      // No other requeueable type may be cleared, whatever its stage. A swap's
-      // bytes must be reused byte-identically (the PSWAP flow requires it). A
-      // `bridged-send` carries a pre-built note whose attachment this builder
-      // cannot reproduce - the Epoch mandate binding, or the AggLayer B2AGG
-      // destination - and behind an Epoch row the intent is already spent, so the
-      // answer for a broken one is a new intent, not a fresh note.
-      //
-      // Scoped to `send` on both arms because `send` is the only type whose bytes
-      // this gate can drop; writing the flag onto a swap or bridged-send row would
-      // persist a signal nothing reads and imply a guard those types don't have.
-      if (dbTx.type === 'send') {
-        // Read off the LIVE row rather than the snapshot taken at the top of this
-        // function: `verifySendLanded` above makes a network round trip, and
-        // `markMayHaveSubmitted` writes that field and nothing else, so a crossing
-        // recorded during that window sails through the status/stage re-check
-        // untouched. Deciding from the snapshot would clear the bytes of a send
-        // that had just broadcast. IndexedDB serializes the two writes, so by the
-        // time this callback runs the flag is committed and visible.
-        const submitPossible =
-          dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit;
-
-        if (!submitPossible) {
-          dbTx.requestBytes = undefined;
-        } else if (dbTx.requestBytes !== undefined && !failedPreSubmit) {
-          // Persist the STAGE's verdict before the stage is forgotten, so the next
-          // failure - which may land early and look pre-submit - still keeps these
-          // bytes. Two conditions, and both are load-bearing:
-          //
-          //   - only when bytes EXIST. The flag's whole job is to protect them,
-          //     and `mayHaveSubmitted` is permanent. Writing it to a byteless row
-          //     protects nothing and instead manufactures a crossing that never
-          //     happened, which the refusal above then reads as fact: a plain send
-          //     is never stage-narrowed (its pipeline stamps 'sending' once, at
-          //     pickup, and that is deliberately not pre-submit), so EVERY plain
-          //     send would earn the flag on its first requeue and be refused on
-          //     its second - the vault-slot failure this release fixes included.
-          //     Nothing is lost by the scoping: bytes are persisted to the row
-          //     before they are ever submitted (`ensureGuardianRecallableSend-
-          //     RequestBytes`), so a byteless attempt provably never broadcast.
-          //   - only from the STAGE. A live `cancelledInFlightAt` also makes a
-          //     submit possible, but it says "we don't know YET" and expires
-          //     saying so (see its docstring); it also survives the reset below on
-          //     its own, so it needs no persisting. Promoting it here would freeze
-          //     an unresolved maybe into a permanent yes and pin the request -
-          //     with it the frozen absolute reclaim height - for good, which is
-          //     the bricking this field was split in two to avoid.
-          dbTx.mayHaveSubmitted = true;
-        }
-      }
+      Object.assign(dbTx, requeueRow(dbTx, plan, candidate.initiatedAt, candidate.queuedSeq!));
+      if (decision !== undefined) dbTx.feeAdmission = decision.admission;
       result = 'written';
       return undefined;
     });
     return result;
   });
 
+const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimFeeContext): Promise<RequeueWrite> => {
+  const epoch = getStorageHealth().epoch;
+  const prepare = async (): Promise<RequeueWrite> => {
+    const live = await Repo.transactions.where({ id: txId }).first();
+    assertStorageHealthy(epoch);
+    if (!live || (live.status !== ITransactionStatus.Failed && live.status !== ITransactionStatus.Unconfirmed))
+      return 'declined';
+    if (live.stage !== plan.failedStage) return 'declined';
+    if (evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
+    const original = retryIdentity(live);
+    const candidate = requeueRow(live, plan, Math.floor(Date.now() / 1000), nextQueuedSeq());
+    const debit = recoveryDebit(candidate, live.accountId, 0);
+    const previous = recoveryDebit(live, live.accountId, 0);
+    if (debit && previous) {
+      await verifyFinancialRecovery(live.accountId);
+      assertStorageHealthy(epoch);
+      await checkpointFinancialChange({
+        ...debit,
+        retry: {
+          previous: {
+            initiatedAt: previous.initiatedAt,
+            spentUsd: previous.spentUsd,
+            authorizationId: previous.authorizationId
+          },
+          queuedSeq: candidate.queuedSeq!
+        }
+      });
+      assertStorageHealthy(epoch);
+    }
+    const result = await commitRequeue(txId, plan, candidate, original, epoch, feeContext);
+    assertStorageHealthy(epoch);
+    if (result === 'written' && debit) await checkpointFinancialChange(debit);
+    return result;
+  };
+  const live = await Repo.transactions.where({ id: txId }).first();
+  assertStorageHealthy(epoch);
+  return live && recoveryDebit(live, live.accountId, 0) ? withFinancialRecoveryLock(prepare) : prepare();
+};
+
 /** Steps 1 to 6 under the row's verdict lock, judged at most twice. */
 const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promise<void> => {
+  assertStorageHealthy();
   let acknowledged = options.acknowledged;
   for (let judging = 0; judging < 2; judging += 1) {
     const tx = await Repo.transactions.where({ id: txId }).first();
@@ -625,6 +691,8 @@ const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promi
  * Guardian candidate: it runs in the UI realm, which on the extension holds no Guardian service.
  */
 export const requeueFailedTransaction = async (txId: string, options: RetryOptions = {}): Promise<void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
   const turn = await inVerdictTurn(txId, () => retryUnderVerdictLock(txId, options), {
     waitMs: RETRY_VERDICT_WAIT_MS
   });
@@ -643,6 +711,8 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
 
 /** Retries the saved delivery, or a source withdrawal proven not to have been sent. */
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   // Same rule as `isRequeueableTransaction`, and it matters more here: resubmit
@@ -658,6 +728,7 @@ export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   // Dynamic import: lib/epoch statically imports lib/miden/activity, which
   // re-exports this module, so the domain service is loaded only on Retry.
   const { retryEarnWithdrawal } = await import('lib/epoch');
+  assertStorageHealthy();
   await retryEarnWithdrawal(txId);
 };
 
