@@ -321,7 +321,7 @@ describe('fetchBoundedJson', () => {
       expect(onFailure).toHaveBeenCalledWith('timeout');
     });
 
-    const withoutAbortSignalReason = async (body: () => Promise<void>) => {
+    const withoutAbortSignalReason = async <T>(body: () => Promise<T>): Promise<T> => {
       const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason');
       Object.defineProperty(AbortSignal.prototype, 'reason', { configurable: true, get: () => undefined });
       try {

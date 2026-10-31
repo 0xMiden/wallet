@@ -49,6 +49,20 @@ describe('submissionFeedback (#1689)', () => {
     });
   });
 
+  it('attaches only the closed request endpoint and gRPC status to a refused submission', () => {
+    const raw =
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters; account mtst1private; transaction 0x1234567890abcdef; amount 4200; host private.example';
+    const feedback = submissionFeedback(row({ error: raw, rawError: raw }));
+    const diagnostics = (feedback as unknown as Record<string, unknown> | undefined)?.errorDiagnostics;
+
+    expect(diagnostics).toEqual({
+      kind: 'submission_rejected',
+      submissionRejectedEndpoint: 'submit_proven_transaction',
+      submissionRejectedStatus: 'invalid_argument'
+    });
+    expect(JSON.stringify(diagnostics)).not.toMatch(/mtst1private|1234567890abcdef|4200|private\.example/);
+  });
+
   it('reads a submit gRPC status through the shared table, including the encryption-key request', () => {
     const during = (endpoint: string, kind: string) =>
       `failed to submit proven transaction: RPC error: grpc request failed for ${endpoint}: ${kind}`;
