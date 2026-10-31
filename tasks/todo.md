@@ -607,7 +607,8 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Add and prove red Robolectric lifecycle tests in Android CI.
 - [x] Implement and route the per-dialog warm-up.
 - [ ] Pass Android unit tests and the complete exact-head CI gate.
-- [ ] Add native-tap Android E2E and compare before/after FrameTimeline traces.
+- [x] Add opt-in native-tap Android E2E, FrameTimeline capture and comparison output.
+- [ ] Collect and inspect the before/after FrameTimeline artifacts and comparison report.
 - [ ] Complete exact-head CI and the recorded independent review, then merge.
 
 Acceptance plan for the native-tap measurement:
@@ -625,5 +626,6 @@ Acceptance plan for the native-tap measurement:
 - [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
 - [x] Advance Robolectric Choreographer frames in the expanded-animation assertion; advancing only the main looper does not render frames.
 - [x] Restore the saved accessibility importance after the hide operation changes the dialog decor.
-- [ ] Commit and push the restoration-order fix, then watch all exact-head checks.
+- [x] Write trace and metadata into the uploaded artifact directory and assert required files are nonempty.
+- [ ] Commit and push the final CI correction, then watch all exact-head checks.
 - [ ] Complete the independent direct review and send the final behavior/SHA to the #1956 owner.

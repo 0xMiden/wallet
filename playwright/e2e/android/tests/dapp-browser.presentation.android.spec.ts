@@ -102,7 +102,9 @@ test.describe('dApp Browser native presentation (Android)', () => {
         2
       )}\n`
     );
-    expect((await fs.stat(metadataPath)).size).toBeGreaterThan(0);
-    if (FRAME_TIMELINE_CAPTURE) expect((await fs.stat(tracePath)).size).toBeGreaterThan(0);
+    const artifactPaths = [metadataPath, ...(FRAME_TIMELINE_CAPTURE ? [tracePath] : [])];
+    for (const artifactPath of artifactPaths) {
+      expect(await fs.readFile(artifactPath)).not.toHaveLength(0);
+    }
   });
 });
