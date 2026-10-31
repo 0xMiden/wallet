@@ -601,7 +601,16 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
 - Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
 
-# Issue #2035 - normalize redundant leading zeroes
+# Issues #2034 and #2035 - token row values and amount normalization
+
+- [x] Confirm the expected-red PR run on be7ad2f: AssetRow leaves an empty value slot, and `listedFiatValue` returns Infinity for an overflowing product.
+- [x] Integrate current main f8a348 in a clean worktree, committed as local merge 8d7181a, while preserving the original dirty checkout.
+- [x] Add the smallest finite-result guard and render unavailable status without an empty value element.
+- [x] Add narrow 320/360/402px light and dark visual acceptance to the PR job.
+- [x] Run the seven focused regression suites, TypeScript and named ESLint through the guarded local helper on Node 22.
+- [ ] Complete Review Council, fix verified P0-P2 findings, and re-verify.
+- [ ] Push once, monitor exact-head checks and screenshots, and resolve failures.
+- [ ] Squash-merge after current-head CI, Council review and mergeability pass.
 
 - [x] Read the issue brief and latest main source.
 - [x] Create an isolated worktree and install dependencies with Node 22.
@@ -610,10 +619,12 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Implement normalization without Number coercion.
 - [x] Verify token/USD behavior, named suites, TypeScript and named ESLint.
 - [ ] Run repository-wide lint, i18n and prover-pin gates in CI; capture both-theme UI evidence.
-- [ ] Complete independent review, commit, push and watch exact-head CI.
+- [ ] Complete Review Council, commit, push and watch exact-head CI.
 - [ ] Merge only after the pre-merge check passes.
 
 ## Review
+
+After integrating current main, the seven named Jest suites passed 257 tests, TypeScript passed, and named ESLint passed. The guarded helper refused the first ESLint command when the Playwright path matched its browser restriction; ESLint for the visual harness remains for the CI route. Prettier and browser acceptance are still pending. The separate 63-test focused run on AssetRow and Binance also passed.
 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 

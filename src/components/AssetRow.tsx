@@ -10,7 +10,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
-import { isNominalQuote } from 'lib/prices/binance';
+import { isNominalQuote, listedFiatValue } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -98,9 +98,9 @@ export const AssetRow: FC<AssetRowProps> = ({
     : null;
   // Each figure's precision is pinned to the value it is heading for, so a quantity does not
   // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
-  const fiatValue = quote ? balance * quote.price : 0;
+  const fiatValue = quote ? listedFiatValue(tokenPrices, priceSymbol, balance, scaleIsKnown) : undefined;
   const formatQuantity = adaptiveFormatterFor(balance);
-  const formatFiat = adaptiveFormatterFor(fiatValue);
+  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const priceStatus = !scaleIsKnown
     ? t('assetValueUnknownScale')
     : !quote
@@ -109,7 +109,9 @@ export const AssetRow: FC<AssetRowProps> = ({
           ? t('loading')
           : t('unavailable')
         : t('assetPriceUnsupported')
-      : undefined;
+      : fiatValue === undefined
+        ? t('unavailable')
+        : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
   const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
@@ -154,7 +156,7 @@ export const AssetRow: FC<AssetRowProps> = ({
         ) : undefined
       }
       price={
-        scaleIsKnown && quote ? (
+        fiatValue !== undefined ? (
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
         ) : undefined
       }
