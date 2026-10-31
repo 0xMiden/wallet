@@ -213,6 +213,15 @@ public class WebViewDialog extends Dialog {
         _options.getCallbacks().presentationMorph(event);
     }
 
+    @Override public boolean isShowing() {
+        if (!permanentlyClosed && unseenWarmPresentation()) {
+            Window window = getWindow();
+            View decor = window == null ? null : window.getDecorView();
+            if (decor != null && decor.getParent() != null && decor.getVisibility() == View.INVISIBLE) return true;
+        }
+        return super.isShowing();
+    }
+
     @Override public void show() {
         if (permanentlyClosed || managedClosing()) return;
         if (presentation != null) presentation.visibility(true);

@@ -513,6 +513,7 @@ public class BreadPresentationControllerTest {
         View decor = target.getWindow().getDecorView();
         assertEquals(warmupState(target, presentation), View.INVISIBLE, decor.getVisibility());
         assertNotNull(warmupState(target, presentation), decor.getParent());
+        assertTrue(warmupState(target, presentation), target.isShowing());
         int flags = target.getWindow().getAttributes().flags;
         assertEquals(warmupState(target, presentation),
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
