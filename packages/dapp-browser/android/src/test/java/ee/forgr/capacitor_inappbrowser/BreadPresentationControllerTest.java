@@ -1601,6 +1601,15 @@ public class BreadPresentationControllerTest {
         root.getLocationInWindow(rootOrigin);
     }
 
+    private void layoutMorphRoot(float sideDp) {
+        float density = activity.getResources().getDisplayMetrics().density;
+        int side = Math.round(sideDp * density);
+        root.measure(View.MeasureSpec.makeMeasureSpec(side, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(side, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, side, side);
+        root.getLocationInWindow(rootOrigin);
+    }
+
     // A scheduled traversal holds a sync barrier until its vsync, so the fence's posted update waits for a frame.
     private void paintFence() {
         controller.render();
@@ -2140,7 +2149,7 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void reducedMotionCapsuleReleaseIsolatesFlingFromProjectedTravel() throws Exception {
+    public void horizontalCapsuleFlingBelowVerticalGateDoesNotMinimize() throws Exception {
         openMorph(false);
         reveal();
         WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
@@ -2169,17 +2178,17 @@ public class BreadPresentationControllerTest {
             }
             measured.computeCurrentVelocity(1000);
             float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
             float progressVelocity = ReflectionHelpers.callInstanceMethod(controller, "capsuleProgressVelocity",
                 ReflectionHelpers.ClassParameter.from(float.class, measured.getYVelocity()));
             float projectedTravel = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleProgress",
                 ReflectionHelpers.ClassParameter.from(float.class, releaseY)) + 0.30f * progressVelocity - 1;
-            assertTrue("the dispatched gesture exceeds the fling threshold", speed >= 450f);
+            assertTrue("the horizontal gesture exceeds the vector fling threshold", speed >= 450f);
+            assertTrue("the vertical gesture stays below the fling threshold", verticalSpeed < 450f);
             assertTrue("the normalized downward velocity clears the strict floor", progressVelocity < -0.01f);
             assertTrue("the normalized velocity stays inside its clamp", progressVelocity >= -8f);
             assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
-            verify(callbacks, times(1).description("a fling under the travel threshold minimizes with animations disabled"))
-                .presentationMinimizeRequested(eq(controller.state.policyRevision()),
-                    eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
         } finally {
             ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
                 ReflectionHelpers.ClassParameter.from(float.class, 1f));
@@ -2189,7 +2198,7 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void capsuleReleaseReportsNullMorphIdWhenReduceMotionChangesBeforeActionUp() throws Exception {
+    public void animatedCapsuleReleaseIgnoresHorizontalFlingBelowVerticalGate() throws Exception {
         openMorph(false);
         reveal();
         WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
@@ -2202,6 +2211,169 @@ public class BreadPresentationControllerTest {
         float slopY = y + slop + 1;
         float releaseX = x + 12 * density;
         float releaseY = slopY + 0.0032f * distance;
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 100),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, releaseX, releaseY, t + 516),
+            touch(android.view.MotionEvent.ACTION_UP, releaseX, releaseY, t + 520));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        try {
+            assertTrue("animators are enabled for the initial capsule drag",
+                android.animation.ValueAnimator.areAnimatorsEnabled());
+            for (int i = 0; i < events.size() - 1; i++) {
+                android.view.MotionEvent event = events.get(i);
+                measured.addMovement(event);
+                assertTrue(capsule.dispatchTouchEvent(event));
+            }
+            assertTrue("the drag selected the animated capsule path", ReflectionHelpers.getField(controller, "tracking"));
+            assertFalse("the drag did not select the initial reduced-motion path",
+                ReflectionHelpers.getField(controller, "capsuleReducedMotion"));
+
+            android.view.MotionEvent up = events.get(events.size() - 1);
+            measured.addMovement(up);
+            measured.computeCurrentVelocity(1000);
+            float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
+            float progressVelocity = ReflectionHelpers.callInstanceMethod(controller, "capsuleProgressVelocity",
+                ReflectionHelpers.ClassParameter.from(float.class, measured.getYVelocity()));
+            float projectedTravel = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleProgress",
+                ReflectionHelpers.ClassParameter.from(float.class, releaseY)) + 0.30f * progressVelocity - 1;
+            assertTrue("the horizontal gesture exceeds the vector fling threshold", speed >= 450f);
+            assertTrue("the vertical gesture stays below the fling threshold", verticalSpeed < 450f);
+            assertTrue("the normalized downward velocity clears the strict floor", progressVelocity < -0.01f);
+            assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
+
+            assertTrue(capsule.dispatchTouchEvent(up));
+            verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+            assertEquals("a non-fling capsule release keeps the page expanded", 1f, driver().target(), 0f);
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleReleaseIsolatesVerticalFlingFromProjectedTravel() throws Exception {
+        openMorph(false);
+        reveal();
+        layoutMorphRoot(2400f);
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.02f, 0.02f, 0.06f, 0.06f));
+        float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
+        float density = activity.getResources().getDisplayMetrics().density;
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        assertTrue("the capsule has a long collapse distance", distance / density > 900f);
+        long t = android.os.SystemClock.uptimeMillis();
+        float x = 20, y = 20;
+        float slopY = y + slop + 1;
+        float releaseY = slopY + 8 * density;
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 100),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, releaseY, t + 516),
+            touch(android.view.MotionEvent.ACTION_UP, x, releaseY, t + 520));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            for (android.view.MotionEvent event : events) {
+                measured.addMovement(event);
+                assertTrue(capsule.dispatchTouchEvent(event));
+            }
+            measured.computeCurrentVelocity(1000);
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
+            float progressVelocity = ReflectionHelpers.callInstanceMethod(controller, "capsuleProgressVelocity",
+                ReflectionHelpers.ClassParameter.from(float.class, measured.getYVelocity()));
+            float projectedTravel = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleProgress",
+                ReflectionHelpers.ClassParameter.from(float.class, releaseY)) + 0.30f * progressVelocity - 1;
+            assertTrue("the vertical gesture crosses the fling threshold", verticalSpeed >= 450f);
+            assertTrue("the normalized velocity clears the floor and clamp",
+                Math.abs(progressVelocity) > 0.01f && Math.abs(progressVelocity) <= 8f);
+            assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void pageReleaseKeepsVectorSpeedWhenVerticalSpeedStaysBelowTheGate() throws Exception {
+        openMorph(false);
+        reveal();
+        layoutMorphRoot(2400f);
+        BreadMorphCard host = hostCardInside(0.92f, 0.48f, 0.98f, 0.52f);
+        assertTrue(collapse(host, "page-vector"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
+        assertTrue("the collapsed target is still moving", morph.running());
+
+        RectF page = controller.morphPageRect();
+        float[] d = path(host);
+        float length = (float) Math.hypot(d[0], d[1]);
+        float density = activity.getResources().getDisplayMetrics().density;
+        float slop = 2 * android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        float x = page.centerX(), y = page.centerY();
+        float towardCenter = d[0] / length;
+        float slopX = x + towardCenter * slop;
+        float releaseX = slopX + towardCenter * 8 * density;
+        long t = android.os.SystemClock.uptimeMillis();
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
+            touch(android.view.MotionEvent.ACTION_MOVE, slopX, y, t + 8),
+            touch(android.view.MotionEvent.ACTION_MOVE, slopX, y, t + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, releaseX, y, t + 516),
+            touch(android.view.MotionEvent.ACTION_UP, releaseX, y, t + 520));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        try {
+            for (android.view.MotionEvent event : events) {
+                measured.addMovement(event);
+                assertTrue(dialog.dispatchTouchEvent(event));
+            }
+            measured.computeCurrentVelocity(1000);
+            float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
+            List<BreadMorphEvent> eventsForMorph = morphEvents("page-vector");
+            BreadMorphEvent release = eventsForMorph.get(eventsForMorph.size() - 1);
+            float grabStart = ReflectionHelpers.getField(controller, "grabStart");
+            float projectedTravel = release.progress + 0.30f * release.velocity - grabStart;
+            assertTrue("the horizontal gesture exceeds the vector fling threshold", speed >= 450f);
+            assertTrue("the vertical gesture stays below the fling threshold", verticalSpeed < 450f);
+            assertTrue("the projected page velocity clears the floor", Math.abs(release.velocity) > 0.01f);
+            assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
+            assertEquals("the page release keeps its collapsed target", "retargeted", release.phase);
+            assertFalse("the page release stopped tracking", release.tracking);
+            assertEquals("the vector fling expands the page", 1f, morph.target(), 0f);
+            verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        } finally {
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleReleaseReportsNullMorphIdWhenReduceMotionChangesBeforeActionUp() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        float density = activity.getResources().getDisplayMetrics().density;
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        long t = android.os.SystemClock.uptimeMillis();
+        float x = 20, y = 20;
+        float slopY = y + slop + 1;
+        float releaseX = x;
+        float releaseY = slopY + 8 * density;
         List<android.view.MotionEvent> events = List.of(
             touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
             touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 100),
@@ -2226,12 +2398,12 @@ public class BreadPresentationControllerTest {
             assertNotNull("the animated drag has a live native morph id before release", liveMorphId);
 
             measured.computeCurrentVelocity(1000);
-            float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
             float progressVelocity = ReflectionHelpers.callInstanceMethod(controller, "capsuleProgressVelocity",
                 ReflectionHelpers.ClassParameter.from(float.class, measured.getYVelocity()));
             float projectedTravel = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleProgress",
                 ReflectionHelpers.ClassParameter.from(float.class, releaseY)) + 0.30f * progressVelocity - 1;
-            assertTrue("the dispatched gesture exceeds the fling threshold", speed >= 450f);
+            assertTrue("the vertical release sample exceeds the fling threshold", verticalSpeed >= 450f);
             assertTrue("the normalized downward velocity clears the strict floor", progressVelocity < -0.01f);
             assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
 
