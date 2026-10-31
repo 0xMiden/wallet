@@ -12,7 +12,9 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>
 }));
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
+  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-faucet={faucetId} />
+  )
 }));
 
 const renderDrawer = () =>
@@ -36,6 +38,39 @@ describe('EvmBridgeTokenDrawer', () => {
       'bridge-token-CIRCLE_USDC'
     ]);
     expect(screen.queryByTestId('bridge-token-USDC')).not.toBeInTheDocument();
+  });
+
+  it("draws each Epoch token after Circle USDC, with its Miden faucet's logo, and picks it as an Epoch token", () => {
+    const onSelect = jest.fn();
+    render(
+      <EvmBridgeTokenDrawer
+        open
+        onOpenChange={jest.fn()}
+        selected="CIRCLE_USDC"
+        circleUsdcBalance="12"
+        epochRows={[
+          {
+            key: 'POL',
+            symbol: 'POL',
+            address: '0x0000000000000000000000000000000000000000',
+            midenFaucetId: '0xa5b56b51edbda2514c711385dc6f31',
+            name: 'POL',
+            balance: '3'
+          }
+        ]}
+        onSelect={onSelect}
+      />
+    );
+
+    expect(screen.getAllByRole('button').map(row => row.getAttribute('data-testid'))).toEqual([
+      'bridge-token-CIRCLE_USDC',
+      'bridge-token-EPOCH_POL'
+    ]);
+    const row = screen.getByTestId('bridge-token-EPOCH_POL');
+    expect(within(row).getByText('3 POL')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-faucet', '0xa5b56b51edbda2514c711385dc6f31');
+    row.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'epoch', key: 'POL' });
   });
 
   it('offers Circle USDC under its symbol with the USDC logo', () => {

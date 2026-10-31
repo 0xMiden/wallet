@@ -24,12 +24,32 @@ export interface DepositErc20Row {
   loading?: boolean;
 }
 
+/** A token of the picked chain's Epoch route the host draws, with the connected wallet's balance of it. */
+export interface DepositEpochRow {
+  /** The document's key on the route. */
+  key: string;
+  /** The token's symbol, which keys its logo. */
+  symbol: string;
+  /** The token's address on the chain; the zero address for the native coin. */
+  address: string;
+  /** The Miden faucet it arrives in: the logo falls back to that faucet's token-list logo (POL, USDG). */
+  midenFaucetId: string;
+  /** The row's title and balance unit. */
+  name: string;
+  balance: string;
+  loading?: boolean;
+}
+
 interface TokenRow {
   token: DepositToken;
   /** The row's title and balance unit. */
   name: string;
   /** Keys the row's logo. */
   logoSymbol: string;
+  /** Prices the row's balance on the drawer's chain. */
+  priceAddress?: string;
+  /** The faucet whose token-list logo is drawn when the wallet ships no mark for `logoSymbol`. */
+  logoFaucetId?: string;
   /** Formatted balance for display (from the connected EVM wallet). */
   balance: string;
   loading?: boolean;
@@ -59,13 +79,16 @@ export interface EvmBridgeTokenDrawerProps {
   erc20Rows?: DepositErc20Row[];
   /** True while the registered token list could not be read: the drawer says so instead of showing fewer tokens. */
   erc20Unavailable?: boolean;
+  /** The tokens the chosen chain's Epoch route takes, each bridging through Epoch alone. Drawn after Circle USDC. */
+  epochRows?: DepositEpochRow[];
   onSelect: (token: DepositToken) => void;
 }
 
 /**
  * Bottom-sheet picker for the deposit source token. The chosen token drives the
- * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; native ETH
- * and every registered ERC-20 use AggLayer where configured.
+ * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; an Epoch
+ * token arrives as its Miden faucet's token; native ETH and every registered ERC-20
+ * use AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   chainId,
@@ -80,6 +103,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   circleUsdcLoading,
   erc20Rows = [],
   erc20Unavailable = false,
+  epochRows = [],
   onSelect
 }) => {
   const { t } = useTranslation();
@@ -87,15 +111,34 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
 
   const rows: TokenRow[] = [];
   if (ethBalance !== undefined) {
-    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, loading: ethLoading });
+    rows.push({
+      token: 'ETH',
+      name: 'ETH',
+      logoSymbol: 'ETH',
+      priceAddress: '0x0000000000000000000000000000000000000000',
+      balance: ethBalance,
+      loading: ethLoading
+    });
   }
   if (circleUsdcBalance !== undefined) {
     rows.push({
       token: 'CIRCLE_USDC',
       name: circleUsdcLabel ?? 'USDC',
       logoSymbol: 'USDC',
+      priceAddress: circleUsdcAddress,
       balance: circleUsdcBalance,
       loading: circleUsdcLoading
+    });
+  }
+  for (const { key, symbol, address, midenFaucetId, name, balance, loading } of epochRows) {
+    rows.push({
+      token: { kind: 'epoch', key },
+      name,
+      logoSymbol: symbol,
+      logoFaucetId: midenFaucetId,
+      priceAddress: address,
+      balance,
+      loading
     });
   }
   for (const { token, name, balance, loading } of erc20Rows) {
@@ -103,6 +146,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       token: { kind: 'erc20', contractAddress: token.contractAddress },
       name,
       logoSymbol: token.symbol,
+      priceAddress: token.contractAddress,
       balance,
       loading
     });
@@ -118,7 +162,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         {/* One grouped list on the shared `fill`, with the design system's round check on the
             chosen token — the same picker the send and swap flows draw. */}
         <ListGroup className="mx-4">
-          {rows.map(({ token, name, logoSymbol, balance, loading }) => (
+          {rows.map(({ token, name, logoSymbol, logoFaucetId, priceAddress, balance, loading }) => (
             <ListRow
               accent="receive"
               key={depositTokenKey(token)}
@@ -130,23 +174,12 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
                   <div>
                     {`${balance} ${name}`}
                     <div>
-                      <UsdValue
-                        amount={balance}
-                        quote={evmQuote(
-                          prices,
-                          chainId,
-                          typeof token !== 'string'
-                            ? token.contractAddress
-                            : token === 'ETH'
-                              ? '0x0000000000000000000000000000000000000000'
-                              : circleUsdcAddress
-                        )}
-                      />
+                      <UsdValue amount={balance} quote={evmQuote(prices, chainId, priceAddress)} />
                     </div>
                   </div>
                 )
               }
-              avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
+              avatar={<TokenLogo symbol={logoSymbol} faucetId={logoFaucetId} size="lg" />}
               checked={sameDepositToken(token, selected)}
               onClick={() => onSelect(token)}
               data-testid={`bridge-token-${depositTokenKey(token)}`}

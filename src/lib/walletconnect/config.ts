@@ -7,7 +7,17 @@
  */
 
 import { Chain, defineChain } from 'viem';
-import { arbitrum, arbitrumSepolia, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
+import {
+  arbitrum,
+  arbitrumSepolia,
+  base,
+  baseSepolia,
+  mainnet,
+  optimism,
+  polygon,
+  robinhood,
+  sepolia
+} from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -82,7 +92,9 @@ export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
   base,
   arbitrum,
   ARC_MAINNET,
-  optimism
+  optimism,
+  polygon,
+  robinhood
 ];
 
 /**
@@ -102,8 +114,10 @@ export function copyPlainData(value: unknown): unknown {
 /** This registry does not enable connections. The remote document selects those chains. */
 export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
   switch (chain.id) {
+    // Not on the WalletConnect RPC proxy: read through the chain's own public RPC.
     case ARC_TESTNET.id:
     case ARC_MAINNET.id:
+    case robinhood.id:
       return {
         ...walletConnectChain(chain),
         rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)
