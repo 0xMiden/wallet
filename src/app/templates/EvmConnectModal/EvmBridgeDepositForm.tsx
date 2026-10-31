@@ -27,6 +27,8 @@ import { truncateAddress } from 'utils/string';
 
 interface EvmBridgeDepositFormProps {
   token: UITokenWithPendingBalance;
+  /** The Miden faucet an Epoch token arrives in: its token-list logo stands in when the wallet ships no mark. */
+  logoFaucetId?: string;
   network?: BridgeNetwork;
   tokenLabel: string;
   arrivingName: string;
@@ -47,6 +49,7 @@ interface EvmBridgeDepositFormProps {
 /** Bridge funding uses Send's amount field and the shared flow body; the manager owns navigation. */
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
+  logoFaucetId,
   network,
   tokenLabel,
   arrivingName,
@@ -147,7 +150,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       <DetailCard surface="outline" face="heading" className="mt-8">
         <ListRow
           title={tokenLabel}
-          avatar={<TokenLogo symbol={token.name} faucetId={token.id} size="md" />}
+          avatar={<TokenLogo symbol={token.name} faucetId={logoFaucetId ?? token.id} size="md" />}
           subtitle={
             token.scaleIsKnown ? (
               balanceReady ? (

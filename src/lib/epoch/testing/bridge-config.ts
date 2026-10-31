@@ -131,7 +131,7 @@ const UNREAD_CHAIN: DerivedChainConfig = {
     l1BridgeCode: SKIPPED,
     depositTokens: SKIPPED
   },
-  epoch: { evmUsdc: SKIPPED }
+  epoch: { tokens: {} }
 };
 
 const TEST_DERIVED: DerivedBridgeConfig = {
@@ -142,7 +142,21 @@ const TEST_DERIVED: DerivedBridgeConfig = {
     ...Object.fromEntries(Object.values(TEST_BRIDGE_CONFIG.supportedEvmChains).map(c => [c.chainId, UNREAD_CHAIN])),
     [TEST_EVM_CHAIN_ID]: {
       ...UNREAD_CHAIN,
-      epoch: { evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } } }
+      epoch: {
+        // The route's USDC settles into the testnet output faucet, read at its own scale.
+        tokens: {
+          USDC: {
+            state: 'ok',
+            value: {
+              symbol: TEST_EVM_USDC.symbol,
+              decimals: TEST_EVM_USDC.decimals,
+              midenFaucetId: TEST_MIDEN_USDC.faucetId,
+              midenSymbol: TEST_MIDEN_USDC.symbol,
+              midenDecimals: TEST_MIDEN_USDC.decimals
+            }
+          }
+        }
+      }
     }
   },
   agglayer: { indexer: SKIPPED },
