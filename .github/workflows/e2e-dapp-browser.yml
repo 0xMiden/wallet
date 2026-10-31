@@ -378,7 +378,7 @@ jobs:
           curl --fail --location --retry 3 https://github.com/google/perfetto/releases/download/v59.1/linux-amd64.zip --output "$archive"
           echo '7deb8c2572c6ae7ec80cd719d388041079827b0c44a1659694d5d88faa4f501e  '"$archive" | sha256sum --check
           mkdir -p "$RUNNER_TEMP/perfetto"
-          unzip -q "$archive" trace_processor_shell -d "$RUNNER_TEMP/perfetto"
+          unzip -q -j "$archive" linux-amd64/trace_processor_shell -d "$RUNNER_TEMP/perfetto"
           chmod +x "$RUNNER_TEMP/perfetto/trace_processor_shell"
           "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
 
