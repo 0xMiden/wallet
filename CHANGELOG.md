@@ -3,6 +3,7 @@
 ## 1.17.9 (TBD)
 
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
+- [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
 
