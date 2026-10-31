@@ -215,8 +215,7 @@ final class BreadPresentationController {
         back.setOnClickListener(v -> {
             if (!state.effectiveVisibility() || owner.managedClosing()) return;
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-            long revision = state.policyRevision(), sequence = state.acknowledgedVisibilitySequence();
-            owner.presentationMinimizeRequested(revision, sequence, nativeCollapse());
+            requestAcceptedMinimize();
         });
         back.setOnTouchListener(this::handleCapsuleTouch);
         GradientDrawable capsule = new GradientDrawable();
@@ -517,6 +516,10 @@ final class BreadPresentationController {
 
     private boolean flying() { return morph.running() || tracking || collapseFlight != null; }
 
+    private boolean activeExpansion() {
+        return flying() && morphId != null && state.motion() == BreadPresentationState.Motion.EXPANDING;
+    }
+
     private void headTo(float end) {
         state.beginMotion(end >= 0.5f ? BreadPresentationState.Motion.EXPANDING : BreadPresentationState.Motion.COLLAPSING);
         if (end < 0.5f) {
@@ -618,9 +621,11 @@ final class BreadPresentationController {
     }
 
     private String nativeCollapse() {
-        if (posed) return morphId;
+        boolean expansion = activeExpansion();
+        // A posed page that is not expanding already has its id, null once that flight has settled.
+        if (posed && !expansion) return morphId;
         BreadMorphCard host = WebViewRegistry.getShared().morphCard();
-        String id = "native-" + java.util.UUID.randomUUID();
+        String id = expansion ? morphId : "native-" + java.util.UUID.randomUUID();
         return collapse(host == null ? null : owner.hostCardToWindow(host), 0, 0, id, null) ? id : null;
     }
 
@@ -973,18 +978,43 @@ final class BreadPresentationController {
     }
 
     void commitBackPreview() {
-        if (!backPreview || !tracking || owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return;
-        String collapseId = morphId;
-        backPreview = false;
-        commitInteractiveCollapse();
-        requestNativeMinimize(collapseId);
+        if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        if (backPreview && tracking) {
+            String collapseId = morphId;
+            backPreview = false;
+            commitInteractiveCollapse();
+            requestNativeMinimize(collapseId);
+            return;
+        }
+        if (!owner.isShowing() || !state.effectiveVisibility()
+            || state.phase() != BreadPresentationState.Phase.VISIBLE) return;
+        requestAcceptedMinimize();
     }
 
     void minimizeFromBackWithoutPreview() {
         if (owner.managedClosing() || !owner.isShowing() || !state.effectiveVisibility()
-            || state.phase() != BreadPresentationState.Phase.VISIBLE || posed || flying()) return;
+            || state.phase() != BreadPresentationState.Phase.VISIBLE) return;
+        requestAcceptedMinimize();
+    }
+
+    private void requestAcceptedMinimize() {
+        // A settled collapse cleared morphId and left the page posed. That null is the current id, chosen before
+        // nativeCollapse, so it is not the null collapse returns when the container refuses the flight.
+        if (posed && morphId == null && !flying()) {
+            sendMinimize(null);
+            return;
+        }
         String id = nativeCollapse();
-        if (id != null) owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence(), id);
+        if (id == null) return;
+        sendMinimize(reportedCollapseId(id));
+    }
+
+    private String reportedCollapseId(String id) {
+        return id != null && id.equals(morphId) ? id : null;
+    }
+
+    private void sendMinimize(String morphId) {
+        owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence(), morphId);
     }
 
     boolean canMinimizeFromBack() {
@@ -1012,7 +1042,7 @@ final class BreadPresentationController {
 
     private void requestNativeMinimize(String collapseId) {
         if (owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED || collapseId == null) return;
-        owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence(), collapseId);
+        sendMinimize(reportedCollapseId(collapseId));
     }
 
     int routeTouch(MotionEvent event) {
