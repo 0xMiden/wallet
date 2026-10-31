@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.10 (TBD)
+## 1.17.10 (2026-10-31)
 
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
