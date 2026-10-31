@@ -2326,14 +2326,23 @@ public class BreadPresentationControllerTest {
             ReflectionHelpers.ClassParameter.from(float.class, 1f));
         openMorph(false);
         reveal();
-        BreadMorphCard host = hostCardInside(0.42f, 0.88f, 0.46f, 0.92f);
+        BreadMorphCard host = hostCardInside(0.35f, 0.88f, 0.39f, 0.92f);
         assertTrue(collapse(host, "page-vector"));
         BreadMorphController morph = driver();
+        float density = activity.getResources().getDisplayMetrics().density;
+        float pathOffset = 800 * density;
+        float halfCard = 20 * density;
+        BreadMorphCard longPathFixture = new BreadMorphCard(new RectF(
+            root.getWidth() / 2f - pathOffset - halfCard,
+            root.getHeight() / 2f + pathOffset - halfCard,
+            root.getWidth() / 2f - pathOffset + halfCard,
+            root.getHeight() / 2f + pathOffset + halfCard), 16 * density);
+        morph.place(longPathFixture, 1f);
+        morph.animateTo(0, longPathFixture, 0, BreadMorphPhysics.COLLAPSE);
         BreadMorphControllerTest.frame();
         assertTrue("the collapsed target is still moving", morph.running());
 
         RectF page = controller.morphPageRect();
-        float density = activity.getResources().getDisplayMetrics().density;
         float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop() + 1;
         float x = page.centerX(), y = page.centerY();
         float slopX = x + slop;
@@ -2347,9 +2356,12 @@ public class BreadPresentationControllerTest {
             touch(android.view.MotionEvent.ACTION_UP, releaseX, y, t + 520));
         android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
         try {
-            for (android.view.MotionEvent event : events) {
+            for (int i = 0; i < events.size(); i++) {
+                android.view.MotionEvent event = events.get(i);
                 measured.addMovement(event);
                 assertTrue(dialog.dispatchTouchEvent(event));
+                if (i == 0) assertTrue("the gesture begins on the moving page", ReflectionHelpers.getField(controller, "onPage"));
+                if (i == 1) assertTrue("the gesture grabs the moving page", ReflectionHelpers.getField(controller, "tracking"));
             }
             measured.computeCurrentVelocity(1000);
             float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
@@ -2360,7 +2372,7 @@ public class BreadPresentationControllerTest {
             float projectedTravel = release.progress + 0.30f * release.velocity - grabStart;
             assertTrue("the horizontal gesture exceeds the vector fling threshold", speed >= 450f);
             assertTrue("the vertical gesture stays below the fling threshold", verticalSpeed < 450f);
-            assertTrue("the projected page velocity clears the floor", Math.abs(release.velocity) > 0.01f);
+            assertTrue("the projected page velocity clears the floor: " + release.velocity, Math.abs(release.velocity) > 0.01f);
             assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
             assertEquals("the page release keeps its collapsed target", "retargeted", release.phase);
             assertFalse("the page release stopped tracking", release.tracking);
