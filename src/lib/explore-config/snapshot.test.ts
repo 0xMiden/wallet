@@ -8,16 +8,18 @@ import { bundledExploreCatalog } from './source';
 
 const ICON_DIR = path.join(__dirname, '../../app/misc/dapp-icons');
 
-it('bundles both testnet faucets and Where Legends Grow in their published sections', () => {
+it('bundles both testnet faucets, Where Legends Grow and port0 in their published sections', () => {
   const catalog = bundledExploreCatalog('testnet');
   expect(catalog?.items.map(item => [item.id, item.url, item.brandColor])).toEqual([
     ['faucet', 'https://faucet.testnet.miden.io/', '#778C72'],
     ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB'],
-    ['where-legends-grow', 'https://wherelegendsgrow.com/', '#07101F']
+    ['where-legends-grow', 'https://wherelegendsgrow.com/', '#07101F'],
+    ['port0', 'https://testnet.port0.sh/', '#F200B9']
   ]);
   expect(catalog?.sections.map(section => [section.id, section.kind, section.itemIds])).toEqual([
     ['featured', 'featured', ['faucet']],
     ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']],
+    ['defi', 'list', ['port0']],
     ['games', 'list', ['where-legends-grow']]
   ]);
 });
@@ -39,7 +41,13 @@ it('ships a file for exactly the icon paths the bundled documents name', () => {
 
 it('carries the published translations for section titles and the swap faucet and game taglines', () => {
   const catalog = bundledExploreCatalog('testnet');
-  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme', 'Spiele']);
+  // The published DeFi title is English only.
+  expect(catalog?.sections.map(section => section.title.de)).toEqual([
+    'Empfohlen',
+    'Hilfsprogramme',
+    undefined,
+    'Spiele'
+  ]);
   expect(catalog?.items[1]?.tagline).toMatchObject({
     en: 'Get testnet tokens for swap',
     ja: 'スワップ用のテストネットトークンを入手'

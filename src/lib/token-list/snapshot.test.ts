@@ -4,6 +4,8 @@ import { bundledTokenList } from './snapshot';
 it('bundles the testnet list with exactly the seeded tokens', () => {
   expect(parseTokenList(bundledTokenList('testnet'), 'testnet')?.ids).toEqual(
     new Set([
+      'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0',
+      'mtst1azteyju6wlk4fytl7mtrvjhxvy08nme2',
       'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',
       'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
       'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
@@ -17,11 +19,12 @@ it.each(['devnet', 'mainnet', 'localnet'])('bundles nothing for %s', network => 
   expect(bundledTokenList(network)).toBeNull();
 });
 
-it('bundles the testnet logos for MIDEN, IMIDEN, IETH and IBTC', () => {
+it('bundles the testnet logos for USDCX, MIDEN, IMIDEN, IETH and IBTC', () => {
   const logo = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
   expect(parseTokenList(bundledTokenList('testnet'), 'testnet')?.logos).toEqual(
     new Map(
       [
+        'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0',
         'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',
         'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
         'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',

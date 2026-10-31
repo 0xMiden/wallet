@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "version": 2,
+  "version": 3,
   "items": [
     {
       "id": "faucet",
@@ -69,6 +69,33 @@
       "icon": "icons/where-legends-grow.png",
       "brandColor": "#07101F",
       "isExchange": false
+    },
+    {
+      "id": "port0",
+      "name": {
+        "en": "port0.sh"
+      },
+      "tagline": {
+        "en": "The first exchange on Miden where anyone can trade and open a pool.",
+        "de": "Die erste Exchange auf Miden, auf der jeder handeln und einen Pool eröffnen kann.",
+        "en_GB": "The first exchange on Miden where anyone can trade and open a pool.",
+        "es": "El primer exchange en Miden donde cualquiera puede operar y abrir un pool.",
+        "fr": "La première place d'échange sur Miden où chacun peut trader et ouvrir un pool.",
+        "ja": "Miden 初の、誰でも取引とプールの開設ができる取引所。",
+        "ko": "누구나 거래하고 풀을 열 수 있는 Miden 최초의 거래소.",
+        "pl": "Pierwsza giełda na Miden, na której każdy może handlować i otworzyć pulę.",
+        "pt": "A primeira exchange na Miden onde qualquer pessoa pode negociar e abrir um pool.",
+        "ru": "Первая биржа на Miden, где любой может торговать и открыть пул.",
+        "tr": "Miden'de herkesin işlem yapıp havuz açabileceği ilk borsa.",
+        "uk": "Перша біржа на Miden, де кожен може торгувати й відкрити пул.",
+        "zh_CN": "Miden 上首个任何人都能交易并创建资金池的交易平台。",
+        "zh_TW": "Miden 上首個任何人都能交易並建立資金池的交易平台。"
+      },
+      "url": "https://testnet.port0.sh/",
+      "category": "defi",
+      "icon": "icons/port0.png",
+      "brandColor": "#F200B9",
+      "isExchange": true
     }
   ],
   "sections": [
@@ -113,6 +140,14 @@
         "zh_TW": "輔助工具"
       },
       "itemIds": ["faucet", "forkchoice-faucet"]
+    },
+    {
+      "id": "defi",
+      "kind": "list",
+      "title": {
+        "en": "DeFi"
+      },
+      "itemIds": ["port0"]
     },
     {
       "id": "games",
