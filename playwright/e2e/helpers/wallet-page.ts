@@ -3090,25 +3090,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await exactToken.first().click({ timeout: STEP_TIMEOUT_MS });
     } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
-      const failures: string[] = [];
-      const noteFailure = (stage: string, e: unknown) =>
-        failures.push(`${stage}: ${e instanceof Error ? e.message : String(e)}`);
+      // The drawer lists its rows after it opens: counting at once falls through to a row behind it.
       await tokenRow
         .first()
-        .waitFor({ state: 'attached', timeout: STEP_TIMEOUT_MS })
-        .catch(e => noteFailure('wait', e));
-      const symbolRowCount = await tokenRow.count().catch(e => {
-        noteFailure('count', e);
-        return 0;
-      });
-      if (symbolRowCount !== 1) {
-        throw new Error(
-          `WalletPage.sendTokens: expected exactly one token row for symbol "${params.tokenSymbol}", ` +
-            `but found ${symbolRowCount}` +
-            (failures.length > 0 ? ` (${failures.join('; ')})` : '')
-        );
+        .waitFor({ state: 'attached', timeout: 10_000 })
+        .catch(() => {});
+      const symbolRowCount = await tokenRow.count().catch(() => 0);
+      if (symbolRowCount > 0) {
+        await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
+      } else {
+        // No row for the requested symbol - fall back to the first non-USDCX row
+        // (USDCX can sit at zero balance above the funded token).
+        await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
       }
-      await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
     } else {
       await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
     }

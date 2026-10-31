@@ -9,6 +9,7 @@ import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 const CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/mainnet.json';
 export const AGGLAYER_BRIDGE = '0x2a3dd3eb832af982ec71669e178424b10dca2ede';
+export const AGGLAYER_INDEXER = 'https://bridge-cedar-miden.eu-north-3.gateway.fm/api';
 
 /** The nightly's Ethereum key, shared by every EVM chain it bridges on. */
 export function mainnetEvmKey(): Hex {
