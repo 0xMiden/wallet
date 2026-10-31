@@ -20,12 +20,15 @@ import { useWalletStore } from 'lib/store';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { balanceFormatterFor } from 'screens/send-flow/amount-format';
+import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
 import { truncateAddress } from 'utils/string';
 
 interface EvmBridgeDepositFormProps {
   token: UITokenWithPendingBalance;
+  /** The Miden faucet an Epoch token arrives in: its token-list logo stands in when the wallet ships no mark. */
+  logoFaucetId?: string;
   network?: BridgeNetwork;
   tokenLabel: string;
   arrivingName: string;
@@ -47,6 +50,7 @@ interface EvmBridgeDepositFormProps {
 /** Bridge funding uses Send's amount field and the shared flow body; the manager owns navigation. */
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
+  logoFaucetId,
   network,
   tokenLabel,
   arrivingName,
@@ -65,6 +69,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const [shortcutSelection, setShortcutSelection] = React.useState(0);
   const prices = useWalletStore(state => state.tokenPrices);
   const balanceReady = !balanceUnreadable && token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
@@ -123,6 +128,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
           token.id === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ? '0x0000000000000000000000000000000000000000' : token.id
         )}
         value={amount}
+        tokenIntentKey={shortcutSelection}
         onValueChange={value => onAmountChange(value || '')}
         invalid={!!amountError}
         error={amountError}
@@ -132,11 +138,21 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
         showDivider={false}
         data-testid="send-amount-input"
       />
+      <AmountShortcuts
+        balance={token.balance}
+        decimals={token.decimals}
+        scaleIsKnown={token.scaleIsKnown}
+        onAmountChange={value => {
+          setShortcutSelection(selection => selection + 1);
+          onAmountChange(value);
+        }}
+        className="text-accent-receive-ink"
+      />
 
       <DetailCard surface="outline" face="heading" className="mt-8">
         <ListRow
           title={tokenLabel}
-          avatar={<TokenLogo symbol={token.name} faucetId={token.id} size="md" />}
+          avatar={<TokenLogo symbol={token.name} faucetId={logoFaucetId ?? token.id} size="md" />}
           subtitle={
             token.scaleIsKnown ? (
               balanceUnreadable ? (

@@ -858,6 +858,41 @@ describe('bridgeStatusOf', () => {
 });
 
 describe('bridgeRowDisplay', () => {
+  it.each([
+    { chainId: 1, network: 'Ethereum' },
+    { chainId: 11155111, network: 'Sepolia' },
+    { chainId: 8453, network: 'Base' },
+    { chainId: 999999, network: '999999' }
+  ])('shows the saved Agglayer destination chain $chainId', ({ chainId, network }) => {
+    const entry = bridgeEntry({
+      token: 'ETH',
+      bridgeProvider: 'agglayer',
+      bridgeDestinationNetwork: 0,
+      bridgeAgglayerRoute: {
+        chainId,
+        contractAddress: '0x0000000000000000000000000000000000000001',
+        midenBridgeId: '0xbridge',
+        indexerUrl: 'https://indexer.example',
+        rollupId: 1,
+        evmNetworkId: 0
+      }
+    });
+
+    expect(bridgeRowDisplay(UNLOADED, entry).network).toBe(network);
+  });
+
+  it('keeps Sepolia for an older Agglayer row without a saved route', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'agglayer', bridgeDestinationNetwork: 0 })).network
+    ).toBe('Sepolia');
+  });
+
+  it('shows the saved Epoch destination chain', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
+    ).toBe('Base');
+  });
+
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
@@ -896,22 +931,31 @@ describe('bridgeRowDisplay', () => {
     expect(quoted('0.00')).toBe('0');
   });
 
-  it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
+  it.each(['NEAR', 'WBTC', 'USDC', 'ETH', 'MIDEN'])(
+    'uses %s on both sides of an Agglayer withdrawal without an output symbol',
+    token => {
+      expect(
+        bridgeRowDisplay(
+          UNLOADED,
+          bridgeEntry({ token, amount: '1.2', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        )
+      ).toEqual({
+        inSymbol: token,
+        outSymbol: token,
+        inLabel: token,
+        outLabel: token,
+        outAmount: '1.2',
+        providerLabel: 'Agglayer',
+        network: 'Sepolia',
+        status: 'confirmed'
+      });
+    }
+  );
+
+  it('keeps the saved Agglayer output symbol', () => {
     expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
-      )
-    ).toEqual({
-      inSymbol: 'MIDEN',
-      outSymbol: 'ETH',
-      inLabel: 'MIDEN',
-      outLabel: 'ETH',
-      outAmount: '7',
-      providerLabel: 'Agglayer',
-      network: 'Sepolia',
-      status: 'confirmed'
-    });
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'WETH', bridgeProvider: 'agglayer', bridgeOutputSymbol: 'ETH' }))
+    ).toMatchObject({ inSymbol: 'WETH', outSymbol: 'ETH', outLabel: 'ETH' });
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
@@ -1230,6 +1274,47 @@ describe('bridge rows testnet bridge USDC label', () => {
         })
       )
     ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('labels an Epoch output whose symbol is the route USDC read, and keeps ETH and WETH', () => {
+    const derived = TEST_BRIDGE_CONFIG_SNAPSHOT.derived;
+    const chain = derived?.chains[11155111];
+    const read = chain?.epoch.tokens.USDC;
+    if (!derived || !chain || !read || read.state !== 'ok') throw new Error('The test USDC read is missing');
+    const usdcE: BridgeConfigSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      derived: {
+        ...derived,
+        chains: {
+          ...derived.chains,
+          11155111: {
+            ...chain,
+            epoch: {
+              ...chain.epoch,
+              tokens: {
+                ...chain.epoch.tokens,
+                USDC: { state: 'ok', value: { ...read.value, symbol: 'USDC.e' } }
+              }
+            }
+          }
+        }
+      }
+    };
+    expect(
+      bridgeRowDisplay(usdcE, bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'USDC.e' })).outLabel
+    ).toBe('Test Epoch USDC');
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'ETH', bridgeOutputAmount: '2' })
+      )
+    ).toMatchObject({ outSymbol: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'WETH', bridgeOutputAmount: '2' })
+      ).outLabel
+    ).toBe('WETH');
   });
 
   it('leaves an Agglayer ETH row on ETH', () => {

@@ -63,8 +63,6 @@ const TIMEFRAME_ITEMS: SegmentedControlItem<Timeframe>[] = TIMEFRAMES.map(tf => 
   'data-testid': `token-detail-timeframe-${tf}`
 }));
 
-const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
-
 // The chart draws in the brand accent through the chart container's `--color-price`, so the line
 // follows the token rather than a hex literal.
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
@@ -298,13 +296,17 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   // `fetchKlineData` resolves `[]` on failure or for a token with no market, so `undefined` only
   // ever means the first load is still in flight.
   const loading = klineData === undefined;
-  const chartData = klineData && klineData.length > 0 ? klineData : FLAT_LINE_DATA;
-
-  const values = chartData.map(d => d.value);
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
-  const padding = (maxVal - minVal) * 0.05 || maxVal * 0.01;
-  const yDomain: [number, number] = [minVal - padding, maxVal + padding];
+  const chartData = klineData ?? [];
+  const hasChartData = chartData.length > 0;
+  const yDomain: [number, number] | undefined = hasChartData
+    ? (() => {
+        const values = chartData.map(d => d.value);
+        const minVal = Math.min(...values);
+        const maxVal = Math.max(...values);
+        const padding = (maxVal - minVal) * 0.05 || maxVal * 0.01;
+        return [minVal - padding, maxVal + padding] as [number, number];
+      })()
+    : undefined;
 
   const change = priceChange(priceInfo.percentageChange24h);
   // Pinned to the destination so the count keeps one shape.
@@ -337,6 +339,14 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
       <div className="mt-4 h-28">
         {loading ? (
           <Skeleton className="h-full w-full rounded-2xl" />
+        ) : !hasChartData ? (
+          <div
+            className="flex h-full items-center justify-center rounded-2xl bg-fill text-sm text-muted"
+            role="status"
+            data-testid="token-detail-chart-unavailable"
+          >
+            {t('unavailable')}
+          </div>
         ) : (
           <ChartContainer config={CHART_CONFIG} className="h-full w-full aspect-auto">
             <AreaChart data={chartData}>

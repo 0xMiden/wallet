@@ -6,6 +6,7 @@ on:
       - 'main'
       - 'rc/1.17.7'
       - 'rc/1.17.8'
+      - 'rc/1.17.9'
 
 permissions:
   contents: read

@@ -116,15 +116,37 @@ export async function selectAccountIfNeeded(wallet: MobileWallet, address: strin
   if ((await currentAccount(wallet, deadline)) !== address) await selectAccount(wallet, address, deadline);
 }
 
+/**
+ * A new public key is that account. `'pending'` with no new key waits; `'synced'` with no new key is missing.
+ * The page callbacks duplicate this: they cannot call a Node function.
+ */
+export function accountAddressAfterCreate(
+  before: readonly (string | undefined)[],
+  accounts: readonly { publicKey?: string }[],
+  outcome: 'synced' | 'pending'
+): { address: string } | 'wait' | 'missing' {
+  const known = new Set(before);
+  const created = accounts.find(account => account.publicKey !== undefined && !known.has(account.publicKey));
+  if (created?.publicKey) return { address: created.publicKey };
+  if (outcome === 'pending') return 'wait';
+  return 'missing';
+}
+
 /** A new account through the store's own createAccount, as the Chrome page object makes one; a Guardian one registers first. */
 export function createAccount(wallet: MobileWallet, walletType: 'off-chain' | 'guardian'): Promise<string> {
   return stashAndPoll<string>(
     evalOf(wallet),
     '__dapp_create',
     `(async function () { ${STORE} var before = st.accounts.map(function (a) { return a.publicKey; }); ` +
-      `await st.createAccount(${JSON.stringify(walletType)}); ` +
-      `var made = s.getState().accounts.find(function (a) { return a.publicKey && before.indexOf(a.publicKey) < 0; }); ` +
-      `if (!made) throw new Error('createAccount added no account'); return made.publicKey; })()`,
+      `var outcome = await st.createAccount(${JSON.stringify(walletType)}); ` +
+      `var findMade = function () { return s.getState().accounts.find(function (a) { ` +
+      `return a.publicKey && before.indexOf(a.publicKey) < 0; }); }; ` +
+      `var made = findMade(); if (made && made.publicKey) return made.publicKey; ` +
+      `if (outcome === 'pending') { for (var i = 0; i < 120; i++) { ` +
+      `await new Promise(function (resolve) { setTimeout(resolve, 250); }); ` +
+      `made = findMade(); if (made && made.publicKey) return made.publicKey; } ` +
+      `throw new Error('account list has not landed'); } ` +
+      `throw new Error('createAccount added no account'); })()`,
     240_000
   );
 }

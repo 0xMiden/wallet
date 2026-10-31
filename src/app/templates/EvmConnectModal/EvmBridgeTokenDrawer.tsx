@@ -26,12 +26,34 @@ export interface DepositErc20Row {
   loading?: boolean;
 }
 
+/** A token of the picked chain's Epoch route the host draws, with the connected wallet's balance of it. */
+export interface DepositEpochRow {
+  /** The document's key on the route. */
+  key: string;
+  /** The token's symbol, which keys its logo. */
+  symbol: string;
+  /** The token's address on the chain; the zero address for the native coin. */
+  address: string;
+  /** The Miden faucet it arrives in: the logo falls back to that faucet's token-list logo (POL, USDG). */
+  midenFaucetId: string;
+  /** The row's title and balance unit. */
+  name: string;
+  balance: string;
+  /** Balance in base units. Null means that the balance is not available. */
+  value: bigint | null;
+  loading?: boolean;
+}
+
 interface TokenRow {
   token: DepositToken;
   /** The row's title and balance unit. */
   name: string;
   /** Keys the row's logo. */
   logoSymbol: string;
+  /** Prices the row's balance on the drawer's chain. */
+  priceAddress?: string;
+  /** The faucet whose token-list logo is drawn when the wallet ships no mark for `logoSymbol`. */
+  logoFaucetId?: string;
   /** Formatted balance for display (from the connected EVM wallet). */
   balance: string;
   loading?: boolean;
@@ -67,13 +89,16 @@ export interface EvmBridgeTokenDrawerProps {
   erc20Unavailable?: boolean;
   /** True while the wallet holdings request is unresolved. */
   erc20ListLoading?: boolean;
+  /** The tokens the chosen chain's Epoch route takes, each bridging through Epoch alone. Drawn after Circle USDC. */
+  epochRows?: DepositEpochRow[];
   onSelect: (token: DepositToken) => void;
 }
 
 /**
  * Bottom-sheet picker for the deposit source token. The chosen token drives the
- * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; native ETH
- * and every registered ERC-20 use AggLayer where configured.
+ * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; an Epoch
+ * token arrives as its Miden faucet's token; native ETH and every registered ERC-20
+ * use AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   chainId,
@@ -91,13 +116,19 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   erc20Rows = [],
   erc20Unavailable = false,
   erc20ListLoading,
+  epochRows = [],
   onSelect
 }) => {
   const { t } = useTranslation();
   const prices = useWalletStore(state => state.tokenPrices);
 
   const rows: TokenRow[] = [];
-  const balancesLoading = ethLoading || circleUsdcLoading || erc20ListLoading || erc20Rows.some(row => row.loading);
+  const balancesLoading =
+    ethLoading ||
+    circleUsdcLoading ||
+    erc20ListLoading ||
+    erc20Rows.some(row => row.loading) ||
+    epochRows.some(row => row.loading);
   if (
     ethBalance !== undefined &&
     !ethLoading &&
@@ -105,18 +136,55 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     ethBalanceValue !== undefined &&
     ethBalanceValue > 0n
   ) {
-    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance });
+    rows.push({
+      token: 'ETH',
+      name: 'ETH',
+      logoSymbol: 'ETH',
+      priceAddress: '0x0000000000000000000000000000000000000000',
+      balance: ethBalance
+    });
   } else if (ethBalance !== undefined && !ethLoading && ethBalanceValue === null) {
-    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, unreadable: true });
+    rows.push({
+      token: 'ETH',
+      name: 'ETH',
+      logoSymbol: 'ETH',
+      priceAddress: '0x0000000000000000000000000000000000000000',
+      balance: ethBalance,
+      unreadable: true
+    });
   }
   if (circleUsdcBalance !== undefined) {
     rows.push({
       token: 'CIRCLE_USDC',
       name: circleUsdcLabel ?? 'USDC',
       logoSymbol: 'USDC',
+      priceAddress: circleUsdcAddress,
       balance: circleUsdcBalance,
       loading: circleUsdcLoading,
       unreadable: !circleUsdcLoading && circleUsdcBalanceValue === null
+    });
+  }
+  for (const { key, symbol, address, midenFaucetId, name, balance, value, loading } of epochRows) {
+    if (loading) {
+      rows.push({
+        token: { kind: 'epoch', key },
+        name,
+        logoSymbol: symbol,
+        logoFaucetId: midenFaucetId,
+        priceAddress: address,
+        balance,
+        loading
+      });
+      continue;
+    }
+    rows.push({
+      token: { kind: 'epoch', key },
+      name,
+      logoSymbol: symbol,
+      logoFaucetId: midenFaucetId,
+      priceAddress: address,
+      balance,
+      unreadable: value === null
     });
   }
   for (const { token, name, balance, value, loading } of erc20Rows) {
@@ -126,6 +194,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         token: { kind: 'erc20', contractAddress: token.contractAddress },
         name,
         logoSymbol: token.symbol,
+        priceAddress: token.contractAddress,
         balance,
         unreadable: true
       });
@@ -136,8 +205,9 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       token: { kind: 'erc20', contractAddress: token.contractAddress },
       name,
       logoSymbol: token.symbol,
+      priceAddress: token.contractAddress,
       balance,
-      loading
+      loading: false
     });
   }
 
@@ -150,7 +220,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
 
         <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4" data-testid="bridge-token-scroll">
           <ListGroup>
-            {rows.map(({ token, name, logoSymbol, balance, loading, unreadable }) => (
+            {rows.map(({ token, name, logoSymbol, logoFaucetId, priceAddress, balance, loading, unreadable }) => (
               <ListRow
                 accent="receive"
                 key={depositTokenKey(token)}
@@ -164,23 +234,12 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
                     <div>
                       {`${balance} ${name}`}
                       <div>
-                        <UsdValue
-                          amount={balance}
-                          quote={evmQuote(
-                            prices,
-                            chainId,
-                            typeof token !== 'string'
-                              ? token.contractAddress
-                              : token === 'ETH'
-                                ? '0x0000000000000000000000000000000000000000'
-                                : circleUsdcAddress
-                          )}
-                        />
+                        <UsdValue amount={balance} quote={evmQuote(prices, chainId, priceAddress)} />
                       </div>
                     </div>
                   )
                 }
-                avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
+                avatar={<TokenLogo symbol={logoSymbol} faucetId={logoFaucetId} size="lg" />}
                 checked={sameDepositToken(token, selected)}
                 onClick={() => onSelect(token)}
                 data-testid={`bridge-token-${depositTokenKey(token)}`}

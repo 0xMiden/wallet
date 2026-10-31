@@ -4852,6 +4852,31 @@
     "message": "1 transfer otomatik olarak içe aktarılamadı.",
     "englishSource": "1 transfer couldn't be imported automatically."
   },
+  "deadletteredNotesReasonSummary": {
+    "message": "İçe aktarma şu nedenle durduruldu: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Bağlantı sorunu",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Okunamayan not",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Düğüm tarafından reddedildi",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Neden kullanılamıyor",
+    "englishSource": "Reason unavailable"
+  },
   "tomorrow": {
     "message": "Yarın",
     "englishSource": "Tomorrow"
