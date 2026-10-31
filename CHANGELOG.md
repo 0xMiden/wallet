@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.17.9 (2026-10-31)
+## 1.17.10 (TBD)
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
+
+## 1.17.9 (2026-10-31)
+
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
