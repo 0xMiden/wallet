@@ -43,26 +43,25 @@ export async function captureFrameTimeline(
 ): Promise<void> {
   await fs.mkdir(path.dirname(tracePath), { recursive: true });
   const stem = path.basename(tracePath).replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const remoteConfig = `/data/local/tmp/${stem}.pbtxt`;
-  const remoteTrace = `/data/local/tmp/${stem}`;
-  const configPath = `${tracePath}.pbtxt`;
-  await fs.writeFile(
-    configPath,
-    [
-      'buffers { size_kb: 8192 fill_policy: RING_BUFFER }',
-      `duration_ms: ${TRACE_DURATION_MS}`,
-      'data_sources { config { name: "android.surfaceflinger.frametimeline" } }',
-      `data_sources { config { name: "android.log" android_log_config { min_prio: PRIO_INFO filter_tags: "${TRACE_TAG}" log_ids: LID_MAIN } } }`,
-      ''
-    ].join('\n')
-  );
-  await adb(serial, ['push', configPath, remoteConfig]);
+  const remoteTrace = `/data/misc/perfetto-traces/${stem}-${process.pid}-${Date.now()}`;
+  const config = [
+    'buffers { size_kb: 8192 fill_policy: RING_BUFFER }',
+    `duration_ms: ${TRACE_DURATION_MS}`,
+    'data_sources { config { name: "android.surfaceflinger.frametimeline" } }',
+    `data_sources { config { name: "android.log" android_log_config { ` +
+      `min_prio: PRIO_INFO filter_tags: "${TRACE_TAG}" log_ids: LID_MAIN } } }`,
+    ''
+  ].join('\n');
 
-  const child = spawn('adb', ['-s', serial, 'shell', 'perfetto', '--txt', '-c', remoteConfig, '-o', remoteTrace], {
-    stdio: ['ignore', 'pipe', 'pipe']
+  const child = spawn('adb', ['-s', serial, 'shell', 'perfetto', '--txt', '-c', '-', '-o', remoteTrace], {
+    stdio: ['pipe', 'pipe', 'pipe']
   });
   let stdout = '';
   let stderr = '';
+  child.stdin?.on('error', error => {
+    stderr += `\nPerfetto config input failed: ${error.message}`;
+  });
+  child.stdin?.end(config);
   child.stdout?.on('data', chunk => (stdout += String(chunk)));
   child.stderr?.on('data', chunk => (stderr += String(chunk)));
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
@@ -85,7 +84,7 @@ export async function captureFrameTimeline(
     await adb(serial, ['pull', remoteTrace, tracePath]);
     if ((await fs.stat(tracePath)).size === 0) throw new Error('Perfetto produced an empty FrameTimeline trace');
   } finally {
-    await adb(serial, ['shell', 'rm', '-f', remoteConfig, remoteTrace]).catch(() => undefined);
+    await adb(serial, ['shell', 'rm', '-f', remoteTrace]).catch(() => undefined);
   }
   if (exerciseError) throw exerciseError;
 }
