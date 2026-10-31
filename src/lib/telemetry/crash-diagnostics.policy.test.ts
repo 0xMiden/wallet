@@ -51,6 +51,12 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import {
+  PROOF_WINDOW_BUCKETS,
+  QUEUE_HIDDEN_BUCKETS,
+  SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS
+} from './terminal-report-diagnostics';
 import { EXECUTION_ROUTES, AUTH_OBSERVATIONS, AUTH_ARG_PRESENCE } from './transaction-execution-diagnostics';
 import {
   FEATURE_UNAVAILABLE_FEATURES,
@@ -199,6 +205,31 @@ it.each([
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it.each<[string, readonly string[]]>([
+  ['submitApproachHidden', QUEUE_HIDDEN_BUCKETS],
+  ['proofWindow', PROOF_WINDOW_BUCKETS],
+  ['submitHidden', SUBMIT_HIDDEN_ANSWERS],
+  ['submitLeg', SUBMIT_LEG_BUCKETS]
+])('documents the exact closed submit report values for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+// Sentry's default password rule reads property names and string values alike, and a client allowlist cannot undo it.
+it('sends the closed submit report under names and values the default scrub leaves alone', () => {
+  const sensitive = /auth|token|secret|password|passwd|pwd|credential|api_?key|private_?key|bearer|session/i;
+  const sent = [
+    'submitApproachHidden',
+    'proofWindow',
+    'submitHidden',
+    'submitLeg',
+    ...QUEUE_HIDDEN_BUCKETS,
+    ...PROOF_WINDOW_BUCKETS,
+    ...SUBMIT_HIDDEN_ANSWERS,
+    ...SUBMIT_LEG_BUCKETS
+  ];
+  expect(sent.filter(text => sensitive.test(text))).toEqual([]);
 });
 
 it.each([

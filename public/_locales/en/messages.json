@@ -1244,6 +1244,32 @@
     "message": "The network refused this submission. Try again.",
     "englishSource": "The network refused this submission. Try again."
   },
+  "submissionHeldByGuardian": {
+    "message": "Your Guardian is still holding this transaction, so it cannot be retried yet.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "You can retry after $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "submissionUnanswered": {
     "message": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
     "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."

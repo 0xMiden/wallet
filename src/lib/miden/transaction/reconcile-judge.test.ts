@@ -550,6 +550,29 @@ describe('rows 8 and 9 (S-1): no proof either way', () => {
     expect(await resultOf(seen, { tip: { blockNum: 150, commitment: OTHER } })).toBe('unresolvable');
   });
 
+  it('stays pending on a private account while X is still readable', async () => {
+    const fake = { tip: { blockNum: 739, commitment: OTHER }, history: { 700: { blockNum: 700, commitment: OTHER } } };
+    expect(await resultOf(row('t'), fake)).toBe('pending');
+  });
+
+  it('turns unresolvable once X is past reading and the tip left E.initial: no later pass can read more', async () => {
+    const node = chain({ tip: { blockNum: 740, commitment: OTHER } });
+    const target = row('t');
+    const judged = await judgeSubmitEvidence(target, { node, accountRows: [target], nowSec: NOW, cadenceMs: 3_000 });
+
+    expect(judged.entries[0]?.result).toBe('unresolvable');
+    expect(node.calls).not.toContain('account@700');
+  });
+
+  it('does not give up on an entry with no X, which a later pass can still see land', async () => {
+    const target = row('t', { submitEvidence: [entry({ expirationBlock: undefined })] });
+    expect(await resultOf(target, { tip: { blockNum: 900, commitment: OTHER } })).toBe('pending');
+  });
+
+  it('proves a tip still at E.initial expired, however far past X the first pass ran', async () => {
+    expect(await resultOf(row('t'), { tip: { blockNum: 900, commitment: INITIAL } })).toBe('never-committed');
+  });
+
   it('a landed send whose note a batch erased becomes unresolvable, never never-committed', async () => {
     const erased = row('t', { submitEvidence: [entry({ expirationBlock: undefined, initialSeenAtBlock: 101 })] });
     expect(await resultOf(erased, { tip: { blockNum: 150, commitment: FINAL } })).toBe('unresolvable');

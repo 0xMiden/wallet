@@ -293,6 +293,32 @@ describe('PendingActivityCard', () => {
       expect(screen.queryByText('noteClaimFailedRetry')).toBeNull();
     });
 
+    it('says why a failed claim cannot be retried yet, and never tells the user to tap Retry (#2060)', () => {
+      renderCard('failed', { submission: { kind: 'guardianHold', messageKey: 'submissionHeldByGuardian' } });
+
+      const notice = screen.getByTestId('pending-activity-submission');
+      expect(notice).toHaveTextContent('submissionHeldByGuardian');
+      expect(notice).toHaveAttribute('role', 'status');
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getByTestId('pending-activity-hint')).not.toHaveTextContent('noteClaimFailedRetry');
+    });
+
+    it.each([
+      ['a stored hold', { submission: { kind: 'guardianHold', messageKey: 'submissionHeldByGuardian' } }],
+      ['no stored outcome', {}]
+    ] as const)(
+      'a failed claim with %s names the hold in its fold while its action is off (#2060)',
+      (_label, stored) => {
+        renderCard('failed', { ...stored, holdUntil: Math.floor(Date.now() / 1000) + 600 });
+        fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+        const hint = screen.getByTestId('pending-activity-hint');
+        expect(hint).toHaveTextContent('guardianHoldRetryRefused');
+        expect(hint).toHaveAttribute('data-tone', 'neutral');
+        expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      }
+    );
+
     it('offers Retry for a stored submission only on a held claim, the one its handler can act on (#1689)', () => {
       const onRetryHeld = jest.fn();
       const onAccept = jest.fn();
@@ -335,17 +361,47 @@ describe('PendingActivityCard', () => {
       expect(hint).not.toHaveTextContent('activityNotYetAccepted');
     });
 
+    describe.each([
+      ['a held claim', { status: 'claiming', txId: 'tx-held', held: true }],
+      ['a failed claim', { status: 'failed', txId: 'tx-held' }]
+    ] as const)('%s the Guardian still holds (#2060)', (_label, row) => {
+      const holdUntil = Math.floor(Date.now() / 1000) + 600;
+
+      it('turns Retry off and says until when with the card closed', () => {
+        const onRetryHeld = jest.fn();
+        const onAccept = jest.fn();
+        render(
+          <PendingActivityCard item={{ note, ...row, holdUntil }} onAccept={onAccept} onRetryHeld={onRetryHeld} />
+        );
+
+        expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+        expect(screen.getByTestId('guardian-hold-notice')).toHaveTextContent('guardianHoldNotice');
+        const retry = screen.getByRole('button', { name: 'retry' });
+        expect(retry).toBeDisabled();
+        fireEvent.click(retry);
+        expect(onRetryHeld).not.toHaveBeenCalled();
+        expect(onAccept).not.toHaveBeenCalled();
+      });
+
+      it('gives Retry back without the hold', () => {
+        render(<PendingActivityCard item={{ note, ...row }} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+
+        expect(screen.queryByTestId('guardian-hold-notice')).toBeNull();
+        expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+      });
+    });
+
     it('a refusal replaces the hint and opens the folded section (#1081)', () => {
       const item: PendingActivityItem = {
         note,
         status: 'claiming',
         txId: 'tx-held',
         held: true,
-        retryError: 'The Guardian is still holding this transaction.'
+        retryError: 'Your Guardian is still holding this transaction. You can retry it after 13:18:00 GMT+1.'
       };
       render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
       const hint = screen.getByTestId('pending-activity-hint');
-      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveTextContent('Your Guardian is still holding this transaction.');
       expect(hint).toHaveAttribute('data-tone', 'negative');
       expect(hint).toHaveAttribute('role', 'alert');
     });
@@ -484,6 +540,37 @@ describe('PendingActivityCard live failure reporting', () => {
     ]);
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports no failed claim while it shows a hold, and reports it once the hold is over (#2060)', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(
+      card({
+        note,
+        status: 'failed',
+        submission: { kind: 'guardianHold', messageKey: 'submissionProvenHeldByGuardian' }
+      })
+    );
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id)).toEqual(['noteClaimFailedRetry']);
+  });
+
+  it('reports the hold, not a failed claim, while a held row has no outcome of its own to show (#2060)', () => {
+    const reported = () => jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id);
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed', holdUntil: Math.floor(Date.now() / 1000) + 600 }));
+    advance(1000);
+    expect(reported()).toEqual(['guardianHoldNotice']);
+
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(reported()).toEqual(['guardianHoldNotice', 'noteClaimFailedRetry']);
   });
 
   it.each<PendingActivityItem>([

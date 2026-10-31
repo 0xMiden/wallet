@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +17,7 @@ import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
 import { getPaybackClaimState } from 'lib/miden/swap/payback-claim';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
 import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
@@ -73,7 +74,8 @@ export interface TransactionActions {
 export const useTransactionActions = (
   transactionId: string,
   entry: IHistoryEntry | null,
-  transaction: ITransaction | undefined
+  transaction: ITransaction | undefined,
+  guardianHoldUntil?: number
 ): TransactionActions => {
   const { t } = useTranslation();
   const confirm = useConfirm();
@@ -137,7 +139,7 @@ export const useTransactionActions = (
           setRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
         } else {
           console.error('[HistoryDetails] Failed to retry transaction:', error);
-          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+          setRetryError(retryRefusalText(error, t));
           setRetryErrorId({
             id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
             transactionId,
@@ -158,6 +160,14 @@ export const useTransactionActions = (
     },
     [entry, t, transactionId]
   );
+
+  // A refusal describes the hold it met, and Retry anyway only ever follows its refusal.
+  useEffect(() => {
+    if (guardianHoldUntil !== undefined) return;
+    setRetryError(null);
+    setRetryErrorId(null);
+    setAcknowledgement(null);
+  }, [guardianHoldUntil]);
 
   const failedPaybackClaimId = entry?.paybackClaimStuck?.failedClaimId;
   const handleRetryPayback = useCallback(async () => {
@@ -185,7 +195,7 @@ export const useTransactionActions = (
         setPaybackRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
       } else {
         console.error('[HistoryDetails] Failed to retry the payout claim:', error);
-        setPaybackRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        setPaybackRetryError(retryRefusalText(error, t));
         setPaybackRetryErrorId({
           id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
           transactionId,
@@ -257,6 +267,8 @@ export const useTransactionActions = (
           restoredFromBackup: transaction?.restoredFromBackup
         }));
 
+  const refusalIsThisRow = retryErrorId?.transactionId === transactionId;
+
   return {
     canCancel,
     isCancelling,
@@ -266,10 +278,10 @@ export const useTransactionActions = (
     canRetry,
     earnRetryKind,
     isRetrying,
-    retryError,
-    retryErrorId: retryErrorId?.transactionId === transactionId ? retryErrorId.id : null,
-    retryErrorDiagnostics: retryErrorId?.transactionId === transactionId ? retryErrorId.diagnostics : undefined,
-    acknowledgement,
+    retryError: refusalIsThisRow ? retryError : null,
+    retryErrorId: refusalIsThisRow ? retryErrorId.id : null,
+    retryErrorDiagnostics: refusalIsThisRow ? retryErrorId.diagnostics : undefined,
+    acknowledgement: refusalIsThisRow ? acknowledgement : null,
     onRetry: acknowledged => void handleRetry(acknowledged),
     isCancellingOrder,
     cancelOrderError,

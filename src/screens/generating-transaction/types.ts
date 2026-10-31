@@ -48,6 +48,8 @@ export interface GeneratingTransactionProps {
   onRetryAnyway?: () => void;
   /** Whether the failed tx can be retried (requeueable / resubmittable). */
   canRetry?: boolean;
+  /** When the Guardian hold on this row clears, while one applies: Retry stays off until then (#2060). */
+  guardianHoldUntil?: number;
   /** True while a retry is in flight — drives the Retry button spinner. */
   isRetrying?: boolean;
   /** Error message from a failed retry attempt, shown under the buttons. */

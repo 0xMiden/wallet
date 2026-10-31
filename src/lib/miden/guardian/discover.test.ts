@@ -17,6 +17,8 @@
  */
 import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import {
   classifyProbeError,
@@ -609,6 +611,102 @@ describe('withTimeout', () => {
   it('rejects with GuardianProbeTimeoutError past the deadline', async () => {
     const never = new Promise<string>(() => {});
     await expect(withTimeout(never, 5, 'guardian lookup')).rejects.toBeInstanceOf(GuardianProbeTimeoutError);
+  });
+});
+
+describe('withTimeout across a freeze (#2060)', () => {
+  const TIMEOUT_MS = 30_000;
+  const FROZEN_MS = 80_000;
+  // The running clock keeps one 5 s pulse of a measured freeze, so that much of the budget is spent.
+  const LEFT_AFTER_FREEZE_MS = TIMEOUT_MS - 5_000;
+
+  let doc: HiddenDocument;
+
+  const settledWith = (promise: Promise<string>) => {
+    const outcome: { value?: string; error?: unknown } = {};
+    void promise.then(
+      value => {
+        outcome.value = value;
+      },
+      error => {
+        outcome.error = error;
+      }
+    );
+    return outcome;
+  };
+
+  const freeze = async () => {
+    doc.setHidden(true);
+    doc.freezeFor(FROZEN_MS);
+    await jest.advanceTimersByTimeAsync(0);
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    doc = installHiddenDocument();
+    initBackgroundTimeTracking();
+  });
+
+  afterEach(() => {
+    __resetBackgroundTimeForTest();
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it('takes the answer the native layer delivers on resume, ahead of which an overdue timer runs', async () => {
+    let answer: (value: string) => void = () => undefined;
+    const outcome = settledWith(
+      withTimeout(
+        new Promise<string>(resolve => {
+          answer = resolve;
+        }),
+        TIMEOUT_MS,
+        'pubkey'
+      )
+    );
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(outcome.error).toBeUndefined();
+
+    answer('ok');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(outcome.value).toBe('ok');
+    // The timer the fire re-armed goes with the answer.
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('gives up once its running time is spent', async () => {
+    const outcome = settledWith(withTimeout(new Promise<string>(() => {}), TIMEOUT_MS, 'pubkey'));
+
+    await freeze();
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(LEFT_AFTER_FREEZE_MS - 1);
+    expect(outcome.error).toBeUndefined();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(outcome.error).toBeInstanceOf(GuardianProbeTimeoutError);
+  });
+
+  it('still gives up on time while hidden JS keeps running', async () => {
+    const outcome = settledWith(withTimeout(new Promise<string>(() => {}), TIMEOUT_MS, 'pubkey'));
+
+    doc.setHidden(true);
+    await jest.advanceTimersByTimeAsync(TIMEOUT_MS - 1);
+    expect(outcome.error).toBeUndefined();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(outcome.error).toBeInstanceOf(GuardianProbeTimeoutError);
+  });
+
+  it('counts a freeze as elapsed where tracking never started', async () => {
+    __resetBackgroundTimeForTest();
+    const outcome = settledWith(withTimeout(new Promise<string>(() => {}), TIMEOUT_MS, 'pubkey'));
+
+    await freeze();
+
+    expect(outcome.error).toBeInstanceOf(GuardianProbeTimeoutError);
   });
 });
 

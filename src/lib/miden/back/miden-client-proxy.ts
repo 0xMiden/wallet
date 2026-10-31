@@ -19,6 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -245,9 +246,11 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
  * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
- * shipping bundle leaves it at 180s. It was 90s, sized when a local prove could
- * not finish at all (below), and that was shorter than the slowest write the
- * wallet itself allows: a delegated prove may take `DELEGATED_PROVE_TIMEOUT_MS`
+ * shipping bundle leaves it at 180s, which each vite config's define sets: only
+ * Jest reads the fallback below (`write-deadline-define-parity.test.ts`). It was
+ * 90s, sized when a local prove could not finish at all (below), and that was
+ * shorter than the slowest write the wallet itself allows: a delegated prove
+ * may take `DELEGATED_PROVE_TIMEOUT_MS`
  * (120s) and then still has to submit and apply. Once local proving ran in the
  * prove worker (#945), a legitimate on-device proof of a multi-note claim ran
  * past 90s too, and each cut-off kept a Guardian proposal that blocked the
@@ -256,6 +259,10 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * do. The cost is 90s more realm time per genuine wedge. Raising it further on
  * the strength of a CI timing would trade a visible CI failure for an invisible
  * production hang, which is the one thing this knob exists to prevent.
+ *
+ * One op can run its execute and prove more than once: a Guardian leaf executes
+ * again when a proof goes stale before its submit, and `withFreshProof` stops it at
+ * `OFFSCREEN_PROOF_BUDGET_MS` so that ends as a failed row, not a kill here (#2060).
  *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *
@@ -504,6 +511,12 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit
+    // tag itself.
+    if (resp.errorName === 'StaleProofError') {
+      reject(new StaleProofError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {

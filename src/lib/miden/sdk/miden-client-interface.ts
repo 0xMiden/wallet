@@ -77,6 +77,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { applyAfterSubmit } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
 import { buildGcSaleRequest } from './gc-sale-request';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -2417,16 +2418,6 @@ export class MidenClientInterface {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }
 }
-
-/**
- * Client-side ceiling on a DELEGATED prove, after which the wallet stops waiting for the
- * remote prover and proves locally instead.
- *
- * Generous on purpose: a backstop against a prover that has stopped answering, NOT a
- * latency target. It has to sit well above a legitimately slow proof on a loaded machine,
- * because expiring early costs the user the remote wait AND a full local re-prove.
- */
-export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
 
 /**
  * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without a delegated prove

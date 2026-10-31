@@ -35,6 +35,14 @@ import {
 import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
 import {
+  INLINE_PROOF_BUDGET_MS,
+  isFailedReexecution,
+  isStaleProofError,
+  markFailedReexecution,
+  type ProofPass,
+  withFreshProof
+} from 'lib/miden/guardian/proof-freshness';
+import {
   clearGuardianCandidate,
   getGuardianCandidate,
   GuardianBackpressureError,
@@ -55,6 +63,8 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { beginBackgroundExecution } from 'lib/mobile/background-execution';
+import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
@@ -107,6 +117,7 @@ import {
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   isGuardianOutage,
+  isNodeOutage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
@@ -144,7 +155,7 @@ import {
 } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { canAwaitVerdict } from './verdict-rules';
+import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
@@ -197,6 +208,7 @@ import {
 } from '../sdk/miden-client';
 import { getRealmReaderClient, proveDelegated, type PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
+import { readChainTip } from '../sdk/pswap-order-note';
 import {
   carriesIndefiniteSubmitOutcome,
   errorMessageParts,
@@ -401,9 +413,13 @@ const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 // connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
-// Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
-// the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
-// can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
+// Cooldown (seconds) for a tx requeued because the node stopped answering before its submit (#2060). The base of the
+// same doubling, from the failed pre-send sync's window: the next attempt starts with a sync of its own.
+const NODE_OUTAGE_REQUEUE_COOLDOWN_SEC = SYNC_FAILURE_REQUEUE_COOLDOWN_SEC;
+
+// Ceiling (seconds) on the doubling the unreachable, node, 409 and 429 arms give a row they requeue again (#1223). Four
+// times the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's
+// 429 can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
 // timeout, or three that each run to the 60 s Guardian request cut-off, so the rows between them get laps.
 const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
 
@@ -995,7 +1011,7 @@ function scheduleRequeueWake(
   requeueWakes.set(txId, timer);
 }
 
-/** What a guardian arm stamps on the row it requeues, on top of the requeue itself. */
+/** What an arm stamps on the row it requeues, on top of the requeue itself. */
 type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
 
 /**
@@ -1003,14 +1019,14 @@ type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRe
  * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
  * doesn't starve other accounts' queued txs. Called by the guardian arms for a
  * remote-prover outage (#419) and a rate-limit 429, by `requeueWithWake` for the
- * Guardian-backpressure (#312), unreachable-guardian (#779) and
- * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
- * locked-wallet requeues. Clearing `processingStartedAt` avoids
+ * Guardian-backpressure (#312), unreachable-guardian (#779), unreachable-node
+ * (#2060) and unauthorized-at-execution arms, and by the loop's pre-send sync
+ * failure and locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own, and
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
- * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
+ * A backing-off arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
  * other requeue clears the streak (#1223). Only the backpressure arm passes `guardianBusy`, and every other requeue
  * clears it the same way (#312). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which a wake is
  * timed from.
@@ -1039,7 +1055,7 @@ async function requeueTransactionForRetry(
   // byte-identical reuse.
   //
   // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
-  // requeue from proposal creation or proving), but not necessarily for the row:
+  // requeue from proposal creation, execution or proving), but not necessarily for the row:
   // a user Retry of a send that died post-submit keeps its bytes and stamps
   // `mayHaveSubmitted`, and the fresh attempt can then hit a 409 here. Clearing
   // on the strength of this attempt's stage would rebuild the note id that is
@@ -1104,7 +1120,7 @@ async function requeueTransactionForRetry(
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt,
-    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    // Only a backing-off arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
     // Only the backpressure arm passes it, so any other requeue ends the busy state on screen (#312).
     guardianBusy: undefined,
@@ -1698,8 +1714,13 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
       // The indefinite outcome counts too: it proves the submit call was reached, whatever stage the row still reads
-      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081).
-      const abandonedWrite = isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error);
+      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081). So does a
+      // crossing on record, since the SDK promotes only a submit request's own lost answer: a failed connection or
+      // an unreadable answer stays a plain RPC error, and the node may hold the write (#2060).
+      const abandonedWrite =
+        isKilledPipeline(error) ||
+        isIndefiniteSubmitOutcomeError(error) ||
+        attemptMayHaveCrossed(currentRow, transaction.attemptId);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
@@ -1741,12 +1762,16 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
-      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081).
+      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081), and neither is a proof
+      // that kept going stale, whose copy tells the user to retry, nor a re-execution that failed before it proved
+      // (#2060).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
+        !isStaleProofError(error) &&
+        !isFailedReexecution(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -1757,6 +1782,34 @@ const generateTransactionWithProvider = async (
           'creating-proposal',
           PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC,
           'delegated_prover_failed'
+        );
+        return;
+      }
+      // The node stopped answering the execute, as the first requests after a resume often do (#2060). That is
+      // pre-submit for the prover arm's reason, with its exclusions and its cap: MAX_QUEUED_AGE runs from
+      // `initiatedAt`, which no requeue moves. The wake, the doubling and the types are the outage arm's, for its
+      // reasons. What reaches here at 'proving' is a local prove or a re-execution's sync or execute, which stays on
+      // that stage: the arm above took every delegated prove. Only the inline leaf gets here, since the offscreen one
+      // never authors `stage`.
+      if (
+        (currentRow?.stage === 'executing' || currentRow?.stage === 'proving') &&
+        !abandonedWrite &&
+        !isSubmitCrossingUnrecorded(error) &&
+        !isGuardianUnauthorizedExecutionError(error) &&
+        GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
+        isNodeOutage(error)
+      ) {
+        const requeueStreak = nextRequeueStreak(currentRow, 'node-unreachable');
+        const cooldown = guardianRequeueBackoffSec(NODE_OUTAGE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] node unreachable pre-submit, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'node_unreachable',
+          { requeueStreak }
         );
         return;
       }
@@ -2505,137 +2558,161 @@ const runGuardianPipeline = async (
     // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
     assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-    await prepareGuardianTipExecution(midenClient.client, tr, () =>
-      assertStillHoldingLock(hold, 'while preparing tip execution')
-    );
-    assertStillHoldingLock(hold, 'before executing at the tip');
-    execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
-    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
-    // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
-    // during `executeRequest` (a network round trip on the normal ceiling) abandons
-    // this callback instead of stopping it, and mobile/desktop run THIS copy — the
-    // platform #777 was reported on.
-    await setStage('proving');
-    assertStillHoldingLock(hold, 'before proving');
-    let provenTx;
-    if (!delegateTransaction) {
-      // Local (non-delegated) proving. The guardian pipeline drives the raw
-      // client directly, whose default local prover is the single-threaded
-      // WASM one — which on iOS WKWebView runs on the main thread and freezes
-      // the UI for the whole multi-second prove. Route to the native Rust
-      // prover on mobile (off the main thread via @miden/native-prover),
-      // exactly like `proveWithFallback`'s localProverFactory and the
-      // delegated fallback below; WASM local prover elsewhere.
-      let localProver: ReturnType<typeof TransactionProver.newLocalProver>;
-      try {
-        localProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
-      } catch (error) {
-        observe(error, 'local_prover_build');
-        throw error;
-      }
-      // Reported like every other prove. This is the one that runs on mobile,
-      // where there is no offscreen document and no delegation, so leaving it out
-      // would make mobile the platform whose proves are invisible.
-      // Local proving is deliberately unbounded — pause the lock watchdog for
-      // its duration, exactly like proveWithFallback's local attempts (#775).
-      const localStartedAt = performance.now();
-      let provePending = true;
-      try {
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
-        provePending = false;
-        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
-      } catch (proveError) {
-        escaped = undefined;
-        annotateGuardianProving(proveError, undefined);
-        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
-        if (provePending) observe(proveError, 'prove_local');
-        throw proveError;
-      }
-    } else {
-      // Delegated (remote) proving. The client's default prover is the remote
-      // gRPC prover on every platform, and its ~10s deadline is too tight for a
-      // heavyweight guardian multisig proof when the machine is under load — a
-      // single "Deadline expired" used to kill the whole co-signed transaction
-      // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-      // claim timeout), because the guardian pipeline drives the raw client
-      // directly and had none of the local fallback the non-guardian path gets
-      // for free from `proveWithFallback`. Give it that resilience: on remote
-      // failure — or on a remote that never answers at all, which is a stall the
-      // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
-      // SAME executed tx locally. Re-proving is safe
-      // because `proveTransaction` borrows the executed result (only the prover
-      // is consumed, and each attempt passes a fresh one). The local prover
-      // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-      // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-      // Reported here as well as in `proveWithFallback`, because this is a second
-      // implementation of the same fallback and shares none of that one's code.
-      // Left out, every guardian operation would contribute nothing to prover
-      // health — and this fallback exists precisely BECAUSE delegated proving was
-      // failing under load, so it is the last path that should be silent about it.
-      const proveStartedAt = performance.now();
-      let delegatedPending = true;
-      try {
-        // Safe to bound here in the strongest sense available: this pipeline drives
-        // execute/prove/submit itself, so the deadline provably expires BEFORE any
-        // submit and the local re-prove cannot broadcast twice.
-        // Explicit remote prover rather than `prove({})`: the empty form selects the
-        // SDK's default-prover fallback, which "requires an initialized client" and so
-        // never dispatches from a prover-only realm — the write then hangs until the
-        // deadline below rather than proving in seconds (#718). A prove a freeze broke is
-        // re-proved remotely once, and never once this hold is gone (#473).
-        provenTx = await proveDelegated(
-          delegatedProver => executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-          'Delegated guardian prove',
-          () => assertStillHoldingLock(hold, 'before the remote re-prove')
-        );
-        delegatedPending = false;
-        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
-      } catch (proveError) {
-        escaped = undefined;
-        annotateGuardianProving(proveError, undefined);
-        // The delegated prove was the longest parking await in this hold, and the
-        // fallback below is a WASM call on `executedTx` — an object borrowed from
-        // the client's RefCell. If the watchdog evicted us while the delegated
-        // prove was parked, this catch runs on an abandoned callback and the local
-        // re-prove is a second borrow of a client a successor now owns. The
-        // eviction outranks the prove failure as the reason to stop, so it is
-        // checked before the fallback rather than only after it. Still pre-submit.
-        assertStillHoldingLock(hold, 'before the local prove fallback');
-        // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
-        if (proveError instanceof WebAssembly.RuntimeError) {
-          if (delegatedPending) observe(proveError, 'prove_delegate');
-          throw proveError;
-        }
-        console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-        // The outage the fallback is covering for. `proveWithFallback` marks this
-        // too, and without it a prover failing only on guardian operations would
-        // raise no banner and produce no `service_prover` event.
-        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-        let fallbackProver: ReturnType<typeof TransactionProver.newLocalProver>;
+    const executeAtTip = async () => {
+      await prepareGuardianTipExecution(midenClient.client, tr, () =>
+        assertStillHoldingLock(hold, 'while preparing tip execution')
+      );
+      assertStillHoldingLock(hold, 'before executing at the tip');
+      execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
+      return midenClient.client.transactions.executeRequest(accountId, tr);
+    };
+    const executeAndProve = async ({ reexecuting, proveLocally, delegatedProveFailed }: ProofPass) => {
+      // Marked only here: a stage the offscreen copy posts never authors the row's stage, so it has none to misread.
+      const executedTx = await executeAtTip().catch((error: unknown) => {
+        throw reexecuting ? markFailedReexecution(error) : error;
+      });
+      // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
+      // during `executeRequest` (a network round trip on the normal ceiling) abandons
+      // this callback instead of stopping it, and mobile/desktop run THIS copy - the
+      // platform #777 was reported on. A re-execution stays on 'proving', so the row's steps never run backwards.
+      if (!reexecuting) await setStage('proving');
+      assertStillHoldingLock(hold, 'before proving');
+      let provenTx;
+      if (!delegateTransaction || proveLocally) {
+        // Local (non-delegated) proving. The guardian pipeline drives the raw
+        // client directly, whose default local prover is the single-threaded
+        // WASM one - which on iOS WKWebView runs on the main thread and freezes
+        // the UI for the whole multi-second prove. Route to the native Rust
+        // prover on mobile (off the main thread via @miden/native-prover),
+        // exactly like `proveWithFallback`'s localProverFactory and the
+        // delegated fallback below; WASM local prover elsewhere.
+        let localProver: ReturnType<typeof TransactionProver.newLocalProver>;
         try {
-          fallbackProver = isMobile()
+          localProver = isMobile()
             ? TransactionProver.newCallbackProver(buildNativeProverCallback())
             : TransactionProver.newLocalProver();
         } catch (error) {
-          observe(error, 'fallback_prover_build');
+          observe(error, 'local_prover_build');
           throw error;
         }
-        let fallbackPending = true;
+        // Reported like every other prove. This is the one that runs on mobile,
+        // where there is no offscreen document and no delegation, so leaving it out
+        // would make mobile the platform whose proves are invisible.
+        // Local proving is deliberately unbounded - pause the lock watchdog for
+        // its duration, exactly like proveWithFallback's local attempts (#775).
+        const localStartedAt = performance.now();
+        let provePending = true;
         try {
-          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
-          fallbackPending = false;
-          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
-        } catch (fallbackError) {
+          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+          provePending = false;
+          reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+        } catch (proveError) {
           escaped = undefined;
-          annotateGuardianProving(fallbackError, undefined);
-          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
-          if (fallbackPending) observe(fallbackError, 'prove_fallback');
-          throw fallbackError;
+          annotateGuardianProving(proveError, undefined);
+          reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+          if (provePending) observe(proveError, 'prove_local');
+          throw proveError;
+        }
+      } else {
+        // Delegated (remote) proving. The client's default prover is the remote
+        // gRPC prover on every platform, and its ~10s deadline is too tight for a
+        // heavyweight guardian multisig proof when the machine is under load - a
+        // single "Deadline expired" used to kill the whole co-signed transaction
+        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+        // claim timeout), because the guardian pipeline drives the raw client
+        // directly and had none of the local fallback the non-guardian path gets
+        // for free from `proveWithFallback`. Give it that resilience: on remote
+        // failure - or on a remote that never answers at all, which is a stall the
+        // bare await could not see (see `withDelegatedProveTimeout`) - re-prove the
+        // SAME executed tx locally. Re-proving is safe
+        // because `proveTransaction` borrows the executed result (only the prover
+        // is consumed, and each attempt passes a fresh one). The local prover
+        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+        // Reported here as well as in `proveWithFallback`, because this is a second
+        // implementation of the same fallback and shares none of that one's code.
+        // Left out, every guardian operation would contribute nothing to prover
+        // health - and this fallback exists precisely BECAUSE delegated proving was
+        // failing under load, so it is the last path that should be silent about it.
+        const proveStartedAt = performance.now();
+        let delegatedPending = true;
+        try {
+          // Safe to bound here in the strongest sense available: this pipeline drives
+          // execute/prove/submit itself, so the deadline provably expires BEFORE any
+          // submit and the local re-prove cannot broadcast twice.
+          // Explicit remote prover rather than `prove({})`: the empty form selects the
+          // SDK's default-prover fallback, which "requires an initialized client" and so
+          // never dispatches from a prover-only realm - the write then hangs until the
+          // deadline below rather than proving in seconds (#718). A prove a freeze broke is
+          // re-proved remotely once, and never once this hold is gone (#473).
+          provenTx = await proveDelegated(
+            delegatedProver => executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+            'Delegated guardian prove',
+            () => assertStillHoldingLock(hold, 'before the remote re-prove')
+          );
+          delegatedPending = false;
+          reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+        } catch (proveError) {
+          escaped = undefined;
+          annotateGuardianProving(proveError, undefined);
+          // The delegated prove was the longest parking await in this hold, and the
+          // fallback below is a WASM call on `executedTx` - an object borrowed from
+          // the client's RefCell. If the watchdog evicted us while the delegated
+          // prove was parked, this catch runs on an abandoned callback and the local
+          // re-prove is a second borrow of a client a successor now owns. The
+          // eviction outranks the prove failure as the reason to stop, so it is
+          // checked before the fallback rather than only after it. Still pre-submit.
+          assertStillHoldingLock(hold, 'before the local prove fallback');
+          // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
+          if (proveError instanceof WebAssembly.RuntimeError) {
+            if (delegatedPending) observe(proveError, 'prove_delegate');
+            throw proveError;
+          }
+          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          delegatedProveFailed();
+          // The outage the fallback is covering for. `proveWithFallback` marks this
+          // too, and without it a prover failing only on guardian operations would
+          // raise no banner and produce no `service_prover` event.
+          if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
+          let fallbackProver: ReturnType<typeof TransactionProver.newLocalProver>;
+          try {
+            fallbackProver = isMobile()
+              ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+              : TransactionProver.newLocalProver();
+          } catch (error) {
+            observe(error, 'fallback_prover_build');
+            throw error;
+          }
+          let fallbackPending = true;
+          try {
+            provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+            fallbackPending = false;
+            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+          } catch (fallbackError) {
+            escaped = undefined;
+            annotateGuardianProving(fallbackError, undefined);
+            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+            if (fallbackPending) observe(fallbackError, 'prove_fallback');
+            throw fallbackError;
+          }
         }
       }
-    }
+      let evidence: ReturnType<typeof readSubmitEvidence>;
+      try {
+        evidence = readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold);
+      } catch (error) {
+        observe(error, 'proof_evidence');
+        throw error;
+      }
+      return { executedTx, provenTx, evidence };
+    };
+    const { executedTx, provenTx, evidence } = await withFreshProof({
+      executeAndProve,
+      expirationBlockOf: proven => proven.evidence.expirationBlock,
+      readTip: readChainTip,
+      assertLive: () => assertStillHoldingLock(hold, 'after reading the chain tip'),
+      budgetMs: INLINE_PROOF_BUDGET_MS
+    });
     // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
     // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
     // the abandoned callback keeps running and can still reach `submit()`, so a
@@ -2646,13 +2723,6 @@ const runGuardianPipeline = async (
     //
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
-    let evidence: ReturnType<typeof readSubmitEvidence>;
-    try {
-      evidence = readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold);
-    } catch (error) {
-      observe(error, 'proof_evidence');
-      throw error;
-    }
     try {
       await setStage('submitting', { evidence });
     } catch (error) {
@@ -2764,6 +2834,10 @@ const runWriteLeaf = async <T>(
  * and the row fails terminally with no requeue and no Retry. The deadline gives
  * the caller an unreachable verdict whatever the hold does.
  *
+ * It runs on running time, like the holds it stays ahead of: an overdue timer fires
+ * the moment a frozen WebView resumes, ahead of the answer, and on a switch that
+ * verdict is what commits the row to a unilateral on-chain rotation (#2060).
+ *
  * The deadline does not cancel the request or release the lock (`GuardianHttpClient`
  * passes no signal), so the abandoned hold runs on until the fetch boundary cuts
  * its request off a minute in. What it changes is that the CALLER gets an
@@ -2780,7 +2854,7 @@ const runWriteLeaf = async <T>(
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancelTimer = setRunningTimeout(
       () =>
         reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
       OUTGOING_GUARDIAN_DEADLINE_MS
@@ -2792,16 +2866,16 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
     try {
       run().then(
         value => {
-          clearTimeout(timer);
+          cancelTimer();
           resolve(value);
         },
         error => {
-          clearTimeout(timer);
+          cancelTimer();
           reject(error);
         }
       );
     } catch (syncError) {
-      clearTimeout(timer);
+      cancelTimer();
       reject(syncError);
     }
   });
@@ -3256,7 +3330,9 @@ const resolveRotationHotKey = async (
 /**
  * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
  * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
- * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does.
+ * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does,
+ * unless a freeze crosses it: that deadline is running time (#2060) and the Guardian's hold is not, so on mobile a
+ * request the platform delivers on resume can still land after the release.
  */
 const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
 
@@ -3454,8 +3530,9 @@ const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
  * will before the abandon arrives, and a later write may hold the nonce. The record's identity, not its time, tells it
  * from a later write's at the same nonce: an attempt can outlive the Guardian's own discard while it proves and be kept
  * after the nonce was freed, and the next write can propose that nonce within the same second. With no such record
- * (another realm, a restart, another write's record) nothing is sent, and Retry's hold, counted from `capturedAt`,
- * outlasts the Guardian's own discard.
+ * (another realm, a restart that found the row already ended, another write's record) nothing is sent, and Retry's
+ * hold, counted from `capturedAt`, outlasts the Guardian's own discard. The startup sweep restores the record of a
+ * crossed attempt it ends (`handBackInterruptedCandidate`), so a relaunch can release that one (#2060).
  */
 export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvider): CandidateRelease => {
   const releasable = (accountId: string, nonce: number, attemptId: string): GuardianCandidate | undefined => {
@@ -4803,6 +4880,8 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   beginAttemptInThisRealm(nextTransaction.id);
+  // Held through the catch arm too: its writes are how a failure reaches the row.
+  const endBackgroundExecution = beginBackgroundExecution();
   try {
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
@@ -4997,6 +5076,7 @@ export const generateTransactionsLoop = async (
     return false;
   } finally {
     endAttemptInThisRealm(nextTransaction.id);
+    endBackgroundExecution();
   }
 
   // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed
