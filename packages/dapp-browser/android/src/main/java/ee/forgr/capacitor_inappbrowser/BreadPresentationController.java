@@ -877,7 +877,9 @@ final class BreadPresentationController {
             float end;
             if (capsuleReducedMotion) {
                 tracker.computeCurrentVelocity(1000);
-                end = releaseEnd(capsuleProgress(event.getY()), capsuleProgressVelocity(tracker.getYVelocity()));
+                float density = owner.getContext().getResources().getDisplayMetrics().density;
+                end = releaseEnd(capsuleProgress(event.getY()), capsuleProgressVelocity(tracker.getYVelocity()),
+                    Math.abs(tracker.getYVelocity()) / density);
                 if (end < 0.5f) minimizeFromBackWithoutPreview();
             } else {
                 String collapseId = morphId;
@@ -1144,7 +1146,9 @@ final class BreadPresentationController {
         tracker.computeCurrentVelocity(1000);
         float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
         float velocity = capsule ? capsuleProgressVelocity(vy) : velocity(morph.card(), vx, vy);
-        float end = releaseEnd(morph.progress(), velocity);
+        float density = owner.getContext().getResources().getDisplayMetrics().density;
+        float speed = (capsule ? Math.abs(vy) : (float) Math.hypot(vx, vy)) / density;
+        float end = releaseEnd(morph.progress(), velocity, speed);
         tracking = false;
         released = true;
         interactiveCollapse = false;
@@ -1154,10 +1158,7 @@ final class BreadPresentationController {
         return end;
     }
 
-    private float releaseEnd(float progress, float progressVelocity) {
-        tracker.computeCurrentVelocity(1000);
-        float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
-        float speed = (float) Math.hypot(vx, vy) / owner.getContext().getResources().getDisplayMetrics().density;
+    private float releaseEnd(float progress, float progressVelocity, float speed) {
         float travel = progress + PROJECTION_SECONDS * progressVelocity - grabStart;
         float end = grabTarget;
         if (speed >= FLICK_DP_PER_SECOND && Math.abs(progressVelocity) > 0.01f) end = progressVelocity > 0 ? 1 : 0;
