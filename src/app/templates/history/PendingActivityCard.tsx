@@ -11,6 +11,8 @@ import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
+import { getCurrentLocale } from 'lib/i18n/core';
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -138,10 +140,13 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
-  else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
+  else if (status === 'failed' && heldByGuardian) {
+    hint = t('guardianHoldRetryRefused', { time: formatHoldDeadline(holdUntil, { locale: getCurrentLocale() }) });
+  } else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative =
-    item.retryError !== undefined || (submission !== undefined ? submission.kind === 'rejected' : status === 'failed');
+    item.retryError !== undefined ||
+    (submission !== undefined ? submission.kind === 'rejected' : status === 'failed' && !heldByGuardian);
   const failureId =
     item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
   const [observedFailure, setObservedFailure] = useState<{

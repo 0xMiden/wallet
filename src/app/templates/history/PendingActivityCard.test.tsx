@@ -303,6 +303,22 @@ describe('PendingActivityCard', () => {
       expect(screen.getByTestId('pending-activity-hint')).not.toHaveTextContent('noteClaimFailedRetry');
     });
 
+    it.each([
+      ['a stored hold', { submission: { kind: 'guardianHold', messageKey: 'submissionHeldByGuardian' } }],
+      ['no stored outcome', {}]
+    ] as const)(
+      'a failed claim with %s names the hold in its fold while its action is off (#2060)',
+      (_label, stored) => {
+        renderCard('failed', { ...stored, holdUntil: Math.floor(Date.now() / 1000) + 600 });
+        fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+        const hint = screen.getByTestId('pending-activity-hint');
+        expect(hint).toHaveTextContent('guardianHoldRetryRefused');
+        expect(hint).toHaveAttribute('data-tone', 'neutral');
+        expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      }
+    );
+
     it('offers Retry for a stored submission only on a held claim, the one its handler can act on (#1689)', () => {
       const onRetryHeld = jest.fn();
       const onAccept = jest.fn();
@@ -542,6 +558,19 @@ describe('PendingActivityCard live failure reporting', () => {
     rerender(card({ note, status: 'failed' }));
     advance(1000);
     expect(jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id)).toEqual(['noteClaimFailedRetry']);
+  });
+
+  it('reports the hold, not a failed claim, while a held row has no outcome of its own to show (#2060)', () => {
+    const reported = () => jest.mocked(reportUserVisibleError).mock.calls.map(([id]) => id);
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed', holdUntil: Math.floor(Date.now() / 1000) + 600 }));
+    advance(1000);
+    expect(reported()).toEqual(['guardianHoldNotice']);
+
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(reported()).toEqual(['guardianHoldNotice', 'noteClaimFailedRetry']);
   });
 
   it.each<PendingActivityItem>([
