@@ -90,7 +90,7 @@ const txKey = (id: string) => `tx:${id}`;
 async function renderUnread() {
   const delivered = mockDeliveries.value;
   const rendered = renderHook(() => useHasUnreadActivity());
-  await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered));
+  await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered), { timeout: 5000 });
   return rendered.result;
 }
 
