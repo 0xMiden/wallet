@@ -986,8 +986,12 @@ final class BreadPresentationController {
             requestNativeMinimize(collapseId);
             return;
         }
-        if (!owner.isShowing() || !state.effectiveVisibility()
-            || state.phase() != BreadPresentationState.Phase.VISIBLE) return;
+        if (!owner.isShowing() || !state.effectiveVisibility()) return;
+        if (posed && morphId == null && !flying()) {
+            sendMinimize(null);
+            return;
+        }
+        if (state.phase() != BreadPresentationState.Phase.VISIBLE) return;
         requestAcceptedMinimize();
     }
 
@@ -998,6 +1002,10 @@ final class BreadPresentationController {
     }
 
     private void requestAcceptedMinimize() {
+        if (state.phase() == BreadPresentationState.Phase.ERROR) {
+            sendMinimize(null);
+            return;
+        }
         // A settled collapse cleared morphId and left the page posed. That null is the current id, chosen before
         // nativeCollapse, so it is not the null collapse returns when the container refuses the flight.
         if (posed && morphId == null && !flying()) {
