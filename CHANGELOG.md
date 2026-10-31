@@ -4,6 +4,7 @@
 
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 
+- [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
 
