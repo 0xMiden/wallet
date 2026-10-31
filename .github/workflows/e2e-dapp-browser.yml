@@ -346,7 +346,9 @@ jobs:
             cd "$baseline_dir"
             yarn install --frozen-lockfile
             yarn test:e2e:android:build
-            (cd android && ./gradlew --stop || true)
+            if ! (cd android && ./gradlew --stop); then
+              echo "Gradle daemon shutdown failed; continuing with the comparison"
+            fi
           )
           cp "$baseline_dir/android/app/build/outputs/apk/debug/app-debug.apk" "$RUNNER_TEMP/wallet-presentation-before.apk"
           test -s "$RUNNER_TEMP/wallet-presentation-before.apk"
