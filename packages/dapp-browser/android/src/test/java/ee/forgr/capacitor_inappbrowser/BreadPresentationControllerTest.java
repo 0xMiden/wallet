@@ -2106,6 +2106,55 @@ public class BreadPresentationControllerTest {
         }
     }
 
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleReleaseIsolatesFlingFromProjectedTravel() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        float distance = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleCollapseDistance");
+        float density = activity.getResources().getDisplayMetrics().density;
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        long t = android.os.SystemClock.uptimeMillis();
+        float x = 20, y = 20;
+        float slopY = y + slop + 1;
+        float releaseX = x + 12 * density;
+        float releaseY = slopY + 0.0032f * distance;
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 100),
+            touch(android.view.MotionEvent.ACTION_MOVE, x, slopY, t + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, releaseX, releaseY, t + 516),
+            touch(android.view.MotionEvent.ACTION_UP, releaseX, releaseY, t + 520));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            for (android.view.MotionEvent event : events) {
+                measured.addMovement(event);
+                assertTrue(capsule.dispatchTouchEvent(event));
+            }
+            measured.computeCurrentVelocity(1000);
+            float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float progressVelocity = ReflectionHelpers.callInstanceMethod(controller, "capsuleProgressVelocity",
+                ReflectionHelpers.ClassParameter.from(float.class, measured.getYVelocity()));
+            float projectedTravel = (float) ReflectionHelpers.callInstanceMethod(controller, "capsuleProgress",
+                ReflectionHelpers.ClassParameter.from(float.class, releaseY)) + 0.30f * progressVelocity - 1;
+            assertTrue("the dispatched gesture exceeds the fling threshold", speed >= 450f);
+            assertTrue("the normalized downward velocity clears the strict floor", progressVelocity < -0.01f);
+            assertTrue("the normalized velocity stays inside its clamp", progressVelocity >= -8f);
+            assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
+            verify(callbacks, times(1).description("a fling under the travel threshold minimizes with animations disabled"))
+                .presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                    eq(controller.state.acknowledgedVisibilitySequence()), isNull(), any());
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
     @Test @Config(sdk = 34, shadows = PaintWebView.class)
     public void predictiveBackKeepsThePageBackChosenWhenPreviewCannotRun() throws Exception {
         openMorph(false);

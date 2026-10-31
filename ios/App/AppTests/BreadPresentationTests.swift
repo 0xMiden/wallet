@@ -2309,6 +2309,14 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.98, progressVelocity: -2, verticalVelocity: 600), 0)
         XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.98, progressVelocity: 2, verticalVelocity: -600), 1)
         XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.95, progressVelocity: 0, verticalVelocity: 0), 1)
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.2, verticalVelocity: 600), 0,
+                       "a downward fling under the travel threshold collapses")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.40, progressVelocity: 0.2, verticalVelocity: -600), 1,
+                       "an upward fling overrides a collapsing projection")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.2, verticalVelocity: 400), 1,
+                       "the same projection below fling speed stays expanded")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.01, verticalVelocity: 600), 1,
+                       "progress velocity at the strict floor does not use the fling")
     }
 
     func testCapsulePullTracksAndCommitsOneNativeMinimization() async throws {
