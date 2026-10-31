@@ -608,6 +608,9 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Add the smallest finite-result guard and render unavailable status without an empty value element.
 - [x] Add narrow 320/360/402px light and dark visual acceptance to the PR job.
 - [x] Run the seven focused regression suites, TypeScript and named ESLint through the guarded local helper on Node 22.
+- [x] Integrate current main 79b4795 locally as merge 4640ced, preserving the release-note and task-file edits.
+- [x] Integrate current main a328096 locally as merge 0222550, preserving the release-note and task-file edits.
+- [ ] Re-run the focused suites, TypeScript, named lint and formatting checks on the integrated head.
 - [ ] Complete Review Council, fix verified P0-P2 findings, and re-verify.
 - [ ] Push once, monitor exact-head checks and screenshots, and resolve failures.
 - [ ] Squash-merge after current-head CI, Council review and mergeability pass.
@@ -624,7 +627,9 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 
 ## Review
 
-After integrating current main, the seven named Jest suites passed 257 tests, TypeScript passed, and named ESLint passed. The guarded helper refused the first ESLint command when the Playwright path matched its browser restriction; ESLint for the visual harness remains for the CI route. Prettier and browser acceptance are still pending. The separate 63-test focused run on AssetRow and Binance also passed.
+Before integrating the latest main, the seven named Jest suites passed 257 tests, TypeScript passed, and named ESLint passed. The guarded helper refused the first ESLint command when the Playwright path matched its browser restriction; ESLint for the visual harness remains for the CI route. Prettier and browser acceptance are still pending. The separate 63-test focused run on AssetRow and Binance also passed.
+
+After v1.17.9 published at 10:22 UTC, moved the #2035 amount-normalization note into the next (TBD) section. At 12:32 UTC, merged current main 79b4795 locally as 4640ced. At 13:25 UTC, merged current main a328096 locally as 0222550 after preserving and restoring the release-note and task-file edits. The remote PR remains at be7ad2f; no branch push has happened. Re-run all relevant local checks on the integrated head before Council review.
 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 
