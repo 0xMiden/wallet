@@ -33,7 +33,16 @@ on:
         options:
           - all
           - auth-tab
+          - presentation-compare
         default: all
+      baseline_sha:
+        description: Exact base commit for the Android presentation comparison
+        required: false
+        type: string
+      candidate_sha:
+        description: Exact candidate commit for the Android presentation comparison
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -222,18 +231,21 @@ jobs:
 
   android-dapp-browser:
     name: dApp Browser (Android)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-compare'
     # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
       MIDEN_E2E_TEST: 'true'
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Enable KVM
         run: |
@@ -305,8 +317,48 @@ jobs:
         env:
           E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
+      - name: Validate exact comparison commits
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        env:
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git cat-file -e "$BASELINE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASELINE_SHA" "$CANDIDATE_SHA"
+          mkdir -p test-results-android
+          echo "baseline=$BASELINE_SHA candidate=$CANDIDATE_SHA" | tee test-results-android/presentation-comparison-source.txt
+
+      - name: Build baseline APK for presentation comparison
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        env:
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+        run: |
+          set -euo pipefail
+          baseline_dir="$RUNNER_TEMP/wallet-presentation-baseline"
+          git worktree add --detach "$baseline_dir" "$BASELINE_SHA"
+          cleanup() { git worktree remove --force "$baseline_dir"; }
+          trap cleanup EXIT
+          (
+            cd "$baseline_dir"
+            yarn install --frozen-lockfile
+            yarn test:e2e:android:build
+            (cd android && ./gradlew --stop || true)
+          )
+          cp "$baseline_dir/android/app/build/outputs/apk/debug/app-debug.apk" "$RUNNER_TEMP/wallet-presentation-before.apk"
+          test -s "$RUNNER_TEMP/wallet-presentation-before.apk"
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
+
+      - name: Save candidate APK for presentation comparison
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/wallet-presentation-after.apk"
+          test -s "$RUNNER_TEMP/wallet-presentation-after.apk"
 
       # Reclaim the Gradle daemon's heap before two emulators start competing
       # for the runner's RAM.
@@ -315,7 +367,46 @@ jobs:
         run: ./gradlew --stop || true
 
       - name: Run dApp browser E2E (Android)
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
         run: yarn test:e2e:android:dapp:run
+
+      - name: Download pinned Perfetto Trace Processor
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/perfetto-linux-amd64.zip"
+          curl --fail --location --retry 3 https://github.com/google/perfetto/releases/download/v59.1/linux-amd64.zip --output "$archive"
+          echo '7deb8c2572c6ae7ec80cd719d388041079827b0c44a1659694d5d88faa4f501e  '"$archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/perfetto"
+          unzip -q "$archive" trace_processor_shell -d "$RUNNER_TEMP/perfetto"
+          chmod +x "$RUNNER_TEMP/perfetto/trace_processor_shell"
+          "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
+
+      - name: Run baseline native-tap FrameTimeline
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        env:
+          ANDROID_E2E_APK_PATH: ${{ runner.temp }}/wallet-presentation-before.apk
+          E2E_FRAME_TIMELINE_CAPTURE: '1'
+          PRESENTATION_VARIANT: before
+          PRESENTATION_SOURCE_SHA: ${{ inputs.baseline_sha }}
+        run: yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
+
+      - name: Run candidate native-tap FrameTimeline
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        env:
+          ANDROID_E2E_APK_PATH: ${{ runner.temp }}/wallet-presentation-after.apk
+          E2E_FRAME_TIMELINE_CAPTURE: '1'
+          PRESENTATION_VARIANT: after
+          PRESENTATION_SOURCE_SHA: ${{ inputs.candidate_sha }}
+        run: yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
+
+      - name: Analyze before and after FrameTimeline traces
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        run: |
+          node scripts/analyze-native-frame-timeline.mjs \
+            "$RUNNER_TEMP/perfetto/trace_processor_shell" \
+            test-results-android \
+            test-results-android/native-presentation-comparison.md
 
       - name: Collect emulator logs on failure
         if: failure()

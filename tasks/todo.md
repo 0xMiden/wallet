@@ -610,6 +610,14 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [ ] Add native-tap Android E2E and compare before/after FrameTimeline traces.
 - [ ] Complete exact-head CI and the recorded independent review, then merge.
 
+Acceptance plan for the native-tap measurement:
+
+- Use the PR base and candidate APKs on the same API 34 emulator and run the same E2E sequence against each.
+- Trigger the minimized-card expansion with `adb shell input tap`, using the WebView's native screen bounds and the card's CSS rectangle to calculate the physical tap point.
+- Record Perfetto FrameTimeline data around repeated taps, mark each attempt in the trace, and upload both raw traces plus a process-scoped frame-duration/jank comparison.
+- Keep the measurement as an opt-in `workflow_dispatch` suite so routine dApp E2E and PR CI are unchanged.
+- Pin and verify the Trace Processor binary used for the summary; preserve exact baseline and candidate SHAs in the artifact.
+
 # Issue #1840 - Android warm-dialog expand CI follow-up
 
 - [x] Read the exact current-head failure and identify the zero-sized root guard in `expand()`.
