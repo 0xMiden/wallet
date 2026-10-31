@@ -186,17 +186,32 @@ final class BreadPresentationController: NSObject {
     /// under the morph. A touch-down on the page's card shows the window at zero alpha instead, so that work
     /// lands before the morph starts; the morph then only starts moving it. It lapses with the frame-rate request.
     private(set) var warmed = false
+    private var warmCooldown: DispatchWorkItem?
 
     private func warmWindow() {
-        guard !warmed, !moving, state.phase == .visible || state.phase == .temporarilyHidden, !state.surfaceVisibility, owner?.managedClose?.closing != true,
-              let window = instance?.containerWindow, window.isHidden else { return }
+        guard !moving, state.phase == .visible || state.phase == .temporarilyHidden, !state.surfaceVisibility,
+              owner?.managedClose?.closing != true, let window = instance?.containerWindow else { return }
+        if warmed && !window.isHidden {
+            scheduleWarmCooldown()
+            return
+        }
+        guard window.isHidden else { return }
         if applySlotFrame(window) { window.layoutIfNeeded() }
         warmed = true
         applyWarmth(to: window)
-        DispatchQueue.main.asyncAfter(deadline: .now() + BreadFrameRateBoost.duration + 0.15) { [weak self] in self?.coolWindow() }
+        scheduleWarmCooldown()
+    }
+
+    private func scheduleWarmCooldown() {
+        warmCooldown?.cancel()
+        warmCooldown = nil
+        let work = DispatchWorkItem { [weak self] in self?.coolWindow() }
+        warmCooldown = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + BreadFrameRateBoost.duration + 0.15, execute: work)
     }
 
     private func coolWindow() {
+        warmCooldown = nil
         guard warmed, !moving, !state.surfaceVisibility, let window = instance?.containerWindow else { return }
         warmed = false
         applyWarmth(to: window)

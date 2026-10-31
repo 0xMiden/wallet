@@ -116,6 +116,8 @@ public class WebViewDialog extends Dialog {
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
+    boolean unseenWarmPresentation() { return presentation != null && presentation.unseenWarm(); }
+    boolean retireUnseenWarmPresentation() { return presentation != null && presentation.retireUnseenWarm(); }
     void disableClosingPage() {
         if (presentation != null) presentation.stopMotion();
         if (_webView != null) {
@@ -144,6 +146,9 @@ public class WebViewDialog extends Dialog {
 
     boolean hasPresentation() { return presentation != null; }
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    void prepareMorph(long durationMs) {
+        if (presentation != null) presentation.prepareMorph(durationMs);
+    }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
         if (managedClose != null) managedClose.foreground(foreground);
@@ -206,6 +211,15 @@ public class WebViewDialog extends Dialog {
     void morphEvent(BreadMorphEvent event) {
         if (permanentlyClosed || managedClosing()) return;
         _options.getCallbacks().presentationMorph(event);
+    }
+
+    @Override public boolean isShowing() {
+        if (!permanentlyClosed && unseenWarmPresentation()) {
+            Window window = getWindow();
+            View decor = window == null ? null : window.getDecorView();
+            if (decor != null && decor.getParent() != null && decor.getVisibility() == View.INVISIBLE) return true;
+        }
+        return super.isShowing();
     }
 
     @Override public void show() {

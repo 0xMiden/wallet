@@ -259,6 +259,279 @@ public class BreadPresentationControllerTest {
         verify(options.getPluginCall()).resolve();
     }
 
+    @Test @Config(shadows = PaintWebView.class)
+    public void prepareMorphWarmsOnlyRequestedHiddenDialogUntilExpandedOrExpired() throws Exception {
+        openMorph(false);
+        reveal();
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = controller;
+        BreadPresentationState.Phase parked = targetPresentation.state.phase();
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        assertTrue("target decor starts exposed to accessibility",
+            targetAccessibilityImportance != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        WebViewRegistry.getShared().register("target", target);
+        assertSame(target, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(target, targetPresentation);
+
+        open(true, true, "default", false);
+        WebViewDialog other = dialog;
+        BreadPresentationController otherPresentation = ReflectionHelpers.getField(other, "presentation");
+        WebViewRegistry.getShared().register("other", other);
+
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall unknown = mock(PluginCall.class);
+        when(unknown.getString("id")).thenReturn("missing");
+        plugin.prepareMorph(unknown);
+        assertFalse(target.isShowing());
+        assertFalse(other.isShowing());
+
+        PluginCall warm = mock(PluginCall.class);
+        when(warm.getString("id")).thenReturn("target");
+        when(warm.getInt("durationMs")).thenReturn(600);
+        plugin.prepareMorph(warm);
+
+        assertWarmupActive(target, targetPresentation);
+        assertEquals("a warm dialog hides its decor from accessibility",
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, targetDecor.getImportantForAccessibility());
+        assertEquals(parked, targetPresentation.state.phase());
+        assertFalse(other.isShowing());
+        assertFalse(ReflectionHelpers.<Boolean>getField(otherPresentation, "warmed"));
+        verify(warm).resolve();
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200));
+        assertWarmupActive(target, targetPresentation);
+
+        BreadMorphCard card = new BreadMorphCard(new RectF(20, 20, 220, 160), 18);
+        assertTrue("an expand should take ownership of the warm dialog", targetPresentation.morph(
+            "expanded", card, 0, 0, "target", (int) targetPresentation.state.policyRevision(), nextSequence()));
+        BreadMorphControllerTest.advance(800);
+        assertTrue("the expired warm-up must not hide an expanded dialog", target.isShowing());
+        BreadMorphController morph = ReflectionHelpers.getField(targetPresentation, "morph");
+        assertEquals(1f, morph.progress(), 0.01f);
+        assertEquals("an expanded warmup leaves the decor visible", View.VISIBLE, targetDecor.getVisibility());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("an expanded warmup clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("an expanded warmup restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
+        other.forceClose();
+    }
+
+    @Test public void prepareMorphCooldownExpiresAt750MsWithoutAnExpand() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = ReflectionHelpers.getField(target, "presentation");
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        assertTrue("target decor starts exposed to accessibility",
+            targetAccessibilityImportance != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        WebViewRegistry.getShared().register("target", target);
+        assertSame(target, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(target, targetPresentation);
+        prepareMorph("target", 600);
+
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700));
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        assertFalse(ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
+        assertFalse("the unclaimed warm dialog cools down at 750 ms", target.isShowing());
+        assertEquals(View.GONE, targetDecor.getVisibility());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("a warm cooldown clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("a warm cooldown restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
+    }
+
+    @Test public void prepareMorphRenewsAnActiveCooldownFromTheSecondRequest() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        BreadPresentationController targetPresentation = ReflectionHelpers.getField(target, "presentation");
+        View targetDecor = target.getWindow().getDecorView();
+        int targetAccessibilityImportance = targetDecor.getImportantForAccessibility();
+        WebViewRegistry.getShared().register("target", target);
+        assertWarmupEligible(target, targetPresentation);
+        prepareMorph("target", 600);
+
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700));
+        prepareMorph("target", 600);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100));
+
+        assertTrue("a repeated prepare renews the warmup cooldown past the original deadline",
+            ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
+        assertWarmupActive(target, targetPresentation);
+        assertEquals("a renewed warmup remains hidden from accessibility",
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, targetDecor.getImportantForAccessibility());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(640));
+        assertWarmupActive(target, targetPresentation);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10));
+
+        assertFalse(ReflectionHelpers.<Boolean>getField(targetPresentation, "warmed"));
+        assertFalse("the renewed warmup cools down after its second deadline", target.isShowing());
+        int warmWindowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals("a renewed warmup cooldown clears the warm window flags", 0,
+            target.getWindow().getAttributes().flags & warmWindowFlags);
+        assertEquals("a renewed warmup cooldown restores accessibility importance",
+            targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
+    }
+
+    @Test @Config(sdk = 28) public void warmDialogIsNotAuthPresentable() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+
+        assertWarmupActive(target, controller);
+        BreadAuthController auth = ReflectionHelpers.getField(target, "auth");
+        assertNotNull(auth);
+        assertFalse("a warmed dialog must not present auth", auth.presentable.getAsBoolean());
+    }
+
+    @Test @Config(sdk = 28) public void managedCloseDuringWarmupHidesBeforeTheClose() throws Exception {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+        assertWarmupActive(target, controller);
+
+        List<JSObject> requests = new ArrayList<>();
+        target.configureManagedClose("target", new JSObject().put("token", "lifetime"), requests::add);
+        target.requestClose(() -> {});
+
+        assertEquals(1, requests.size());
+        assertFalse("a warm close is not a visible page", requests.get(0).getBoolean("visible"));
+        assertEquals("a warm close hides before it is managed", View.GONE,
+            target.getWindow().getDecorView().getVisibility());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+        assertEquals(View.GONE, target.getWindow().getDecorView().getVisibility());
+    }
+
+    @Test public void warmCooldownDuringManagedCloseStaysConcealed() {
+        open(true, true, "default", false);
+        WebViewDialog target = dialog;
+        WebViewRegistry.getShared().register("target", target);
+        prepareMorph("target", 600);
+        assertWarmupActive(target, controller);
+
+        target.configureManagedClose("target", new JSObject().put("token", "lifetime"), ignored -> {});
+        ManagedHostClose managed = target.managedClose();
+        ReflectionHelpers.setField(managed, "requestId", "in-flight");
+        assertTrue(target.managedClosing());
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+
+        View decor = target.getWindow().getDecorView();
+        assertEquals("a warm cooldown must not uncover a managed close", View.INVISIBLE, decor.getVisibility());
+        int warmFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        assertEquals(warmFlags, target.getWindow().getAttributes().flags & warmFlags);
+    }
+
+    @Test public void prepareMorphCooldownCannotTouchReplacementAfterClose() {
+        open(true, true, "default", false);
+        WebViewDialog original = dialog;
+        BreadPresentationController originalPresentation = ReflectionHelpers.getField(original, "presentation");
+        WebViewRegistry.getShared().register("target", original);
+        assertSame(original, WebViewRegistry.getShared().get("target"));
+        assertWarmupEligible(original, originalPresentation);
+        prepareMorph("target", 600);
+        assertWarmupActive(original, originalPresentation);
+
+        original.forceClose();
+        WebViewRegistry.getShared().remove("target");
+        WebViewDialog replacement = mock(WebViewDialog.class);
+        WebViewRegistry.getShared().register("target", replacement);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(750));
+
+        assertSame(replacement, WebViewRegistry.getShared().get("target"));
+        verifyNoInteractions(replacement);
+    }
+
+    @Test public void prepareMorphLeavesAlreadyVisiblePresentationUnchanged() {
+        open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
+        assertTrue(dialog.isShowing());
+        WebViewRegistry.getShared().register("visible", dialog);
+        int decorVisibility = dialog.getWindow().getDecorView().getVisibility();
+        BreadPresentationState.Phase phase = controller.state.phase();
+        prepareMorph("visible", 600);
+
+        assertTrue(dialog.isShowing());
+        assertEquals(decorVisibility, dialog.getWindow().getDecorView().getVisibility());
+        assertEquals(phase, controller.state.phase());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800));
+        assertTrue("a cooldown must not hide an already-visible target", dialog.isShowing());
+        assertEquals(decorVisibility, dialog.getWindow().getDecorView().getVisibility());
+        assertEquals(phase, controller.state.phase());
+    }
+
+    private void prepareMorph(String id, int durationMs) {
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall call = mock(PluginCall.class);
+        when(call.getString("id")).thenReturn(id);
+        when(call.getInt("durationMs")).thenReturn(durationMs);
+        plugin.prepareMorph(call);
+        verify(call).resolve();
+    }
+
+    private void assertWarmupEligible(WebViewDialog target, BreadPresentationController presentation) {
+        assertFalse(warmupState(target, presentation), target.isShowing());
+        assertFalse(warmupState(target, presentation), target.managedClosing());
+        assertFalse(warmupState(target, presentation), presentation.state.surfaceVisibility());
+        assertEquals(warmupState(target, presentation), BreadPresentationState.Phase.TEMPORARILY_HIDDEN,
+            presentation.state.phase());
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "warmed"));
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "capturing"));
+        assertFalse(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "tracking"));
+        assertNull(warmupState(target, presentation), ReflectionHelpers.getField(presentation, "collapseFlight"));
+        assertFalse(warmupState(target, presentation),
+            ReflectionHelpers.<BreadMorphController>getField(presentation, "morph").running());
+        assertNotNull(warmupState(target, presentation), target.getWindow());
+    }
+
+    private void assertWarmupActive(WebViewDialog target, BreadPresentationController presentation) {
+        assertTrue(warmupState(target, presentation), ReflectionHelpers.<Boolean>getField(presentation, "warmed"));
+        assertFalse(warmupState(target, presentation), presentation.state.surfaceVisibility());
+        View decor = target.getWindow().getDecorView();
+        assertEquals(warmupState(target, presentation), View.INVISIBLE, decor.getVisibility());
+        assertNotNull(warmupState(target, presentation), decor.getParent());
+        assertTrue(warmupState(target, presentation), target.isShowing());
+        int flags = target.getWindow().getAttributes().flags;
+        assertEquals(warmupState(target, presentation),
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            flags & (WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE));
+    }
+
+    private String warmupState(WebViewDialog target, BreadPresentationController presentation) {
+        return "(phase=" + presentation.state.phase()
+            + ", surfaceVisible=" + presentation.state.surfaceVisibility()
+            + ", dialogShowing=" + target.isShowing()
+            + ", managedClosing=" + target.managedClosing()
+            + ", warmed=" + ReflectionHelpers.<Boolean>getField(presentation, "warmed")
+            + ", capturing=" + ReflectionHelpers.<Boolean>getField(presentation, "capturing")
+            + ", tracking=" + ReflectionHelpers.<Boolean>getField(presentation, "tracking")
+            + ", collapseQueued=" + (ReflectionHelpers.getField(presentation, "collapseFlight") != null)
+            + ")";
+    }
+
     @After public void tearDown() {
         if (dialog != null) dialog.forceClose();
         WebViewRegistry.getShared().clear();
@@ -2245,6 +2518,28 @@ public class BreadPresentationControllerTest {
         assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
         verify(navbar).notifyDialogVisibilityChanged(dialog);
         assertEquals(0.25f, root.getScaleX(), 1e-3f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void morphNotifiesNavbarWhenWarmExpandKeepsDialogShowing() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        dialog.prepareMorph(600);
+        assertTrue(dialog.isShowing());
+        assertEquals(View.INVISIBLE, dialog.getWindow().getDecorView().getVisibility());
+        WebViewRegistry.getShared().register("warm-navbar", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
+            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
+        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
+        PluginCall call = morphCall("warm-navbar", null, nextSequence(), "expanded",
+            cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
+        plugin.morph(call);
+        assertTrue(accepted(call));
+        assertTrue(dialog.isShowing());
+        verify(navbar).notifyDialogVisibilityChanged(dialog);
     }
 
     @Test @Config(shadows = PaintWebView.class)
