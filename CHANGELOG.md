@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.17.9 (TBD)
+## 1.17.10 (TBD)
 
 - [FIX][all] Recover a Guardian transaction whose proof went stale before its submit, keep a refused transaction in review until the chain rules, and show the Guardian hold before Retry in local time with a countdown.
+
+## 1.17.9 (TBD)
+
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
 - [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
 - [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
