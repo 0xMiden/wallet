@@ -81,6 +81,22 @@ it('shows the available balance and retains the test-funds warning', () => {
   expect(screen.getByTestId('bridge-test-funds-warning')).toHaveAttribute('role', 'note');
 });
 
+it('labels an unreadable balance unavailable', () => {
+  const unreadableProps = {
+    ...props,
+    token: { ...props.token, balance: 0 },
+    balanceUnreadable: true
+  } as React.ComponentProps<typeof EvmBridgeDepositForm> & { balanceUnreadable: boolean };
+  const view = render(<EvmBridgeDepositForm {...unreadableProps} />);
+
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
+  expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+
+  view.rerender(<EvmBridgeDepositForm {...props} token={{ ...props.token, balance: 0 }} />);
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('available 0');
+  expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
+});
+
 it.each([
   { token: { ...props.token, scaleIsKnown: false } },
   { network: undefined },

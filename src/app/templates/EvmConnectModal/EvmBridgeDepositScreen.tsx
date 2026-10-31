@@ -240,10 +240,10 @@ function formatBalance(value: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** The balance the amount step shows: null while its read is pending, 0 once a failed read shows its error instead. */
+/** The amount step receives a value only when the balance read settled successfully. */
 function shownBalance({ value, loading }: BridgeBalance, decimals: number): number | null {
-  if (loading) return null;
-  return value === null ? 0 : Number(formatUnits(value, decimals));
+  if (loading || value === null) return null;
+  return Number(formatUnits(value, decimals));
 }
 
 /** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
@@ -725,6 +725,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         return usdcBalance;
     }
   })();
+  const balanceUnreadable = !selectedBalance.loading && selectedBalance.value === null;
   // Circle's display quote follows the amount the user settled on, not every keystroke.
   const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
   const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
@@ -2138,6 +2139,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
+              balanceUnreadable={balanceUnreadable}
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
@@ -2226,6 +2228,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       reviewConfirmLabel,
       onClose,
       setupToken,
+      balanceUnreadable,
       selectedBalance.error,
       selectedBalance.errorId,
       selectedBalance.errorDiagnostics,

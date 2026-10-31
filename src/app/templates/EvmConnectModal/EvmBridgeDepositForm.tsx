@@ -32,6 +32,7 @@ interface EvmBridgeDepositFormProps {
   destinationName?: string;
   amount: string;
   isValidAmount: boolean;
+  balanceUnreadable?: boolean;
   error?: string;
   errorId?: UserErrorId | null;
   errorDiagnostics?: UiEvidenceInput;
@@ -52,6 +53,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   destinationName,
   amount,
   isValidAmount,
+  balanceUnreadable = false,
   error,
   errorId,
   errorDiagnostics,
@@ -64,7 +66,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
 }) => {
   const { t } = useTranslation();
   const prices = useWalletStore(state => state.tokenPrices);
-  const balanceReady = token.balance !== null;
+  const balanceReady = !balanceUnreadable && token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
   const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
   const amountError =
@@ -137,7 +139,9 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
           avatar={<TokenLogo symbol={token.name} faucetId={token.id} size="md" />}
           subtitle={
             token.scaleIsKnown ? (
-              balanceReady ? (
+              balanceUnreadable ? (
+                t('unavailable')
+              ) : balanceReady ? (
                 `${t('available')} ${balanceText}`
               ) : (
                 <Skeleton className="h-4 w-20" />

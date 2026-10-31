@@ -342,6 +342,7 @@ jest.mock('./EvmBridgeDepositForm', () => {
       arrivingName,
       amount,
       isValidAmount,
+      balanceUnreadable,
       error,
       onAmountChange,
       onContinue,
@@ -353,6 +354,7 @@ jest.mock('./EvmBridgeDepositForm', () => {
       arrivingName: string;
       amount: string;
       isValidAmount: boolean;
+      balanceUnreadable?: boolean;
       error?: string;
       onAmountChange: (value: string) => void;
       onContinue: () => void;
@@ -364,7 +366,13 @@ jest.mock('./EvmBridgeDepositForm', () => {
         <div>
           <span data-testid="form-ready">{String(isValidAmount)}</span>
           <span data-testid="form-error">{error}</span>
-          <span data-testid="form-balance">{token.balance === null ? 'loading' : token.balance}</span>
+          <span data-testid="form-balance">
+            {balanceUnreadable && token.balance === null
+              ? 'unavailable'
+              : token.balance === null
+                ? 'loading'
+                : token.balance}
+          </span>
           <span data-testid="form-amount">{amount}</span>
           <span data-testid="form-token">{tokenLabel}</span>
           <span data-testid="form-arriving">{`arrives as ${arrivingName}`}</span>
@@ -2001,6 +2009,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
 
     expect(screen.getByTestId('form-error')).toHaveTextContent(/^rpc down$/);
     await expectContinueHeld();
+    expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
   });
 
   it('shows the ETH read error, not a loading balance, once the loaded config names no AggLayer chain', async () => {
@@ -2945,6 +2954,28 @@ describe('user-visible bridge deposit producers', () => {
       bridgeBalanceBranch: 'fast_usdc',
       bridgeBalanceStage: 'rpc_rejected'
     });
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
+  });
+
+  it('shows a known zero USDC balance as available', async () => {
+    answerBalance(0n);
+    renderScreen();
+    await flushBridgePromises();
+
+    const selector = screen.getByTestId('send-token-selector');
+    expect(selector).toHaveTextContent('available 0');
+    expect(selector).not.toHaveTextContent('unavailable');
+  });
+
+  it('keeps a pending USDC balance off the available line', async () => {
+    global.fetch = jest.fn(() => new Promise(() => undefined));
+    renderScreen();
+    await flushBridgePromises();
+
+    const selector = screen.getByTestId('send-token-selector');
+    expect(selector).toHaveTextContent('Test Epoch USDC');
+    expect(selector).not.toHaveTextContent('unavailable');
+    expect(selector).not.toHaveTextContent(/\bavailable\b/);
   });
 
   const failedBalanceReads: [string, () => void][] = [
@@ -3042,6 +3073,7 @@ describe('user-visible bridge deposit producers', () => {
       bridgeBalanceBranch: 'native',
       bridgeBalanceStage: 'value_decode'
     });
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
   });
 
   const answerFastFallback = (finalResult: unknown) => {
@@ -3169,6 +3201,7 @@ describe('user-visible bridge deposit producers', () => {
         bridgeBalanceBranch: 'circle_usdc',
         bridgeBalanceStage: 'request'
       });
+      expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
       expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
     } finally {
       mockBridgeSnapshot = undefined;
@@ -3215,6 +3248,7 @@ describe('user-visible bridge deposit producers', () => {
       bridgeBalanceBranch: 'registered_erc20',
       bridgeBalanceStage: 'request'
     });
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
   });
 
@@ -3268,6 +3302,7 @@ describe('user-visible bridge deposit producers', () => {
     expect(screen.getByText('synthetic displayed action failure')).toBeInTheDocument();
     expect(screen.queryByText('synthetic hidden balance failure')).not.toBeInTheDocument();
     await expectErrorAfterDwell('raw_bridge_deposit_failed', 'field');
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
   });
 
   it('clears an amount failure when another connected account starts a pending read', async () => {
