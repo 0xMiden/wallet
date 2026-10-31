@@ -5,6 +5,7 @@
 ### Changes
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
+- [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
 
 ## 1.17.9 (2026-10-31)
 
