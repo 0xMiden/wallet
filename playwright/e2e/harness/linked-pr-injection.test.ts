@@ -664,7 +664,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       const absentBaseline = runOverlay(
         { dependencies: { absent: '0.1.0' }, resolutions: {} },
         { dependencies: { absent: 'file:../linked' }, resolutions: {} },
-        { dependencies: { left: 'baseline-left' }, resolutions: {} }
+        { dependencies: { left: 'baseline-left' } }
       );
       expect([absentBaseline.output, absentBaseline.bytes]).toEqual(['unchanged', absentBaselineBytes]);
 
