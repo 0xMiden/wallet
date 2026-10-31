@@ -49,6 +49,10 @@ interface FakeOperator {
   nonces?: Record<string, bigint>;
   /** Commitment of the state this operator serves per account; defaults to `state-<accountId>`, the chain's default too. */
   stateCommitments?: Record<string, string>;
+  /** Per-getState responses, used to model an operator settling a pending delta. */
+  stateCommitmentSequence?: Record<string, string[]>;
+  stateNonceSequence?: Record<string, bigint[]>;
+  deltas?: Record<number, string | undefined>;
   updatedAt?: Record<string, string>;
   failWith?: Error;
   /** Makes getState reject while the lookup still succeeds. */
@@ -60,6 +64,7 @@ interface FakeOperator {
   delayMs?: number;
   /** Internal: how many times getState has been called on this operator. */
   stateCalls?: number;
+  deltaCalls?: Array<{ accountId: string; nonce: number }>;
   /** Internal: how many times the lookup has been called on this operator. */
   lookupCalls?: number;
 }
@@ -175,15 +180,30 @@ jest.mock('@openzeppelin/guardian-client', () => ({
       if (operator.stateFailFirst && operator.stateCalls <= operator.stateFailFirst) {
         throw new Error('transient state failure');
       }
+      const stateIndex = operator.stateCalls - 1;
+      const commitment =
+        operator.stateCommitmentSequence?.[accountId]?.[
+          Math.min(stateIndex, operator.stateCommitmentSequence[accountId]!.length - 1)
+        ] ??
+        operator.stateCommitments?.[accountId] ??
+        `state-${accountId}`;
+      const nonce =
+        operator.stateNonceSequence?.[accountId]?.[
+          Math.min(stateIndex, operator.stateNonceSequence[accountId]!.length - 1)
+        ] ?? operator.nonces?.[accountId];
       return {
         accountId,
-        commitment: `state-${accountId}`,
-        // `data` carries the operator and the account id so the Account.deserialize
-        // stub can look the scripted nonce and state commitment back up.
-        stateJson: { data: Buffer.from(`${this.url}|${accountId}`).toString('base64') },
+        commitment,
+        stateJson: { data: Buffer.from(`${this.url}|${accountId}|${nonce ?? ''}|${commitment}`).toString('base64') },
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: operator.updatedAt?.[accountId] ?? '2024-01-01T00:00:00.000Z'
       };
+    }
+    async getDelta(accountId: string, nonce: number) {
+      const operator = mockBackend.get(this.url)!;
+      operator.deltaCalls ??= [];
+      operator.deltaCalls.push({ accountId, nonce });
+      return { newCommitment: operator.deltas?.[nonce] };
     }
   }
 }));
@@ -202,16 +222,20 @@ const fakeDeriveSeed = (hdIndex: number): Uint8Array => {
  */
 function scriptNonces() {
   mockDeserialize.mockImplementation((bytes: Uint8Array) => {
-    const [first, second] = Buffer.from(bytes).toString('utf8').split('|');
+    const [first, second, nonceSnapshot, commitmentSnapshot] = Buffer.from(bytes).toString('utf8').split('|');
     const accountId = second ?? first!;
     const operators = second === undefined ? Array.from(mockBackend.values()) : [mockBackend.get(first!)];
-    let nonce = 0n;
-    let commitment = `state-${accountId}`;
+    let nonce = nonceSnapshot ? BigInt(nonceSnapshot) : 0n;
+    let commitment = commitmentSnapshot ?? `state-${accountId}`;
     for (const operator of operators) {
-      const scriptedNonce = operator?.nonces?.[accountId];
-      if (scriptedNonce !== undefined) nonce = scriptedNonce;
-      const scriptedCommitment = operator?.stateCommitments?.[accountId];
-      if (scriptedCommitment !== undefined) commitment = scriptedCommitment;
+      if (nonceSnapshot === undefined) {
+        const scriptedNonce = operator?.nonces?.[accountId];
+        if (scriptedNonce !== undefined) nonce = scriptedNonce;
+      }
+      if (commitmentSnapshot === undefined) {
+        const scriptedCommitment = operator?.stateCommitments?.[accountId];
+        if (scriptedCommitment !== undefined) commitment = scriptedCommitment;
+      }
     }
     return {
       nonce: () => ({ asInt: () => nonce }),
@@ -425,6 +449,79 @@ describe('discoverGuardianForSeed', () => {
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
     expect(mockChainReads).toEqual(['acct-1']);
+  });
+
+  it("waits for a Guardian's pending next state when it matches the chain commitment", async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'chain-state'] },
+      stateNonceSequence: { 'acct-1': [4n, 5n] },
+      deltas: { 5: 'CHAIN-STATE' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(2);
+    expect(mockSecretKeys).toHaveLength(2);
+    expect(mockSecretKeys[1]).not.toBe(mockSecretKeys[0]);
+    expect((mockSecretKeys[1] as { free: jest.Mock }).free).toHaveBeenCalledTimes(1);
+    expect(mockSigners).toHaveLength(2);
+    expect(mockSigners[1]).not.toBe(mockSigners[0]);
+    expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: true });
+  });
+
+  it('does not wait when the next Guardian delta is not the chain candidate', async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': 4n },
+      stateCommitments: { 'acct-1': 'old-state' },
+      deltas: { 5: 'another-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(1);
+    expect(result.best).toBeUndefined();
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
+  });
+
+  it('keeps a stale verdict when a matching candidate does not become canonical within the deadline', async () => {
+    jest.useFakeTimers();
+    const controller = new AbortController();
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': 4n },
+      stateCommitments: { 'acct-1': 'old-state' },
+      deltas: { 5: 'chain-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const discovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: [LAMBDA],
+      signal: controller.signal
+    });
+    let settledByDeadline = false;
+    void discovery.then(() => {
+      settledByDeadline = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(20_000);
+    const completedWithinDeadline = settledByDeadline;
+    if (!completedWithinDeadline) controller.abort();
+    const result = await discovery;
+    const stateCallsAtExpiry = mockBackend.get(LAMBDA)?.stateCalls;
+    await jest.advanceTimersByTimeAsync(10_000);
+
+    expect(completedWithinDeadline).toBe(true);
+    expect(stateCallsAtExpiry).toBe(11);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(stateCallsAtExpiry);
+    expect(result.best).toBeUndefined();
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
   });
 
   it('picks the operator serving the chain state over the one the account left, even with its nonce unknown', async () => {

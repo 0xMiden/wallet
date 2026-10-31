@@ -135,6 +135,8 @@ export interface GuardianDiscoveryOptions {
 export const GUARDIAN_PROBE_MAX_HD_INDEX = 1;
 /** Per-request deadline. The guardian client exposes no abort, so late responses are simply ignored. */
 export const GUARDIAN_PROBE_TIMEOUT_MS = 8_000;
+const GUARDIAN_SETTLING_DEADLINE_MS = 20_000;
+const GUARDIAN_SETTLING_POLL_INTERVAL_MS = 2_000;
 /** Max in-flight probe requests, so a wider endpoint × index grid doesn't open every socket at once. */
 export const GUARDIAN_PROBE_CONCURRENCY = 6;
 /**
@@ -486,6 +488,90 @@ interface ProbeHit {
   state?: StateObject;
 }
 
+async function waitForSettlementPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || delayMs <= 0) return;
+  await new Promise<void>(resolve => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    timer = setTimeout(finish, delayMs);
+    signal?.addEventListener('abort', finish, { once: true });
+    if (signal?.aborted) finish();
+  });
+}
+
+async function refreshSettlingHit(
+  hit: ProbeHit,
+  nonce: bigint,
+  chainCommitment: string,
+  makeKey: (hdIndex: number) => AuthSecretKey,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<StateObject | undefined> {
+  const nextNonce = nonce + 1n;
+  if (nextNonce > BigInt(Number.MAX_SAFE_INTEGER) || nextNonce < 0n || signal?.aborted) return undefined;
+
+  let secretKey: AuthSecretKey | undefined;
+  try {
+    secretKey = makeKey(hit.hdIndex);
+    const signer = new EcdsaSigner(secretKey);
+    const client = new GuardianHttpClient(hit.endpoint);
+    client.setSigner(signer);
+    const deadline = Date.now() + GUARDIAN_SETTLING_DEADLINE_MS;
+
+    const deltaTimeoutMs = Math.min(timeoutMs, deadline - Date.now());
+    if (deltaTimeoutMs <= 0) return undefined;
+    const delta = await withTimeout(
+      client.getDelta(hit.accountId, Number(nextNonce)),
+      deltaTimeoutMs,
+      `guardian delta at ${hit.endpoint}`
+    );
+    if (
+      signal?.aborted ||
+      !delta.newCommitment ||
+      normalizeHex(delta.newCommitment) !== normalizeHex(chainCommitment)
+    ) {
+      return undefined;
+    }
+
+    while (!signal?.aborted) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) return undefined;
+
+      let state: StateObject;
+      try {
+        state = await withTimeout(
+          client.getState(hit.accountId),
+          Math.min(timeoutMs, remainingMs),
+          `guardian settling state at ${hit.endpoint}`
+        );
+      } catch {
+        return undefined;
+      }
+      if (signal?.aborted) return undefined;
+
+      const decoded = decodeStates([state]);
+      if (decoded.commitments.get(normalizeHex(hit.accountId)) === normalizeHex(chainCommitment)) return state;
+
+      const remainingAfterReadMs = deadline - Date.now();
+      if (remainingAfterReadMs <= 0) return undefined;
+      await waitForSettlementPoll(Math.min(GUARDIAN_SETTLING_POLL_INTERVAL_MS, remainingAfterReadMs), signal);
+    }
+  } catch {
+    // A settling check is only a refinement; keep the original state on failure.
+  } finally {
+    try {
+      secretKey?.free();
+    } catch {
+      // Already freed / stubbed handle — nothing to release.
+    }
+  }
+  return undefined;
+}
+
 /** Run `worker` over `items` with at most `limit` concurrently; never rejects. */
 async function runPooled<TItem, TResult>(
   items: readonly TItem[],
@@ -694,30 +780,24 @@ async function probeTargets(
 
   // State decoding runs sequentially, AFTER the parallel section: it touches
   // WASM (`Account.deserialize`) and must not overlap with anything else.
-  const decoded: { match: GuardianProbeMatch; commitments: Map<string, string> }[] = [];
+  const decodedHits = new Map<ProbeHit, DecodedStates>();
+  const accountIds = new Set<string>();
   for (const target of targets) {
     const hits = hitsByEndpoint.get(target.endpoint);
     if (!hits || hits.length === 0) continue;
-    const states = hits.flatMap(hit => (hit.state ? [hit.state] : []));
-    const { nonce, commitments } = decodeStates(states);
-    decoded.push({
-      match: {
-        endpoint: target.endpoint,
-        option: target.option,
-        accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
-        hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
-        nonce,
-        updatedAt: newestUpdatedAt(states)
-      },
-      commitments
-    });
+    for (const hit of hits) {
+      if (!hit.state) continue;
+      const decoded = decodeStates([hit.state]);
+      decodedHits.set(hit, decoded);
+      for (const accountId of decoded.commitments.keys()) accountIds.add(accountId);
+    }
   }
 
   // The chain decides whether a state is current (#1648): an operator the account
   // left still serves the state it had, and with the current operator absent from
   // the list that stale state would otherwise be the lone match and get picked.
   const chainCommitments = await readChainCommitments(
-    Array.from(new Set(decoded.flatMap(entry => Array.from(entry.commitments.keys())))),
+    Array.from(accountIds),
     options.network ?? getEffectiveNetworkName(),
     timeoutMs,
     signal
@@ -725,10 +805,43 @@ async function probeTargets(
   if (signal?.aborted) {
     return { matches: [], probedEndpoints, failures };
   }
-  const matches: GuardianProbeMatch[] = decoded.map(({ match, commitments }) => ({
-    ...match,
-    holdsCurrentState: holdsCurrentState(commitments, chainCommitments)
-  }));
+
+  for (const target of targets) {
+    const hits = hitsByEndpoint.get(target.endpoint);
+    if (!hits) continue;
+    for (const hit of hits) {
+      if (!hit.state || signal?.aborted) continue;
+      const decoded = decodedHits.get(hit);
+      const accountId = normalizeHex(hit.accountId);
+      const servedCommitment = decoded?.commitments.get(accountId);
+      const chainCommitment = chainCommitments.get(accountId);
+      if (decoded?.nonce === undefined || servedCommitment === undefined || chainCommitment === undefined) continue;
+      if (servedCommitment === chainCommitment) continue;
+
+      const refreshed = await refreshSettlingHit(hit, decoded.nonce, chainCommitment, makeKey, timeoutMs, signal);
+      if (refreshed) hit.state = refreshed;
+    }
+  }
+  if (signal?.aborted) {
+    return { matches: [], probedEndpoints, failures };
+  }
+
+  const matches: GuardianProbeMatch[] = [];
+  for (const target of targets) {
+    const hits = hitsByEndpoint.get(target.endpoint);
+    if (!hits || hits.length === 0) continue;
+    const states = hits.flatMap(hit => (hit.state ? [hit.state] : []));
+    const { nonce, commitments } = decodeStates(states);
+    matches.push({
+      endpoint: target.endpoint,
+      option: target.option,
+      accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
+      hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
+      nonce,
+      updatedAt: newestUpdatedAt(states),
+      holdsCurrentState: holdsCurrentState(commitments, chainCommitments)
+    });
+  }
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
   const best = selectBest(matches);
