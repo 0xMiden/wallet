@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { COMPACT_ADDRESS } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitProvider } from '@reown/appkit/react';
@@ -104,7 +104,7 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
-import { type DepositToken, type OfferedErc20 } from './deposit-token';
+import { type DepositToken, type OfferedErc20, sameDepositToken } from './deposit-token';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -244,6 +244,204 @@ function formatBalance(value: bigint, decimals: number): string {
 function shownBalance({ value, loading }: BridgeBalance, decimals: number): number | null {
   if (loading || value === null) return null;
   return Number(formatUnits(value, decimals));
+}
+
+/** Epoch USDC read: the account, the token the config named, and whether that token was still loading. */
+interface EpochBalanceIdentity {
+  evmAddress: string;
+  chainId: number | undefined;
+  address: string | undefined;
+  decimals: number | undefined;
+  token: DepositToken;
+  usdcPending: boolean;
+}
+
+/** Circle USDC read: the account, Arc's USDC, and whether xReserve could be used. */
+interface CircleBalanceIdentity {
+  evmAddress: string;
+  chainId: number | undefined;
+  usdc: string | undefined;
+  usdcxAvailable: boolean;
+  usdcxPending: boolean;
+}
+
+/** Native ETH read: the account and the AggLayer chain the balance was asked on. */
+interface EthBalanceIdentity {
+  evmAddress: string;
+  agglayerChainId: number | undefined;
+  agglayerPending: boolean;
+}
+
+/** ERC-20 map read: the account, the AggLayer chain, and the offered set those rows were read for. */
+interface Erc20BalanceIdentity {
+  evmAddress: string;
+  agglayerChainId: number | undefined;
+  offeredKey: string;
+}
+
+interface StampedBalance<Identity> {
+  identity: Identity;
+  balance: BridgeBalance;
+}
+
+interface StampedBalanceMap<Identity> {
+  identity: Identity;
+  balances: Record<string, BridgeBalance>;
+}
+
+function sameHexAddress(left: string | undefined, right: string | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.toLowerCase() === right.toLowerCase();
+}
+
+function epochBalanceIdentity(
+  evmAddress: string,
+  chainId: number | undefined,
+  address: string | undefined,
+  decimals: number | undefined,
+  token: DepositToken,
+  usdcPending: boolean
+): EpochBalanceIdentity {
+  return { evmAddress, chainId, address, decimals, token, usdcPending };
+}
+
+function sameEpochBalanceIdentity(left: EpochBalanceIdentity, right: EpochBalanceIdentity): boolean {
+  return (
+    sameHexAddress(left.evmAddress, right.evmAddress) &&
+    left.chainId === right.chainId &&
+    sameHexAddress(left.address, right.address) &&
+    left.decimals === right.decimals &&
+    sameDepositToken(left.token, right.token) &&
+    left.usdcPending === right.usdcPending
+  );
+}
+
+function circleBalanceIdentity(
+  evmAddress: string,
+  chainId: number | undefined,
+  usdc: string | undefined,
+  usdcxAvailable: boolean,
+  usdcxPending: boolean
+): CircleBalanceIdentity {
+  return { evmAddress, chainId, usdc, usdcxAvailable, usdcxPending };
+}
+
+function sameCircleBalanceIdentity(left: CircleBalanceIdentity, right: CircleBalanceIdentity): boolean {
+  return (
+    sameHexAddress(left.evmAddress, right.evmAddress) &&
+    left.chainId === right.chainId &&
+    sameHexAddress(left.usdc, right.usdc) &&
+    left.usdcxAvailable === right.usdcxAvailable &&
+    left.usdcxPending === right.usdcxPending
+  );
+}
+
+function ethBalanceIdentity(
+  evmAddress: string,
+  agglayerChainId: number | undefined,
+  agglayerPending: boolean
+): EthBalanceIdentity {
+  return { evmAddress, agglayerChainId, agglayerPending };
+}
+
+function sameEthBalanceIdentity(left: EthBalanceIdentity, right: EthBalanceIdentity): boolean {
+  return (
+    sameHexAddress(left.evmAddress, right.evmAddress) &&
+    left.agglayerChainId === right.agglayerChainId &&
+    left.agglayerPending === right.agglayerPending
+  );
+}
+
+function erc20BalanceIdentity(
+  evmAddress: string,
+  agglayerChainId: number | undefined,
+  offeredKey: string
+): Erc20BalanceIdentity {
+  return { evmAddress, agglayerChainId, offeredKey };
+}
+
+function sameErc20BalanceIdentity(left: Erc20BalanceIdentity, right: Erc20BalanceIdentity): boolean {
+  return (
+    sameHexAddress(left.evmAddress, right.evmAddress) &&
+    left.agglayerChainId === right.agglayerChainId &&
+    left.offeredKey === right.offeredKey
+  );
+}
+
+function sameBridgeBalance(left: BridgeBalance, right: BridgeBalance): boolean {
+  return (
+    left.value === right.value &&
+    left.formatted === right.formatted &&
+    left.loading === right.loading &&
+    left.error === right.error &&
+    left.errorId === right.errorId &&
+    left.errorDiagnostics === right.errorDiagnostics
+  );
+}
+
+function sameBalanceMap(left: Record<string, BridgeBalance>, right: Record<string, BridgeBalance>): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(key => {
+    const balance = left[key];
+    const other = right[key];
+    return balance !== undefined && other !== undefined && sameBridgeBalance(balance, other);
+  });
+}
+
+/**
+ * Stores `balance` only while the slot is still the identity captured when the read started. A completion that
+ * lost that race keeps the newer stamp. The render installs a new identity before the effect resets it.
+ */
+function commitStampedBalance<Identity>(
+  setSlot: Dispatch<SetStateAction<StampedBalance<Identity> | null>>,
+  identity: Identity,
+  balance: BridgeBalance,
+  same: (left: Identity, right: Identity) => boolean
+) {
+  setSlot(current => {
+    if (current === null || !same(current.identity, identity)) return current;
+    if (sameBridgeBalance(current.balance, balance)) return current;
+    return { identity: current.identity, balance };
+  });
+}
+
+/** One entry of the ERC-20 map, still addressed by contract, and only while the map's stamp is this read. */
+function commitStampedBalanceMap<Identity>(
+  setSlot: Dispatch<SetStateAction<StampedBalanceMap<Identity> | null>>,
+  identity: Identity,
+  update: (balances: Record<string, BridgeBalance>) => Record<string, BridgeBalance>,
+  same: (left: Identity, right: Identity) => boolean
+) {
+  setSlot(current => {
+    if (current === null || !same(current.identity, identity)) return current;
+    const balances = update(current.balances);
+    if (sameBalanceMap(current.balances, balances)) return current;
+    return { identity: current.identity, balances };
+  });
+}
+
+/** The stored balance when this render's identity produced it; otherwise unread, before any effect runs. */
+function visibleStampedBalance<Identity>(
+  slot: StampedBalance<Identity> | null,
+  identity: Identity,
+  setSlot: Dispatch<SetStateAction<StampedBalance<Identity> | null>>,
+  same: (left: Identity, right: Identity) => boolean
+): BridgeBalance {
+  if (slot !== null && same(slot.identity, identity)) return slot.balance;
+  setSlot({ identity, balance: EMPTY_BALANCE });
+  return EMPTY_BALANCE;
+}
+
+function visibleStampedBalanceMap<Identity>(
+  slot: StampedBalanceMap<Identity> | null,
+  identity: Identity,
+  setSlot: Dispatch<SetStateAction<StampedBalanceMap<Identity> | null>>,
+  same: (left: Identity, right: Identity) => boolean
+): Record<string, BridgeBalance> {
+  if (slot !== null && same(slot.identity, identity)) return slot.balances;
+  setSlot({ identity, balances: {} });
+  return {};
 }
 
 /** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
@@ -516,13 +714,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // was quoted for, so a fee for an earlier amount is never shown.
   const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
   const [amount, setAmount] = useState('');
-  const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
-  const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
+  const [usdcBalanceSlot, setUsdcBalanceSlot] = useState<StampedBalance<EpochBalanceIdentity> | null>(null);
+  const [circleBalanceSlot, setCircleBalanceSlot] = useState<StampedBalance<CircleBalanceIdentity> | null>(null);
   // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
   const usdcxAvailability = useFeatureAvailability('usdcxDeposit', { chainId: usdcxSource?.chain.id });
   const usdcxAvailable = usdcxAvailability.state === 'available';
   const usdcxPending = usdcxAvailability.state === 'loading';
-  const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
+  const [ethBalanceSlot, setEthBalanceSlot] = useState<StampedBalance<EthBalanceIdentity> | null>(null);
+  const [erc20BalanceSlot, setErc20BalanceSlot] = useState<StampedBalanceMap<Erc20BalanceIdentity> | null>(null);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
   // Only the live USDCx source-wallet sequence holds dismissal. Always release on settlement of the
@@ -712,7 +911,46 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
 
   // The connected wallet's balance of each registered ERC-20, by its lowercase address, read together.
-  const [erc20Balances, setErc20Balances] = useState<Record<string, BridgeBalance>>({});
+  // Keyed on the token set, not the array a config publish rebuilds.
+  const offeredKey = offeredErc20s.map(({ contractAddress, decimals }) => `${contractAddress}:${decimals}`).join(',');
+  // Visible only for the read that produced them. A new account, chain, token or availability is unread in this
+  // render, before the effect that starts the next read, so Continue and Confirm cannot spend the previous balance.
+  const epochIdentity = epochBalanceIdentity(
+    evmAddress,
+    evmUsdc?.chainId,
+    evmUsdc?.address,
+    evmUsdc?.decimals,
+    token,
+    usdcPending
+  );
+  const circleIdentity = circleBalanceIdentity(
+    evmAddress,
+    usdcxSource?.chain.id,
+    usdcxSource?.usdc,
+    usdcxAvailable,
+    usdcxPending
+  );
+  const ethIdentity = ethBalanceIdentity(evmAddress, agglayerChainId, agglayerPending);
+  const erc20Identity = erc20BalanceIdentity(evmAddress, agglayerChainId, offeredKey);
+  const usdcBalance = visibleStampedBalance(
+    usdcBalanceSlot,
+    epochIdentity,
+    setUsdcBalanceSlot,
+    sameEpochBalanceIdentity
+  );
+  const circleUsdcBalance = visibleStampedBalance(
+    circleBalanceSlot,
+    circleIdentity,
+    setCircleBalanceSlot,
+    sameCircleBalanceIdentity
+  );
+  const ethBalance = visibleStampedBalance(ethBalanceSlot, ethIdentity, setEthBalanceSlot, sameEthBalanceIdentity);
+  const erc20Balances = visibleStampedBalanceMap(
+    erc20BalanceSlot,
+    erc20Identity,
+    setErc20BalanceSlot,
+    sameErc20BalanceIdentity
+  );
   const selectedBalance = (() => {
     if (typeof token !== 'string') return erc20Balances[token.contractAddress] ?? EMPTY_BALANCE;
     switch (token) {
@@ -757,7 +995,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [resetEpoch]);
 
   useEffect(() => {
-    setUsdcBalance(EMPTY_BALANCE);
+    const identity = epochBalanceIdentity(
+      evmAddress,
+      evmUsdc?.chainId,
+      evmUsdc?.address,
+      evmUsdc?.decimals,
+      token,
+      usdcPending
+    );
+    commitStampedBalance(setUsdcBalanceSlot, identity, EMPTY_BALANCE, sameEpochBalanceIdentity);
     if (token !== 'USDC' || usdcPending) return;
     let cancelled = false;
     const evidence = createBalanceEvidence('fast_usdc');
@@ -768,23 +1014,28 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcRead
       .then(value => {
         if (cancelled || !evmUsdc) return;
-        setUsdcBalance({
-          value,
-          formatted: formatBalance(value, evmUsdc.decimals),
-          loading: false,
-          error: null
-        });
+        commitStampedBalance(
+          setUsdcBalanceSlot,
+          identity,
+          { value, formatted: formatBalance(value, evmUsdc.decimals), loading: false, error: null },
+          sameEpochBalanceIdentity
+        );
       })
       .catch(err => {
         if (cancelled) return;
-        setUsdcBalance({
-          value: null,
-          formatted: '0',
-          loading: false,
-          error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed',
-          errorDiagnostics: evidence.snapshot()
-        });
+        commitStampedBalance(
+          setUsdcBalanceSlot,
+          identity,
+          {
+            value: null,
+            formatted: '0',
+            loading: false,
+            error: errorMessage(err),
+            errorId: 'raw_bridge_balance_failed',
+            errorDiagnostics: evidence.snapshot()
+          },
+          sameEpochBalanceIdentity
+        );
       });
 
     return () => {
@@ -794,7 +1045,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
-    setCircleUsdcBalance(EMPTY_BALANCE);
+    const identity = circleBalanceIdentity(
+      evmAddress,
+      usdcxSource?.chain.id,
+      usdcxSource?.usdc,
+      usdcxAvailable,
+      usdcxPending
+    );
+    commitStampedBalance(setCircleBalanceSlot, identity, EMPTY_BALANCE, sameCircleBalanceIdentity);
     if (usdcxPending) return;
     let cancelled = false;
     const evidence = createBalanceEvidence('circle_usdc');
@@ -806,23 +1064,28 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     circleRead
       .then(value => {
         if (cancelled) return;
-        setCircleUsdcBalance({
-          value,
-          formatted: formatBalance(value, CIRCLE_USDC_DECIMALS),
-          loading: false,
-          error: null
-        });
+        commitStampedBalance(
+          setCircleBalanceSlot,
+          identity,
+          { value, formatted: formatBalance(value, CIRCLE_USDC_DECIMALS), loading: false, error: null },
+          sameCircleBalanceIdentity
+        );
       })
       .catch(err => {
         if (cancelled) return;
-        setCircleUsdcBalance({
-          value: null,
-          formatted: '0',
-          loading: false,
-          error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed',
-          errorDiagnostics: evidence.snapshot()
-        });
+        commitStampedBalance(
+          setCircleBalanceSlot,
+          identity,
+          {
+            value: null,
+            formatted: '0',
+            loading: false,
+            error: errorMessage(err),
+            errorId: 'raw_bridge_balance_failed',
+            errorDiagnostics: evidence.snapshot()
+          },
+          sameCircleBalanceIdentity
+        );
       });
 
     return () => {
@@ -831,8 +1094,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [evmAddress, usdcxAvailable, usdcxPending, usdcxSource]);
 
   useEffect(() => {
+    const identity = ethBalanceIdentity(evmAddress, agglayerChainId, agglayerPending);
     let cancelled = false;
-    setEthBalance(EMPTY_BALANCE);
+    commitStampedBalance(setEthBalanceSlot, identity, EMPTY_BALANCE, sameEthBalanceIdentity);
     if (agglayerPending) return;
     const evidence = createBalanceEvidence('native');
 
@@ -843,18 +1107,28 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     ethRead
       .then(value => {
         if (cancelled) return;
-        setEthBalance({ value, formatted: formatBalance(value, 18), loading: false, error: null });
+        commitStampedBalance(
+          setEthBalanceSlot,
+          identity,
+          { value, formatted: formatBalance(value, 18), loading: false, error: null },
+          sameEthBalanceIdentity
+        );
       })
       .catch(err => {
         if (cancelled) return;
-        setEthBalance({
-          value: null,
-          formatted: '0',
-          loading: false,
-          error: errorMessage(err),
-          errorId: 'raw_bridge_balance_failed',
-          errorDiagnostics: evidence.snapshot()
-        });
+        commitStampedBalance(
+          setEthBalanceSlot,
+          identity,
+          {
+            value: null,
+            formatted: '0',
+            loading: false,
+            error: errorMessage(err),
+            errorId: 'raw_bridge_balance_failed',
+            errorDiagnostics: evidence.snapshot()
+          },
+          sameEthBalanceIdentity
+        );
       });
 
     return () => {
@@ -868,16 +1142,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // cannot flood the chain's RPC.
   const offeredRef = useRef(offeredErc20s);
   offeredRef.current = offeredErc20s;
-  const offeredKey = offeredErc20s.map(({ contractAddress, decimals }) => `${contractAddress}:${decimals}`).join(',');
   useEffect(() => {
-    setErc20Balances({});
-    const offered = offeredRef.current;
-    if (agglayerChainId === undefined || offered.length === 0) return;
+    const identity = erc20BalanceIdentity(evmAddress, agglayerChainId, offeredKey);
     const chainId = agglayerChainId;
+    commitStampedBalanceMap(setErc20BalanceSlot, identity, () => ({}), sameErc20BalanceIdentity);
+    const offered = offeredRef.current;
+    if (chainId === undefined || offered.length === 0) return;
     let cancelled = false;
     const settle = (address: string, balance: BridgeBalance) => {
       if (cancelled) return;
-      setErc20Balances(current => ({ ...current, [address]: balance }));
+      commitStampedBalanceMap(
+        setErc20BalanceSlot,
+        identity,
+        current => ({ ...current, [address]: balance }),
+        sameErc20BalanceIdentity
+      );
     };
     const reads = new PQueue({ concurrency: ERC20_BALANCE_READS });
     for (const { contractAddress, decimals } of offered) {
@@ -1711,6 +1990,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxFeeShortfall !== undefined || (route === 'usdcx' && token === 'CIRCLE_USDC' && amountExceedsBalance);
   useEffect(() => {
     if (!usdcxBalanceHeld || !usdcxSource) return;
+    // Availability is part of the stamp. A change replaces the interval and drops any prior in-flight read.
+    const identity = circleBalanceIdentity(
+      evmAddress,
+      usdcxSource.chain.id,
+      usdcxSource.usdc,
+      usdcxAvailable,
+      usdcxPending
+    );
     let cancelled = false;
     let reading = false;
     const id = setInterval(() => {
@@ -1719,10 +2006,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       readCircleUsdcBalance(evmAddress, usdcxSource)
         .then(value => {
           if (cancelled) return;
-          setCircleUsdcBalance(current =>
-            current.value === value
-              ? current
-              : { value, formatted: formatBalance(value, CIRCLE_USDC_DECIMALS), loading: false, error: null }
+          commitStampedBalance(
+            setCircleBalanceSlot,
+            identity,
+            { value, formatted: formatBalance(value, CIRCLE_USDC_DECIMALS), loading: false, error: null },
+            sameCircleBalanceIdentity
           );
         })
         .catch(err => console.warn('[EvmBridgeDepositScreen] Circle USDC balance re-read failed', err))
@@ -1734,7 +2022,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       cancelled = true;
       clearInterval(id);
     };
-  }, [usdcxBalanceHeld, evmAddress, usdcxSource]);
+  }, [usdcxBalanceHeld, evmAddress, usdcxAvailable, usdcxPending, usdcxSource]);
   const usdcxReady =
     route === 'usdcx' &&
     token === 'CIRCLE_USDC' &&

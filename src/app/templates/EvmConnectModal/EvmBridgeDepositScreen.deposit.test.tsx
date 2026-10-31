@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
 import {
+  publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_EVM_CHAIN_ID,
@@ -321,17 +322,25 @@ jest.mock('lib/walletconnect/receipt', () => ({
   readEvmErc20Allowance: jest.fn()
 }));
 
+let mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
 jest.mock('lib/walletconnect/config', () => ({
   ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
   SUPPORTED_CHAINS: [{ id: 11155111 }],
-  getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
+  getChain: (chainId: number) => mockGetChain(chainId)
 }));
 
 /** The handlers the screen last rendered into the form and the drawers: a guard is driven through them directly. */
 let mockLastOpenTokenDrawer: () => void = () => undefined;
 let mockLastTokenSelect: (token: DepositToken) => void = () => undefined;
 let mockLastConnectAnother: () => void = () => undefined;
+let mockFormGuardFrames: Array<{
+  tokenBalance: number | null;
+  isValidAmount: boolean;
+  balanceUnreadable: boolean | undefined;
+  onContinue: () => void;
+}> = [];
+let mockReviewGuardFrames: Array<{ canConfirm: boolean; onConfirm: () => unknown }> = [];
 
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => {
@@ -404,10 +413,19 @@ jest.mock('./EvmBridgeDepositForm', () => {
       props: React.ComponentProps<typeof import('./EvmBridgeDepositForm').EvmBridgeDepositForm>
     ) =>
       mockRealBridgeDisplays
-        ? React.createElement(
-            jest.requireActual<typeof import('./EvmBridgeDepositForm')>('./EvmBridgeDepositForm').EvmBridgeDepositForm,
-            props
-          )
+        ? (() => {
+            mockFormGuardFrames.push({
+              tokenBalance: props.token.balance,
+              isValidAmount: props.isValidAmount,
+              balanceUnreadable: props.balanceUnreadable,
+              onContinue: props.onContinue
+            });
+            return React.createElement(
+              jest.requireActual<typeof import('./EvmBridgeDepositForm')>('./EvmBridgeDepositForm')
+                .EvmBridgeDepositForm,
+              props
+            );
+          })()
         : legacy.EvmBridgeDepositForm(props)
   };
 });
@@ -460,11 +478,14 @@ jest.mock('./EvmBridgeDepositReview', () => {
       props: React.ComponentProps<typeof import('./EvmBridgeDepositReview').EvmBridgeDepositReview>
     ) =>
       mockRealBridgeDisplays
-        ? React.createElement(
-            jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview')
-              .EvmBridgeDepositReview,
-            props
-          )
+        ? (() => {
+            mockReviewGuardFrames.push({ canConfirm: Boolean(props.canConfirm), onConfirm: props.onConfirm });
+            return React.createElement(
+              jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview')
+                .EvmBridgeDepositReview,
+              props
+            );
+          })()
         : legacy.EvmBridgeDepositReview(props)
   };
 });
@@ -588,6 +609,93 @@ const answerBalance = (balance: bigint | null) => {
 const balanceTooLow = (balance: string, token: string) =>
   `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
 
+interface BalanceRpcPayload {
+  method: string;
+  params?: unknown[];
+}
+interface HeldBalanceRead {
+  url: string;
+  method: string;
+  account?: string;
+  contract?: string;
+  selector?: string;
+  resolve: (balance: bigint) => void;
+}
+interface ExpectedBalanceRead {
+  url: string;
+  method: string;
+  account: string;
+  contract?: string;
+  selector?: string;
+}
+let mockRestoreHeldFetch: (() => void) | undefined;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const parseBalanceRpcPayload = (value: unknown): BalanceRpcPayload | undefined => {
+  if (!isRecord(value) || typeof value.method !== 'string') return undefined;
+  return {
+    method: value.method,
+    params: Array.isArray(value.params) ? value.params : undefined
+  };
+};
+const holdBalanceReads = (): HeldBalanceRead[] => {
+  const originalFetch = global.fetch;
+  const held: HeldBalanceRead[] = [];
+  global.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
+    const [input, init] = args;
+    let payload: BalanceRpcPayload | undefined;
+    try {
+      payload = parseBalanceRpcPayload(JSON.parse(String(init?.body ?? '{}')));
+    } catch {
+      return originalFetch(input, init);
+    }
+    if (!payload) return originalFetch(input, init);
+    const first = payload.params?.[0];
+    const call = isRecord(first) ? first : undefined;
+    const data = typeof call?.data === 'string' ? call.data : undefined;
+    const selector = data?.slice(0, 10).toLowerCase();
+    const isBalanceRead =
+      payload.method === 'eth_getBalance' ||
+      (payload.method === 'eth_call' && (selector === '0x70a08231' || selector === '0xf8b2cb4f'));
+    if (!isBalanceRead) return originalFetch(input, init);
+    const account =
+      payload.method === 'eth_getBalance' && typeof first === 'string'
+        ? first
+        : data === undefined
+          ? undefined
+          : `0x${data.slice(-40)}`;
+    return new Promise<Response>(resolve => {
+      held.push({
+        url: String(input),
+        method: payload.method,
+        account,
+        contract: typeof call?.to === 'string' ? call.to : undefined,
+        selector,
+        resolve: balance => resolve({ json: async () => ({ result: word(balance) }) } as never)
+      });
+    });
+  }) as never;
+  mockRestoreHeldFetch = () => {
+    global.fetch = originalFetch;
+    mockRestoreHeldFetch = undefined;
+  };
+  return held;
+};
+const matchesBalanceRead = (request: HeldBalanceRead, expected: ExpectedBalanceRead) =>
+  request.url === expected.url &&
+  request.method === expected.method &&
+  request.account?.toLowerCase() === expected.account.toLowerCase() &&
+  request.contract?.toLowerCase() === expected.contract?.toLowerCase() &&
+  request.selector === expected.selector;
+const requireHeldBalanceRead = (requests: HeldBalanceRead[], expected: ExpectedBalanceRead) => {
+  const request = requests.find(candidate => matchesBalanceRead(candidate, expected));
+  if (!request)
+    throw new Error(
+      `No held balance read matched ${JSON.stringify(expected)}; observed ${JSON.stringify(
+        requests.map(({ url, method, account, contract, selector }) => ({ url, method, account, contract, selector }))
+      )}`
+    );
+  return request;
+};
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
 // A balance the check refused for its amount, or could not read; every other failure carries no balance check.
 const BALANCE_CHECK_OF: Record<string, string> = {
@@ -2694,9 +2802,14 @@ describe('user-visible bridge deposit producers', () => {
     mockBalanceEncodingFailure = false;
     mockLiveBridgeRow = undefined;
     mockAvailability = {};
+    mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
+    mockFormGuardFrames = [];
+    mockReviewGuardFrames = [];
+    mockRestoreHeldFetch = undefined;
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
     mockNativeReown = false;
+    mockBridgeSnapshot = undefined;
     mockWebProviderConnected = true;
     mockReadErc20Holdings = async () => mockHeldErc20s;
     mockLastCircleBalance = undefined;
@@ -2706,14 +2819,19 @@ describe('user-visible bridge deposit producers', () => {
     answerBalance(FUNDED);
     jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
     jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
     jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
   });
   afterEach(() => {
     jest.useRealTimers();
     mockRealBridgeDisplays = false;
     mockBalanceEncodingFailure = false;
+    mockRestoreHeldFetch?.();
     mockBridgeInCapUsd = null;
     mockTokenPrices = {};
+    mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
+    mockFormGuardFrames = [];
+    mockReviewGuardFrames = [];
     mockPendingUsdMarkets.clear();
     mockPriceSymbols.clear();
     mockDepositTokens = [];
@@ -2727,6 +2845,7 @@ describe('user-visible bridge deposit producers', () => {
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
     mockWebProviderConnected = true;
+    mockBridgeSnapshot = undefined;
     jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
     jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
   });
@@ -2833,6 +2952,131 @@ describe('user-visible bridge deposit producers', () => {
   const typeErc20Amount = async () => {
     renderScreen();
     await settle();
+  const NEXT_EVM_ADDRESS = '0x00000000000000000000000000000000000000e1';
+  const ARC_CHAIN_ID = 5042002;
+  const ARC_USDC = '0x3600000000000000000000000000000000000000';
+  const NEXT_ARC_USDC = '0x00000000000000000000000000000000000000c9';
+  const useChainSpecificRpc = () => {
+    mockGetChain = chainId => ({ rpcUrl: `https://rpc.test/${chainId}`, name: 'Sepolia' });
+  };
+  const useCircleTestSnapshot = () => {
+    const config = READY_SNAPSHOT.config;
+    if (!config) throw new Error('Synthetic ready bridge config is missing');
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockSnapshot = {
+      ...READY_SNAPSHOT,
+      config: {
+        ...config,
+        supportedEvmChains: { ...TEST_BRIDGE_CONFIG.supportedEvmChains, ...config.supportedEvmChains }
+      }
+    };
+  };
+  const publishCircleContract = (address: `0x${string}`) => {
+    const runtimeConfig = mockBridgeSnapshot?.config ?? TEST_BRIDGE_CONFIG;
+    const entry = Object.entries(runtimeConfig.supportedEvmChains).find(([, chain]) => chain.chainId === ARC_CHAIN_ID);
+    if (!entry) throw new Error('Synthetic Arc chain is missing');
+    const [key, arc] = entry;
+    const route = arc.bridges.usdcx;
+    const usdc = route?.tokens.USDC;
+    if (!route || !usdc) throw new Error('Synthetic Arc USDC source is missing');
+    const updatedArc = {
+      ...arc,
+      bridges: {
+        ...arc.bridges,
+        usdcx: {
+          ...route,
+          tokens: { ...route.tokens, USDC: { ...usdc, contractAddress: address } }
+        }
+      }
+    };
+    const runtime = {
+      ...runtimeConfig,
+      supportedEvmChains: { ...runtimeConfig.supportedEvmChains, [key]: updatedArc }
+    };
+    mockBridgeSnapshot = { ...(mockBridgeSnapshot ?? TEST_BRIDGE_CONFIG_SNAPSHOT), config: runtime };
+    const screenConfig = mockSnapshot.config ?? runtime;
+    mockSnapshot = {
+      ...mockSnapshot,
+      config: {
+        ...screenConfig,
+        supportedEvmChains: { ...screenConfig.supportedEvmChains, [key]: updatedArc }
+      }
+    } as MockSnapshot;
+    publishSnapshot(mockSnapshot);
+    publishMockBridgeSnapshot();
+  };
+  const chooseDepositToken = async (token: DepositToken) => {
+    act(() => mockLastTokenSelect(token));
+    await flushBridgePromises();
+  };
+  const typeFundedAmount = async () => {
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+    expect(mockFormGuardFrames.at(-1)?.isValidAmount).toBe(true);
+  };
+  const renderSelectedAmount = async (token: DepositToken) => {
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+    const view = renderScreen();
+    await settle();
+    if (token !== 'USDC') await chooseDepositToken(token);
+    await typeFundedAmount();
+    return view;
+  };
+  const expectContinueGuard = async (
+    view: ReturnType<typeof renderScreen>,
+    changeIdentity: () => void,
+    routeControl: string,
+    expectedRead?: ExpectedBalanceRead
+  ) => {
+    const firstAfterSwitch = mockFormGuardFrames.length;
+    const pending = holdBalanceReads();
+    changeIdentity();
+    await settle();
+    const first = mockFormGuardFrames[firstAfterSwitch];
+    if (!first) throw new Error('The identity switch did not render the amount form');
+    if (expectedRead) requireHeldBalanceRead(pending, expectedRead);
+    act(() => first.onContinue());
+    await flushBridgePromises();
+    await settle();
+    expect(screen.queryByTestId(routeControl)).not.toBeInTheDocument();
+    expect(first.tokenBalance).toBeNull();
+    expect(first.isValidAmount).toBe(false);
+    return { view, pending };
+  };
+  const reachRealEthReview = async () => {
+    const view = renderScreen();
+    await settle();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    await typeFundedAmount();
+    fireEvent.click(screen.getByTestId('send-amount-confirm'));
+    await screen.findByTestId('pick-slow');
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await screen.findByTestId('bridge-deposit-review-confirm');
+    expect(screen.getByTestId('bridge-deposit-review-confirm')).toBeInTheDocument();
+    return view;
+  };
+  const expectReviewGuard = async (changeIdentity: () => void, expectedRead?: ExpectedBalanceRead) => {
+    const firstAfterSwitch = mockReviewGuardFrames.length;
+    const pending = holdBalanceReads();
+    changeIdentity();
+    await flushBridgePromises();
+    const first = mockReviewGuardFrames[firstAfterSwitch];
+    if (!first) throw new Error('The identity switch did not render the review');
+    if (expectedRead) requireHeldBalanceRead(pending, expectedRead);
+    await act(async () => {
+      void first.onConfirm();
+      await Promise.resolve();
+    });
+    await flushBridgePromises();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    expect(first.canConfirm).toBe(false);
+    return pending;
+  };
     act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress }));
     await settle();
     jest.useFakeTimers();
@@ -2843,6 +3087,497 @@ describe('user-visible bridge deposit producers', () => {
   it('withholds the empty token list while wallet holdings are loading', async () => {
     mockTokenApiUrl = 'https://tokens.test';
     let resolveHoldings!: (tokens: Erc20Holding[]) => void;
+  it('identity guard holds Continue when the account changes for Circle USDC', async () => {
+    useChainSpecificRpc();
+    useCircleTestSnapshot();
+    const view = await renderSelectedAmount('CIRCLE_USDC');
+
+    await expectContinueGuard(
+      view,
+      () => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)),
+      'usdcx-confirm-route',
+      {
+        url: `https://rpc.test/${ARC_CHAIN_ID}`,
+        method: 'eth_call',
+        account: NEXT_EVM_ADDRESS,
+        contract: ARC_USDC,
+        selector: '0x70a08231'
+      }
+    );
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Continue when the account changes for epoch USDC', async () => {
+    useChainSpecificRpc();
+    const view = await renderSelectedAmount('USDC');
+    const usdc = READY_SNAPSHOT.config?.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress;
+    if (!usdc) throw new Error('Synthetic Epoch USDC address is missing');
+
+    await expectContinueGuard(view, () => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)), 'confirm-route', {
+      url: 'https://rpc.test/11155111',
+      method: 'eth_call',
+      account: NEXT_EVM_ADDRESS,
+      contract: usdc,
+      selector: '0xf8b2cb4f'
+    });
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Continue when the account changes for an ERC-20', async () => {
+    useChainSpecificRpc();
+    mockDepositTokens = [WBTC_LISTING];
+    const view = await renderSelectedAmount({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress });
+
+    await expectContinueGuard(view, () => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)), 'confirm-route', {
+      url: 'https://rpc.test/11155111',
+      method: 'eth_call',
+      account: NEXT_EVM_ADDRESS,
+      contract: WBTC_LISTING.contractAddress,
+      selector: '0x70a08231'
+    });
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Confirm when the account changes for ETH', async () => {
+    useChainSpecificRpc();
+    const view = await reachRealEthReview();
+
+    await expectReviewGuard(() => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)), {
+      url: 'https://rpc.test/11155111',
+      method: 'eth_getBalance',
+      account: NEXT_EVM_ADDRESS
+    });
+    expect(mockReviewGuardFrames.at(-1)?.canConfirm).toBe(false);
+  });
+
+  it('identity guard holds Continue when the epoch chain changes for USDC', async () => {
+    useChainSpecificRpc();
+    const view = await renderSelectedAmount('USDC');
+    const config = mockSnapshot.config;
+    if (!config) throw new Error('Synthetic ready bridge config is missing');
+
+    await expectContinueGuard(
+      view,
+      () => act(() => publishSnapshot({ ...mockSnapshot, config: updateMockConfig(config, { chainId: 84532 }) })),
+      'confirm-route',
+      {
+        url: 'https://rpc.test/84532',
+        method: 'eth_call',
+        account: EVM_ADDRESS,
+        contract: config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress,
+        selector: '0xf8b2cb4f'
+      }
+    );
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Confirm when the AggLayer chain changes for ETH', async () => {
+    useChainSpecificRpc();
+    await reachRealEthReview();
+
+    await expectReviewGuard(
+      () => {
+        mockAgglayerChainId = 84532;
+        act(() => publishSnapshot({ ...mockSnapshot }));
+      },
+      {
+        url: 'https://rpc.test/84532',
+        method: 'eth_getBalance',
+        account: EVM_ADDRESS
+      }
+    );
+    expect(mockReviewGuardFrames.at(-1)?.canConfirm).toBe(false);
+  });
+
+  it('identity guard holds Continue when the AggLayer chain changes for an ERC-20', async () => {
+    useChainSpecificRpc();
+    mockDepositTokens = [WBTC_LISTING];
+    const view = await renderSelectedAmount({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress });
+
+    await expectContinueGuard(
+      view,
+      () => {
+        mockAgglayerChainId = 84532;
+        act(() => publishSnapshot({ ...mockSnapshot }));
+      },
+      'confirm-route',
+      {
+        url: 'https://rpc.test/84532',
+        method: 'eth_call',
+        account: EVM_ADDRESS,
+        contract: WBTC_LISTING.contractAddress,
+        selector: '0x70a08231'
+      }
+    );
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Continue when the Arc USDC contract changes', async () => {
+    useChainSpecificRpc();
+    useCircleTestSnapshot();
+    const view = await renderSelectedAmount('CIRCLE_USDC');
+
+    await expectContinueGuard(view, () => act(() => publishCircleContract(NEXT_ARC_USDC)), 'usdcx-confirm-route', {
+      url: `https://rpc.test/${ARC_CHAIN_ID}`,
+      method: 'eth_call',
+      account: EVM_ADDRESS,
+      contract: NEXT_ARC_USDC,
+      selector: '0x70a08231'
+    });
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('identity guard holds Continue when Circle availability turns off', async () => {
+    useChainSpecificRpc();
+    useCircleTestSnapshot();
+    const view = await renderSelectedAmount('CIRCLE_USDC');
+
+    await expectContinueGuard(
+      view,
+      () => {
+        mockAvailability = {
+          ...mockAvailability,
+          usdcxDeposit: { state: 'unavailable', reason: 'not-configured', detail: 'not available' }
+        };
+        act(() => publishSnapshot({ ...mockSnapshot }));
+      },
+      'usdcx-confirm-route'
+    );
+    expect(mockFormGuardFrames.at(-1)?.tokenBalance).toBeNull();
+  });
+
+  it('shows an unreadable balance and holds Continue after an Epoch balance read fails', async () => {
+    useChainSpecificRpc();
+    answerBalance(FUNDED);
+    await renderSelectedAmount('USDC');
+
+    const config = mockSnapshot.config;
+    if (!config) throw new Error('Synthetic ready bridge config is missing');
+    answerBalance(null);
+    act(() => publishSnapshot({ ...mockSnapshot, config: updateMockConfig(config, { chainId: 84532 }) }));
+    await settle();
+
+    const latest = mockFormGuardFrames.at(-1);
+    if (!latest) throw new Error('The failed Epoch balance did not render the amount form');
+    expect(latest.tokenBalance).toBeNull();
+    expect(latest.balanceUnreadable).toBe(true);
+    expect(latest.isValidAmount).toBe(false);
+    act(() => latest.onContinue());
+    await flushBridgePromises();
+    expect(screen.queryByTestId('confirm-route')).not.toBeInTheDocument();
+  });
+
+  it('shows an unreadable balance and holds Continue after an ETH balance read fails', async () => {
+    useChainSpecificRpc();
+    answerBalance(FUNDED);
+    await renderSelectedAmount('ETH');
+
+    answerBalance(null);
+    mockAgglayerChainId = 84532;
+    act(() => publishSnapshot({ ...mockSnapshot }));
+    await settle();
+
+    const latest = mockFormGuardFrames.at(-1);
+    if (!latest) throw new Error('The failed ETH balance did not render the amount form');
+    expect(latest.tokenBalance).toBeNull();
+    expect(latest.balanceUnreadable).toBe(true);
+    expect(latest.isValidAmount).toBe(false);
+    act(() => latest.onContinue());
+    await flushBridgePromises();
+    expect(screen.queryByTestId('confirm-route')).not.toBeInTheDocument();
+  });
+
+  interface LateBalanceScenario {
+    name: string;
+    token: DepositToken;
+    setup?: () => void;
+    change: (view: ReturnType<typeof renderScreen>) => void;
+    oldRead: ExpectedBalanceRead;
+    currentRead: ExpectedBalanceRead;
+    routeControl: string;
+  }
+  const epochUsdc = READY_SNAPSHOT.config?.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress;
+  if (!epochUsdc) throw new Error('Synthetic Epoch USDC address is missing');
+  const sameAccount = EVM_ADDRESS;
+  const lateBalanceScenarios: LateBalanceScenario[] = [
+    {
+      name: 'late prior balance discards Circle balanceOf after an account change',
+      token: 'CIRCLE_USDC',
+      setup: useCircleTestSnapshot,
+      change: view => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)),
+      oldRead: {
+        url: `https://rpc.test/${ARC_CHAIN_ID}`,
+        method: 'eth_call',
+        account: sameAccount,
+        contract: ARC_USDC,
+        selector: '0x70a08231'
+      },
+      currentRead: {
+        url: `https://rpc.test/${ARC_CHAIN_ID}`,
+        method: 'eth_call',
+        account: NEXT_EVM_ADDRESS,
+        contract: ARC_USDC,
+        selector: '0x70a08231'
+      },
+      routeControl: 'usdcx-confirm-route'
+    },
+    {
+      name: 'late prior balance discards epoch getBalance after an account change',
+      token: 'USDC',
+      change: view => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)),
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: epochUsdc,
+        selector: '0xf8b2cb4f'
+      },
+      currentRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: NEXT_EVM_ADDRESS,
+        contract: epochUsdc,
+        selector: '0xf8b2cb4f'
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards ERC-20 balanceOf after an account change',
+      token: { kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress },
+      setup: () => {
+        mockDepositTokens = [WBTC_LISTING];
+      },
+      change: view => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)),
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: WBTC_LISTING.contractAddress,
+        selector: '0x70a08231'
+      },
+      currentRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: NEXT_EVM_ADDRESS,
+        contract: WBTC_LISTING.contractAddress,
+        selector: '0x70a08231'
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards eth_getBalance after an account change',
+      token: 'ETH',
+      change: view => view.rerender(depositScreen(undefined, NEXT_EVM_ADDRESS)),
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_getBalance',
+        account: sameAccount
+      },
+      currentRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_getBalance',
+        account: NEXT_EVM_ADDRESS
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards eth_getBalance after a chain change',
+      token: 'ETH',
+      change: () => {
+        mockAgglayerChainId = 84532;
+        act(() => publishSnapshot({ ...mockSnapshot }));
+      },
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_getBalance',
+        account: sameAccount
+      },
+      currentRead: {
+        url: 'https://rpc.test/84532',
+        method: 'eth_getBalance',
+        account: sameAccount
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards ERC-20 balanceOf after a chain change',
+      token: { kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress },
+      setup: () => {
+        mockDepositTokens = [WBTC_LISTING];
+      },
+      change: () => {
+        mockAgglayerChainId = 84532;
+        act(() => publishSnapshot({ ...mockSnapshot }));
+      },
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: WBTC_LISTING.contractAddress,
+        selector: '0x70a08231'
+      },
+      currentRead: {
+        url: 'https://rpc.test/84532',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: WBTC_LISTING.contractAddress,
+        selector: '0x70a08231'
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards epoch getBalance after a chain change',
+      token: 'USDC',
+      change: () => {
+        const config = mockSnapshot.config;
+        if (!config) throw new Error('Synthetic ready bridge config is missing');
+        act(() => publishSnapshot({ ...mockSnapshot, config: updateMockConfig(config, { chainId: 84532 }) }));
+      },
+      oldRead: {
+        url: 'https://rpc.test/11155111',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: epochUsdc,
+        selector: '0xf8b2cb4f'
+      },
+      currentRead: {
+        url: 'https://rpc.test/84532',
+        method: 'eth_call',
+        account: sameAccount,
+        contract: epochUsdc,
+        selector: '0xf8b2cb4f'
+      },
+      routeControl: 'confirm-route'
+    },
+    {
+      name: 'late prior balance discards Circle balanceOf after a contract change',
+      token: 'CIRCLE_USDC',
+      setup: useCircleTestSnapshot,
+      change: () => {
+        act(() => publishCircleContract(NEXT_ARC_USDC));
+      },
+      oldRead: {
+        url: `https://rpc.test/${ARC_CHAIN_ID}`,
+        method: 'eth_call',
+        account: sameAccount,
+        contract: ARC_USDC,
+        selector: '0x70a08231'
+      },
+      currentRead: {
+        url: `https://rpc.test/${ARC_CHAIN_ID}`,
+        method: 'eth_call',
+        account: sameAccount,
+        contract: NEXT_ARC_USDC,
+        selector: '0x70a08231'
+      },
+      routeControl: 'usdcx-confirm-route'
+    }
+  ];
+  it.each(lateBalanceScenarios)('$name', async scenario => {
+    useChainSpecificRpc();
+    scenario.setup?.();
+    answerBalance(FUNDED);
+    const pending = holdBalanceReads();
+    const view = renderScreen();
+    await flushBridgePromises();
+    if (scenario.token !== 'USDC') await chooseDepositToken(scenario.token);
+
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await settle();
+    scenario.change(view);
+    await settle();
+    const prior = requireHeldBalanceRead(pending, scenario.oldRead);
+    expect(requireHeldBalanceRead(pending, scenario.currentRead)).not.toBe(prior);
+    const afterResolution = mockFormGuardFrames.length;
+    prior.resolve(FUNDED);
+    await settle();
+    const frames = mockFormGuardFrames.slice(afterResolution);
+    expect(frames).toHaveLength(0);
+    const latest = mockFormGuardFrames.at(-1);
+    if (!latest) throw new Error('The late balance did not render the amount form');
+    expect(latest.isValidAmount).toBe(false);
+    act(() => latest.onContinue());
+    await flushBridgePromises();
+    expect(screen.queryByTestId(scenario.routeControl)).not.toBeInTheDocument();
+  });
+
+  it('uses the refreshed Circle interval balance to release a held amount', async () => {
+    useChainSpecificRpc();
+    useCircleTestSnapshot();
+    answerBalance(1_000_000n);
+    renderScreen();
+    await flushBridgePromises();
+    await chooseDepositToken('CIRCLE_USDC');
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+    expect(mockFormGuardFrames.at(-1)?.isValidAmount).toBe(false);
+
+    const pending = holdBalanceReads();
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+    const intervalRead = requireHeldBalanceRead(pending, {
+      url: `https://rpc.test/${ARC_CHAIN_ID}`,
+      method: 'eth_call',
+      account: EVM_ADDRESS,
+      contract: ARC_USDC,
+      selector: '0x70a08231'
+    });
+    intervalRead.resolve(2_000_000n);
+    await flushBridgePromises();
+
+    expect(mockLastCircleBalanceValue).toBe(2_000_000n);
+    expect(mockFormGuardFrames.at(-1)?.isValidAmount).toBe(true);
+    jest.useRealTimers();
+  });
+
+  it('late prior balance discards the Circle interval balanceOf when availability turns off', async () => {
+    useChainSpecificRpc();
+    useCircleTestSnapshot();
+    answerBalance(1_000_000n);
+    renderScreen();
+    await flushBridgePromises();
+    await chooseDepositToken('CIRCLE_USDC');
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+    expect(mockFormGuardFrames.at(-1)?.isValidAmount).toBe(false);
+
+    const pending = holdBalanceReads();
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+    await flushBridgePromises();
+    const intervalRead = requireHeldBalanceRead(pending, {
+      url: `https://rpc.test/${ARC_CHAIN_ID}`,
+      method: 'eth_call',
+      account: EVM_ADDRESS,
+      contract: ARC_USDC,
+      selector: '0x70a08231'
+    });
+    mockAvailability = {
+      ...mockAvailability,
+      usdcxDeposit: { state: 'unavailable', reason: 'not-configured', detail: 'not available' }
+    };
+    act(() => publishSnapshot({ ...mockSnapshot }));
+    await flushBridgePromises();
+    intervalRead.resolve(FUNDED);
+    await flushBridgePromises();
+
+    expect(mockLastCircleBalanceValue).toBeNull();
+    expect(mockLastCircleLoading).toBe(false);
+    const latest = mockFormGuardFrames.at(-1);
+    if (!latest) throw new Error('The interval balance did not render the amount form');
+    act(() => latest.onContinue());
+    await flushBridgePromises();
+    expect(screen.queryByTestId('usdcx-confirm-route')).not.toBeInTheDocument();
+    jest.useRealTimers();
+  });
+
     mockReadErc20Holdings = () =>
       new Promise<Erc20Holding[]>(resolve => {
         resolveHoldings = tokens => resolve(tokens);
