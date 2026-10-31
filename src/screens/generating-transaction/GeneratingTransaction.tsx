@@ -14,8 +14,6 @@ import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { outlineSurfaceClassName } from 'components/ui/surfaces';
-import { getCurrentLocale } from 'lib/i18n/core';
-import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import {
   acknowledgementOf,
   bridgeProviderOf,
@@ -719,13 +717,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>
             <p>{descriptionText()}</p>
-            {offersRetry && heldByGuardian && (
-              <p>
-                {t('guardianHoldNotice', {
-                  time: formatHoldDeadline(guardianHoldUntil, { locale: getCurrentLocale() })
-                })}
-              </p>
-            )}
             {!transactionComplete && <p>{dismissalDescription}</p>}
           </div>
         </section>

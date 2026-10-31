@@ -1010,9 +1010,9 @@ describe('GeneratingTransactionPage container effects', () => {
       const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
       try {
-        const live = container.querySelector('[aria-live]');
-        expect(live?.textContent).toContain('guardianHoldNotice');
-        expect(live?.querySelector('time')).toBeNull();
+        const areas = [...container.querySelectorAll('[aria-live], [role="status"]')];
+        expect(areas.filter(area => area.textContent?.includes('guardianHoldNotice'))).toHaveLength(1);
+        expect(areas.filter(area => area.querySelector('time') !== null)).toEqual([]);
         expect(container.querySelector('time')?.closest('[aria-live], [role="status"]')).toBeNull();
       } finally {
         act(() => root.unmount());
