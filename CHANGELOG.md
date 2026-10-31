@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.10 (TBD)
+
+- [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
+
 ## 1.17.9 (2026-10-31)
 
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
