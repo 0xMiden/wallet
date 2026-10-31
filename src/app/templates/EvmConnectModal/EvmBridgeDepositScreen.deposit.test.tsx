@@ -524,6 +524,7 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
   EvmBridgeTokenDrawer: ({
     open,
     onSelect,
+    erc20Unavailable,
     erc20ListLoading,
     circleUsdcBalance,
     circleUsdcBalanceValue,
@@ -531,6 +532,7 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
   }: {
     open: boolean;
     onSelect: (token: DepositToken) => void;
+    erc20Unavailable?: boolean;
     erc20ListLoading?: boolean;
     circleUsdcBalance?: string;
     circleUsdcBalanceValue?: bigint | null;
@@ -545,6 +547,7 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
           ETH
         </button>
+        {erc20Unavailable && <span data-testid="bridge-token-list-unavailable" />}
         {erc20ListLoading && <span data-testid="holdings-pending" />}
       </>
     ) : null;
@@ -3596,6 +3599,19 @@ describe('user-visible bridge deposit producers', () => {
       await Promise.resolve();
     });
     await settle();
+    expect(screen.queryByTestId('holdings-pending')).not.toBeInTheDocument();
+  });
+
+  it('shows the unavailable list when wallet holdings are rejected', async () => {
+    mockTokenApiUrl = 'https://tokens.test';
+    mockReadErc20Holdings = () => Promise.reject(new Error('synthetic wallet holdings failure'));
+    answerBalance(0n);
+    renderScreen();
+    await settle();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    await settle();
+
+    expect(screen.getByTestId('bridge-token-list-unavailable')).toBeInTheDocument();
     expect(screen.queryByTestId('holdings-pending')).not.toBeInTheDocument();
   });
 
