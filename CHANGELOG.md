@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.9 (TBD)
+## 1.17.9 (2026-10-31)
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
