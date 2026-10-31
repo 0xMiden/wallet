@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.9 (TBD)
+## 1.17.9 (2026-10-31)
 
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.

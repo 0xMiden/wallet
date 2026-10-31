@@ -19,6 +19,28 @@ export async function setEligibilityFixtureState(state: EligibilityFixtureState)
   if (!response.ok) throw new Error(`Eligibility fixture state failed: ${response.status}`);
 }
 
+export async function resetEligibilityFixtureOrigin(): Promise<void> {
+  const response = await fetch(`${eligibilityFixtureUrl()}/_fixture/origin`, { method: 'POST' });
+  if (!response.ok) throw new Error(`Eligibility fixture Origin reset failed: ${response.status}`);
+}
+
+export async function getEligibilityFixtureOrigin(): Promise<{ observed: boolean; origin: string | null }> {
+  const response = await fetch(`${eligibilityFixtureUrl()}/_fixture/origin`);
+  if (!response.ok) throw new Error(`Eligibility fixture Origin read failed: ${response.status}`);
+  const value: unknown = await response.json();
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('observed' in value) ||
+    typeof value.observed !== 'boolean' ||
+    !('origin' in value) ||
+    !(typeof value.origin === 'string' || value.origin === null)
+  ) {
+    throw new Error('Eligibility fixture Origin observation is invalid');
+  }
+  return { observed: value.observed, origin: value.origin };
+}
+
 /** All wallet realms and the decision endpoint must accept the same synthetic policy. */
 export async function setEligibilityFixtureConfig<T extends {
   network: string;

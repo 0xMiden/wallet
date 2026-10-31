@@ -2,7 +2,12 @@ import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import sharp from 'sharp';
 
-import { setEligibilityFixtureState, type EligibilityFixtureState } from '../e2e/helpers/feature-eligibility';
+import {
+  getEligibilityFixtureOrigin,
+  resetEligibilityFixtureOrigin,
+  setEligibilityFixtureState,
+  type EligibilityFixtureState
+} from '../e2e/helpers/feature-eligibility';
 import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
 
@@ -60,11 +65,21 @@ async function openEarn(extensionContext: BrowserContext, extensionId: string, p
 
 for (const state of ['loading', 'restricted', 'unavailable', 'allowed'] satisfies EligibilityFixtureState[]) {
   test(`root wallet access: ${state}`, async ({ extensionContext, extensionId }, info) => {
+    await resetEligibilityFixtureOrigin();
     await setEligibilityFixtureState(state);
     const page = await extensionContext.newPage();
     await page.setViewportSize({ width: 900, height: 700 });
     await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
     await accessAssertions[state](page);
+    await expect
+      .poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 })
+      .toBe(true);
+    const eligibilityOrigin = await getEligibilityFixtureOrigin();
+    expect(eligibilityOrigin).toEqual({ observed: true, origin: null });
+    await info.attach('eligibility-origin', {
+      body: JSON.stringify(eligibilityOrigin),
+      contentType: 'application/json'
+    });
     await attachScreenshot(page, info, `wallet-access-${state}`);
     await page.close();
   });
