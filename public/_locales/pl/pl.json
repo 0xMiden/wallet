@@ -513,6 +513,8 @@
   "swapSameToken": "Wybierz dwa różne żetony, które chcesz zamienić.",
   "swapInvalidAmounts": "Wprowadź prawidłową kwotę do wymiany.",
   "swapPairNotListed": "Tej pary nie można już wymienić. Wróć i wybierz inny token.",
+  "swapBelowMinimum": "Zaoferuj aktywa o wartości co najmniej 1 dolara do wymiany.",
+  "swapMinimumPriceUnavailable": "Cena w USD jest niedostępna. Spróbuj ponownie za chwilę.",
   "swapPriceUnavailable": "Cena niedostępna. Spróbuj ponownie za chwilę.",
   "swapOrderReservedNote": "Twój produkt „$amount$” pozostaje zarezerwowany dla tego zamówienia do momentu jego realizacji.",
   "swapSuccessSourcingLiquidity": "Szukamy płynności dla Twojej transakcji swapowej. Zazwyczaj transakcja zostaje zrealizowana w ciągu około 30 sekund.",

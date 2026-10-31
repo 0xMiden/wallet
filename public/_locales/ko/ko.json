@@ -513,6 +513,8 @@
   "swapSameToken": "교환할 서로 다른 토큰 두 개를 골라주세요.",
   "swapInvalidAmounts": "교환할 유효한 금액을 입력하세요.",
   "swapPairNotListed": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
+  "swapBelowMinimum": "스왑할 자산의 가치가 최소 $1 이상이어야 합니다.",
+  "swapMinimumPriceUnavailable": "USD 가격은 확인할 수 없습니다. 잠시 후 다시 시도해 주십시오.",
   "swapPriceUnavailable": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   "swapOrderReservedNote": "이 주문이 처리될 때까지 귀하의 ‘$amount$’ 상품은 이 주문용으로 예약된 상태로 유지됩니다.",
   "swapSuccessSourcingLiquidity": "현재 귀하의 스왑 거래를 위한 유동성을 확보 중입니다. 보통 약 30초 이내에 체결됩니다.",

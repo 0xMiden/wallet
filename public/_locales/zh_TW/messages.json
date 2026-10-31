@@ -2452,6 +2452,14 @@
     "message": "這對代幣已無法進行兌換。請返回並選擇另一種代幣。",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "請提供價值至少 1 美元的資產進行交換。",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "目前無法提供美元價格。請稍後再試。",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "價格暫未提供。請稍後再試。",
     "englishSource": "Price unavailable. Try again shortly."
