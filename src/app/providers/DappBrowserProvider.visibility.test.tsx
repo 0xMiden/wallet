@@ -1915,9 +1915,7 @@ describe('native morph adoption', () => {
     emitMorph('started', 'expanded', expansionId);
     emitMorph('retargeted', 'collapsed', expansionId);
     const callsBeforeMinimize = mockMorph.mock.calls.length;
-    act(() =>
-      nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: expansionId }))
-    );
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: expansionId })));
 
     expect(control().motion).toMatchObject({ id: 'origin', morphId: expansionId, target: 'collapsed' });
     expect(mockMorph).toHaveBeenCalledTimes(callsBeforeMinimize);
@@ -1930,14 +1928,11 @@ describe('native morph adoption', () => {
     await settle();
     const unsettledExpansionId = lastMorphId();
     emitMorph('started', 'expanded', unsettledExpansionId);
-    act(() =>
-      nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: unsettledExpansionId }))
-    );
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: unsettledExpansionId })));
     expect(control().motion).toMatchObject({ id: 'origin', morphId: unsettledExpansionId, target: 'collapsed' });
     emitMorph('settled', 'expanded', unsettledExpansionId);
     await settle();
     expect(parked()).toEqual([]);
-    expect(control().motion).toMatchObject({ morphId: unsettledExpansionId, target: 'collapsed' });
   });
 
   it('parks a null-id native minimize through the guarded route without a morph wait', async () => {

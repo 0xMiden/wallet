@@ -1676,7 +1676,7 @@ public class BreadPresentationControllerTest {
     }
 
     private String assertSettledCollapsePrecedesNullMinimizeRequest() {
-        List<org.mockito.invocation.Invocation> invocations = mockingDetails(callbacks).getInvocations();
+        List<org.mockito.invocation.Invocation> invocations = new ArrayList<>(mockingDetails(callbacks).getInvocations());
         int settled = -1, requested = -1;
         String id = null;
         for (int i = 0; i < invocations.size(); i++) {
