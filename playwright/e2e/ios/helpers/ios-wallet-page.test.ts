@@ -75,6 +75,28 @@ describe('IosWalletPage app switching', () => {
     expect(order).toEqual(['watch', 'background', 'foreground', 'read']);
     expect(wentHidden).toBe(true);
   });
+
+  it('rides out a bridge eval cut off at 30 s while the attempt holds the JS thread, and still leaves', async () => {
+    let evals = 0;
+    const background = jest.fn(async () => undefined);
+    const page = new IosWalletPage({
+      cdp: {
+        eval: async () => {
+          evals += 1;
+          if (evals === 1) throw new Error('eval: CDP call did not return within 30000ms');
+          return null;
+        }
+      } as unknown as CdpSession,
+      sim: { background } as unknown as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await page.leaveForeground();
+
+    expect(evals).toBe(2);
+    expect(background).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('IosWalletPage.prepareSendReview', () => {
@@ -365,6 +387,15 @@ describe('IosWalletPage vault reads', () => {
     await expect(pageWith(async () => rowsWith(0.1234567)).readVaultBaseUnits('native')).rejects.toThrow(
       /more precision than 6 decimals/
     );
+  });
+
+  // Both ids are strings, so tsc cannot tell them apart, and a hex id reads 0n until the caller's timeout.
+  it('refuses a CLI hex id, which keys no store row, before it reads', async () => {
+    const evalJs = jest.fn(async () => rowsWith(1));
+    await expect(pageWith(evalJs).readVaultBaseUnits('0xc7a5ae7ed377401147b2427377e193')).rejects.toThrow(
+      /hexToBech32Faucet/
+    );
+    expect(evalJs).not.toHaveBeenCalled();
   });
 
   it('asks again after a failed eval and fails only on the third in a row', async () => {

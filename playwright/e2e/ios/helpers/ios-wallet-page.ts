@@ -502,9 +502,13 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Exact spendable base units of `faucetId` in the current account, as the store last fetched them. Read it through
-   * `homeVaultBaseUnits`: the balance poll runs only on Home.
+   * `homeVaultBaseUnits`: the balance poll runs only on Home. `faucetId` is the store's bech32 key, so a CLI hex id goes
+   * through `hexToBech32Faucet` first.
    */
   async readVaultBaseUnits(faucetId: string): Promise<bigint> {
+    if (faucetId.startsWith('0x')) {
+      throw new Error(`readVaultBaseUnits: ${faucetId} keys no store row; convert it with hexToBech32Faucet`);
+    }
     const view = await ridingOut(() => this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
     if (!view) throw new Error('readVaultBaseUnits: the store has no current account');
     let total = 0n;
@@ -541,10 +545,12 @@ export class IosWalletPage implements WalletPage {
 
   /** Leaves the app the way an app switch does. Its WebView notes going hidden, which `returnToForeground` reports. */
   async leaveForeground(): Promise<void> {
-    await this.cdp.eval(
-      `window.__E2E_WENT_HIDDEN__ = false; ` +
-        `document.addEventListener('visibilitychange', function () { ` +
-        `if (document.hidden) window.__E2E_WENT_HIDDEN__ = true; }); return null;`
+    await ridingOut(() =>
+      this.cdp.eval(
+        `window.__E2E_WENT_HIDDEN__ = false; ` +
+          `document.addEventListener('visibilitychange', function () { ` +
+          `if (document.hidden) window.__E2E_WENT_HIDDEN__ = true; }); return null;`
+      )
     );
     await this.sim.background(this.udid);
   }

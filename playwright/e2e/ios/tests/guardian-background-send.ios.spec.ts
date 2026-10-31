@@ -1,5 +1,5 @@
-import { expect, test } from '../fixtures/two-simulators';
 import { TxStatus } from '../../helpers/history';
+import { expect, test } from '../fixtures/two-simulators';
 
 const AWAY_MS = 80_000;
 const AMOUNT = '500';
@@ -23,6 +23,7 @@ test.describe('Guardian account - app switch during a send', () => {
   test('the send lands once and the row settles', async ({ walletA, walletB, midenCli, steps }) => {
     let addressB = '';
     let faucetId = '';
+    let tokenId = '';
     let funded = 0n;
 
     await steps.step('create_and_fund_wallets', async () => {
@@ -31,10 +32,11 @@ test.describe('Guardian account - app switch during a send', () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
       expect(faucetId).toBeTruthy();
+      tokenId = await walletA.hexToBech32Faucet(faucetId);
       await midenCli.mint(faucetId, a.address, 100_000_000_000, 'public');
       await midenCli.sync();
       await walletA.claimAllNotes(180_000, [faucetId]);
-      funded = await walletA.homeVaultBaseUnits(faucetId, units => units > 0n, 180_000, 'the minted amount');
+      funded = await walletA.homeVaultBaseUnits(tokenId, units => units > 0n, 180_000, 'the minted amount');
     });
 
     await steps.step(
@@ -79,7 +81,7 @@ test.describe('Guardian account - app switch during a send', () => {
         expect(row?.amount ?? '0', 'the settled row moved nothing').not.toBe('0');
         const expected = funded - BigInt(row?.amount ?? '0');
         const balance = await walletA.homeVaultBaseUnits(
-          faucetId,
+          tokenId,
           units => units === expected,
           180_000,
           `one send out of ${funded}`
