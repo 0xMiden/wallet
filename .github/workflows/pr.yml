@@ -377,6 +377,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Test coverage resource sampler
+        run: node --test scripts/ci/coverage-resource-sampler.test.mjs
+
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
       - name: Inject linked guardian PR
