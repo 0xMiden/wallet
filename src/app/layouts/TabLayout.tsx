@@ -102,7 +102,8 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
  */
 const HomeActionBar: FC<SegmentedActionBarProps> = ({ activeId, ...props }) => {
   const previewId = useHomePagerPreview();
-  return <SegmentedActionBar {...props} activeId={previewId ?? activeId} />;
+  // Keep activeId bound to the route so a previewed segment can still be selected.
+  return <SegmentedActionBar {...props} activeId={activeId} displayId={previewId} />;
 };
 
 function activeTabFromPath(pathname: string): string {
