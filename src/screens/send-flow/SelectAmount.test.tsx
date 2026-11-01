@@ -232,6 +232,18 @@ describe('SelectAmount', () => {
     }
   });
 
+  it('applies a percentage shortcut from the selected token balance when enabled', () => {
+    const onAmountChange = jest.fn();
+    renderComponent({
+      showAmountShortcuts: true,
+      token: baseToken({ balance: 12.345678 }),
+      onAmountChange
+    });
+
+    fireEvent.click(screen.getByTestId('amount-shortcut-25'));
+    expect(onAmountChange).toHaveBeenCalledWith('3.086419');
+  });
+
   describe('page variant', () => {
     it('renders the network pill, amount field, token logo, balance helper and confirm CTA', () => {
       renderComponent();

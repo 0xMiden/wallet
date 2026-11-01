@@ -190,6 +190,14 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
+  it('fills a percentage shortcut from the spendable balance', () => {
+    const onAmountChange = jest.fn();
+    renderAmount({ onAmountChange });
+
+    fireEvent.click(screen.getByTestId('send-amount-25'));
+    expect(onAmountChange).toHaveBeenCalledWith('3.086419');
+  });
+
   it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 

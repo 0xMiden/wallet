@@ -14,6 +14,7 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from 'lib/walletconnect/native-request-failure';
 
+import { BRIDGE_RECEIVE_REQUEST_CLIENTS } from './bridge-receive-failure';
 import {
   BACKGROUND_AGES,
   COMPLETION_GUARDS,
@@ -126,7 +127,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['; wallet response code', REOWN_WALLET_RESPONSE_CODES],
   ['; request age', REOWN_REQUEST_AGES],
   ['; publication observation', REOWN_PUBLICATIONS],
-  ['; background observation', REOWN_BACKGROUND_ANSWERS]
+  ['; background observation', REOWN_BACKGROUND_ANSWERS],
+  ['wallet request client', BRIDGE_RECEIVE_REQUEST_CLIENTS]
 ];
 
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {
@@ -227,6 +229,7 @@ it('documents every closed burnFeeFailure value', () => {
 
 it.each<[string, readonly string[]]>([
   ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['mainnetAccessCodeRejectionOrigin', ['eligibility_check', 'registration_redemption']],
   ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
   [
     'uiFailureKind',

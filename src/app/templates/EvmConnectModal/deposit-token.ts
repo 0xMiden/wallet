@@ -18,15 +18,37 @@ export interface DepositErc20 {
   contractAddress: `0x${string}`;
 }
 
+/** A token of the picked chain's Epoch route, picked by the key the bridge config lists it under. */
+export interface DepositEpochToken {
+  kind: 'epoch';
+  /** The document's key on the route (`USDC`, `ETH`, `POL`, `USDG`). */
+  key: string;
+}
+
 /**
- * New deposits use Circle USDC, configured native ETH, or an ERC-20 offered on the AggLayer chain. `USDC` identifies
- * the retired Epoch test token in existing engine states; it is never offered by the picker.
+ * New deposits use Circle USDC, configured native ETH, an ERC-20 offered on the AggLayer chain, or a token of the
+ * picked chain's Epoch route. `USDC` identifies the Epoch USDC in existing engine states; the picker offers it as the
+ * Epoch token keyed `USDC`.
  */
-export type DepositToken = 'ETH' | 'USDC' | 'CIRCLE_USDC' | DepositErc20;
+export type DepositToken = 'ETH' | 'USDC' | 'CIRCLE_USDC' | DepositErc20 | DepositEpochToken;
 
 /** One string per choice, for equality and test ids. */
 export function depositTokenKey(token: DepositToken): string {
-  return typeof token === 'string' ? token : `ERC20_${token.contractAddress}`;
+  // An engine state's `USDC` is the Epoch token keyed `USDC`, so it matches that pick.
+  if (token === 'USDC') return 'EPOCH_USDC';
+  if (typeof token === 'string') return token;
+  switch (token.kind) {
+    case 'erc20':
+      return `ERC20_${token.contractAddress}`;
+    case 'epoch':
+      return `EPOCH_${token.key}`;
+  }
+}
+
+/** The Epoch route key of `token`, or null for a token that does not bridge through Epoch. */
+export function epochTokenKey(token: DepositToken): string | null {
+  if (token === 'USDC') return 'USDC';
+  return typeof token !== 'string' && token.kind === 'epoch' ? token.key : null;
 }
 
 export function sameDepositToken(a: DepositToken, b: DepositToken): boolean {

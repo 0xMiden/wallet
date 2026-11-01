@@ -130,6 +130,7 @@ test.describe('Guardian recovery - real UI journey', () => {
         decimals: TOKEN_DECIMALS
       });
 
+      walletA.trackGuardianCommitments();
       await walletA.claimAllNotes(180_000);
 
       // claimAllNotes only drains the pending-note list; it does not prove the
@@ -142,6 +143,8 @@ test.describe('Guardian recovery - real UI journey', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+      // The vault updates before the Guardian canonicalizes its backup; recovery must start from that backup.
+      await walletA.waitForGuardianSettled();
     });
 
     await steps.step('verify_baseline_on_a', async () => {
@@ -315,6 +318,7 @@ test.describe('Guardian recovery - real UI journey', () => {
       // Both this profile's claim and walletB's post-import claim act as the
       // SAME account, and on a fee-charging chain every consume pays its fee
       // from that account's own native vault — fund it once, up front.
+      walletA.trackGuardianCommitments();
       await ensureFeeFunded(midenCli, walletA, addressA);
 
       await midenCli.init();
@@ -331,6 +335,8 @@ test.describe('Guardian recovery - real UI journey', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+      // The vault updates before the Guardian canonicalizes its backup; recovery must start from that backup.
+      await walletA.waitForGuardianSettled();
 
       keyPairPayload = await walletA.revealHotKey();
       await walletA.assertGuardianAuth(addressA, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });

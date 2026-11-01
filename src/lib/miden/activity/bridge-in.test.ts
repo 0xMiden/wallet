@@ -61,7 +61,7 @@ const registryReads = (tokens: BridgeToken[]): DerivedChainConfig => ({
     l1BridgeCode: { state: 'ok', value: true },
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'skipped' } }
+  epoch: { tokens: {} }
 });
 // The published testnet document, its AggLayer route on Sepolia, with the registry read on each listed chain.
 const snapshotWith = (

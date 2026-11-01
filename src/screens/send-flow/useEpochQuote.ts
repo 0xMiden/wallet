@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useDebounce } from 'use-debounce';
 
 import { quoteEpochSendOutput } from 'lib/epoch';
+import { normalizeMidenIdToHex } from 'lib/epoch/bridge';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectEvmUsdc } from 'lib/remote-config/values';
+import { selectEpochOutputToken, selectEvmChainId } from 'lib/remote-config/values';
 
 export interface EpochQuoteState {
   loading: boolean;
@@ -12,13 +13,16 @@ export interface EpochQuoteState {
   amount?: string;
   /** Output token symbol: the quote's, else the configured output token's, else ''. */
   symbol: string;
+  /** The output token's contract and decimals, while the document names one for the sent faucet. */
+  address?: `0x${string}`;
+  decimals?: number;
   error?: string;
 }
 
 export interface UseEpochQuoteOpts {
   /** Miden input amount, base units. */
   amount?: bigint;
-  /** Miden faucet id of the selected token (Epoch quotes any token → USDC). */
+  /** Miden faucet id of the selected token; it arrives as the Epoch route's token that settles into this faucet. */
   faucetId?: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet needed. */
   destinationAddress?: string;
@@ -49,7 +53,11 @@ export function useEpochQuote({
   destinationChainId
 }: UseEpochQuoteOpts): EpochQuoteState {
   const snapshot = useBridgeConfigSnapshot();
-  const outputToken = selectEvmUsdc(snapshot, destinationChainId);
+  const outputChainId = destinationChainId ?? selectEvmChainId(snapshot);
+  const outputToken =
+    outputChainId === null || !faucetId
+      ? null
+      : selectEpochOutputToken(snapshot, outputChainId, normalizeMidenIdToHex(faucetId));
   const outputSymbol = outputToken?.symbol ?? '';
   // The quote goes through the configured allocator for the output token the document and its read make usable, so
   // they key it too: a read that recovers or moves under the same document quotes anew. A move is no keystroke: it
@@ -94,5 +102,9 @@ export function useEpochQuote({
       });
   }, [debouncedKey, configKey, destinationChainId]);
 
-  return { ...state, symbol: state.symbol ?? outputSymbol };
+  return {
+    ...state,
+    symbol: state.symbol ?? outputSymbol,
+    ...(outputToken ? { address: outputToken.address, decimals: outputToken.decimals } : {})
+  };
 }

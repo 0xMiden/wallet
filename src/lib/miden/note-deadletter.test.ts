@@ -28,6 +28,7 @@ import {
   clearNoteDeadletter,
   listDeadletteredNotes,
   countDeadletteredNotes,
+  getNoteDeadletterSummary,
   removeManyFromNoteDeadletter,
   type DeadletteredNote
 } from './note-deadletter';
@@ -54,6 +55,21 @@ describe('note-deadletter', () => {
     const list = await listDeadletteredNotes();
     expect(list.map(n => n.bytes)).toEqual(['aaa', 'bbb']);
     expect(await countDeadletteredNotes()).toBeGreaterThan(0);
+  });
+
+  it('summarizes only the closed reason set, preserving a safe fallback for unknown stored values', async () => {
+    _g.__dlTest.store['miden-note-import-deadletter'] = [
+      { bytes: 'secret-a', reason: 'transport', failedAt: 1, attempts: 8 },
+      { bytes: 'secret-b', reason: 'malformed', failedAt: 2, attempts: 3 },
+      { bytes: 'secret-c', reason: 'attacker-controlled-reason', failedAt: 3, attempts: 4 }
+    ];
+
+    await expect(getNoteDeadletterSummary()).resolves.toEqual({
+      count: 3,
+      reasons: ['transport', 'malformed', 'unavailable']
+    });
+    expect(JSON.stringify(await getNoteDeadletterSummary())).not.toContain('secret-');
+    expect(JSON.stringify(await getNoteDeadletterSummary())).not.toContain('attacker-controlled-reason');
   });
 
   it('dedupes by bytes (re-give-up refreshes, does not duplicate)', async () => {

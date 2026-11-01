@@ -14,8 +14,18 @@ export function evmPriceSymbolFor(
   const chain = Object.values(snapshot.config?.supportedEvmChains ?? {}).find(entry => entry.chainId === chainId);
   if (!chain) return undefined;
   const circle = chain.bridges.usdcx?.tokens.USDC?.contractAddress;
-  const epoch = chain.bridges.epoch?.tokens.USDC?.contractAddress;
-  if ((circle && circle.toLowerCase() === contract) || (epoch && epoch.toLowerCase() === contract)) return 'USDC';
+  if (circle && circle.toLowerCase() === contract) return 'USDC';
+  // An Epoch token is priced as the Miden token it settles into; the route's USDC is USDC whatever it names.
+  const epoch = Object.entries(chain.bridges.epoch?.tokens ?? {}).find(
+    ([, token]) => token.contractAddress.toLowerCase() === contract
+  );
+  if (epoch) {
+    const [key] = epoch;
+    if (key === 'USDC') return 'USDC';
+    const read = snapshot.derived?.chains[chainId]?.epoch.tokens[key];
+    const faucetId = read?.state === 'ok' ? read.value.midenFaucetId : undefined;
+    return faucetId === undefined ? undefined : priceSymbolFor(faucetId, '');
+  }
   const reads = snapshot.derived?.chains[chainId]?.agglayer;
   const tokens = reads?.tokens;
   if (tokens?.state !== 'ok') return undefined;

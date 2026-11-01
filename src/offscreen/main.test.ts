@@ -5092,9 +5092,9 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
   });
   const MAINNET_BUILD = {
     network: 'mainnet',
-    rpcUrl: 'https://rpc.cedar.miden.io',
-    proverUrl: 'https://tx-prover.cedar.miden.io',
-    noteTransportUrl: 'https://transport.cedar.miden.io',
+    rpcUrl: 'https://rpc.mainnet.miden.io',
+    proverUrl: 'https://tx-prover.mainnet.miden.io',
+    noteTransportUrl: 'https://transport.mainnet.miden.io',
     feeFaucetId: '0xmainfee'
   };
 

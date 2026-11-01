@@ -11,13 +11,13 @@ describe('mainnet environment', () => {
     else process.env.E2E_NETWORK = previous;
   });
 
-  it('points at the cedar mainnet node and the bundled LambdaClass operator', () => {
+  it('points at the mainnet node and the bundled LambdaClass operator', () => {
     process.env.E2E_NETWORK = 'mainnet';
     expect(getEnvironmentConfig()).toMatchObject({
       name: 'mainnet',
-      rpcUrl: 'https://rpc.cedar.miden.io',
-      provingUrl: 'https://tx-prover.cedar.miden.io',
-      transportUrl: 'https://transport.cedar.miden.io',
+      rpcUrl: 'https://rpc.mainnet.miden.io',
+      provingUrl: 'https://tx-prover.mainnet.miden.io',
+      transportUrl: 'https://transport.mainnet.miden.io',
       networkFlag: 'mainnet',
       guardianUrl: 'https://guardian.cedar.internal.lambdaclass.com',
       chargesFees: true,

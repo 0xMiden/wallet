@@ -60,7 +60,7 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string } = {
+let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string } = {
   amount: undefined,
   loading: false,
   error: null,
@@ -998,7 +998,13 @@ describe('ReviewTransaction — rendering', () => {
 
   it('uses the configured testnet label for the output token in "you receive"', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
+    mockEpochQuote = {
+      amount: '2',
+      loading: false,
+      error: null,
+      symbol: 'USDC.e',
+      address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69'
+    };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -1006,6 +1012,23 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('≈ 2 Test Epoch USDC')).toBeInTheDocument();
+  });
+
+  it('shows a Fast Sepolia ETH or WETH output under its own symbol', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'ETH' };
+    const eth = render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('≈ 2 ETH')).toBeInTheDocument();
+    eth.unmount();
+
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'WETH' };
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('≈ 2 WETH')).toBeInTheDocument();
   });
 
   // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.

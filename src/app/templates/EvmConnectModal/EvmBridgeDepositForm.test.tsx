@@ -81,6 +81,14 @@ it('shows the available balance and retains the test-funds warning', () => {
   expect(screen.getByTestId('bridge-test-funds-warning')).toHaveAttribute('role', 'note');
 });
 
+it('fills a percentage shortcut from the selected EVM token balance', () => {
+  const onAmountChange = jest.fn();
+  render(<EvmBridgeDepositForm {...props} onAmountChange={onAmountChange} />);
+
+  fireEvent.click(screen.getByTestId('amount-shortcut-75'));
+  expect(onAmountChange).toHaveBeenCalledWith('75');
+});
+
 it.each([
   { token: { ...props.token, scaleIsKnown: false } },
   { network: undefined },

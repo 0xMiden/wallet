@@ -173,6 +173,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           )}
           <SelectAmount
             embedded
+            showAmountShortcuts
             // The amount field's own caption, as on Earn's "Deposit Amount", and no rule under a typed
             // amount.
             label={t('youPay')}

@@ -56,6 +56,10 @@ export type BridgeOrphanCheck = (typeof BRIDGE_ORPHAN_CHECKS)[number];
 export const BRIDGE_SOURCE_ROUTES = ['xreserve', 'cctp_executor', 'unrecorded'] as const;
 export type BridgeSourceRoute = (typeof BRIDGE_SOURCE_ROUTES)[number];
 
+/** The wallet request implementation selected for an inbound bridge approval or deposit. */
+export const BRIDGE_RECEIVE_REQUEST_CLIENTS = ['native_reown', 'wagmi'] as const;
+export type BridgeReceiveRequestClient = (typeof BRIDGE_RECEIVE_REQUEST_CLIENTS)[number];
+
 /** What failed an inbound bridge's row, as its writer knows it. Only the row's crash report reads it; it is never stored. */
 export interface BridgeReceiveFailureSource {
   step: BridgeReceiveFailureStep;
@@ -64,6 +68,7 @@ export interface BridgeReceiveFailureSource {
   balanceCheck?: BridgeBalanceCheck;
   orphanCheck?: BridgeOrphanCheck;
   sourceRoute?: BridgeSourceRoute;
+  requestClient?: BridgeReceiveRequestClient;
 }
 
 /** What a failed inbound bridge's crash report adds: the row's route and what its writer said failed it. */
@@ -103,6 +108,7 @@ export const BRIDGE_RECEIVE_LIBRARY_ERRORS = [
   'rpc_unavailable',
   'transaction_rejected',
   'rpc_limited',
+  'cctp_quote_refused',
   'http_',
   'invalid_permissions',
   'unknown_rpc_error'
@@ -164,6 +170,7 @@ const TIMED_OUT =
 // simulation timeout. A user rejection comes first: viem wraps one that carries no code, as the native plugins send it,
 // in an unknown RPC error.
 const LIBRARY_ERROR_RULES: ReadonlyArray<readonly [LibraryError, (link: Link) => boolean]> = [
+  ['cctp_quote_refused', link => link.name === 'CctpQuoteRefusedError'],
   [
     'user_rejected',
     link => link.code === 4001 || link.name === 'UserRejectedRequestError' || USER_REJECTED.test(link.text)
@@ -357,6 +364,11 @@ export function bridgeReceiveIdentity(failure: BridgeReceiveFailure): string {
   // Never the row's stored text: for a failure the wallet raised, that is the App's own words, not an answer.
   const error = bridgeReceiveLibraryError(failure.cause);
   const precheck = readNativeSessionPrecheck(failure.cause);
+  const requestClient =
+    failure.requestClient === undefined ||
+    (step !== 'wallet_approve' && step !== 'wallet_deposit' && step !== 'epoch_solve')
+      ? ''
+      : ` wallet request client ${listed(failure.requestClient, BRIDGE_RECEIVE_REQUEST_CLIENTS)};`;
   // `recovery` would drop the report: it is mnemonic context, and this sentence already holds wordlist words such as
   // `session`. The attempt's value is the recovery outcome. Labels stay outside a four-word run (redact.ts).
   const attempt =
@@ -366,5 +378,5 @@ export function bridgeReceiveIdentity(failure: BridgeReceiveFailure): string {
           precheck.recovery,
           NATIVE_SESSION_PRECHECK_RECOVERIES
         )};`;
-  return `via ${route}; failed at ${step};${attempt} evm error ${error}`;
+  return `via ${route}; failed at ${step};${attempt}${requestClient} evm error ${error}`;
 }

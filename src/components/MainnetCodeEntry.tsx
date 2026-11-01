@@ -62,7 +62,11 @@ export function useMainnetCodeEntry({
 }: MainnetCodeEntryOptions): MainnetCodeEntry {
   const [code, setCode] = useState('');
   const [failure, setFailure] = useState<MainnetCodeFailure | null>(rejected ? 'rejected' : null);
-  const [failureDiagnostics, setFailureDiagnostics] = useState<UiEvidenceInput>();
+  const [failureDiagnostics, setFailureDiagnostics] = useState<UiEvidenceInput | undefined>(() =>
+    rejected
+      ? { kind: 'mainnet_access_code_rejection', mainnetAccessCodeRejectionOrigin: 'registration_redemption' }
+      : undefined
+  );
   const [submitting, setSubmitting] = useState(false);
   const [pasting, setPasting] = useState(false);
   // A check answers for the code it was asked about, here: closing the entry (a sheet keeps it mounted through its
@@ -135,6 +139,10 @@ export function useMainnetCodeEntry({
           break;
         case 'rejected':
           setFailure('rejected');
+          setFailureDiagnostics({
+            kind: 'mainnet_access_code_rejection',
+            mainnetAccessCodeRejectionOrigin: 'eligibility_check'
+          });
           break;
       }
     } finally {
@@ -196,7 +204,7 @@ export const MainnetCodeEntryFields: React.FC<MainnetCodeEntryFieldsProps> = ({ 
       <span className="px-1 text-caption text-muted">{t('mainnetAccessHint')}</span>
       <ErrorLine
         errorId={failure === null ? null : FAILURE_IDS[failure]}
-        errorDiagnostics={failure === 'unchecked' ? entry.failureDiagnostics : undefined}
+        errorDiagnostics={entry.failureDiagnostics}
         data-testid={`${testIdPrefix}-error`}
       >
         {failureMessage()}

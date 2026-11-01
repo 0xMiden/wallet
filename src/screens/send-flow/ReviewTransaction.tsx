@@ -47,7 +47,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { epochOutputIsBridgeUsdc, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -188,14 +188,15 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [token, amount, isUsdcxBurn, amountExceedsPrecision]);
 
-  // Forward-quote the USDC output for the Fast (Epoch) route — drives the
+  // Forward-quote the EVM output for the Fast (Epoch) route on the chosen chain — drives the
   // "you receive" row.
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: to,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge && !isUsdcxBurn
+    enabled: isBridge && !isUsdcxBurn,
+    destinationChainId: bridgeNetworkObj?.chainId
   });
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
@@ -713,11 +714,13 @@ export const ReviewTransaction: React.FC = () => {
     route === 'agglayer'
       ? formatMoneyAmount(amount, 'typed')
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
-  // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
-  const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
-  const destinationUsdc = Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).find(
-    chain => chain.chainId === bridgeNetworkObj?.chainId
-  )?.bridges.epoch?.tokens.USDC?.contractAddress;
+  // AggLayer receives the sent token. A Fast output takes the bridge USDC label only when it is that token.
+  const youReceiveSymbol =
+    route === 'agglayer'
+      ? (token?.name ?? '')
+      : epochOutputIsBridgeUsdc(bridgeConfig, bridgeNetworkObj?.chainId, epochQuote.symbol, epochQuote.address)
+        ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
+        : epochQuote.symbol;
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
@@ -893,9 +896,9 @@ export const ReviewTransaction: React.FC = () => {
                     ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
                       <EvmUsdValue
                         amount={epochQuote.amount}
-                        decimals={USDCX_DECIMALS}
+                        decimals={epochQuote.decimals ?? USDCX_DECIMALS}
                         chainId={bridgeNetworkObj?.chainId}
-                        address={destinationUsdc}
+                        address={epochQuote.address}
                       />
                     ) : undefined
                   }

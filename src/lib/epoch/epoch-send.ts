@@ -3,9 +3,9 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, getEpochAllocatorUrl, getEvmChainId, getEvmUsdc } from 'lib/remote-config/values';
+import { type EvmUsdc, getEpochAllocatorUrl, getEpochOutputToken, getEvmChainId } from 'lib/remote-config/values';
 
-import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
+import { buildCrossChainIntent, getCrossChainQuote, normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
@@ -15,8 +15,16 @@ import type { CrossChainIntentParams } from './types';
 export interface EpochQuoteOutput {
   /** Estimated EVM output as an exact human decimal; the screens that show it round it down. */
   amount: string;
-  /** Output token symbol (USDC). */
+  /** Output token symbol, as its contract reports it. */
   symbol: string;
+}
+
+/**
+ * The EVM token a Fast send of `faucetId` arrives as on `destinationChainId` (else the first Epoch chain). Rejects
+ * while the route names no token for that faucet, before any SDK or note work.
+ */
+function epochOutputToken(faucetId: string, destinationChainId: number | undefined): EvmUsdc {
+  return getEpochOutputToken(destinationChainId ?? getEvmChainId(), normalizeMidenIdToHex(faucetId));
 }
 
 /**
@@ -74,8 +82,7 @@ export async function quoteEpochSendOutput(args: {
   senderPublicKey: string;
   destinationChainId?: number;
 }): Promise<EpochQuoteOutput> {
-  // Rejects while the config names no usable output token, before any SDK work.
-  const usdc = getEvmUsdc(args.destinationChainId);
+  const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
   const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
@@ -131,8 +138,7 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
-  // Rejects while the config names no usable output token, before any SDK or note work.
-  const usdc = getEvmUsdc(args.destinationChainId);
+  const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
   const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();

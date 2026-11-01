@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, createEvent, render, screen, fireEvent } from '@testing-library/react';
+import { createEvent, render, screen, fireEvent } from '@testing-library/react';
 
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -106,19 +106,10 @@ jest.mock('components/Button', () => ({
 // Vaul renders through a portal that jsdom cannot drive. A flat stand-in that renders its
 // children only while open is sufficient for the open, close and recover wiring.
 jest.mock('./NoCodeSheet', () => ({
-  NoCodeSheet: ({
-    open,
-    onOpenChange,
-    onRecover
-  }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    onRecover: () => void;
-  }) =>
+  NoCodeSheet: ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
     open ? (
       <div data-testid="no-code-sheet">
         <button type="button" data-testid="no-code-sheet-close" onClick={() => onOpenChange(false)} />
-        <button type="button" data-testid="no-code-sheet-recover" onClick={onRecover} />
       </div>
     ) : null
 }));
@@ -160,7 +151,7 @@ describe('WelcomeScreen', () => {
     // 56px on a normal screen, smaller on the narrowest, and a long translated word wraps rather than clips.
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[min(56px,15vw)]', '[overflow-wrap:anywhere]');
     expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
-    // The actions share one column in the footer, which the loading spinner overlays.
+    // The actions use one column in the footer.
     const footer = screen.getByTestId('btn-getStarted').closest('[data-slot="footer"]');
     expect(footer).toBeInTheDocument();
     expect(footer).toContainElement(document.getElementById('import-link'));
@@ -287,7 +278,7 @@ describe('WelcomeScreen invite-only variant', () => {
     renderComponent({ inviteOnly: true, onSubmit });
     expect(screen.getByTestId('onboarding-bread-logo')).toHaveAttribute('data-invite-onboarding', 'true');
     expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
-    expect(document.getElementById('import-link')).toBeNull();
+    expect(document.getElementById('import-link')).toHaveAttribute('data-variant', 'secondary');
 
     const button = screen.getByTestId('btn-iHaveACode');
     expect(button).toHaveAttribute('data-tabindex', '0');
@@ -297,7 +288,7 @@ describe('WelcomeScreen invite-only variant', () => {
     expect(screen.getByTestId('onboarding-no-code')).toHaveTextContent('iDontHaveACode');
   });
 
-  it("opens the no-code sheet from I don't have a code, closes it, and recovers through it", () => {
+  it('opens and closes the no-code sheet, and recovers from the welcome page', () => {
     const onSubmit = jest.fn();
     renderComponent({ inviteOnly: true, onSubmit });
     expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
@@ -310,7 +301,9 @@ describe('WelcomeScreen invite-only variant', () => {
     expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('onboarding-no-code'));
-    fireEvent.click(screen.getByTestId('no-code-sheet-recover'));
+    expect(screen.queryByTestId('no-code-sheet-recover')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('no-code-sheet-close'));
+    fireEvent.click(screen.getByTestId('btn-recoverYourAccount'));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith('select-import-type');
     expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
@@ -350,36 +343,21 @@ describe('WelcomeScreen recover-only variant', () => {
 });
 
 describe('WelcomeScreen while the remote config loads', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
-
-  it('hides the actions while the config loads, and shows the variant its host sets once it lands', () => {
+  it('shows invite actions at once', () => {
     mockSnapshot = LOADING;
-    const view = renderComponent();
-    expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
-    expect(document.getElementById('import-link')).toHaveClass('invisible');
-    expect(screen.getByRole('status')).toHaveAccessibleName('loading');
-
-    mockSnapshot = snapshotWith({ inviteOnly: true });
-    view.rerender(<WelcomeScreen inviteOnly />);
-    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
-    expect(screen.getByTestId('btn-iHaveACode')).not.toHaveClass('invisible');
-    expect(screen.getByTestId('onboarding-no-code')).not.toHaveClass('invisible');
+    renderComponent({ inviteOnly: true });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('btn-recoverYourAccount')).toBeVisible();
+    expect(screen.getByTestId('btn-iHaveACode')).toBeVisible();
+    expect(screen.getByTestId('onboarding-no-code')).toBeVisible();
+    expect(screen.getByTestId('onboarding-no-code')).toHaveClass('underline');
   });
 
-  it('shows the general actions when the config does not land within the wait', () => {
+  it('shows developer network actions at once', () => {
     mockSnapshot = LOADING;
     renderComponent();
-    act(() => {
-      jest.advanceTimersByTime(2_999);
-    });
-    expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
-    expect(screen.getByTestId('onboarding-config-loading')).toBeInTheDocument();
-    act(() => {
-      jest.advanceTimersByTime(1);
-    });
-    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
-    expect(screen.getByTestId('btn-getStarted')).not.toHaveClass('invisible');
-    expect(document.getElementById('import-link')).not.toHaveClass('invisible');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('btn-recoverYourAccount')).toBeVisible();
+    expect(screen.getByTestId('btn-getStarted')).toBeVisible();
   });
 });

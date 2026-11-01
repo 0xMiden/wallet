@@ -23,6 +23,7 @@ import {
   type DerivedBridgeConfig,
   type DerivedChainConfig,
   type DeriveDeps,
+  EPOCH_NATIVE_TOKEN,
   type EvmReads
 } from './derive';
 import { parseStoredDerived } from './derived-snapshot';
@@ -208,6 +209,8 @@ function deps(overrides: Partial<DeriveDeps> = {}): Partial<DeriveDeps> {
     readMidenFaucet: jest.fn(readFixtureFaucet),
     evm: () => reads,
     fetch: healthFetch(),
+    tokenFaucetsBySymbol: jest.fn(async () => new Map<string, string>()),
+    midenAccountHex: jest.fn(async (accountId: string) => accountId.toLowerCase()),
     ...overrides
   };
 }
@@ -237,7 +240,21 @@ const HEALTHY_SEPOLIA: DerivedChainConfig = {
     // TESTNET lists no deposit token.
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+  // The route's USDC names the testnet output, so it settles into that faucet, read at its own scale.
+  epoch: {
+    tokens: {
+      USDC: {
+        state: 'ok',
+        value: {
+          symbol: 'USDC',
+          decimals: 18,
+          midenFaucetId: '0x537c15a622074e91188aa894456c52',
+          midenSymbol: 'USDC',
+          midenDecimals: 6
+        }
+      }
+    }
+  }
 };
 const HEALTHY: DerivedBridgeConfig = {
   network: 'testnet',
@@ -315,7 +332,7 @@ describe('deriveBridgeConfig', () => {
 
   it('skips the EVM probes for a chain the wallet has no RPC for', async () => {
     const reads = (await deriveBridgeConfig(TESTNET, deps({ evm: () => null }))).chains[SEPOLIA];
-    expect([reads?.agglayer.l1BridgeCode, reads?.agglayer.evmNetworkId, reads?.epoch.evmUsdc]).toEqual([
+    expect([reads?.agglayer.l1BridgeCode, reads?.agglayer.evmNetworkId, reads?.epoch.tokens.USDC]).toEqual([
       SKIPPED,
       SKIPPED,
       SKIPPED
@@ -338,7 +355,7 @@ describe('deriveBridgeConfig', () => {
       l1BridgeCode: { state: 'absent' },
       evmNetworkId: { state: 'absent' }
     });
-    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'absent' });
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.USDC).toEqual({ state: 'absent' });
     expect(derived.epoch).toMatchObject({ midenUsdcFaucet: { state: 'absent' } });
     expect(reads.networkId).not.toHaveBeenCalled();
     expect(reads.erc20).not.toHaveBeenCalled();
@@ -557,6 +574,137 @@ describe('deriveBridgeConfig', () => {
     expect(io.readMidenFaucet).toHaveBeenCalledTimes(1);
     releaseRegistry({ rollupId: 86, tokens: [ETH] });
     await expect(pending).resolves.toEqual(HEALTHY);
+  });
+});
+
+describe('the Epoch token faucets', () => {
+  const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+  const USDT = '0x7169d38820dfd117c3fa1f22a697dba58d90ba06';
+  // Sepolia's Epoch route with a WETH that names its Miden symbol and a USDT that relies on its key.
+  const withTokens: BridgeConfig = {
+    ...TESTNET,
+    supportedEvmChains: {
+      sepolia: {
+        chainId: SEPOLIA,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: {
+              USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: ['usdc-testnet-output'] },
+              WETH: { contractAddress: WETH, midenSymbol: 'ETH', outputs: [] },
+              USDT: { contractAddress: USDT, outputs: [] }
+            }
+          }
+        }
+      }
+    }
+  };
+  const faucetsOf = async (config: BridgeConfig, overrides: Partial<DeriveDeps>) => {
+    const derived = await deriveBridgeConfig(config, deps(overrides));
+    return Object.fromEntries(
+      Object.entries(derived.chains[SEPOLIA]?.epoch.tokens ?? {}).map(([symbol, read]) => [
+        symbol,
+        read.state === 'ok' ? read.value.midenFaucetId : read.state
+      ])
+    );
+  };
+
+  it("takes each token's faucet from the token-list by its Miden symbol, else its key, as hex", async () => {
+    const tokenFaucetsBySymbol = jest.fn(
+      async () =>
+        new Map([
+          ['ETH', 'mtst1eth'],
+          ['USDT', 'mtst1usdt'],
+          ['WETH', 'mtst1wrong']
+        ])
+    );
+    // A bech32 id becomes a stand-in hex; a hex id is already hex, as in the real conversion.
+    const midenAccountHex = jest.fn(async (accountId: string) =>
+      accountId.startsWith('0x') ? accountId : `0x${accountId.slice(5).padEnd(30, '0')}`
+    );
+    await expect(faucetsOf(withTokens, { tokenFaucetsBySymbol, midenAccountHex })).resolves.toEqual({
+      // The document's output wins over the token-list.
+      USDC: '0x537c15a622074e91188aa894456c52',
+      WETH: '0xeth000000000000000000000000000',
+      USDT: '0xusdt00000000000000000000000000'
+    });
+    // One list read per derivation, whatever the number of tokens.
+    expect(tokenFaucetsBySymbol).toHaveBeenCalledTimes(1);
+    expect(tokenFaucetsBySymbol).toHaveBeenCalledWith('testnet');
+  });
+
+  it('leaves a token the token-list does not name, or cannot be read for, without a faucet and keeps its read', async () => {
+    await expect(
+      faucetsOf(withTokens, { tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'mtst1eth']])) })
+    ).resolves.toEqual({ USDC: '0x537c15a622074e91188aa894456c52', WETH: 'mtst1eth', USDT: undefined });
+    await expect(
+      faucetsOf(withTokens, { tokenFaucetsBySymbol: jest.fn(async () => Promise.reject(new Error('no list'))) })
+    ).resolves.toEqual({ USDC: '0x537c15a622074e91188aa894456c52', WETH: undefined, USDT: undefined });
+    await expect(
+      faucetsOf(withTokens, {
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'not an id']])),
+        midenAccountHex: jest.fn(async () => Promise.reject(new Error('not an account id')))
+      })
+    ).resolves.toEqual({ USDC: undefined, WETH: undefined, USDT: undefined });
+  });
+
+  it('reads the native coin at the zero address with no contract read, at its key and 18 decimals', async () => {
+    const reads = sepoliaReads({ hasCode: jest.fn(async () => false) });
+    const withNative: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {
+        sepolia: {
+          chainId: SEPOLIA,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: EPOCH_NATIVE_TOKEN, outputs: [] } }
+            }
+          }
+        }
+      }
+    };
+    const readMidenFaucet = jest.fn(async (faucetId: string) =>
+      faucetId === '0xeth' ? { symbol: 'ETH', decimals: 8 } : readFixtureFaucet(faucetId)
+    );
+    const derived = await deriveBridgeConfig(
+      withNative,
+      deps({
+        evm: () => reads,
+        readMidenFaucet,
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', '0xeth']]))
+      })
+    );
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.ETH).toEqual({
+      state: 'ok',
+      value: { symbol: 'ETH', decimals: 18, midenFaucetId: '0xeth', midenSymbol: 'ETH', midenDecimals: 8 }
+    });
+    expect(reads.hasCode).not.toHaveBeenCalledWith(EPOCH_NATIVE_TOKEN);
+    expect(reads.erc20).not.toHaveBeenCalled();
+  });
+
+  it("keeps a token's faucet without its scale when the faucet's metadata cannot be read", async () => {
+    const readMidenFaucet = jest.fn(async (faucetId: string) => {
+      if (faucetId === '0xeth000000000000000000000000000') throw new Error('not a faucet');
+      return readFixtureFaucet(faucetId);
+    });
+    const midenAccountHex = jest.fn(async (accountId: string) =>
+      accountId.startsWith('0x') ? accountId : `0x${accountId.slice(5).padEnd(30, '0')}`
+    );
+    const derived = await deriveBridgeConfig(
+      withTokens,
+      deps({
+        readMidenFaucet,
+        midenAccountHex,
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'mtst1eth']]))
+      })
+    );
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.WETH).toEqual({
+      state: 'ok',
+      value: { symbol: 'USDC', decimals: 18, midenFaucetId: '0xeth000000000000000000000000000' }
+    });
   });
 });
 
@@ -1224,7 +1372,10 @@ describe('deriveBridgeConfig default I/O', () => {
       l1BridgeCode: { state: 'ok', value: true },
       evmNetworkId: { state: 'ok', value: 0 }
     });
-    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 18 } });
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.USDC).toEqual({
+      state: 'ok',
+      value: { symbol: 'USDC', decimals: 18 }
+    });
   });
 
   it('reads empty code as no contract', async () => {
@@ -1235,7 +1386,10 @@ describe('deriveBridgeConfig default I/O', () => {
     mockPublicClient.getCode.mockResolvedValueOnce(undefined).mockResolvedValueOnce('0x');
     const derived = await deriveBridgeConfig(evmOnly);
     const reads = derived.chains[SEPOLIA];
-    expect([reads?.agglayer.l1BridgeCode, reads?.epoch.evmUsdc]).toEqual([{ state: 'absent' }, { state: 'absent' }]);
+    expect([reads?.agglayer.l1BridgeCode, reads?.epoch.tokens.USDC]).toEqual([
+      { state: 'absent' },
+      { state: 'absent' }
+    ]);
     expect(mockPublicClient.readContract).not.toHaveBeenCalled();
   });
 

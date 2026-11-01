@@ -989,6 +989,41 @@ describe('diagnostic snapshots', () => {
     });
   });
 
+  it('reports only the fixed SDK client role for a reader construction failure', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const failure = new DOMException(
+      'Unable to open database file /private/0xfeedcafedeadbeef for balance 1234567890123456',
+      'UnknownError'
+    );
+    annotateCrash(failure, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    captureCrash(failure, 'onunhandledrejection');
+    await flushMicrotasks();
+    const reportable = captured[0];
+    expect(reportable).toBeInstanceOf(Error);
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    const event: Record<string, unknown> = {
+      message: reportable?.message,
+      exception: { values: [{ type: reportable?.name, value: reportable?.message }] }
+    };
+    scrubEvent(event, { originalException: reportable });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        clientRole: 'realm_reader'
+      })
+    });
+    expect(event.tags).toMatchObject({ sdk_client_role: 'realm_reader' });
+    expect(JSON.stringify(event)).not.toMatch(/\/private\/0xfeedcafedeadbeef|1234567890123456/);
+  });
+
   it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
     grantBrowserPermission();
     initCrashReporting();

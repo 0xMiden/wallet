@@ -192,6 +192,16 @@ describe('depositTokenPrice', () => {
     expect(mockPriceSymbolFor).toHaveBeenLastCalledWith('faucet-WBTC', 'WBTC');
   });
 
+  it('weighs the Epoch USDC at par and another Epoch token at the quote for its Miden faucet', () => {
+    expect(depositTokenPrice({ kind: 'epoch', key: 'USDC' }, null, {})).toEqual({ priceUsd: 1, pending: false });
+    const pol = { symbol: 'POL', delivery: { midenFaucetId: 'faucet-POL' } };
+    expect(depositTokenPrice({ kind: 'epoch', key: 'POL' }, pol, { POL: quote(0.2) })).toEqual({
+      priceUsd: 0.2,
+      pending: false
+    });
+    expect(mockPriceSymbolFor).toHaveBeenLastCalledWith('faucet-POL', 'POL');
+  });
+
   it('waits for an ERC-20 quote while its market is pending', () => {
     expect(depositTokenPrice(erc20, offered('WPEND'), {})).toEqual({ priceUsd: undefined, pending: true });
   });

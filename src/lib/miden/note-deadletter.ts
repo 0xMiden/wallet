@@ -38,6 +38,12 @@ const DEADLETTER_KEY = 'miden-note-import-deadletter';
 const MAX_DEADLETTERED = 200;
 
 export type NoteDeadletterReason = 'transport' | 'malformed' | 'rejected';
+export type NoteDeadletterReasonSummary = NoteDeadletterReason | 'unavailable';
+
+export interface NoteDeadletterSummary {
+  count: number;
+  reasons: NoteDeadletterReasonSummary[];
+}
 
 export interface DeadletteredNote {
   /** Base64 note bytes — the same form the import queue holds. */
@@ -218,7 +224,23 @@ export async function listDeadletteredNotes(): Promise<DeadletteredNote[]> {
  * store on every tick. Reading it here keeps the bodies inside this module.
  */
 export async function countDeadletteredNotes(): Promise<number> {
-  return (await readAll()).length;
+  return (await getNoteDeadletterSummary()).count;
+}
+
+/** Return only the count and fixed reason categories, keeping note records in this module. */
+export async function getNoteDeadletterSummary(): Promise<NoteDeadletterSummary> {
+  const notes = await readAll();
+  const present = new Set<NoteDeadletterReasonSummary>();
+  for (const note of notes) present.add(isNoteDeadletterReason(note.reason) ? note.reason : 'unavailable');
+
+  const knownReasons: NoteDeadletterReason[] = ['transport', 'malformed', 'rejected'];
+  const reasons: NoteDeadletterReasonSummary[] = knownReasons.filter(reason => present.has(reason));
+  if (present.has('unavailable')) reasons.push('unavailable');
+  return { count: notes.length, reasons };
+}
+
+function isNoteDeadletterReason(reason: unknown): reason is NoteDeadletterReason {
+  return reason === 'transport' || reason === 'malformed' || reason === 'rejected';
 }
 
 /**

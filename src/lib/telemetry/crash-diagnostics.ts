@@ -190,6 +190,7 @@ export type CrashDiagnostics = Partial<
     confirmationId?: 'missing' | 'empty';
     stage?: 'wasm_ready' | 'mock_import' | 'mock_create' | 'client_create';
     workerMode?: 'enabled' | 'disabled';
+    clientRole?: 'primary' | 'realm_reader';
     confirmationHandler?: ConfirmationHandlerState;
     confirmationRequestShape?: ConfirmationRequestShape;
     confirmationRegistry?: ConfirmationRegistryState;
@@ -287,7 +288,7 @@ function readConfirmationCode(code: unknown): ConfirmationDiagnostics {
   return { confirmationHandler, confirmationRequestShape, confirmationRegistry, backgroundAge };
 }
 
-const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
+const diagnosticsByError = new WeakMap<object, CrashDiagnostics>();
 const requestTypes = [
   ...Object.entries(WalletMessageType)
     .filter(([key]) => key.endsWith('Request'))
@@ -308,7 +309,23 @@ function annotateCrashAtBoundary(
   refreshProposal = false
 ): void {
   try {
-    if (!(error instanceof Error)) return;
+    if (typeof error !== 'object' || error === null) return;
+    if (!(error instanceof Error)) {
+      const { operation, stage, workerMode, clientRole } = diagnostics;
+      if (
+        operation === 'sdk_initialize' &&
+        stage === 'client_create' &&
+        (clientRole === 'primary' || clientRole === 'realm_reader')
+      ) {
+        diagnosticsByError.set(error, {
+          operation,
+          stage,
+          ...(workerMode === 'enabled' || workerMode === 'disabled' ? { workerMode } : {}),
+          clientRole
+        });
+      }
+      return;
+    }
     const safe: CrashDiagnostics = {};
     if ('executionRoute' in diagnostics) annotateTransactionExecution(error, diagnostics);
     const {
@@ -317,6 +334,7 @@ function annotateCrashAtBoundary(
       confirmationId,
       stage,
       workerMode,
+      clientRole: suppliedClientRole,
       sharedMemoryProbe: suppliedProbe,
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
@@ -357,6 +375,12 @@ function annotateCrashAtBoundary(
     if (stage === 'wasm_ready' || stage === 'mock_import' || stage === 'mock_create' || stage === 'client_create')
       safe.stage = stage;
     if (workerMode === 'enabled' || workerMode === 'disabled') safe.workerMode = workerMode;
+    if (
+      operation === 'sdk_initialize' &&
+      stage === 'client_create' &&
+      (suppliedClientRole === 'primary' || suppliedClientRole === 'realm_reader')
+    )
+      safe.clientRole = suppliedClientRole;
     const sharedMemoryProbe = SHARED_MEMORY_PROBES.find(value => value === suppliedProbe);
     if (sharedMemoryProbe !== undefined) safe.sharedMemoryProbe = sharedMemoryProbe;
     const extensionViews = EXTENSION_VIEW_COUNTS.find(value => value === suppliedViews);
@@ -583,7 +607,8 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
 
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   const snapshot: CrashDiagnostics = {};
-  for (const link of errorChain(error).reverse()) {
+  const chain = errorChain(error);
+  for (const link of chain.reverse()) {
     const stored = diagnosticsByError.get(link);
     const { storageOwner, storageOperation, ...other } = stored ?? {};
     clearNativeDiagnostics(other);
@@ -601,6 +626,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  if (chain.length === 0 && typeof error === 'object' && error !== null)
+    Object.assign(snapshot, diagnosticsByError.get(error));
   for (const key of EXECUTION_DIAGNOSTIC_KEYS) delete snapshot[key];
   Object.assign(snapshot, snapshotTransactionExecution(error));
   // Startup evidence belongs to this displayed attempt, never an earlier cause.

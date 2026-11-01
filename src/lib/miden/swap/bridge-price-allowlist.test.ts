@@ -54,7 +54,7 @@ const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridg
     chains: {
       11155111: {
         agglayer: { rollupId: skipped, tokens, evmNetworkId: skipped, l1BridgeCode: skipped, depositTokens: skipped },
-        epoch: { evmUsdc: skipped }
+        epoch: { tokens: { USDC: skipped } }
       }
     },
     agglayer: { indexer: skipped },
@@ -143,7 +143,7 @@ it("prices every AggLayer chain's native-ETH faucet at ETH", () => {
       l1BridgeCode: { state: 'skipped' },
       depositTokens: { state: 'skipped' }
     },
-    epoch: { evmUsdc: { state: 'skipped' } }
+    epoch: { tokens: {} }
   };
   mockSnapshot = snapshot(
     {

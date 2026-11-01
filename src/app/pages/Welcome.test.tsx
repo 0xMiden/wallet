@@ -57,12 +57,20 @@ const finishWarns = (warn: jest.SpyInstance) =>
 
 let mockInviteOnly = false;
 const mockUnlockInviteOnly = jest.fn();
+const mockNetworkPolicy = jest.fn();
 jest.mock('app/templates/OnboardingNetwork', () => ({
   OnboardingNetwork: ({
-    children
+    children,
+    requireInviteOnly,
+    showWhilePreparing
   }: {
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
-  }) => children(mockInviteOnly, mockUnlockInviteOnly)
+    requireInviteOnly?: boolean;
+    showWhilePreparing: boolean;
+  }) => {
+    mockNetworkPolicy({ requireInviteOnly, showWhilePreparing });
+    return children(mockInviteOnly, mockUnlockInviteOnly);
+  }
 }));
 const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
   jest
@@ -331,10 +339,11 @@ jest.mock('lib/shared/types', () => ({
 // The network notice only shows on a test network; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 let mockDeveloperChoice = false;
+const mockHasDeveloperNetworkChoice = jest.fn(() => mockDeveloperChoice);
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => mockTestNetworkKey,
-  hasDeveloperNetworkChoice: () => mockDeveloperChoice
+  hasDeveloperNetworkChoice: () => mockHasDeveloperNetworkChoice()
 }));
 
 // The code a switch to mainnet carried to the code step; the code step itself reads it.
@@ -555,6 +564,39 @@ afterEach(() => {
 // ===========================================================================
 // Render + mount effects
 // ===========================================================================
+
+describe('Welcome network policy', () => {
+  it('delegates launch policy and keeps Welcome visible only without a route hash', async () => {
+    await renderWelcome();
+    expect(mockHasDeveloperNetworkChoice).not.toHaveBeenCalled();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: false });
+  });
+
+  it('keeps the configured launch policy in E2E builds', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('keeps an explicit developer network choice', async () => {
+    mockDeveloperChoice = true;
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('recovery skips the test-network notice while the host requires mainnet', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
+});
 
 describe('Welcome — mount & hardware-security check', () => {
   it('renders the onboarding flow on the Welcome step by default', async () => {
