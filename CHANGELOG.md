@@ -3,6 +3,7 @@
 ## 1.17.11 (TBD)
 
 - [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
+- [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 
 ## 1.17.10 (2026-11-01)
