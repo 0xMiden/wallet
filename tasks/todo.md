@@ -584,6 +584,13 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Bind amount edits and assertions to their existing pay/receive side containers.
 - [ ] Verify focused green CI and hand off for normal review and full Swap integration.
 
+# Issue #2100 - diagnose coverage runner shutdowns
+
+- [ ] Add tests for timestamped memory and workspace-disk sampling, interval, cleanup, and non-fatal sampler errors; prove assertion-level red in CI because the guarded local test invocation was refused before execution.
+- [ ] Add a 30-second resource sampler to each coverage shard without changing Jest, shard count, workers, or the 95% gate.
+- [ ] Run focused and workflow checks, then complete a current-source Review Council loop.
+- [ ] Push, open a PR closing #2100, and verify exact-head CI logs include samples and pass the unchanged coverage gate.
+
 # Issue #1936 - readable transaction notes
 
 ## Plan
