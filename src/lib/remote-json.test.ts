@@ -166,9 +166,14 @@ describe('fetchBoundedJson', () => {
     // Valid JSON, so only the cap refuses it: maxBytes + 1 bytes over three chunks.
     const bytes = new TextEncoder().encode(`${' '.repeat(63)}{}`);
     const response = streamResponse([bytes.slice(0, 22), bytes.slice(22, 44), bytes.slice(44)]);
-    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).rejects.toThrow(
-      'too large'
+    const caught = await fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS).catch(
+      (error: unknown) => error
     );
+    expect(caught).toBeInstanceOf(Error);
+    if (caught instanceof Error) {
+      expect(caught.name).toBe('ResponseTooLargeError');
+      expect(caught.message).toContain('too large');
+    }
     expect(response.read).toHaveBeenCalledTimes(3);
     expect(response.text).not.toHaveBeenCalled();
   });
@@ -319,6 +324,28 @@ describe('fetchBoundedJson', () => {
       await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       await expect(read).resolves.toBeInstanceOf(DOMException);
       expect(onFailure).toHaveBeenCalledWith('timeout');
+    });
+
+    it('classifies an AbortError signal reason during a timer abort as timeout', async () => {
+      const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason');
+      const abortError = new DOMException('The operation was aborted.', 'AbortError');
+      Object.defineProperty(AbortSignal.prototype, 'reason', { configurable: true, get: () => abortError });
+      try {
+        const onFailure = jest.fn();
+        const fetchFn = jest.fn(
+          (_url: string, { signal }: { signal: AbortSignal }) =>
+            new Promise<never>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(abortError), { once: true });
+            })
+        );
+        const read = fetchBoundedJson(fetchFn, LIST_URL, failureOptions(onFailure)).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+        await expect(read).resolves.toMatchObject({ name: 'AbortError' });
+        expect(onFailure).toHaveBeenCalledWith('timeout');
+      } finally {
+        if (descriptor) Object.defineProperty(AbortSignal.prototype, 'reason', descriptor);
+        else Reflect.deleteProperty(AbortSignal.prototype, 'reason');
+      }
     });
 
     const withoutAbortSignalReason = async <T>(body: () => Promise<T>): Promise<T> => {

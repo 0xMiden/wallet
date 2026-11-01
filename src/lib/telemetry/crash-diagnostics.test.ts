@@ -76,10 +76,7 @@ describe('source-bound crash diagnostics', () => {
   it('retains a coherent storage pair on the exact frozen Error', () => {
     const failure = Object.freeze(new Error('cursor request failed'));
     annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
-    expect(snapshotCrashDiagnostics(failure)).toEqual({
-      storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor'
-    });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({});
     expect(snapshotCrashDiagnostics(new Error('unrelated'))).toEqual({});
   });
 

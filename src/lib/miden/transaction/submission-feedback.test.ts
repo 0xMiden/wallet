@@ -63,6 +63,27 @@ describe('submissionFeedback (#1689)', () => {
     expect(JSON.stringify(diagnostics)).not.toMatch(/mtst1private|1234567890abcdef|4200|private\.example/);
   });
 
+  it('resolves refused diagnostics from the single gRPC parse', () => {
+    const transactionFailure = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+      'lib/telemetry/transaction-failure'
+    );
+    const submitGrpcFailure = jest.fn(transactionFailure.submitGrpcFailure);
+    try {
+      jest.isolateModules(() => {
+        jest.doMock('lib/telemetry/transaction-failure', () => ({
+          ...transactionFailure,
+          submitGrpcFailure
+        }));
+        const feedbackModule = jest.requireActual<typeof import('./submission-feedback')>('./submission-feedback');
+
+        feedbackModule.submissionFeedback(row({ error: NETWORK_REFUSAL, rawError: NETWORK_REFUSAL }));
+        expect(submitGrpcFailure).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      jest.dontMock('lib/telemetry/transaction-failure');
+    }
+  });
+
   it('reads a submit gRPC status through the shared table, including the encryption-key request', () => {
     const during = (endpoint: string, kind: string) =>
       `failed to submit proven transaction: RPC error: grpc request failed for ${endpoint}: ${kind}`;
