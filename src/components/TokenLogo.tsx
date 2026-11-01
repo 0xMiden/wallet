@@ -13,12 +13,21 @@ type TokenLogoSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
  */
 const AVATAR_SIZES: Record<TokenLogoSize, AvatarSize> = { sm: 24, md: 36, lg: 40, xl: 88, '2xl': 88 };
 
+/**
+ * The props have no `symbol`. Do not add it again, for these reasons:
+ * - A symbol does not identify a token. Each faucet sets its own symbol, and two faucets can set the same symbol.
+ *   When the logo used the symbol, a faucet with the symbol "USDC" got the real USDC logo.
+ * - When `symbol` was the only required prop, a caller could pass the symbol and no faucet id, and the type check
+ *   did not find the error. The logo then showed the default mark. Issue #2093 is this error.
+ * - The logo does not show the name of the token. The screen shows the name as text near the logo, so the logo
+ *   does not need the symbol.
+ */
 interface TokenLogoProps {
   /**
-   * The token's Miden faucet id. The verified token list is keyed by faucet id, so it is the only key to a logo: a
-   * symbol is not, since any faucet can take any symbol. The key is required so that each caller states the faucet
-   * it has; `undefined` (a faucet that does not exist yet, such as that of an ERC-20 the bridge has never carried)
-   * draws the default mark, as does a faucet the list does not name.
+   * The Miden faucet id of the token. It is the only key to the logo: the verified token list keys each logo by
+   * faucet id. The prop is required, so each caller must state the faucet id that it has. Use `undefined` when the
+   * faucet does not exist yet (for example, an ERC-20 that the bridge has not carried). `undefined`, or a faucet that
+   * the list does not include, shows the default mark.
    */
   faucetId: string | undefined;
   size?: TokenLogoSize;
