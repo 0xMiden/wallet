@@ -1,14 +1,14 @@
-import {
-  geoFeatureEnabled,
-  hasGeoBlocks,
-  parseGeoPhrase,
-  placeBlocked,
-  readGeoBlocks,
-  retainedStartupRequestFailure
-} from './geo';
+import { geoFeatureEnabled, hasGeoBlocks, parseGeoPhrase, placeBlocked, readGeoBlocks } from './geo';
 
 const invalid = (): never => {
   throw new Error('invalid');
+};
+
+const callRetainedStartupRequestFailure = (reason: string, failure: unknown): unknown => {
+  const geo = jest.requireActual<typeof import('./geo')>('./geo');
+  const retained = Reflect.get(geo, 'retainedStartupRequestFailure');
+  if (typeof retained !== 'function') throw new TypeError('retainedStartupRequestFailure is not a function');
+  return Reflect.apply(retained, undefined, [reason, failure]);
 };
 
 const oneClick = {
@@ -150,8 +150,8 @@ describe('global wallet policy', () => {
 
 describe('retainedStartupRequestFailure', () => {
   it('retains a request_failed member and rejects version_mismatch and a non-member', () => {
-    expect(retainedStartupRequestFailure('request_failed', 'http_error')).toBe('http_error');
-    expect(retainedStartupRequestFailure('version_mismatch', 'http_error')).toBeUndefined();
-    expect(retainedStartupRequestFailure('request_failed', 'https://private.example')).toBeUndefined();
+    expect(callRetainedStartupRequestFailure('request_failed', 'http_error')).toBe('http_error');
+    expect(callRetainedStartupRequestFailure('version_mismatch', 'http_error')).toBeUndefined();
+    expect(callRetainedStartupRequestFailure('request_failed', 'https://private.example')).toBeUndefined();
   });
 });

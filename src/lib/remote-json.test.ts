@@ -169,11 +169,9 @@ describe('fetchBoundedJson', () => {
     const caught = await fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS).catch(
       (error: unknown) => error
     );
-    expect(caught).toBeInstanceOf(Error);
-    if (caught instanceof Error) {
-      expect(caught.name).toBe('ResponseTooLargeError');
-      expect(caught.message).toContain('too large');
-    }
+    const caughtError = caught instanceof Error ? caught : new Error('non-Error rejection');
+    expect(caughtError.name).toBe('ResponseTooLargeError');
+    expect(caughtError.message).toContain('too large');
     expect(response.read).toHaveBeenCalledTimes(3);
     expect(response.text).not.toHaveBeenCalled();
   });
