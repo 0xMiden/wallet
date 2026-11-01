@@ -9,6 +9,8 @@ export const CEDAR_MAINNET_STORE_NAME = 'MidenClientDB_mcst';
 export const MAINNET_DEFAULT_STORE_NAME = 'MidenClientDB_mm';
 // The SDK table keyed by account id (`&id`): one row per account the store holds.
 const ACCOUNT_HEADERS_TABLE = 'latestAccountHeaders';
+// The SDK's own bound on the same listing: WebKit can leave the first `databases()` call pending.
+const LISTING_TIMEOUT_MS = 1_000;
 
 let resolved: Promise<string | undefined> | undefined;
 
@@ -20,27 +22,44 @@ function accountIdsIn(name: string): Promise<Set<string>> {
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
-      db.onversionchange = () => db.close();
-      if (!db.objectStoreNames.contains(ACCOUNT_HEADERS_TABLE)) {
+      try {
+        db.onversionchange = () => db.close();
+        if (!db.objectStoreNames.contains(ACCOUNT_HEADERS_TABLE)) {
+          db.close();
+          resolve(new Set());
+          return;
+        }
+        const keys = db.transaction(ACCOUNT_HEADERS_TABLE, 'readonly').objectStore(ACCOUNT_HEADERS_TABLE).getAllKeys();
+        keys.onsuccess = () => {
+          db.close();
+          resolve(new Set(keys.result.map(String)));
+        };
+        keys.onerror = () => {
+          db.close();
+          reject(keys.error);
+        };
+      } catch (error) {
         db.close();
-        resolve(new Set());
-        return;
+        reject(error);
       }
-      const keys = db.transaction(ACCOUNT_HEADERS_TABLE, 'readonly').objectStore(ACCOUNT_HEADERS_TABLE).getAllKeys();
-      keys.onsuccess = () => {
-        db.close();
-        resolve(new Set(keys.result.map(String)));
-      };
-      keys.onerror = () => {
-        db.close();
-        reject(keys.error);
-      };
     };
   });
 }
 
+async function listStores(): Promise<Set<string | undefined>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('indexedDB.databases() did not answer')), LISTING_TIMEOUT_MS);
+  });
+  try {
+    return new Set((await Promise.race([indexedDB.databases(), timeout])).map(db => db.name));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function chooseMainnetStore(): Promise<string | undefined> {
-  const names = new Set((await indexedDB.databases()).map(db => db.name));
+  const names = await listStores();
   if (!names.has(CEDAR_MAINNET_STORE_NAME)) return undefined;
   const cedar = await accountIdsIn(CEDAR_MAINNET_STORE_NAME);
   if (cedar.size === 0) return undefined;
@@ -53,15 +72,20 @@ async function chooseMainnetStore(): Promise<string | undefined> {
 
 /**
  * The store to open the SDK client with at `rpcUrl`, or undefined for the SDK default. Only the bundled mainnet
- * endpoint is redirected, and only to a cedar store that already holds this wallet's accounts. Resolved once per
- * realm; a failed check answers undefined, which is what 1.17.9 opened.
+ * endpoint is redirected, and only to a cedar store that already holds this wallet's accounts. An answer is kept for
+ * the realm; a failed check answers undefined (what 1.17.9 opened) and is asked again by the next build, so one
+ * transient IndexedDB error cannot pin a realm to the empty store.
  */
 export function sdkStoreNameFor(rpcUrl: string): Promise<string | undefined> {
   if (rpcUrl !== MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET)) return Promise.resolve(undefined);
-  resolved ??= chooseMainnetStore().catch(error => {
-    console.warn('[store-name] could not inspect the mainnet stores; opening the SDK default', error);
-    return undefined;
-  });
+  if (!resolved) {
+    const attempt: Promise<string | undefined> = chooseMainnetStore().catch(error => {
+      console.warn('[store-name] could not inspect the mainnet stores; opening the SDK default', error);
+      if (resolved === attempt) resolved = undefined;
+      return undefined;
+    });
+    resolved = attempt;
+  }
   return resolved;
 }
 
