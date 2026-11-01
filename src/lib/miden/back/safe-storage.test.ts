@@ -118,3 +118,29 @@ describe('safe-storage', () => {
     });
   });
 });
+
+it('latches provider quota failures without classifying authentication failures as storage loss', async () => {
+  const health = await import('../storage-health');
+  const key = await makeVaultKey();
+  await encryptAndSaveMany([['retained', { value: 'private' }]], key);
+  await expect(fetchAndDecryptOne('retained', await makeVaultKey())).rejects.toThrow();
+  expect(health.getStorageHealth().status).toBe('healthy');
+  try {
+    mockProvider.set.mockRejectedValueOnce(new DOMException('quota exceeded', 'QuotaExceededError'));
+    await expect(savePlain('next', 'value')).rejects.toMatchObject({ name: 'QuotaExceededError' });
+    expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota', backend: 'independent' });
+  } finally {
+    await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+  }
+});
+
+it('does not persist pending account flags when recovery expires during encryption', async () => {
+  const key = await makeVaultKey();
+  let current = true;
+  const write = encryptAndSaveMany([['accounts', [{ guardianNoteRecoveryPending: true }]]], key, () => {
+    if (!current) throw new Error('expired recovery');
+  });
+  current = false;
+  await expect(write).rejects.toThrow('expired recovery');
+  expect(mockProvider.set).not.toHaveBeenCalled();
+});

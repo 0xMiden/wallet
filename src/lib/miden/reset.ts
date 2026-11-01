@@ -13,6 +13,9 @@ import { bridgeConfigDerivedKey } from 'lib/remote-config/derived-snapshot';
 import { BRIDGE_CONFIG_FLOOR_KEY, bridgeConfigCacheKey } from 'lib/remote-config/source';
 import { storageCleared } from 'lib/storage-cleared';
 
+import { withRecoveryStorageLock } from './recovery/lock';
+import { getStorageHealth, resetStorageHealthForLifecycle } from './storage-health';
+
 const BRIDGE_CONFIG_DOCUMENT_KEYS: readonly string[] = Object.values(MIDEN_NETWORK_NAME).flatMap(network => [
   bridgeConfigCacheKey(network),
   bridgeConfigDerivedKey(network)
@@ -100,7 +103,7 @@ function removeSessionStorageExcept(keep: readonly string[]): void {
  * Soft storage reset called during wallet creation / spawn.
  *
  * Removes every platform key-value entry except `keep` (by default `PRESERVED_STORAGE_KEYS`) and
- * then empties the `transactions` and `spendingLimits` tables, but deliberately keeps the TridentMain Dexie
+ * then empties the `transactions`, `spendingLimits` and `recoveryDebits` tables, but deliberately keeps the TridentMain Dexie
  * connection alive. Using `db.delete()` here would fire a `versionchange` event
  * to every other open handle (notably the page's, which was opened lazily by the
  * onboarding UI), force them closed, and leave no path to reopen them short of a
@@ -117,15 +120,17 @@ function removeSessionStorageExcept(keep: readonly string[]): void {
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
 export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = PRESERVED_STORAGE_KEYS) {
-  await clearPlatformKeyValueStorage(keep);
-  if (clearDb) {
-    await Repo.transactions.clear();
-    // The spend history and the caps computed from it go together. Recovery from the same mnemonic
-    // reproduces the same account ids, so a surviving configuration would key-match the recovered
-    // account and keep enforcing a cap over a total that was just zeroed - and the disclosure copy
-    // promises that resetting app data removes both.
-    await Repo.spendingLimits.clear();
-  }
+  await withRecoveryStorageLock(async () => {
+    const epoch = getStorageHealth().epoch;
+    await clearPlatformKeyValueStorage(keep);
+    await resetStorageHealthForLifecycle(epoch);
+    if (clearDb) {
+      await Repo.transactions.clear();
+      await Repo.spendingLimits.clear();
+      await Repo.recoveryDebits.clear();
+    }
+    await Repo.metadata.put({ id: 'generation', generation: crypto.randomUUID(), origin: 'authorized' });
+  });
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
@@ -166,16 +171,21 @@ export async function resetStorageDestructive({
   // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
-  await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
-  try {
-    await Repo.db.delete();
-    await Repo.db.open();
-  } catch (err) {
-    await Repo.db.open().catch(() => {});
-    await Repo.transactions.clear().catch(() => {});
-    await Repo.spendingLimits.clear().catch(() => {});
-    throw err;
-  }
+  await withRecoveryStorageLock(async () => {
+    const epoch = getStorageHealth().epoch;
+    await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
+    await resetStorageHealthForLifecycle(epoch);
+    try {
+      await Repo.db.delete();
+      await Repo.db.open();
+    } catch (err) {
+      await Repo.db.open().catch(() => {});
+      await Repo.transactions.clear().catch(() => {});
+      await Repo.spendingLimits.clear().catch(() => {});
+      await Repo.recoveryDebits.clear().catch(() => {});
+      throw err;
+    }
+  });
   await resetNativeAssetCache();
 }
 

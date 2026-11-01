@@ -2,6 +2,7 @@ import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk
 
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
+import { assertStorageRecoveryAllowed, type StorageRecoveryCapability } from '../storage-health';
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
@@ -1503,7 +1504,8 @@ class MidenClientSingleton {
   }
 
   /** Get or create the realm's client; see the class doc for when it is replaced. */
-  async getInstance(): Promise<MidenClientInterface> {
+  async getInstance(recoveryCapability?: StorageRecoveryCapability): Promise<MidenClientInterface> {
+    if (recoveryCapability) assertStorageRecoveryAllowed(recoveryCapability);
     if (this.instance) {
       return this.instance;
     }
@@ -1515,7 +1517,16 @@ class MidenClientSingleton {
     const startedAt = this.generation;
     const creating: Promise<MidenClientInterface> = (async () => {
       try {
-        const client = await MidenClientInterface.create(this.keystoreTrampolines(startedAt));
+        const options = this.keystoreTrampolines(startedAt);
+        const client = await (recoveryCapability
+          ? MidenClientInterface.createForRecovery(recoveryCapability, options)
+          : MidenClientInterface.create(options));
+        try {
+          if (recoveryCapability) assertStorageRecoveryAllowed(recoveryCapability);
+        } catch (error) {
+          this.freeGuarded(client);
+          throw error;
+        }
         // Lost a race with a dispose: this client predates it, so it must not
         // land in the slot. Free it rather than leaking its WASM instance, and
         // still hand it back to THIS caller, whose await began before the
@@ -1763,6 +1774,15 @@ ensureRealmErrorListener();
  */
 export async function getMidenClient(): Promise<MidenClientInterface> {
   return midenClientSingleton.getInstance();
+}
+
+/** Caller holds the WASM lock. Recovery adopts the same realm singleton as ordinary operations. */
+export async function getMidenClientForRecovery(capability: StorageRecoveryCapability): Promise<MidenClientInterface> {
+  assertStorageRecoveryAllowed(capability);
+  if (!getCurrentWasmLockHold()) throw new Error('Recovery client access requires the WASM lock');
+  const client = await midenClientSingleton.getInstance(capability);
+  assertStorageRecoveryAllowed(capability);
+  return client;
 }
 
 /**

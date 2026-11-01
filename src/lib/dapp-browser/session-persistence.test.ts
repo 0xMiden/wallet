@@ -136,6 +136,66 @@ describe('upsertPersistedSession', () => {
     expect(loaded[0]!.parkedAt).toBe(200);
   });
 
+  it('does not overwrite parked sessions when a read fails before upsert', async () => {
+    const original = JSON.stringify([makePersisted('prior')]);
+    store[STORAGE_KEY] = original;
+    mockGet.mockRejectedValueOnce(new Error('read failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new'));
+      expect(store[STORAGE_KEY]).toBe(original);
+      await upsertPersistedSession(makePersisted('new'));
+      expect(JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id)).toEqual(['prior', 'new']);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('persists the newly parked session when normalization fails before upsert', async () => {
+    store[STORAGE_KEY] = JSON.stringify([makePersisted('prior')], null, 2);
+    mockSet.mockRejectedValueOnce(new Error('normalization failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new'));
+      expect(JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id)).toEqual(['prior', 'new']);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('cleans legacy evictions only after the combined upsert is stored', async () => {
+    const legacy = Array.from({ length: 9 }, (_, index) => makePersisted(`legacy${index}`, index));
+    store[STORAGE_KEY] = JSON.stringify(legacy);
+    mockSet.mockRejectedValueOnce(new Error('normalization failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new', 10));
+      const ids = JSON.parse(store[STORAGE_KEY]!).map((session: PersistedSession) => session.id);
+      expect(ids).toContain('new');
+      expect(ids).not.toContain('legacy0');
+      expect(ids).not.toContain('legacy1');
+      expect(mockRemoveSnapshot).toHaveBeenCalledWith('legacy0');
+      expect(mockRemoveSnapshot).toHaveBeenCalledWith('legacy1');
+      expect(mockSet.mock.invocationCallOrder[1]!).toBeLessThan(mockRemoveSnapshot.mock.invocationCallOrder[0]!);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not clean legacy evictions if the combined upsert also fails', async () => {
+    const original = JSON.stringify(Array.from({ length: 9 }, (_, index) => makePersisted(`legacy${index}`, index)));
+    store[STORAGE_KEY] = original;
+    mockSet.mockRejectedValueOnce(new Error('normalization failed')).mockRejectedValueOnce(new Error('upsert failed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await upsertPersistedSession(makePersisted('new', 10));
+      expect(store[STORAGE_KEY]).toBe(original);
+      expect(mockRemoveSnapshot).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('preserves other entries when upserting', async () => {
     await upsertPersistedSession(makePersisted('a', 100));
     await upsertPersistedSession(makePersisted('b', 200));
@@ -324,5 +384,36 @@ describe('ordered persistence mutations', () => {
     await upsertPersistedSession(makePersisted('a'));
     expect((await loadPersistedSessions()).map(s => s.id)).toEqual(['a']);
     warning.mockRestore();
+  });
+});
+
+describe('Task5 cache mobile sessions', () => {
+  it('enforces the existing eight-session cap during a legacy load and repairs the stored list', async () => {
+    store[STORAGE_KEY] = JSON.stringify(Array.from({ length: 11 }, (_, i) => makePersisted(`dapp-${i}`, i)));
+    const loaded = await loadPersistedSessions();
+    expect(loaded).toHaveLength(8);
+    expect(loaded.some(session => session.id === 'dapp-10')).toBe(true);
+    expect(JSON.parse(store[STORAGE_KEY]!).length).toBe(8);
+  });
+
+  it('bounds whole session bytes without truncating retained URLs or origins', async () => {
+    const active = makePersisted('dapp-active', 100);
+    const oversized = { ...makePersisted('dapp-large'), title: '界'.repeat(6000) };
+    await savePersistedSessions([oversized, active]);
+    const content = store[STORAGE_KEY]!;
+    expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(131_072);
+    const loaded = await loadPersistedSessions();
+    expect(loaded).toEqual([active]);
+    expect(mockRemoveSnapshot).toHaveBeenCalledWith('dapp-large');
+  });
+
+  it('enforces the cap on direct save and suppresses an unchanged serialized save', async () => {
+    const sessions = Array.from({ length: 9 }, (_, i) => makePersisted(`dapp-${i}`, i));
+    await savePersistedSessions(sessions);
+    const first = await loadPersistedSessions();
+    expect(first).toHaveLength(8);
+    mockSet.mockClear();
+    await savePersistedSessions(first);
+    expect(mockSet).not.toHaveBeenCalled();
   });
 });

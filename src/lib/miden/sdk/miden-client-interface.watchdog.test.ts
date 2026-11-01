@@ -10,6 +10,8 @@
  * different mutex than the one the interface pauses.
  */
 
+import { nativeStorageCapability } from './test-fixtures/nativeStorageCapability';
+
 /** The keystore `sign` shape `MidenClientInterface.create` wires into the SDK. */
 type WiredSign = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
 
@@ -45,6 +47,7 @@ describe('miden-client-interface watchdog pauses', () => {
 
   const installSdkMocks = (createMock: jest.Mock) => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...nativeStorageCapability(),
       MidenClient: { create: createMock, createMock: jest.fn() },
       NoteFile: { deserialize: jest.fn(() => ({})) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -56,7 +59,6 @@ describe('miden-client-interface watchdog pauses', () => {
         newLocalProver: jest.fn(() => 'local'),
         newCallbackProver: jest.fn(() => 'callback')
       },
-      getWasmOrThrow: jest.fn(async () => ({})),
       WasmWebClient: { createClient: jest.fn() },
       exportStore: jest.fn(),
       importStore: jest.fn()
@@ -89,7 +91,7 @@ describe('miden-client-interface watchdog pauses', () => {
   };
 
   it('pauses the watchdog for the duration of a keystore sign round-trip', async () => {
-    const fakeClient = { terminate: jest.fn() };
+    const fakeClient = { terminate: jest.fn(), storeIdentifier: jest.fn(() => 'test-store') };
     // Typed parameter so the assertion below can reach the wired keystore
     // callback without a cast — a bare `jest.fn(async () => …)` records calls as
     // an empty tuple, so `mock.calls[0][0]` does not type-check.
@@ -269,7 +271,7 @@ describe('miden-client-interface watchdog pauses', () => {
   });
 
   it('does not pause a DISPOSED client\u2019s keystore sign either — same corpse argument as the prove', async () => {
-    const fakeClient = { terminate: jest.fn() };
+    const fakeClient = { terminate: jest.fn(), storeIdentifier: jest.fn(() => 'test-store') };
     const createMock = jest.fn(async (_options?: { keystore?: { sign?: WiredSign } }) => fakeClient);
     installSdkMocks(createMock);
     const { MidenClientInterface } = await import('./miden-client-interface');

@@ -5,7 +5,11 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import {
+  clearPersistedSeenNoteIds,
+  persistSeenNoteIds,
+  retainLatestSeenNoteIds
+} from 'lib/miden/back/note-checker-storage';
 import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -28,6 +32,7 @@ import {
   parseSerializedSpendingLimitAssessment,
   toSerializedSpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
+import { sanitizeStorageAvailability } from 'lib/miden/storage-health';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -313,6 +318,7 @@ export const useWalletStore = create<WalletStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial wallet state
     status: WalletStatus.Idle,
+    storageAvailability: { status: 'pending' },
     accounts: [],
     currentAccount: null,
     networks: [],
@@ -363,11 +369,30 @@ export const useWalletStore = create<WalletStore>()(
 
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
-      const prevStatus = get().status;
-      const justBecameReady = state.status === WalletStatus.Ready && prevStatus !== WalletStatus.Ready;
+      const previous = get();
+      const incomingAvailability = sanitizeStorageAvailability(state.storageAvailability ?? { status: 'pending' });
+      if (
+        previous.storageAvailability.status !== 'pending' &&
+        incomingAvailability.status !== 'pending' &&
+        incomingAvailability.epoch < previous.storageAvailability.epoch
+      )
+        return;
+      const storageAvailability =
+        previous.storageAvailability.status !== 'pending' &&
+        ((previous.storageAvailability.status === 'unavailable' && incomingAvailability.status === 'pending') ||
+          (incomingAvailability.status !== 'pending' &&
+            previous.storageAvailability.status === 'unavailable' &&
+            incomingAvailability.epoch === previous.storageAvailability.epoch))
+          ? previous.storageAvailability
+          : incomingAvailability;
+      const justBecameReady =
+        state.status === WalletStatus.Ready &&
+        storageAvailability.status === 'healthy' &&
+        (previous.status !== WalletStatus.Ready || previous.storageAvailability.status !== 'healthy');
 
       set({
         status: state.status,
+        storageAvailability,
         accounts: state.accounts,
         currentAccount: state.currentAccount,
         networks: state.networks,
@@ -393,6 +418,40 @@ export const useWalletStore = create<WalletStore>()(
             console.warn('[syncFromBackend] Initial balance fetch failed:', err);
           });
       }
+    },
+
+    recoverWalletStorage: async (operation, expectedEpoch) => {
+      const response = await request({ type: WalletMessageType.StorageRecoveryRequest, operation, expectedEpoch });
+      assertResponse(response.type === WalletMessageType.StorageRecoveryResponse);
+      return response;
+    },
+
+    exportRecoveryDataFile: async (filePassword, expectedEpoch, operationId, credential) => {
+      const response = await request({
+        type: WalletMessageType.ExportRecoveryDataRequest,
+        filePassword,
+        expectedEpoch,
+        operationId,
+        credential
+      });
+      assertResponse(response.type === WalletMessageType.ExportRecoveryDataResponse);
+      return response.content;
+    },
+    importRecoveryDataFile: async (content, filePassword, expectedEpoch, operationId, credential) => {
+      const response = await request({
+        type: WalletMessageType.ImportRecoveryDataRequest,
+        content,
+        filePassword,
+        expectedEpoch,
+        operationId,
+        credential
+      });
+      assertResponse(response.type === WalletMessageType.ImportRecoveryDataResponse);
+      return { imported: response.imported, retainedEntries: response.retainedEntries };
+    },
+    cancelRecoveryDataOperation: async operationId => {
+      const response = await request({ type: WalletMessageType.CancelRecoveryDataRequest, operationId });
+      assertResponse(response.type === WalletMessageType.CancelRecoveryDataResponse);
     },
 
     // Auth actions
@@ -984,6 +1043,9 @@ export const useWalletStore = create<WalletStore>()(
 
     // Balance actions
     fetchBalances: async (accountAddress, tokenMetadatas) => {
+      const availability = get().storageAvailability;
+      if (availability.status !== 'healthy') return;
+      const epoch = availability.epoch;
       // The one implementation of a balance read: the Ready-time read and the useAllBalances poll
       // both come through here. The in-flight guard, not `balancesLoading`: Home shows its skeleton
       // while loading, so a refresh that set it would swap the figures on screen for it (#1123).
@@ -1016,6 +1078,8 @@ export const useWalletStore = create<WalletStore>()(
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) return;
+        const currentAvailability = get().storageAvailability;
+        if (currentAvailability.status !== 'healthy' || currentAvailability.epoch !== epoch) return;
         set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
       } finally {
         fetchingAddresses.delete(accountAddress);
@@ -1175,10 +1239,7 @@ export const useWalletStore = create<WalletStore>()(
       const newNoteIds = currentNoteIds.filter(id => !seenNoteIds.has(id));
 
       if (newNoteIds.length > 0) {
-        const updatedSeenNotes = new Set(seenNoteIds);
-        for (const id of newNoteIds) {
-          updatedSeenNotes.add(id);
-        }
+        const updatedSeenNotes = retainLatestSeenNoteIds([...seenNoteIds, ...newNoteIds]);
         // Every new note is recorded as seen, but only one the user has to claim by hand shows the
         // toast: a note first listed while the wallet was claiming it must not toast later, when a fee
         // or setting change makes it manual (#811).

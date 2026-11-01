@@ -14,6 +14,13 @@
  */
 
 const cache = new Map<string, string>();
+const MAX_FAVICON_ENTRIES = 128;
+const MAX_FAVICON_CACHE_BYTES = 65_536;
+const encoder = new TextEncoder();
+
+function cacheBytes(): number {
+  return encoder.encode(JSON.stringify(Object.fromEntries(cache))).byteLength;
+}
 
 /**
  * Build the favicon URL for an origin. Doesn't fetch - the <img> tag with
@@ -37,7 +44,13 @@ export function getFaviconUrl(origin: string): string {
   const cached = cache.get(origin);
   if (cached) return cached;
   const url = buildFaviconUrl(origin);
+  if (encoder.encode(JSON.stringify({ [origin]: url })).byteLength > MAX_FAVICON_CACHE_BYTES) return url;
   cache.set(origin, url);
+  while (cache.size > MAX_FAVICON_ENTRIES || cacheBytes() > MAX_FAVICON_CACHE_BYTES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
   return url;
 }
 
@@ -79,4 +92,8 @@ export function getFallbackLetter(origin: string): string {
   } catch {
     return origin.charAt(0).toUpperCase() || '?';
   }
+}
+
+export function __getFaviconCacheUsageForTests(): { entries: number; bytes: number } {
+  return { entries: cache.size, bytes: cacheBytes() };
 }

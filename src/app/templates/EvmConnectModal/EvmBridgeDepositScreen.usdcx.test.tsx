@@ -7,7 +7,9 @@ import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
 import * as Repo from 'lib/miden/repo';
+import { getStorageHealth } from 'lib/miden/storage-health';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
 import { requestTimeoutError } from 'lib/remote-json';
@@ -123,6 +125,24 @@ jest.mock('lib/epoch', () => ({
     getState: () => epochState
   })
 }));
+
+let mockSubmissionComplete = () => {};
+jest.mock('lib/miden/activity/bridge-receive', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/activity/bridge-receive')>(
+    'lib/miden/activity/bridge-receive'
+  );
+  return {
+    ...actual,
+    startBridgeReceiveSubmission: (create: () => Promise<string>, drive: (id: string) => Promise<void>) =>
+      actual.startBridgeReceiveSubmission(create, async id => {
+        try {
+          await drive(id);
+        } finally {
+          mockSubmissionComplete();
+        }
+      })
+  };
+});
 
 jest.mock('lib/miden/activity', () => ({
   initiateBridgedReceiveTransaction: jest.fn(),
@@ -833,6 +853,83 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('review-symbols')).toHaveTextContent('USDC->USDCx');
   });
 
+  it.each([
+    ['owner', false, false],
+    ['owner', true, false],
+    ['catch', false, true],
+    ['catch', true, true]
+  ] satisfies [string, boolean, boolean][])(
+    'Task4C2 supplemental USDCx %s preserves attempted source after native=%s wallet response loss',
+    async (_boundary, native, directGate) => {
+      await Repo.db.open();
+      mockNativeAvailable = native;
+      installProviderReceiptBackend(async () => {});
+      let createdId = '';
+      let observedAttempt: unknown;
+      let complete = () => {};
+      const finished = new Promise<void>(resolve => {
+        complete = resolve;
+      });
+      mockSubmissionComplete = complete;
+      const initiate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      ).initiateBridgedReceiveTransaction;
+      const update = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+        'lib/miden/transaction/complete'
+      ).updateBridgedReceivePhase;
+      jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async args => {
+        createdId = await initiate(args);
+        return createdId;
+      });
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(update);
+      const loseResponse = async () => {
+        observedAttempt = (await Repo.transactions.get(createdId))?.extraInputs.sourceSubmission;
+        throw new Error('Wallet response lost');
+      };
+      mockWriteContract.mockImplementation(loseResponse);
+      mockNativeSend.mockImplementation(loseResponse);
+      jest
+        .mocked(runUsdcxDeposit)
+        .mockImplementation((id, amount, recipient, deps) =>
+          jest
+            .requireActual<typeof import('lib/usdcx/deposit')>('lib/usdcx/deposit')
+            .runUsdcxDeposit(id, amount, recipient, { ...deps, updatePhase: directGate ? update : deps.updatePhase })
+        );
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        writable: true,
+        value: jest.fn(async (_url: string, init?: RequestInit) => {
+          const call = JSON.parse(String(init?.body ?? '{}')).params?.[0];
+          const registration = String(call?.data).startsWith(REGISTRATION_SELECTOR);
+          return { json: async () => ({ result: word(registration ? 1n : mockBalance) }) };
+        })
+      });
+      const rendered = renderScreen();
+      try {
+        await reachUsdcxRoute();
+        fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+        await settle();
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await act(async () => {
+          await finished;
+        });
+        expect(mockWriteContract.mock.calls.length + mockNativeSend.mock.calls.length).toBe(1);
+        expect(observedAttempt).toBe('attempted');
+        const row = await Repo.transactions.get(createdId);
+        expect(row?.extraInputs.phase).toBe('submitting');
+        expect(row?.extraInputs.sourceSubmission).toBe('attempted');
+        expect(row?.extraInputs.evmTxHash).toBeUndefined();
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        mockSubmissionComplete = () => {};
+        rendered.unmount();
+        installProviderReceiptBackend(undefined);
+        mockNativeAvailable = false;
+        jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
+        jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
+      }
+    }
+  );
   it('creates a usdcx tracking row and runs the EVM leg with the encoded recipient', async () => {
     renderScreen();
 
@@ -1294,7 +1391,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     // The allowance covers the burn, so its prompt is the first one.
     expect(mockWriteContract).toHaveBeenCalledTimes(1);
     expect(reads).toEqual({ atChainStep: 1, atBurn: 2 });
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'delivering', expect.anything());
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'delivering',
+      expect.anything(),
+      undefined,
+      undefined
+    );
   });
 
   it('refuses before the approval when the balance dropped during the chain step', async () => {
@@ -2692,6 +2795,7 @@ describe('user-visible USDCx deposit producers', () => {
       const actualUpdate = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
         'lib/miden/transaction/complete'
       ).updateBridgedReceivePhase;
+      installProviderReceiptBackend(async () => {});
       let createdId = '';
       jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async input => {
         createdId = await actualCreate(input);
@@ -2803,6 +2907,7 @@ describe('user-visible USDCx deposit producers', () => {
         cleanup();
         jest.useRealTimers();
         mockRealBridgeRowQuery = false;
+        installProviderReceiptBackend(undefined);
         jest.mocked(subscribeToLiveQuery).mockImplementation(actualSubscribe);
       }
     }

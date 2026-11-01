@@ -1,3 +1,4 @@
+import sdkPackageJson from '@miden-sdk/miden-sdk/package.json';
 import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
 import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
@@ -1097,7 +1098,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       [
         `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${queueSighting}${preflightSync}${queueHidden}${submitCrossing}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
-        `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
+        `SDK ${softwareVersion(sdkPackageJson.version)}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
     );
     report.name = 'WalletTransactionFailure';

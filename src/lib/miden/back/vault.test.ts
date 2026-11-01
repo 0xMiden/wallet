@@ -12,16 +12,44 @@ import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
+import * as CanonicalReads from '../recovery/canonical-reads';
+import { StorageContinuityError } from '../recovery/continuity';
+import { decryptRecoveryDataFile } from '../recovery/external-file';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
+import { checkpointProviderReceipt } from '../recovery/receipt-writer';
+import { oneClickReceiptRow } from '../recovery/testing/provider-receipts';
+import type { RecoveryJournalSnapshot } from '../recovery/types';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from '../storage-health';
+
+jest.mock('../recovery/canonical-reads', () => ({ createRecoveryCanonicalReads: jest.fn() }));
+
+const mockRecoveryCommitment = jest.fn();
+const mockRecoveryGuardianState = jest.fn();
+jest.mock('lib/secure-hot-key/commitment', () => {
+  const actual = jest.requireActual('lib/secure-hot-key/commitment');
+  return {
+    ...actual,
+    commitmentFromPublicKeyHex: (...args: unknown[]) =>
+      mockRecoveryCommitment.getMockImplementation()
+        ? mockRecoveryCommitment(...args)
+        : actual.commitmentFromPublicKeyHex(...args)
+  };
+});
+jest.mock('../recovery/guardian-state', () => ({
+  readGuardianRecoveryAccount: (...args: unknown[]) => mockRecoveryGuardianState(...args)
+}));
 
 jest.setTimeout(30_000);
 
@@ -29,16 +57,24 @@ const memoryStore: Record<string, any> = {};
 // The keys of each storage write, so a test can count the saves one call makes.
 const mockStorageSets: string[][] = [];
 let retainedStorageKey: string | undefined;
+let mockBeforeRecoveryWrite: (() => Promise<void>) | undefined;
+let mockBeforeStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
+let mockAfterStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
+let mockAfterStorageRead: ((keys: string[]) => void) | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
       const out: Record<string, any> = {};
       for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
+      if (mockAfterStorageRead) mockAfterStorageRead(keys);
       return out;
     },
     set: async (items: Record<string, any>) => {
+      if (Object.keys(items).some(key => /^miden_recovery_v1_[01]$/.test(key))) await mockBeforeRecoveryWrite?.();
       mockStorageSets.push(Object.keys(items));
+      if (mockBeforeStorageWrite) await mockBeforeStorageWrite(items);
       Object.assign(memoryStore, items);
+      if (mockAfterStorageWrite) await mockAfterStorageWrite(items);
     },
     remove: async (keys: string[]) => {
       for (const k of keys) {
@@ -146,6 +182,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // pass-through mock with no hold would make those guards a TypeError, and a
 // no-op assertWasmHoldCurrent would make the eviction tests below vacuous.
 let currentWasmHold: object | null = null;
+let mockRecoveryClient: import('../sdk/miden-client-interface').MidenClientInterface | undefined;
 // Acquisition depth: a nested acquisition would deadlock the non-reentrant production mutex.
 let wasmLockDepth = 0;
 // Simulates a watchdog eviction landing mid-flow: the mutex moves on while
@@ -161,6 +198,13 @@ jest.mock('../sdk/miden-client', () => {
     jest.requireActual<typeof import('../sdk/wasm-client-poison')>('../sdk/wasm-client-poison');
   return {
     getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
+    getMidenClientForRecovery: async (capability: import('../storage-health').StorageRecoveryCapability) => {
+      const { assertStorageRecoveryAllowed } =
+        jest.requireActual<typeof import('../storage-health')>('../storage-health');
+      assertStorageRecoveryAllowed(capability);
+      if (!currentWasmHold || !mockRecoveryClient) throw new Error('Missing owned recovery client fixture');
+      return mockRecoveryClient;
+    },
     getCurrentWasmLockHold: () => currentWasmHold,
     // Re-implements the real comparison against the mock's own hold — a no-op
     // here would silently pass every eviction test.
@@ -226,7 +270,8 @@ jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   fetchGuardianCreateKey: (...a: unknown[]) => mockFetchGuardianCreateKey(...a),
   registerGuardianAccount: (...a: unknown[]) => mockRegisterGuardianAccount(...a),
-  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
+  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any])),
+  resolveChosenGuardianEndpoint: (account: { guardianEndpoint?: string }) => account.guardianEndpoint
 }));
 
 // normalizeHex mirrors the real strip-0x + lowercase so commitments compare equal.
@@ -268,6 +313,7 @@ const mockMidenClient = {
 // getBech32AddressFromAccountId uses the real WASM `Address.fromAccountId`;
 // stub it so tests can assert on returned ids without a real WASM binary.
 jest.mock('../sdk/helpers', () => ({
+  canonicalWalletAccountId: (id: string) => id.split('_')[0],
   getBech32AddressFromAccountId: jest.fn((id: any) => {
     if (id && typeof id === 'object' && '__marker' in id) {
       return `bech32:${id.__marker}`;
@@ -336,6 +382,21 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...base,
+    NoteType: { Private: 0, Public: 1 },
+    InputNoteState: {
+      Expected: 0,
+      Unverified: 1,
+      Committed: 2,
+      Invalid: 3,
+      ProcessingAuthenticated: 4,
+      ConsumedAuthenticatedLocal: 6,
+      ConsumedExternal: 8
+    },
+    NoteFile: { deserialize: jest.fn(), fromInputNote: jest.fn() },
+    Note: Object.assign(base.Note, { deserialize: jest.fn() }),
+    InputNote: { authenticated: jest.fn(), unauthenticated: jest.fn() },
+    RpcClient: jest.fn(),
+    Endpoint: jest.fn(),
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
       rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' })),
@@ -468,6 +529,7 @@ function clearMemoryStore() {
 
 beforeEach(() => {
   retainedStorageKey = undefined;
+  mockBeforeRecoveryWrite = undefined;
   clearMemoryStore();
   jest.clearAllMocks();
   (isDesktop as jest.Mock).mockReturnValue(false);
@@ -5188,4 +5250,3239 @@ describe('Vault.importHotKeyPair', () => {
 
     await expect(vault.importHotKeyPair(recovered.publicKey, 'nope')).rejects.toThrow('importHotKeyInvalid');
   });
+});
+
+describe('Vault storage continuity', () => {
+  let vault: Vault;
+  let fixtureKey: CryptoKey;
+  let generation: string | null;
+  let readSnapshot: jest.SpyInstance;
+  let initializeGeneration: jest.SpyInstance;
+  beforeEach(async () => {
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (_name: string, operation: () => Promise<unknown>) => operation()
+      }
+    });
+    const key = await Passworder.importVaultKey(new Uint8Array(32).fill(7));
+    fixtureKey = key;
+    await encryptAndSaveMany(
+      [
+        [keys.check, 'retained-vault'],
+        [keys.accounts, [{ publicKey: 'retained', name: 'Account', isPublic: true, type: WalletType.OnChain }]]
+      ],
+      key
+    );
+    vault = new Vault(key);
+    await Repo.metadata.put({ id: 'generation', generation: 'wallet-fixture', origin: 'migrated' });
+    generation = null;
+    readSnapshot = jest.spyOn(midenClientProxy, 'readStorageContinuity').mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: [{ kind: 'note', id: 'private-note', noteFile: new Uint8Array([1, 2]), provenance: 'input' }]
+    }));
+    initializeGeneration = jest
+      .spyOn(midenClientProxy, 'initializeStorageGeneration')
+      .mockImplementation(async next => {
+        generation = next;
+      });
+  });
+  afterEach(() => {
+    installProviderReceiptBackend(undefined);
+    readSnapshot.mockRestore();
+    initializeGeneration.mockRestore();
+  });
+
+  async function acquisition() {
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
+      fixtureKey
+    );
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    readSnapshot.mockClear();
+    const noteFile = new Uint8Array([19, 48, 7, 255]);
+    const noteId = '0x' + '12'.repeat(32);
+    const details = {
+      recipient: () => ({ digest: () => ({ toFelts: () => [] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => {}
+    };
+    const sdk = jest.requireMock<{
+      NoteFile: { deserialize: jest.Mock };
+      Poseidon2: { hashElements: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    const hash = jest.spyOn(sdk.Poseidon2, 'hashElements').mockReturnValue({
+      toHex: () => '0x' + '34'.repeat(32),
+      toFelts: () => [],
+      free: () => {}
+    });
+    const setCandidate = (
+      bytes: Uint8Array,
+      { identity = noteId, detailsOnly = false, tag = 7, afterBlock = 10 } = {}
+    ) => {
+      const metadata = () => ({ noteType: () => 0, tag: () => ({ asU32: () => tag, free: () => {} }), free: () => {} });
+      const id = () => ({ toString: () => identity, free: () => {} });
+      const file = {
+        noteId: () => (detailsOnly ? undefined : id()),
+        note: () => (detailsOnly ? undefined : { ...details, metadata, id }),
+        noteDetails: () => (detailsOnly ? details : undefined),
+        noteType: () => (detailsOnly ? 'NoteDetails' : 'NoteWithProof'),
+        noteTag: () => (detailsOnly ? { asU32: () => tag, free: () => {} } : undefined),
+        afterBlockNum: () => (detailsOnly ? afterBlock : undefined),
+        inclusionProof: () =>
+          detailsOnly
+            ? undefined
+            : { location: () => ({ blockNum: () => afterBlock, free: () => {} }), free: () => {} },
+        nullifier: () => (detailsOnly ? undefined : '0x' + '56'.repeat(32)),
+        serialize: () => bytes.slice(),
+        free: () => {}
+      };
+      sdk.NoteFile.deserialize.mockReturnValue(file);
+      return file;
+    };
+    setCandidate(noteFile);
+    const imported = jest.fn(async (_file?: { serialize: () => Uint8Array }) => noteId);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      MidenClientInterface.fromClient,
+      MidenClientInterface,
+      [{ notes: { import: imported } }, 'testnet']
+    );
+    const { withWasmClientLock } = await import('../sdk/miden-client');
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    return {
+      noteFile,
+      noteId,
+      imported,
+      setCandidate,
+      client,
+      run: (bytes = noteFile) =>
+        getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(bytes, hold))),
+      runRecovery: (bytes = [noteFile]) =>
+        getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importRecoveryNoteBytes(bytes, hold))),
+      restore: () => {
+        hash.mockRestore();
+        sdk.NoteFile.deserialize.mockReset();
+        mockBeforeRecoveryWrite = undefined;
+      }
+    };
+  }
+
+  async function canonicalAcquisition({ distinctExport = false, conflictingCandidate = false, state = 2 } = {}) {
+    const fixture = await acquisition();
+    const expectedBytes = new Uint8Array([19, 48, 80]);
+    const canonicalBytes = new Uint8Array([19, 48, 81]);
+    const candidateBytes = distinctExport ? new Uint8Array([19, 48, 82]) : canonicalBytes;
+    const detailsId = '34'.repeat(32);
+    const canonicalId = '12'.repeat(32);
+    const files = new Map<string, ReturnType<typeof fixture.setCandidate>>();
+    const remember = (bytes: Uint8Array, options = {}) => {
+      const file = fixture.setCandidate(bytes, options);
+      files.set(Array.from(bytes).join(','), file);
+      return file;
+    };
+    remember(expectedBytes, { detailsOnly: true, tag: 71, afterBlock: 7 });
+    await fixture.run(expectedBytes);
+    remember(candidateBytes, { tag: 72, afterBlock: 19 });
+    await fixture.run(candidateBytes);
+    const conflictBytes = new Uint8Array([19, 48, 83]);
+    if (conflictingCandidate) {
+      remember(conflictBytes, { identity: '0x' + 'ab'.repeat(32), tag: 73, afterBlock: 23 });
+      await fixture.run(conflictBytes);
+    }
+    const canonicalFile = remember(canonicalBytes, { tag: 72, afterBlock: 19 });
+    const sdk = jest.requireMock<{
+      NoteFile: { deserialize: jest.Mock; fromInputNote: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    sdk.NoteFile.deserialize.mockImplementation((bytes: Uint8Array) => {
+      const file = files.get(Array.from(bytes).join(','));
+      if (!file) throw new Error('Unknown fixture NoteFile');
+      return file;
+    });
+    sdk.NoteFile.fromInputNote.mockImplementation(() => canonicalFile);
+    const record = () => ({
+      details: () => {
+        const details = canonicalFile.note();
+        if (!details) throw new Error('Missing canonical fixture body');
+        return details;
+      },
+      id: canonicalFile.noteId,
+      state: () => state,
+      isAuthenticated: () => state === 2 || state === 4 || state === 6,
+      isConsumed: () => state === 6,
+      isInclusionPending: () => state === 1,
+      metadata: () => canonicalFile.note()?.metadata(),
+      inclusionProof: canonicalFile.inclusionProof,
+      nullifier: canonicalFile.nullifier,
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    const list = jest.fn().mockImplementation(async () => [record()]);
+    const settings = {
+      get: jest
+        .fn()
+        .mockImplementation(async () =>
+          generation === null ? null : Array.from(new TextEncoder().encode(generation))
+        ),
+      set: jest.fn()
+    };
+    const accounts = {
+      get: jest.fn().mockResolvedValue({
+        nonce: () => ({ asInt: () => 4n }),
+        to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+      }),
+      insert: jest.fn()
+    };
+    Reflect.set(fixture.client.client, 'notes', { import: fixture.imported, list });
+    Reflect.set(fixture.client.client, 'settings', settings);
+    Reflect.set(fixture.client.client, 'accounts', accounts);
+    const { getCurrentWasmLockHold, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+    readSnapshot.mockImplementation(async (accountIds, includeNotes, _capability, retained = [], families = []) => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('Canonical fixture requires the actual reconciliation hold');
+      return Reflect.apply(fixture.client.readStorageContinuity, fixture.client, [
+        accountIds,
+        includeNotes,
+        () => assertWasmHoldCurrent(hold, 'during canonical fixture readback'),
+        retained,
+        families
+      ]);
+    });
+    const reads = {
+      dispose: jest.fn(),
+      identity: jest.fn().mockResolvedValue(undefined),
+      header: jest.fn().mockResolvedValue(undefined),
+      scan: jest.fn().mockResolvedValue([]),
+      node: {
+        blockCommitment: jest.fn().mockResolvedValue(undefined),
+        account: jest.fn().mockResolvedValue({ ok: false, pruned: false, timedOut: false }),
+        noteInclusions: jest.fn().mockResolvedValue(new Map()),
+        nullifierHeight: jest.fn().mockResolvedValue(undefined)
+      }
+    };
+    jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockResolvedValue(reads);
+    fixture.imported.mockClear();
+    const savedFamily = async (owner = vault) => {
+      const snapshot = await owner.readRecoveryJournal();
+      const note = snapshot?.entries.find(entry => entry.kind === 'note' && entry.detailsId === detailsId);
+      if (!snapshot || note?.kind !== 'note') throw new Error('Missing retained canonical fixture family');
+      return { snapshot, note };
+    };
+    return {
+      ...fixture,
+      expectedBytes,
+      canonicalBytes,
+      candidateBytes,
+      conflictBytes,
+      detailsId,
+      canonicalId,
+      canonicalFile,
+      record,
+      list,
+      settings,
+      accounts,
+      reads,
+      savedFamily,
+      restore: () => {
+        fixture.restore();
+        sdk.NoteFile.fromInputNote.mockReset();
+        jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockReset();
+      }
+    };
+  }
+
+  it('Task4C3G3 reorders an exact candidate into a full primary and restores it after encrypted restart', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.note).toMatchObject({ id: fixture.canonicalId, noteFile: fixture.canonicalBytes, format: 'full' });
+      expect(after.note.candidates).toEqual([
+        expect.objectContaining({ id: fixture.detailsId, noteFile: fixture.expectedBytes, format: 'details' })
+      ]);
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length);
+      expect(after.snapshot).toMatchObject({ scope: before.snapshot.scope, accounts: before.snapshot.accounts });
+      expect(after.snapshot.sequence).toBe(before.snapshot.sequence + 1);
+      expect(fixture.list).toHaveBeenCalledWith({ detailsCommitments: [`0x${fixture.detailsId}`] });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      const restarted = new Vault(fixtureKey);
+      const persisted = await fixture.savedFamily(restarted);
+      expect(persisted.snapshot).toEqual(after.snapshot);
+      let restored = false;
+      const imported = jest.fn().mockImplementation(async (file: { serialize: () => Uint8Array }) => {
+        expect(file.serialize()).toEqual(fixture.canonicalBytes);
+        restored = true;
+      });
+      const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
+      const { withWasmClientLock, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+      await withWasmClientLock(hold =>
+        restoreSdkRecovery(
+          {
+            settings: fixture.settings,
+            accounts: fixture.accounts,
+            notes: {
+              import: imported,
+              list: jest.fn().mockImplementation(async () => (restored ? [fixture.record()] : []))
+            },
+            storeIdentifier: jest.fn()
+          },
+          { kind: 'note', note: persisted.note, accountId: 'retained' },
+          () => assertWasmHoldCurrent(hold, 'during canonical primary reconstruction')
+        )
+      );
+      expect(imported).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 retains every older body when the authenticated export adds distinct required material', async () => {
+    const fixture = await canonicalAcquisition({ distinctExport: true });
+    const before = await fixture.savedFamily();
+    try {
+      await vault.reconcileStorageRecovery();
+      const after = await fixture.savedFamily();
+      expect(after.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(journalNoteBodies(after.snapshot)).toEqual(
+        expect.arrayContaining([...journalNoteBodies(before.snapshot), fixture.canonicalBytes])
+      );
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length + 1);
+      expect(after.snapshot.sequence).toBe(before.snapshot.sequence + 1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 preserves a conflicting candidate while upgrading the authenticated primary', async () => {
+    const fixture = await canonicalAcquisition({ conflictingCandidate: true });
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(after.note.candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ noteFile: fixture.expectedBytes }),
+          expect.objectContaining({ noteFile: fixture.conflictBytes })
+        ])
+      );
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 repeats canonical readback without another journal generation', async () => {
+    const fixture = await canonicalAcquisition();
+    try {
+      await vault.reconcileStorageRecovery();
+      const first = await fixture.savedFamily();
+      expect(first.note.noteFile).toEqual(fixture.canonicalBytes);
+      const writes = mockStorageSets.length;
+      await vault.reconcileStorageRecovery();
+      expect((await fixture.savedFamily()).snapshot).toEqual(first.snapshot);
+      expect(mockStorageSets.length).toBe(writes);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each([1, 3])('Task4C3G3 leaves state %s unresolved without changing retained evidence or health', async state => {
+    const fixture = await canonicalAcquisition({ state });
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 refuses a distinct canonical export at global material capacity without losing the primary', async () => {
+    const fixture = await canonicalAcquisition({ distinctExport: true });
+    try {
+      const initial = await fixture.savedFamily();
+      const countMaterials = (snapshot: typeof initial.snapshot) =>
+        journalNoteBodies(snapshot).length + snapshot.entries.filter(entry => entry.kind !== 'note').length;
+      const remaining = 256 - countMaterials(initial.snapshot);
+      expect(remaining).toBeGreaterThan(0);
+      await vault.retainRecoveryEntries(
+        Array.from({ length: remaining }, (_, index) => ({
+          kind: 'note',
+          id: `g-capacity-${index}`,
+          noteFile: new Uint8Array([97, index]),
+          provenance: 'input'
+        }))
+      );
+      const before = await fixture.savedFamily();
+      expect(countMaterials(before.snapshot)).toBe(256);
+      expect(before.snapshot.entries.filter(entry => entry.kind !== 'note')).toEqual(
+        initial.snapshot.entries.filter(entry => entry.kind !== 'note')
+      );
+      await expect(vault.reconcileStorageRecovery()).rejects.toThrow();
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 refuses stale canonical replacement when candidate evidence changes during the SDK read', async () => {
+    const fixture = await canonicalAcquisition();
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atRead = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    fixture.list.mockImplementationOnce(async () => {
+      entered();
+      await pending;
+      return [fixture.record()];
+    });
+    const outcome = vault.reconcileStorageRecovery().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atRead.then(() => true), outcome.then(() => false)])).toBe(true);
+      const before = await fixture.savedFamily();
+      const lateBytes = new Uint8Array([19, 48, 84]);
+      await vault.retainRecoveryEntries([
+        {
+          ...before.note,
+          candidates: [
+            ...(before.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: lateBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const current = await fixture.savedFamily();
+      release();
+      expect((await outcome).error).toBeDefined();
+      expect((await fixture.savedFamily()).snapshot).toEqual(current.snapshot);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(lateBytes);
+      expect(current.note.noteFile).toEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 preserves pending aliases and transaction receipt evidence after the primary ID changes', async () => {
+    const fixture = await canonicalAcquisition();
+    try {
+      await vault.reconcileStorageRecovery();
+      const promoted = await fixture.savedFamily();
+      expect(promoted.note.id).toBe(fixture.canonicalId);
+      await Repo.transactions.put({
+        id: 'g-pending',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        inputNoteIds: [fixture.detailsId, fixture.canonicalId],
+        outputNoteIds: [],
+        heldNoteIds: [fixture.detailsId],
+        noteDelivery: 'pending'
+      });
+      await vault.retainTransactionRecovery('g-pending', { requestBytes: new Uint8Array([9]), notes: [] });
+      const receipt = oneClickReceiptRow();
+      receipt.id = 'g-receipt';
+      receipt.accountId = 'retained';
+      receipt.extraInputs.oneClick.accountId = 'retained';
+      await Repo.transactions.put(receipt);
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      await checkpointProviderReceipt(receipt);
+      const before = await fixture.savedFamily();
+      const pendingRow = await Repo.transactions.get('g-pending');
+      const receiptRow = await Repo.transactions.get('g-receipt');
+      fixture.reads.identity.mockClear().mockResolvedValue({ nullifier: '56'.repeat(32), fromBlock: 19 });
+      fixture.reads.header.mockResolvedValue('canonical-header');
+      fixture.reads.scan.mockResolvedValue([{ nullifier: '56'.repeat(32), block: 19 }]);
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.snapshot.entries).toEqual(before.snapshot.entries);
+      expect(await Repo.transactions.get('g-pending')).toEqual(pendingRow);
+      expect(await Repo.transactions.get('g-receipt')).toEqual(receiptRow);
+      expect(fixture.reads.identity).not.toHaveBeenCalled();
+      expect(fixture.reads.scan).not.toHaveBeenCalled();
+      expect(journalNoteBodies(after.snapshot)).toContainEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task1948 keeps an ordinary cancelled journal write healthy and preserves the prior generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    await Repo.transactions.put({
+      id: 'classification-attempt',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      mayHaveSubmitted: true
+    });
+    const failure = new DOMException('Cancelled', 'AbortError');
+    const inject = jest.fn(async () => {
+      throw failure;
+    });
+    mockBeforeRecoveryWrite = inject;
+    try {
+      await expect(
+        vault.retainTransactionRecovery('classification-attempt', { requestBytes: new Uint8Array([9]), notes: [] })
+      ).rejects.toBe(failure);
+      expect(inject).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task1948 classifies an independent journal quota and preserves the prior generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    await Repo.transactions.put({
+      id: 'classification-attempt',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      mayHaveSubmitted: true
+    });
+    const failure = new DOMException('Independent store full', 'QuotaExceededError');
+    const inject = jest.fn(async () => {
+      throw failure;
+    });
+    mockBeforeRecoveryWrite = inject;
+    try {
+      await expect(
+        vault.retainTransactionRecovery('classification-attempt', { requestBytes: new Uint8Array([9]), notes: [] })
+      ).rejects.toBe(failure);
+      expect(inject).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth()).toMatchObject({
+        status: 'unavailable',
+        reason: 'quota',
+        backend: 'independent',
+        operation: 'mutate'
+      });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 latches a real canonical primary write quota while preserving the last readable generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    mockBeforeRecoveryWrite = async () => {
+      throw new DOMException('Independent store full', 'QuotaExceededError');
+    };
+    try {
+      await expect(vault.reconcileStorageRecovery()).rejects.toThrow();
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  async function canonicalRetirement({ conflictingCandidate = false } = {}) {
+    const fixture = await canonicalAcquisition({ conflictingCandidate });
+    await vault.reconcileStorageRecovery();
+    const actual = jest.requireActual<typeof import('../recovery/canonical-reads')>('../recovery/canonical-reads');
+    const sdk = jest.requireMock<{ RpcClient: jest.Mock; Word: object }>('@miden-sdk/miden-sdk/lazy');
+    const rpcImplementation = sdk.RpcClient.getMockImplementation();
+    const wordDescriptor = Object.getOwnPropertyDescriptor(sdk.Word, 'fromHex');
+    const word = jest.fn((_hex: string) => ({
+      toU64s: () => [0n, 0n, 0n, 0x5656565656565656n],
+      free: jest.fn()
+    }));
+    Object.defineProperty(sdk.Word, 'fromHex', { configurable: true, value: word });
+    const headerValue = (commitment = 'aa'.repeat(32)) => ({
+      commitment: () => ({ toHex: () => `0x${commitment}`, free: jest.fn() }),
+      free: jest.fn()
+    });
+    const header = jest.fn().mockImplementation(async () => headerValue());
+    const update = (nullifier = '56'.repeat(32)) => ({
+      nullifier: () => ({ toHex: () => `0x${nullifier}`, free: jest.fn() }),
+      blockNum: () => 19,
+      free: jest.fn()
+    });
+    const scan = jest.fn().mockImplementation(async () => [update()]);
+    const free = jest.fn();
+    sdk.RpcClient.mockImplementation(() => ({
+      getBlockHeaderByNumber: header,
+      syncNullifiers: scan,
+      free
+    }));
+    jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockImplementation(actual.createRecoveryCanonicalReads);
+    return {
+      ...fixture,
+      header,
+      headerValue,
+      scan,
+      update,
+      word,
+      free,
+      restore: () => {
+        fixture.restore();
+        sdk.RpcClient.mockReset();
+        if (rpcImplementation) sdk.RpcClient.mockImplementation(rpcImplementation);
+        if (wordDescriptor) Object.defineProperty(sdk.Word, 'fromHex', wordDescriptor);
+        else Reflect.deleteProperty(sdk.Word, 'fromHex');
+      }
+    };
+  }
+
+  it('Task4C3G6 retires the authenticated family and its old Expected body after exact canonical consumption', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 1 });
+      const after = await vault.readRecoveryJournal();
+      expect(after?.entries).toEqual(before.snapshot.entries.filter(entry => entry !== before.note));
+      expect(after).toMatchObject({ scope: before.snapshot.scope, accounts: before.snapshot.accounts });
+      expect(after?.sequence).toBe(before.snapshot.sequence + 1);
+      expect(fixture.scan).toHaveBeenCalledWith(new Uint16Array([0x5656]), 19, 19);
+      expect(fixture.header).toHaveBeenNthCalledWith(1, 19, false);
+      expect(fixture.header).toHaveBeenNthCalledWith(2, 19, false);
+      expect(fixture.free).toHaveBeenCalledTimes(1);
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await new Vault(fixtureKey).readRecoveryJournal()).toEqual(after);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 keeps every family body when the scanned full nullifier differs despite a matching prefix', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    fixture.scan.mockResolvedValue([fixture.update('56'.repeat(31) + '57')]);
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect(fixture.scan).toHaveBeenCalledTimes(1);
+      const after = await fixture.savedFamily();
+      expect(journalNoteBodies(after.snapshot)).toEqual(journalNoteBodies(before.snapshot));
+      expect(after.note).toMatchObject({
+        noteFile: fixture.canonicalBytes,
+        scan: { nextBlock: 20, anchorBlock: 19, anchor: '0x' + 'aa'.repeat(32) }
+      });
+      expect(after.snapshot.entries.filter(entry => entry.kind !== 'note')).toEqual(
+        before.snapshot.entries.filter(entry => entry.kind !== 'note')
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 refuses a consumption result when the exact scanned block header changes', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    fixture.header
+      .mockResolvedValueOnce(fixture.headerValue())
+      .mockResolvedValueOnce(fixture.headerValue('bb'.repeat(32)));
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect(fixture.scan).toHaveBeenCalledTimes(1);
+      expect(fixture.header).toHaveBeenCalledTimes(2);
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 preserves a conflicting full note ID even when its fixture has the same nullifier', async () => {
+    const fixture = await canonicalRetirement({ conflictingCandidate: true });
+    const before = await fixture.savedFamily();
+    try {
+      expect(before.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(journalNoteBodies(before.snapshot)).toContainEqual(fixture.conflictBytes);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(fixture.header).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 quarantines an unreadable candidate without deleting it or vetoing the authenticated primary', async () => {
+    const fixture = await canonicalRetirement();
+    try {
+      const initial = await fixture.savedFamily();
+      const unreadableBytes = new Uint8Array([19, 48, 85]);
+      await vault.retainRecoveryEntries([
+        {
+          ...initial.note,
+          candidates: [
+            ...(initial.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: unreadableBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const before = await fixture.savedFamily();
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(before.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(journalNoteBodies(before.snapshot)).toContainEqual(unreadableBytes);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 preserves a promoted family referenced only by its old Expected alias in pending evidence', async () => {
+    const fixture = await canonicalRetirement();
+    try {
+      await Repo.transactions.put({
+        id: 'g6-pending',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        inputNoteIds: [fixture.detailsId],
+        outputNoteIds: [],
+        heldNoteIds: [fixture.detailsId],
+        noteDelivery: 'pending'
+      });
+      await vault.retainTransactionRecovery('g6-pending', { requestBytes: new Uint8Array([9]), notes: [] });
+      const before = await fixture.savedFamily();
+      const row = await Repo.transactions.get('g6-pending');
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(await Repo.transactions.get('g6-pending')).toEqual(row);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 refuses stale family deletion after a candidate arrives during the canonical RPC', async () => {
+    const fixture = await canonicalRetirement();
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atScan = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    fixture.scan.mockImplementationOnce(async () => {
+      entered();
+      await pending;
+      return [fixture.update()];
+    });
+    const outcome = vault.reconcileStorageRecovery().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atScan.then(() => true), outcome.then(() => false)])).toBe(true);
+      const before = await fixture.savedFamily();
+      const lateBytes = new Uint8Array([19, 48, 86]);
+      await vault.retainRecoveryEntries([
+        {
+          ...before.note,
+          candidates: [
+            ...(before.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: lateBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const current = await fixture.savedFamily();
+      release();
+      expect((await outcome).value?.retired ?? 0).toBe(0);
+      expect((await fixture.savedFamily()).snapshot).toEqual(current.snapshot);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(lateBytes);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3I checkpoints the actual Vault only after every required baseline page has arrived', async () => {
+    const { default: Dexie } = await import('dexie');
+    const database = new Dexie('task4c3-baseline-checkpoint');
+    database.version(1).stores({ inputNotes: 'detailsCommitment,stateDiscriminant' });
+    await database.open();
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
+      fixtureKey
+    );
+    const firstId = '0x' + '12'.repeat(32);
+    const secondId = '0x' + '34'.repeat(32);
+    const firstBytes = new Uint8Array([19, 48, 91]);
+    const secondBytes = new Uint8Array([19, 48, 92]);
+    const record = (id: string) => ({
+      metadata: () => ({ noteType: () => 0, free: () => {} }),
+      details: () => ({ free: () => {} }),
+      id: () => ({ toString: () => id, free: () => {} }),
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    const sdk = jest.requireMock<{ NoteFile: { fromInputNote: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+    const previousExport = sdk.NoteFile.fromInputNote.getMockImplementation();
+    sdk.NoteFile.fromInputNote
+      .mockImplementationOnce(() => ({ serialize: () => firstBytes.slice(), free: () => {} }))
+      .mockImplementationOnce(() => ({ serialize: () => secondBytes.slice(), free: () => {} }));
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atPage = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const listPage = jest
+      .fn()
+      .mockResolvedValueOnce({ notes: [record(firstId)], nextCursor: firstId, exhausted: false })
+      .mockImplementationOnce(async () => {
+        entered();
+        await pending;
+        return { notes: [record(secondId)], nextCursor: secondId, exhausted: true };
+      });
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      MidenClientInterface.fromClient,
+      MidenClientInterface,
+      [
+        {
+          settings: {
+            get: jest.fn(async () => (generation === null ? null : Array.from(new TextEncoder().encode(generation)))),
+            set: jest.fn()
+          },
+          accounts: {
+            get: jest.fn(async () => ({
+              nonce: () => ({ asInt: () => 4n }),
+              to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+            }))
+          },
+          notes: { list: jest.fn().mockResolvedValue([]), listPage },
+          storeIdentifier: jest.fn(async () => database.name)
+        },
+        'testnet'
+      ]
+    );
+    const { getCurrentWasmLockHold, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+    readSnapshot.mockImplementation(async (accountIds, includeNotes, _capability, retained = [], families = []) => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('Baseline fixture requires the actual Vault hold');
+      return client.readStorageContinuity(
+        accountIds,
+        includeNotes,
+        () => assertWasmHoldCurrent(hold, 'during paged baseline capture'),
+        retained,
+        families
+      );
+    });
+    const outcome = vault.verifyStorageContinuity().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atPage.then(() => true), outcome.then(() => false)])).toBe(true);
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      release();
+      expect(await outcome).toEqual({ value: true, error: undefined });
+      const snapshot = await vault.readRecoveryJournal();
+      expect(journalNoteBodies(snapshot)).toEqual(expect.arrayContaining([firstBytes, secondBytes]));
+      expect(snapshot?.entries.filter(entry => entry.kind === 'note')).toHaveLength(2);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toMatchObject({
+        sequence: snapshot?.sequence,
+        scope: snapshot?.scope
+      });
+      expect(initializeGeneration).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      sdk.NoteFile.fromInputNote.mockReset();
+      if (previousExport) sdk.NoteFile.fromInputNote.mockImplementation(previousExport);
+      database.close();
+      await Dexie.delete(database.name);
+    }
+  });
+
+  async function completedBaseline(notes: import('../recovery/types').RecoveryNoteEntry[]) {
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ publicKey: 'retained', name: 'Guardian', isPublic: true, type: WalletType.Guardian }]]],
+      fixtureKey
+    );
+    readSnapshot.mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes
+    }));
+  }
+
+  it('Task4C3I2 refuses initial note plus financial capacity before initializing an SDK marker', async () => {
+    const notes: import('../recovery/types').RecoveryNoteEntry[] = Array.from({ length: 256 }, (_, index) => ({
+      kind: 'note',
+      id: index.toString(16).padStart(64, '0'),
+      noteFile: new Uint8Array([19, index]),
+      provenance: 'input',
+      format: 'full'
+    }));
+    await completedBaseline(notes);
+    const { readFinancialRecoveryBaseline } = await import('../recovery/financial');
+    const financial = await readFinancialRecoveryBaseline(['retained']);
+    expect(notes.length + financial.length).toBe(257);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(generation).toBeNull();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2 refuses encoded journal byte capacity before initializing an SDK marker', async () => {
+    const notes: import('../recovery/types').RecoveryNoteEntry[] = Array.from({ length: 4 }, (_, index) => ({
+      kind: 'note',
+      id: index.toString(16).padStart(64, '0'),
+      noteFile: new Uint8Array(140_000).fill(255),
+      provenance: 'input',
+      format: 'full'
+    }));
+    const { toSerializable } = await import('../recovery/serialization');
+    expect(notes.reduce((sum, note) => sum + note.noteFile.byteLength, 0)).toBeLessThan(2 * 1024 * 1024);
+    expect(new TextEncoder().encode(JSON.stringify(toSerializable(notes))).byteLength).toBeGreaterThan(2 * 1024 * 1024);
+    await completedBaseline(notes);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(generation).toBeNull();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+      expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2 preserves a full prior journal and healthy state when the merged baseline cannot fit', async () => {
+    await completedBaseline([
+      { kind: 'note', id: '12'.repeat(32), noteFile: new Uint8Array([19, 48, 93]), provenance: 'input', format: 'full' }
+    ]);
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const initial = await vault.readRecoveryJournal();
+    if (!initial) throw new Error('Missing initial baseline fixture');
+    const materialCount =
+      journalNoteBodies(initial).length + initial.entries.filter(entry => entry.kind !== 'note').length;
+    await vault.retainRecoveryEntries(
+      Array.from({ length: 256 - materialCount }, (_, index) => ({
+        kind: 'note',
+        id: `retained-capacity-${index}`,
+        noteFile: new Uint8Array([19, index]),
+        provenance: 'input',
+        format: 'full'
+      }))
+    );
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing full baseline fixture');
+    expect(journalNoteBodies(before).length + before.entries.filter(entry => entry.kind !== 'note').length).toBe(256);
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const marker = generation;
+    initializeGeneration.mockClear();
+    await completedBaseline([
+      { kind: 'note', id: '34'.repeat(32), noteFile: new Uint8Array([19, 48, 94]), provenance: 'input', format: 'full' }
+    ]);
+    try {
+      const accepted = await vault.verifyStorageContinuity().catch(() => false);
+      expect(accepted).toBe(false);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(generation).toBe(marker);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('Task4C3I2R retains the complete baseline when SDK marker initialization rejects', async () => {
+    const note = {
+      kind: 'note',
+      id: '56'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 95]),
+      provenance: 'input',
+      format: 'full'
+    } satisfies import('../recovery/types').RecoveryNoteEntry;
+    await completedBaseline([note]);
+    const { readFinancialRecoveryBaseline } = await import('../recovery/financial');
+    const { getEffectiveNetworkName, getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const financial = await readFinancialRecoveryBaseline(['retained']);
+    const markerFailure = new Error('Marker not acknowledged');
+    initializeGeneration.mockRejectedValueOnce(markerFailure);
+    const outcome = await vault.verifyStorageContinuity().then(
+      () => 'completed',
+      error => error
+    );
+    expect(outcome).toBe(markerFailure);
+    expect(initializeGeneration).toHaveBeenCalledTimes(1);
+    const retained = await vault.readRecoveryJournal();
+    expect(retained).toMatchObject({
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      scope: {
+        network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        walletGeneration: 'wallet-fixture',
+        sdkGeneration: initializeGeneration.mock.calls[0]?.[0]
+      },
+      entries: expect.arrayContaining([note, ...financial])
+    });
+    expect(retained?.entries).toHaveLength(financial.length + 1);
+    expect(generation).toBeNull();
+    expect(await isStored(ck('recoverycontinuity'))).toBe(false);
+    expect(getStorageHealth().status).toBe('healthy');
+  });
+
+  async function nativeVaultRetention() {
+    const fixture = await acquisition();
+    const sdk = jest.requireMock<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const native = await sdk.getWasmOrThrow();
+    const sdkClient = fixture.client.client;
+    Reflect.set(
+      sdkClient,
+      'storeIdentifier',
+      jest.fn(async () => native.resolveStoreName(getEffectiveRpcUrl(), undefined))
+    );
+    Reflect.set(sdkClient, 'terminate', jest.fn());
+    const previousCreate: unknown = Reflect.get(sdk.MidenClient, 'create');
+    const create = jest.fn(async (_options: Parameters<typeof sdk.MidenClient.create>[0]) => sdkClient);
+    Reflect.set(sdk.MidenClient, 'create', create);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    const client = await MidenClientInterface.create({ useWorker: false });
+    const gate = create.mock.calls[0]?.[0]?.beforeNoteAcquisition;
+    if (!gate) throw new Error('Missing protected native retention fixture');
+    const candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate = {
+      operationId: 'vault-native-retention',
+      noteFileBytes: fixture.noteFile,
+      variant: 'committed',
+      source: 'import',
+      batchIndex: 0,
+      batchCount: 1,
+      detailsCommitment: '0x' + '34'.repeat(32),
+      noteId: fixture.noteId,
+      nullifier: '0x' + '56'.repeat(32),
+      metadata: {
+        sender: '0x' + '11'.repeat(15),
+        noteType: 0,
+        tag: 7,
+        attachmentsCommitment: '0x' + '77'.repeat(32)
+      },
+      tag: 7
+    };
+    let adopted = false;
+    let afterRetention: () => void = () => {};
+    const imported = jest.fn(async () => {
+      await gate(candidate);
+      afterRetention();
+      adopted = true;
+      return fixture.noteId;
+    });
+    const { withWasmClientLock } = await import('../sdk/miden-client');
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    return {
+      ...fixture,
+      RetentionFailure: sdk.NoteAcquisitionRetentionError,
+      invoke: () =>
+        getAccountsWriteQueue()
+          .add(() => withWasmClientLock(() => imported()))
+          .then(
+            () => 'accepted',
+            (error: unknown) => error
+          ),
+      adopted: () => adopted,
+      afterRetention: (operation: () => void) => {
+        afterRetention = operation;
+      },
+      cleanup: async () => {
+        client.free();
+        if (previousCreate === undefined) Reflect.deleteProperty(sdk.MidenClient, 'create');
+        else Reflect.set(sdk.MidenClient, 'create', previousCreate);
+        fixture.restore();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      }
+    };
+  }
+
+  async function recoveryFileCustody() {
+    const credential = 'disposable-storage-recovery-custody';
+    await savePlain(
+      keys.vaultKeyPassword,
+      await Passworder.encryptVaultKeyWithPassword(new Uint8Array(32).fill(7), credential)
+    );
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(keys.accounts, fixtureKey);
+    await encryptAndSaveMany(
+      [
+        [
+          keys.accounts,
+          accounts.map(account => ({
+            ...account,
+            type: WalletType.Guardian,
+            hdIndex: account.hdIndex ?? 0,
+            authScheme: account.authScheme ?? 'ecdsa'
+          }))
+        ]
+      ],
+      fixtureKey
+    );
+    return credential;
+  }
+
+  async function independentRecoveryFile(snapshot: RecoveryJournalSnapshot, password: string): Promise<string> {
+    const { toSerializable } = await import('../recovery/serialization');
+    const salt = Passworder.generateSalt();
+    const cipher = await Passworder.deriveKey(await Passworder.generateKey(password), salt);
+    return JSON.stringify({
+      format: 'miden-recovery-data',
+      formatVersion: 1,
+      salt: Array.from(salt),
+      payload: await Passworder.encryptJson(
+        { format: 'miden-recovery-data', formatVersion: 1, snapshot: toSerializable(snapshot) },
+        cipher
+      ),
+      passwordCheck: await Passworder.encryptJson('miden-recovery-data-password-check-v1', cipher)
+    });
+  }
+
+  it('Task5 recovery Vault exports last verified data while locked and unavailable without adopting a Vault', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    vault.retire();
+    readSnapshot.mockClear();
+    const setup = jest.spyOn(Vault, 'setup');
+    try {
+      await expect(
+        Vault.exportRecoveryData('disposable-file-password', credential).then(content =>
+          decryptRecoveryDataFile(content, 'disposable-file-password')
+        )
+      ).resolves.toEqual(retained);
+      expect(setup).not.toHaveBeenCalled();
+      expect(readSnapshot).not.toHaveBeenCalled();
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      setup.mockRestore();
+    }
+  });
+
+  it('Task5 recovery Vault imports data after both journal and physical wallet marker loss without resuming', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const content = await independentRecoveryFile(retained, 'disposable-file-password');
+    const { RECOVERY_JOURNAL_KEYS } = await import('../recovery/journal');
+    for (const key of RECOVERY_JOURNAL_KEYS) delete memoryStore[key];
+    await removeMany([ck('recoverycontinuity')]);
+    await Repo.metadata.delete('generation');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, 'disposable-file-password', incident.epoch, credential)
+    ).resolves.toMatchObject({ imported: true });
+    expect(getStorageHealth()).toEqual(incident);
+    const imported = await vault.readRecoveryJournal();
+    expect(imported?.accounts).toEqual(retained.accounts);
+    expect(imported?.scope.network).toBe(retained.scope.network);
+    expect(imported?.entries).toEqual(expect.arrayContaining(retained.entries));
+    expect(await Repo.metadata.get('generation')).toMatchObject({ origin: 'authorized' });
+    expect(initializeGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it('Task5 recovery Vault rejects a foreign network without changing retained evidence', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const foreign = { ...retained, scope: { ...retained.scope, network: 'other:https://other.invalid' } };
+    const content = await independentRecoveryFile(foreign, 'disposable-file-password');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const incident = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, 'disposable-file-password', incident.epoch, credential)
+    ).rejects.toThrow('RecoveryDataFile:network');
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 recovery Vault retired import ownership permits no late journal publication', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('missing retained recovery fixture');
+    const content = await independentRecoveryFile(retained, 'disposable-file-password');
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    let live = true;
+    const pending = Vault.importRecoveryData(
+      content,
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      credential,
+      () => {
+        if (!live) throw new Error('retired recovery import');
+      }
+    );
+    live = false;
+    await expect(pending).rejects.toThrow('retired recovery import');
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+  });
+
+  it('Task5 retained custody detects encrypted wallet records after the physical check is lost', async () => {
+    await removeMany([keys.check]);
+    expect(await Vault.isExist()).toBe(false);
+    expect(await isStored(keys.accounts)).toBe(true);
+    await expect(Vault.hasRetainedCustody()).resolves.toBe(true);
+  });
+
+  it('Task5 retained custody excludes public configuration and standalone platform keychain leftovers', async () => {
+    const desktop = jest.mocked(jest.requireMock<typeof import('lib/platform')>('lib/platform').isDesktop);
+    const previousDesktop = desktop.getMockImplementation();
+    desktop.mockReturnValue(true);
+    const previousItems = { ...memoryStore };
+    jest.doMock('lib/desktop/secure-storage', () => ({
+      ...jest.requireActual<typeof import('lib/desktop/secure-storage')>('lib/desktop/secure-storage'),
+      hasHardwareKey: jest.fn(async () => true)
+    }));
+    const secureStorage = jest.requireMock<typeof import('lib/desktop/secure-storage')>('lib/desktop/secure-storage');
+    const keychain = jest.mocked(secureStorage.hasHardwareKey);
+    const previousImplementation = keychain.getMockImplementation();
+    keychain.mockResolvedValue(true);
+    try {
+      for (const key of Object.keys(memoryStore)) delete memoryStore[key];
+      await savePlain('public-configuration-fixture', { enabled: true });
+      await expect(secureStorage.hasHardwareKey()).resolves.toBe(true);
+      keychain.mockClear();
+      await expect(Vault.hasRetainedCustody()).resolves.toBe(false);
+      expect(keychain).not.toHaveBeenCalled();
+    } finally {
+      for (const key of Object.keys(memoryStore)) delete memoryStore[key];
+      Object.assign(memoryStore, previousItems);
+      if (previousDesktop) desktop.mockImplementation(previousDesktop);
+      else desktop.mockReset();
+      if (previousImplementation) keychain.mockImplementation(previousImplementation);
+      else keychain.mockReset();
+      jest.dontMock('lib/desktop/secure-storage');
+    }
+  });
+
+  it('Task5 last-good export preserves an authenticated subset after retained Guardian account growth', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const baselinePassword = crypto.randomUUID();
+    await expect(
+      Vault.exportRecoveryData(baselinePassword, credential).then(content =>
+        decryptRecoveryDataFile(content, baselinePassword)
+      )
+    ).resolves.toEqual(retained);
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(keys.accounts, fixtureKey);
+    const first = accounts[0];
+    if (!first) throw new Error('Missing retained Guardian fixture');
+    await encryptAndSaveMany(
+      [[keys.accounts, [...accounts, { ...first, publicKey: crypto.randomUUID(), hdIndex: first.hdIndex + 1 }]]],
+      fixtureKey
+    );
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    const filePassword = crypto.randomUUID();
+    vault.retire();
+    await expect(
+      Vault.exportRecoveryData(filePassword, credential).then(content => decryptRecoveryDataFile(content, filePassword))
+    ).resolves.toEqual(retained);
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 last-good export refuses an authenticated journal account absent from retained custody', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained?.accounts[0]) throw new Error('Missing verified recovery fixture');
+    const baselinePassword = crypto.randomUUID();
+    await expect(
+      Vault.exportRecoveryData(baselinePassword, credential).then(content =>
+        decryptRecoveryDataFile(content, baselinePassword)
+      )
+    ).resolves.toEqual(retained);
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    await new RecoveryJournal(fixtureKey, getStorageProvider()).update(() => ({
+      ...retained,
+      accounts: [...retained.accounts, { ...retained.accounts[0]!, accountId: crypto.randomUUID() }]
+    }));
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    await expect(Vault.exportRecoveryData(crypto.randomUUID(), credential)).rejects.toThrow('RecoveryDataFile:account');
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 recovery Vault keeps a truly idempotent import healthy only after real primary continuity verification', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(retained, filePassword);
+    const health = getStorageHealth();
+    const writesBefore = mockStorageSets.length;
+    const verify = jest.fn((capability: import('../storage-health').StorageRecoveryCapability) =>
+      vault.verifyStorageContinuity(false, capability)
+    );
+    await expect(
+      Vault.importRecoveryData(content, filePassword, health.epoch, credential, undefined, verify)
+    ).resolves.toMatchObject({ imported: true });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(mockStorageSets.slice(writesBefore)).toEqual([]);
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+    expect(getStorageHealth()).toEqual(health);
+  });
+
+  it('Task5 recovery Vault quarantines a new authenticated floor without SDK generation writes', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const sdkWrites = initializeGeneration.mock.calls.length;
+    const result = await Vault.importRecoveryData(content, filePassword, health.epoch, credential);
+    expect(result).toMatchObject({ imported: true, quarantinedEpoch: health.epoch + 1 });
+    expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    expect(initializeGeneration).toHaveBeenCalledTimes(sdkWrites);
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+  });
+
+  it('Task5 recovery Vault refuses a healthy no-op exception when primary verification does not pass', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(retained, filePassword);
+    const health = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, filePassword, health.epoch, credential, undefined, async () => false)
+    ).resolves.toMatchObject({ imported: true, quarantinedEpoch: health.epoch + 1 });
+    expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence even when later continuity-floor persistence rejects', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const floorStorageKey = Buffer.from(
+      await crypto.subtle.digest('SHA-256', Buffer.from(ck('recoverycontinuity'), 'utf-8'))
+    ).toString('hex');
+    expect(typeof memoryStore[floorStorageKey]).toBe('string');
+    const floorFailure = new Error('Injected continuity-floor write refusal');
+    let floorWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, floorStorageKey)) {
+        floorWrites++;
+        throw floorFailure;
+      }
+    };
+    const epoch = getStorageHealth().epoch;
+    const sdkWrites = initializeGeneration.mock.calls.length;
+    try {
+      const pending = Vault.importRecoveryData(content, filePassword, epoch, credential);
+      await pending.then(
+        () => undefined,
+        () => undefined
+      );
+      expect(floorWrites).toBe(1);
+      await expect(pending).rejects.toBe(floorFailure);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+      expect(initializeGeneration).toHaveBeenCalledTimes(sdkWrites);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence when an accepted pointer outlives its capability', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const epoch = getStorageHealth().epoch;
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    let acceptedPointers = 0;
+    mockAfterStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, 'miden_recovery_v1_active')) {
+        acceptedPointers++;
+        clock.mockReturnValue(now + 5001);
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, epoch, credential)).rejects.toThrow(
+        'StorageUnavailableError'
+      );
+      expect(acceptedPointers).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    } finally {
+      mockAfterStorageWrite = undefined;
+      clock.mockRestore();
+    }
+  });
+
+  it('Task5 recovery Vault leaves an ordinary cancellation before journal publication healthy', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const cancellation = new DOMException('Cancelled', 'AbortError');
+    let attemptedWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.keys(items).some(key => key.startsWith('miden_recovery_v1_'))) {
+        attemptedWrites++;
+        throw cancellation;
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, health.epoch, credential)).rejects.toBe(
+        cancellation
+      );
+      expect(attemptedWrites).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+      expect(getStorageHealth()).toEqual(health);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault quarantines a delegated journal write accepted after the caller timed out', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const { getAccountsWriteQueue } = await import('lib/miden/back/accounts-write-queue');
+    let release: () => void = () => undefined;
+    let began: () => void = () => undefined;
+    let accepted: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const started = new Promise<void>(resolve => {
+      began = resolve;
+    });
+    const completedWrite = new Promise<void>(resolve => {
+      accepted = resolve;
+    });
+    let acceptedSlots = 0;
+    const slotWrite = (items: Record<string, unknown>) =>
+      Object.keys(items).some(key => key === 'miden_recovery_v1_0' || key === 'miden_recovery_v1_1');
+    mockBeforeStorageWrite = async items => {
+      if (slotWrite(items)) {
+        began();
+        await gate;
+      }
+    };
+    mockAfterStorageWrite = async items => {
+      if (slotWrite(items)) {
+        acceptedSlots++;
+        accepted();
+      }
+    };
+    try {
+      const pending = Vault.importRecoveryData(content, filePassword, health.epoch, credential);
+      const observed = pending.then(
+        () => 'resolved',
+        () => 'rejected'
+      );
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+      expect(acceptedSlots).toBe(0);
+      expect(getStorageHealth()).toEqual(health);
+      release();
+      await completedWrite;
+      await getAccountsWriteQueue().onIdle();
+      expect(acceptedSlots).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    } finally {
+      release();
+      await getAccountsWriteQueue().onIdle();
+      mockBeforeStorageWrite = undefined;
+      mockAfterStorageWrite = undefined;
+    }
+  });
+
+  it.each(['check', 'accounts'])(
+    'Task5 recovery Vault reports missing retained %s as file unavailable after protector authentication',
+    async missing => {
+      const credential = await recoveryFileCustody();
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const retained = await vault.readRecoveryJournal();
+      if (!retained) throw new Error('Missing verified recovery fixture');
+      const storageKey = missing === 'check' ? keys.check : keys.accounts;
+      const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(storageKey, 'utf-8'))).toString(
+        'hex'
+      );
+      const protector = await getPlain<unknown>('vault_key_password');
+      expect(typeof protector).toBe('string');
+      await removeMany([storageKey]);
+      expect(await isStored(storageKey)).toBe(false);
+      expect((await getPlain<unknown>('vault_key_password')) === protector).toBe(true);
+      markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+      const incident = getStorageHealth();
+      let protectorReads = 0;
+      let missingRecordReads = 0;
+      mockAfterStorageRead = observedKeys => {
+        if (observedKeys.includes('vault_key_password')) protectorReads++;
+        if (observedKeys.includes(providerKey)) missingRecordReads++;
+      };
+      readSnapshot.mockClear();
+      try {
+        const pending = Vault.exportRecoveryData(crypto.randomUUID(), credential);
+        await pending.then(
+          () => undefined,
+          () => undefined
+        );
+        expect(protectorReads).toBe(1);
+        expect(missingRecordReads).toBe(1);
+        await expect(pending).rejects.toThrow('RecoveryDataFile:unavailable');
+        expect(readSnapshot).not.toHaveBeenCalled();
+        const { RecoveryJournal } = await import('../recovery/journal');
+        const { getStorageProvider } = await import('lib/platform/storage-adapter');
+        expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+        expect(getStorageHealth()).toEqual(incident);
+      } finally {
+        mockAfterStorageRead = undefined;
+      }
+    }
+  );
+
+  it('Task5 recovery Vault preserves a provider read error after authentication', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
+      'hex'
+    );
+    const failure = new Error('disposable provider read failure');
+    let attempted = 0;
+    markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+    const incident = getStorageHealth();
+    mockAfterStorageRead = observedKeys => {
+      if (observedKeys.includes(providerKey)) {
+        attempted++;
+        throw failure;
+      }
+    };
+    try {
+      await expect(Vault.exportRecoveryData(crypto.randomUUID(), credential)).rejects.toBe(failure);
+      expect(attempted).toBe(1);
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      mockAfterStorageRead = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault preserves lifecycle cancellation when a retained record is missing', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const providerKey = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
+      'hex'
+    );
+    await removeMany([keys.check]);
+    let missingRead = false;
+    const cancelled = new DOMException('cancelled', 'AbortError');
+    markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+    const incident = getStorageHealth();
+    mockAfterStorageRead = observedKeys => {
+      if (observedKeys.includes(providerKey)) missingRead = true;
+    };
+    try {
+      await expect(
+        Vault.exportRecoveryData(crypto.randomUUID(), credential, () => {
+          if (missingRead) throw cancelled;
+        })
+      ).rejects.toBe(cancelled);
+      expect(missingRead).toBe(true);
+      expect(getStorageHealth()).toEqual(incident);
+    } finally {
+      mockAfterStorageRead = undefined;
+    }
+  });
+
+  it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
+    const f = await nativeVaultRetention();
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { toSerializable } = await import('../recovery/serialization');
+    const providerFactory = jest.mocked(getStorageProvider);
+    const originalFactory = providerFactory.getMockImplementation();
+    if (!originalFactory) throw new Error('Missing storage provider fixture');
+    const provider = getStorageProvider();
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing native readback journal fixture');
+    const pointer = memoryStore.miden_recovery_v1_active;
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const priorCiphertext = await Passworder.encryptJson(toSerializable(before), fixtureKey);
+    let writtenSlot: string | undefined;
+    let substitutedReadbacks = 0;
+    providerFactory.mockImplementation(() => ({
+      ...provider,
+      set: async items => {
+        await provider.set(items);
+        writtenSlot = Object.keys(items).find(key => /^miden_recovery_v1_[01]$/.test(key)) ?? writtenSlot;
+      },
+      get: async keys => {
+        const values = await provider.get(keys);
+        if (writtenSlot && keys.length === 1 && keys[0] === writtenSlot && substitutedReadbacks === 0) {
+          substitutedReadbacks += 1;
+          return { ...values, [writtenSlot]: priorCiphertext };
+        }
+        return values;
+      }
+    }));
+    try {
+      const outcome = await f.invoke();
+      expect(substitutedReadbacks).toBe(1);
+      expect(f.adopted()).toBe(false);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'journal', backend: 'independent' });
+      expect(memoryStore.miden_recovery_v1_active).toEqual(pointer);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(outcome).toBeInstanceOf(f.RetentionFailure);
+    } finally {
+      providerFactory.mockImplementation(originalFactory);
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3P leaves ordinary SDK Abort after actual Vault retention healthy and unbranded', async () => {
+    const f = await nativeVaultRetention();
+    const cancellation = new DOMException('Import cancelled', 'AbortError');
+    f.afterRetention(() => {
+      throw cancellation;
+    });
+    try {
+      const outcome = await f.invoke();
+      expect(outcome).toBe(cancellation);
+      expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+      expect(f.adopted()).toBe(false);
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: f.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3P refuses actual Vault capacity before write or adoption without a failure brand', async () => {
+    const f = await nativeVaultRetention();
+    try {
+      const initial = await vault.readRecoveryJournal();
+      if (!initial) throw new Error('Missing native capacity journal fixture');
+      const materialCount =
+        journalNoteBodies(initial).length + initial.entries.filter(entry => entry.kind !== 'note').length;
+      await vault.retainRecoveryEntries(
+        Array.from({ length: 256 - materialCount }, (_, index) => ({
+          kind: 'note',
+          id: `native-capacity-${index}`,
+          noteFile: new Uint8Array([19, index]),
+          provenance: 'input',
+          format: 'full'
+        }))
+      );
+      const before = await vault.readRecoveryJournal();
+      if (!before) throw new Error('Missing full native capacity journal fixture');
+      expect(journalNoteBodies(before).length + before.entries.filter(entry => entry.kind !== 'note').length).toBe(256);
+      const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+      const writes = mockStorageSets.length;
+      const outcome = await f.invoke();
+      expect(outcome).toBeInstanceOf(Error);
+      expect(outcome).not.toBeInstanceOf(f.RetentionFailure);
+      expect(f.adopted()).toBe(false);
+      expect(mockStorageSets.slice(writes)).toEqual([]);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(floor);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  async function nativeRecoveryReceipt({ foreignCallback = false } = {}) {
+    let storageTail = Promise.resolve();
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (_name: string, operation: () => Promise<unknown>) => {
+          const pending = storageTail.then(operation);
+          storageTail = pending.then(
+            () => {},
+            () => {}
+          );
+          return pending;
+        }
+      }
+    });
+    readSnapshot.mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: []
+    }));
+    const fixture = await acquisition();
+    await fixture.run();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing native recovery journal fixture');
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const marker = await Repo.metadata.get('generation');
+    const file = fixture.setCandidate(fixture.noteFile);
+    const note = file.note();
+    if (!note) throw new Error('Missing committed native recovery fixture');
+    const nativeMetadata = {
+      sender: '0x' + '11'.repeat(15),
+      noteType: 0,
+      tag: 7,
+      attachmentsCommitment: '0x' + '77'.repeat(32)
+    } satisfies NonNullable<import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate['metadata']>;
+    file.note = () => ({
+      ...note,
+      metadata: () => ({
+        ...note.metadata(),
+        sender: () => ({ toString: () => nativeMetadata.sender, free: () => {} })
+      })
+    });
+    const sdk = jest.requireMock<{
+      NoteFile: { fromInputNote: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    const previousExport = sdk.NoteFile.fromInputNote.getMockImplementation();
+    sdk.NoteFile.fromInputNote.mockImplementation(() => file);
+    const record = () => ({
+      details: () => {
+        const details = file.note();
+        if (!details) throw new Error('Missing native recovery note details');
+        return details;
+      },
+      id: file.noteId,
+      state: () => 2,
+      isAuthenticated: () => true,
+      isConsumed: () => false,
+      isInclusionPending: () => false,
+      metadata: () => file.note()?.metadata(),
+      inclusionProof: file.inclusionProof,
+      nullifier: file.nullifier,
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    let adopted = false;
+    let beforeGate: () => Promise<void> = async () => {};
+    let transform = (candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate) => candidate;
+    let reachedImport = () => {};
+    const atImport = new Promise<void>(resolve => {
+      reachedImport = resolve;
+    });
+    let release = () => {};
+    const wait = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let gate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionOptions['beforeNoteAcquisition'];
+    const delivered = jest.fn(async (candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate) => {
+      if (!gate) throw new Error('Missing factory acquisition callback');
+      await gate(candidate);
+    });
+    fixture.imported.mockClear();
+    fixture.imported.mockImplementation(async imported => {
+      if (!imported) throw new Error('Missing decoded recovery NoteFile');
+      reachedImport();
+      await wait;
+      await beforeGate();
+      const candidate = transform({
+        operationId: 'vault-native-recovery',
+        noteFileBytes: imported.serialize(),
+        variant: 'committed',
+        source: 'import',
+        batchIndex: 0,
+        batchCount: 1,
+        detailsCommitment: '0x' + '34'.repeat(32),
+        noteId: fixture.noteId,
+        nullifier: '0x' + '56'.repeat(32),
+        metadata: nativeMetadata,
+        tag: nativeMetadata.tag
+      });
+      await delivered(candidate);
+      adopted = true;
+      return fixture.noteId;
+    });
+    const list = jest.fn(async () => (adopted ? [record()] : []));
+    const listPage = jest.fn(async () => ({
+      notes: adopted ? [record()] : [],
+      nextCursor: adopted ? '0x' + '34'.repeat(32) : null,
+      exhausted: true
+    }));
+    const settings = {
+      get: jest.fn(async () => (generation === null ? null : Array.from(new TextEncoder().encode(generation)))),
+      set: jest.fn(async (_key: string, next: number[]) => {
+        generation = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(next));
+      })
+    };
+    const accounts = {
+      get: jest.fn(async () => ({
+        nonce: () => ({ asInt: () => 4n }),
+        to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+      })),
+      insert: jest.fn()
+    };
+    Reflect.set(fixture.client.client, 'notes', { import: fixture.imported, list, listPage });
+    Reflect.set(fixture.client.client, 'settings', settings);
+    Reflect.set(fixture.client.client, 'accounts', accounts);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const sdkFactory = jest.requireMock<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+    const native = await sdkFactory.getWasmOrThrow();
+    const storeName = native.resolveStoreName(getEffectiveRpcUrl(), undefined);
+    const primarySdk = fixture.client.client;
+    const getSyncHeight = jest.fn(async () => 10);
+    const syncChain = jest.fn();
+    Reflect.set(primarySdk, 'getSyncHeight', getSyncHeight);
+    Reflect.set(primarySdk, 'syncChain', syncChain);
+    Reflect.set(
+      primarySdk,
+      'storeIdentifier',
+      jest.fn(async () => storeName)
+    );
+    Reflect.set(primarySdk, 'terminate', jest.fn());
+    const previousCreate: unknown = Reflect.get(sdkFactory.MidenClient, 'create');
+    const create = jest.fn(async (_options: Parameters<typeof sdkFactory.MidenClient.create>[0]) => primarySdk);
+    Reflect.set(sdkFactory.MidenClient, 'create', create);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    fixture.client = await MidenClientInterface.create({ useWorker: false });
+    gate = create.mock.calls[0]?.[0]?.beforeNoteAcquisition;
+    let callbackClient = fixture.client;
+    if (foreignCallback) {
+      const foreignSdk = Object.assign({}, primarySdk, { terminate: jest.fn() });
+      create.mockResolvedValueOnce(foreignSdk);
+      callbackClient = await MidenClientInterface.create({ useWorker: false });
+      gate = create.mock.calls[1]?.[0]?.beforeNoteAcquisition;
+    }
+    if (!gate) throw new Error('Missing protected factory callback fixture');
+    mockRecoveryClient = fixture.client;
+    readSnapshot.mockRestore();
+    generation = null;
+    initializeGeneration.mockClear();
+    markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+    const progress: import('../recovery/types').StorageRecoveryProgress[] = [];
+    return {
+      ...fixture,
+      before,
+      floor,
+      marker,
+      atImport,
+      release,
+      delivered,
+      settings,
+      accounts,
+      getSyncHeight,
+      syncChain,
+      progress,
+      nestedBefore,
+      callbackClient,
+      adopted: () => adopted,
+      beforeGate: (operation: () => Promise<void>) => {
+        beforeGate = operation;
+      },
+      transform: (operation: typeof transform) => {
+        transform = operation;
+      },
+      recover: () => vault.recoverStorage(value => progress.push(value)),
+      cleanup: async () => {
+        release();
+        mockRecoveryClient = undefined;
+        fixture.client.free();
+        if (callbackClient !== fixture.client) callbackClient.free();
+        if (previousCreate === undefined) Reflect.deleteProperty(sdkFactory.MidenClient, 'create');
+        else Reflect.set(sdkFactory.MidenClient, 'create', previousCreate);
+        sdk.NoteFile.fromInputNote.mockReset();
+        if (previousExport) sdk.NoteFile.fromInputNote.mockImplementation(previousExport);
+        fixture.restore();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      }
+    };
+  }
+
+  it('Task4C3M replays an exact retained primary through the native gate while ordinary intake stays unavailable', async () => {
+    const f = await nativeRecoveryReceipt();
+    f.release();
+    try {
+      await expect(f.run()).rejects.toThrow('StorageUnavailableError');
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(f.delivered).not.toHaveBeenCalled();
+      const recovered = await f.recover();
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.getSyncHeight).toHaveBeenCalledTimes(1);
+      expect(f.syncChain).not.toHaveBeenCalled();
+      expect(f.delivered.mock.calls[0]?.[0].noteFileBytes).toEqual(f.noteFile);
+      expect(recovered).toBe(true);
+      expect(f.adopted()).toBe(true);
+      expect(f.settings.set).toHaveBeenCalledTimes(1);
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(f.progress.at(-1)?.phase).toBe('complete');
+      expect(getStorageHealth().status).toBe('healthy');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it.each(['changed bytes', 'foreign note', 'retired client'])(
+    'Task4C3M refuses %s at the native receipt boundary without completing recovery',
+    async scenario => {
+      const f = await nativeRecoveryReceipt();
+      if (scenario === 'changed bytes')
+        f.transform(candidate => ({ ...candidate, noteFileBytes: new Uint8Array([19, 48, 101]) }));
+      if (scenario === 'foreign note') f.transform(candidate => ({ ...candidate, noteId: '0x' + 'ab'.repeat(32) }));
+      if (scenario === 'retired client') f.beforeGate(async () => f.client.markPoisoned());
+      f.release();
+      try {
+        expect(await f.recover()).toBe(false);
+        expect(f.delivered).toHaveBeenCalledTimes(1);
+        expect(f.adopted()).toBe(false);
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(await vault.readRecoveryJournal()).toEqual(f.before);
+        expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+        expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+        expect(f.progress.at(-1)?.phase).toBe('notes');
+        expect(getStorageHealth().status).toBe('unavailable');
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+      } finally {
+        await f.cleanup();
+      }
+    }
+  );
+
+  it('Task4C3M2 refuses another protected client callback during the primary restore', async () => {
+    const f = await nativeRecoveryReceipt({ foreignCallback: true });
+    f.release();
+    try {
+      expect(f.callbackClient).not.toBe(f.client);
+      expect(f.callbackClient.client).not.toBe(f.client.client);
+      expect(f.callbackClient.isDisposed).toBe(false);
+      expect(f.client.isDisposed).toBe(false);
+      expect(await f.recover()).toBe(false);
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.adopted()).toBe(false);
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+      expect(f.progress.at(-1)?.phase).toBe('notes');
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3M detects an out-of-band journal sequence change before recovery completion', async () => {
+    const f = await nativeRecoveryReceipt();
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    let changed = f.before;
+    f.beforeGate(async () => {
+      const journal = new RecoveryJournal(fixtureKey, getStorageProvider());
+      changed = await journal.update(() => ({
+        scope: f.before.scope,
+        accounts: f.before.accounts,
+        entries: [
+          ...f.before.entries,
+          {
+            kind: 'note',
+            id: 'external-sequence-evidence',
+            noteFile: new Uint8Array([19, 48, 102]),
+            provenance: 'input'
+          }
+        ]
+      }));
+    });
+    f.release();
+    try {
+      expect(await f.recover()).toBe(false);
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(changed.sequence).toBeGreaterThan(f.before.sequence);
+      expect(await vault.readRecoveryJournal()).toEqual(changed);
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+      expect(f.progress.at(-1)?.phase).toBe('notes');
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3M queues authorized reconciliation behind the owned native recovery import', async () => {
+    const f = await nativeRecoveryReceipt();
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    const recovery = f.recover();
+    let reconciliation: Promise<unknown> | undefined;
+    try {
+      expect(await Promise.race([f.atImport.then(() => true), recovery.then(() => false)])).toBe(true);
+      const readsBefore = f.accounts.get.mock.calls.length;
+      reconciliation = vault.reconcileStorageRecovery().catch((error: unknown) => error);
+      await Promise.resolve();
+      expect(getAccountsWriteQueue().size).toBe(1);
+      expect(f.accounts.get).toHaveBeenCalledTimes(readsBefore);
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      f.release();
+      expect(await recovery).toBe(true);
+      await reconciliation;
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.adopted()).toBe(true);
+      expect(f.progress.at(-1)?.phase).toBe('complete');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      f.release();
+      await recovery;
+      await reconciliation;
+      await f.cleanup();
+    }
+  });
+
+  async function guardianAcquisition(withProof = true) {
+    const fixture = await acquisition();
+    const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
+    const sdk = jest.requireMock<{
+      Note: { deserialize: jest.Mock };
+      NoteFile: { fromInputNote: jest.Mock };
+      InputNote: { authenticated: jest.Mock; unauthenticated: jest.Mock };
+      RpcClient: jest.Mock;
+    }>('@miden-sdk/miden-sdk/lazy');
+    const rawNote = fixture.setCandidate(fixture.noteFile).note();
+    const laterRawBytes = new Uint8Array([19, 48, 44, 250]);
+    const laterFileBytes = new Uint8Array([19, 48, 43, 251]);
+    const laterId = '0x' + 'ab'.repeat(32);
+    const laterNote = fixture.setCandidate(laterRawBytes, { identity: laterId }).note();
+    const proof = { proofFor: fixture.noteId };
+    const getNotesById = jest.fn(async () => (withProof ? [{ noteId: fixture.noteId, inclusionProof: proof }] : []));
+    sdk.Note.deserialize.mockImplementation((bytes: Uint8Array) =>
+      bytes.length === laterRawBytes.length && bytes.every((byte, index) => byte === laterRawBytes[index])
+        ? laterNote
+        : rawNote
+    );
+    sdk.RpcClient.mockImplementation(() => ({ getNotesById }));
+    sdk.InputNote.authenticated.mockImplementation((note: unknown, inclusionProof: unknown) => ({
+      note,
+      inclusionProof
+    }));
+    sdk.InputNote.unauthenticated.mockImplementation((note: unknown) => ({ note }));
+    sdk.NoteFile.fromInputNote.mockImplementation(
+      (input: { note: { id: () => { toString: () => string } }; inclusionProof?: unknown }) => {
+        const identity = input.note.id().toString();
+        return fixture.setCandidate(identity === laterId ? laterFileBytes : noteFile, {
+          identity,
+          detailsOnly: input.inclusionProof === undefined,
+          tag: 71,
+          afterBlock: input.inclusionProof === undefined ? 0 : 19
+        });
+      }
+    );
+    return {
+      ...fixture,
+      rawNoteBytes: fixture.noteFile,
+      noteFile,
+      laterRawBytes,
+      laterFileBytes,
+      getNotesById,
+      deserialize: sdk.Note.deserialize,
+      restore: () => {
+        fixture.restore();
+        sdk.Note.deserialize.mockReset();
+        sdk.NoteFile.fromInputNote.mockReset();
+        sdk.InputNote.authenticated.mockReset();
+        sdk.InputNote.unauthenticated.mockReset();
+        sdk.RpcClient.mockReset();
+      }
+    };
+  }
+
+  it('Task4C3E3 classified SDK quota stops the Guardian batch with retained preimport bytes', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.imported.mockRejectedValueOnce(new DOMException('SDK storage full', 'QuotaExceededError'));
+    try {
+      const result = await fixture.runRecovery([fixture.rawNoteBytes, fixture.laterRawBytes]).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(result).toBe('refused');
+      expect(fixture.imported).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('unavailable');
+      const retained = await vault.readRecoveryJournal();
+      expect(retained).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+      const bodies = journalNoteBodies({ entries: retained?.entries });
+      expect(bodies).toContainEqual(fixture.noteFile);
+      expect(bodies).not.toContainEqual(fixture.laterFileBytes);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['generic refusal', 'AbortError'])(
+    'Task4C3E3 Guardian %s retains bytes and remains an ordinary healthy failure',
+    async kind => {
+      const fixture = await guardianAcquisition();
+      fixture.imported.mockRejectedValueOnce(
+        kind === 'AbortError' ? new DOMException('cancelled', 'AbortError') : new Error('node request refused')
+      );
+      try {
+        await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+        expect(fixture.imported).toHaveBeenCalledTimes(1);
+        expect(getStorageHealth().status).toBe('healthy');
+        expect(journalNoteBodies({ entries: (await vault.readRecoveryJournal())?.entries })).toContainEqual(
+          fixture.noteFile
+        );
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it.each([true, false])(
+    'Task4C3E Guardian proof=%s retains its generated file before counting success',
+    async withProof => {
+      const fixture = await guardianAcquisition(withProof);
+      let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+      let atImportBytes: Uint8Array | undefined;
+      fixture.imported.mockImplementation(async file => {
+        atImportBytes = file?.serialize();
+        atImport = await vault.readRecoveryJournal();
+        return fixture.noteId;
+      });
+      const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+      try {
+        await expect(fixture.runRecovery()).resolves.toEqual({ imported: 1, failures: 0 });
+        expect(fixture.getNotesById).toHaveBeenCalledTimes(1);
+        expect(fixture.deserialize).toHaveBeenCalledWith(fixture.rawNoteBytes);
+        expect(fixture.noteFile).not.toEqual(fixture.rawNoteBytes);
+        expect(atImportBytes).toEqual(fixture.noteFile);
+        expect(atImport?.entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'note',
+              id: withProof ? fixture.noteId.slice(2) : '34'.repeat(32),
+              noteFile: fixture.noteFile,
+              provenance: 'input',
+              format: withProof ? 'full' : 'details'
+            })
+          ])
+        );
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+        expect(readSnapshot).not.toHaveBeenCalled();
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3E Guardian import and recovery count wait for independent readback', async () => {
+    const fixture = await guardianAcquisition();
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    mockBeforeRecoveryWrite = async () => {
+      reached();
+      await paused;
+    };
+    let settled = false;
+    const pending = fixture.runRecovery().finally(() => {
+      settled = true;
+    });
+    try {
+      await Promise.race([entered, pending]);
+      const beforeRelease = { settled, imports: fixture.imported.mock.calls.length };
+      release();
+      await expect(pending).resolves.toEqual({ imported: 1, failures: 0 });
+      expect(beforeRelease).toEqual({ settled: false, imports: 0 });
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: fixture.noteFile })])
+      );
+    } finally {
+      release();
+      await pending.catch(() => {});
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian quota refusal never imports or reports successful recovery', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    mockBeforeRecoveryWrite = async () => {
+      throw new DOMException('independent storage full', 'QuotaExceededError');
+    };
+    try {
+      const result = await fixture.runRecovery().catch(() => ({ imported: 0, failures: 1 }));
+      expect(result).toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian owner lost during proof lookup cannot enter SDK import', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.getNotesById.mockImplementationOnce(async () => {
+      vault.retire();
+      return [];
+    });
+    try {
+      const result = await fixture.runRecovery().catch(() => ({ imported: 0, failures: 1 }));
+      expect(fixture.getNotesById).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E Guardian generic SDK refusal keeps retained bytes without poisoning storage', async () => {
+    const fixture = await guardianAcquisition();
+    fixture.imported.mockRejectedValueOnce(new Error('node proof lookup interrupted'));
+    try {
+      await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+      expect(fixture.imported).toHaveBeenCalledTimes(1);
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ noteFile: fixture.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3E malformed Guardian input stays an ordinary healthy recovery failure', async () => {
+    const fixture = await guardianAcquisition();
+    const before = await vault.readRecoveryJournal();
+    fixture.deserialize.mockImplementationOnce(() => {
+      throw new Error('invalid raw note bytes');
+    });
+    try {
+      await expect(fixture.runRecovery()).resolves.toEqual({ imported: 0, failures: 1 });
+      expect(fixture.getNotesById).not.toHaveBeenCalled();
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['paused', 'quota'])(
+    'Task4C3E pending queue preserves bytes while independent retention is %s',
+    async outcome => {
+      const fixture = await acquisition();
+      const { importAllNotes, queueNoteImport } = await import('../activity/notes');
+      const { __resetSyncFuseStateForTests } = await import('../front/sync-fuse');
+      __resetSyncFuseStateForTests();
+      const imported = jest
+        .spyOn(midenClientProxy, 'importNoteBytes')
+        .mockImplementation((bytes, hold) => fixture.client.importNoteBytes(bytes, hold));
+      const sync = jest.spyOn(midenClientProxy, 'syncState').mockResolvedValue(undefined);
+      const encoded = Buffer.from(fixture.noteFile).toString('base64');
+      await queueNoteImport(encoded);
+      let release = () => {};
+      let reached = () => {};
+      const paused = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const entered = new Promise<void>(resolve => {
+        reached = resolve;
+      });
+      mockBeforeRecoveryWrite = async () => {
+        reached();
+        await paused;
+        if (outcome === 'quota') throw new DOMException('independent storage full', 'QuotaExceededError');
+      };
+      let settled = false;
+      const pending = importAllNotes().finally(() => {
+        settled = true;
+      });
+      try {
+        await Promise.race([entered, pending]);
+        expect(settled).toBe(false);
+        expect(fixture.imported).not.toHaveBeenCalled();
+        expect(await getPlain('miden-notes-pending-import')).toEqual([encoded]);
+        release();
+        await pending.catch(() => {});
+        const carried = expect.objectContaining({ bytes: encoded });
+        expect(fixture.imported).toHaveBeenCalledTimes(outcome === 'quota' ? 0 : 1);
+        expect(await getPlain('miden-notes-pending-import')).toEqual(outcome === 'quota' ? [carried] : []);
+        expect(getStorageHealth().status).toBe(outcome === 'quota' ? 'unavailable' : 'healthy');
+        const retained = journalNoteBodies({ entries: (await vault.readRecoveryJournal())?.entries }).filter(
+          bytes => bytes.length === fixture.noteFile.length && bytes.every((byte, i) => byte === fixture.noteFile[i])
+        );
+        expect(retained).toEqual(outcome === 'quota' ? [] : [fixture.noteFile]);
+      } finally {
+        release();
+        await pending.catch(() => {});
+        imported.mockRestore();
+        sync.mockRestore();
+        fixture.restore();
+        __resetSyncFuseStateForTests();
+      }
+    }
+  );
+
+  it('Task4C3 acquisition retains bytes before SDK acceptance without custody reentry', async () => {
+    const fixture = await acquisition();
+    let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+    fixture.imported.mockImplementation(async () => {
+      atImport = await vault.readRecoveryJournal();
+      return fixture.noteId;
+    });
+    const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+    try {
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect(atImport?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+      expect(readSnapshot).not.toHaveBeenCalled();
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3 acquisition waits for independent storage before acknowledging SDK import', async () => {
+    const fixture = await acquisition();
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    mockBeforeRecoveryWrite = async () => {
+      reached();
+      await paused;
+    };
+    let settled = false;
+    const pending = fixture.run().then(
+      () => {
+        settled = true;
+        return 'accepted';
+      },
+      () => {
+        settled = true;
+        return 'refused';
+      }
+    );
+    try {
+      await Promise.race([entered, pending]);
+      const beforeRelease = { settled, imports: fixture.imported.mock.calls.length };
+      release();
+      const outcome = await pending;
+      expect(beforeRelease).toEqual({ settled: false, imports: 0 });
+      expect(outcome).toBe('accepted');
+      expect((await vault.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+    } finally {
+      release();
+      await pending;
+      fixture.restore();
+    }
+  });
+
+  it.each(['quota failure', 'retired sink'])('Task4C3 acquisition refuses %s before SDK acceptance', async failure => {
+    const fixture = await acquisition();
+    const before = await vault.readRecoveryJournal();
+    if (failure === 'retired sink') vault.retire();
+    else
+      mockBeforeRecoveryWrite = async () => {
+        throw new DOMException('independent storage full', 'QuotaExceededError');
+      };
+    try {
+      const outcome = await fixture.run().then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(outcome).toBe('refused');
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+      expect(getStorageHealth().status).toBe(failure === 'retired sink' ? 'healthy' : 'unavailable');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['full same-id', 'full spelling alias', 'expected alias'])(
+    'Task4C3B rejected %s preserves the last good body and proof',
+    async variant => {
+      const fixture = await acquisition();
+      try {
+        await fixture.run();
+        const before = await vault.readRecoveryJournal();
+        const candidate = new Uint8Array([19, 48, 8, 254]);
+        fixture.setCandidate(candidate, {
+          identity: variant === 'full spelling alias' ? fixture.noteId.slice(2).toUpperCase() : fixture.noteId,
+          detailsOnly: variant === 'expected alias',
+          tag: 7,
+          afterBlock: 0
+        });
+        fixture.imported.mockRejectedValueOnce(new Error('Note inclusion proof does not match the chain'));
+        await expect(fixture.run(candidate)).rejects.toThrow('Note inclusion proof does not match the chain');
+        expect(getStorageHealth().status).toBe('healthy');
+        const after = await vault.readRecoveryJournal();
+        expect(before).toBeDefined();
+        expect(after).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+        expect(after?.entries).toEqual(
+          expect.arrayContaining((before?.entries ?? []).map(entry => expect.objectContaining(entry)))
+        );
+        expect(after?.sequence).toBeGreaterThanOrEqual(before?.sequence ?? 0);
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3B an unchanged duplicate import writes no independent storage', async () => {
+    const fixture = await acquisition();
+    try {
+      await fixture.run();
+      const before = await vault.readRecoveryJournal();
+      mockStorageSets.length = 0;
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect(mockStorageSets).toEqual([]);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['completion', 'provider failure'])(
+    'Task4C3B retiring a pending acquisition prevents late %s from acknowledging or poisoning health',
+    async outcome => {
+      const fixture = await acquisition();
+      let release = () => {};
+      let reached = () => {};
+      const paused = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const entered = new Promise<void>(resolve => {
+        reached = resolve;
+      });
+      mockBeforeRecoveryWrite = async () => {
+        reached();
+        await paused;
+        if (outcome === 'provider failure') throw new DOMException('retired write failed', 'QuotaExceededError');
+      };
+      const pending = fixture.run().then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      try {
+        await Promise.race([entered, pending]);
+        vault.retire();
+        release();
+        expect(await pending).toBe('refused');
+        expect(fixture.imported).not.toHaveBeenCalled();
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        release();
+        await pending;
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3B the current preadoption sink survives retirement of the previous vault', async () => {
+    const fixture = await acquisition();
+    const current = new Vault(fixtureKey);
+    vault.retire();
+    try {
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect((await current.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      current.retire();
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3B unknown expected notes retain original bytes and details identity before SDK acceptance', async () => {
+    const fixture = await acquisition();
+    const expected = new Uint8Array([7, 11, 19, 48]);
+    fixture.setCandidate(expected, { detailsOnly: true, tag: 71, afterBlock: 19 });
+    let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+    fixture.imported.mockImplementation(async () => {
+      atImport = await vault.readRecoveryJournal();
+      return '34'.repeat(32);
+    });
+    try {
+      await expect(fixture.run(expected)).resolves.toBe('34'.repeat(32));
+      expect(atImport?.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'note', id: '34'.repeat(32), noteFile: expected, format: 'details' })
+        ])
+      );
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  function journalNoteBodies(value: unknown): Uint8Array[] {
+    if (typeof value !== 'object' || value === null) return [];
+    const bytes: unknown = Reflect.get(value, 'noteFile');
+    const own = bytes instanceof Uint8Array ? [bytes] : [];
+    return own.concat(
+      Object.entries(value)
+        .filter(([key]) => key !== 'noteFile')
+        .flatMap(([, child]) => journalNoteBodies(child))
+    );
+  }
+
+  it.each(['Expected', 'full'])(
+    'Task4C3C a successful %s import keeps both generations recoverable without treating success as authentication',
+    async previousVariant => {
+      const fixture = await acquisition();
+      const candidate = new Uint8Array([19, 48, 21, 252]);
+      try {
+        fixture.setCandidate(fixture.noteFile, { detailsOnly: previousVariant === 'Expected', afterBlock: 0 });
+        fixture.imported.mockResolvedValueOnce(previousVariant === 'Expected' ? '34'.repeat(32) : fixture.noteId);
+        await fixture.run();
+        fixture.setCandidate(candidate, { tag: 7, afterBlock: 10 });
+        let beforeAcceptance: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+        fixture.imported.mockImplementation(async () => {
+          beforeAcceptance = await vault.readRecoveryJournal();
+          return fixture.noteId;
+        });
+        await expect(fixture.run(candidate)).resolves.toBe(fixture.noteId);
+        expect(journalNoteBodies(beforeAcceptance)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        expect(journalNoteBodies(await vault.readRecoveryJournal())).toEqual(
+          expect.arrayContaining([fixture.noteFile, candidate])
+        );
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it.each(['Note inclusion proof rejected', 'User cancelled import'])(
+    'Task4C3C generic refusal %s keeps both candidate and earlier good evidence without poisoning health',
+    async message => {
+      const fixture = await acquisition();
+      const candidate = new Uint8Array([19, 48, 22, 251]);
+      try {
+        await fixture.run();
+        const before = await vault.readRecoveryJournal();
+        fixture.setCandidate(candidate, { afterBlock: 11 });
+        let beforeValidation: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+        fixture.imported.mockImplementation(async () => {
+          beforeValidation = await vault.readRecoveryJournal();
+          throw new Error(message);
+        });
+        await expect(fixture.run(candidate)).rejects.toThrow(message);
+        expect(journalNoteBodies(beforeValidation)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        const after = await vault.readRecoveryJournal();
+        expect(before).toBeDefined();
+        expect(after).toMatchObject({ scope: before?.scope, accounts: before?.accounts });
+        expect(after?.entries).toEqual(
+          expect.arrayContaining((before?.entries ?? []).map(entry => expect.objectContaining(entry)))
+        );
+        expect(after?.sequence).toBeGreaterThanOrEqual(before?.sequence ?? 0);
+        expect(journalNoteBodies(after)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3C owner loss after SDK entry preserves staged bytes and refuses the late import acknowledgement', async () => {
+    const fixture = await acquisition();
+    const candidate = new Uint8Array([19, 48, 23, 250]);
+    let release = () => {};
+    let reached = () => {};
+    const paused = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const entered = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    await fixture.run();
+    fixture.setCandidate(candidate, { afterBlock: 12 });
+    fixture.imported.mockImplementation(async () => {
+      reached();
+      await paused;
+      return fixture.noteId;
+    });
+    const pending = fixture.run(candidate).then(
+      () => 'accepted',
+      () => 'refused'
+    );
+    let current: Vault | undefined;
+    try {
+      await Promise.race([entered, pending]);
+      vault.retire();
+      current = new Vault(fixtureKey);
+      const retained = await current.readRecoveryJournal();
+      release();
+      expect(await pending).toBe('refused');
+      expect(journalNoteBodies(retained)).toEqual(expect.arrayContaining([fixture.noteFile, candidate]));
+      expect(await current.readRecoveryJournal()).toEqual(retained);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await pending;
+      current?.retire();
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3C a full journal refuses another private candidate before SDK acceptance and preserves prior evidence', async () => {
+    const fixture = await acquisition();
+    try {
+      await fixture.run();
+      const initial = await vault.readRecoveryJournal();
+      expect(initial).toBeDefined();
+      const { JOURNAL_MAX_ENTRIES } = await import('../recovery/journal');
+      await vault.retainRecoveryEntries(
+        Array.from(
+          { length: JOURNAL_MAX_ENTRIES - (initial?.entries.length ?? 0) },
+          (_, index): import('../recovery/types').RecoveryEntry => ({
+            kind: 'note',
+            id: `capacity-${index}`,
+            accountId: 'retained',
+            provenance: 'input',
+            format: 'details',
+            noteFile: new Uint8Array([8, 9, 10])
+          })
+        )
+      );
+      const before = await vault.readRecoveryJournal();
+      const candidate = new Uint8Array([19, 48, 24, 249]);
+      fixture.setCandidate(candidate, { afterBlock: 13 });
+      fixture.imported.mockClear();
+      const outcome = await fixture.run(candidate).then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      expect(outcome).toBe('refused');
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3 public-only capture keeps unresolved prebroadcast transaction evidence', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const row: ITransaction = {
+      id: 'public-pending',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      noteType: NoteTypeEnum.Public,
+      attemptId: 'attempt-public',
+      mayHaveSubmitted: true
+    };
+    await Repo.transactions.put(row);
+    const requestBytes = new Uint8Array([5, 6, 7]);
+    const evidence = { transactionId: 'candidate-public', outputNoteIds: ['output-public'] };
+    await vault.retainTransactionRecovery(row.id, { requestBytes, notes: [] }, evidence, row.attemptId);
+    const retained = (await vault.readRecoveryJournal())?.entries.find(
+      entry => entry.kind === 'transaction' && entry.id === row.id
+    );
+    expect(retained).toMatchObject({
+      kind: 'transaction',
+      requestBytes,
+      mayHaveSubmitted: true,
+      evidence,
+      row: { attemptId: row.attemptId, status: row.status, requestBytes }
+    });
+  });
+
+  it.each(['held source callback', 'retired vault'])(
+    'Task4C2 actual receipt route handles %s without reentering SDK continuity',
+    async scenario => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      readSnapshot.mockClear();
+      const row: ITransaction = {
+        id: 'provider-receipt',
+        accountId: 'retained',
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1,
+        displayIcon: 'RECEIVE',
+        extraInputs: {
+          provider: 'agglayer',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          sourceAmount: '1',
+          sourceSymbol: 'ETH',
+          evmTxHash: `0x${'1'.repeat(64)}`,
+          agglayerRoute: {
+            chainId: 1,
+            contractAddress: '0x1111111111111111111111111111111111111111',
+            midenBridgeId: 'bridge',
+            indexerUrl: 'https://indexer.example',
+            rollupId: 1,
+            evmNetworkId: 0
+          }
+        }
+      };
+      await Repo.transactions.put(row);
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      const { withWasmClientLock } = await import('../sdk/miden-client');
+      const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+      const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+      if (scenario === 'retired vault') vault.retire();
+      const result = getAccountsWriteQueue().add(() =>
+        withWasmClientLock(async () => {
+          await checkpointProviderReceipt(row);
+        })
+      );
+      const outcome = await result.then(
+        () => 'retained',
+        (error: unknown) => error
+      );
+      const locked = expect.objectContaining({ reason: 'locked' });
+      expect(outcome).toEqual(scenario === 'retired vault' ? locked : 'retained');
+      const retained = await vault.readRecoveryJournal();
+      const expectedReceipt = expect.objectContaining({
+        kind: 'receipt',
+        accountId: 'retained',
+        row: expect.objectContaining({
+          status: ITransactionStatus.Completed,
+          extraInputs: expect.objectContaining({ evmTxHash: `0x${'1'.repeat(64)}` })
+        })
+      });
+      expect(retained?.entries.find(entry => entry.id === row.id)).toEqual(
+        scenario === 'retired vault' ? undefined : expectedReceipt
+      );
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+      expect(readSnapshot).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['receipt after critical', 'critical after receipt'])(
+    'Task4C2 lifecycle preserves critical bytes and provider receipt for %s',
+    async ordering => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const row: ITransaction = {
+        id: 'receipt-critical-race',
+        accountId: 'retained',
+        type: 'bridged-send',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', intentNonce: '22', evmTxHash: 'hash-a', claimStatus: 'pending' }
+      };
+      await Repo.transactions.put(row);
+      await vault.retainTransactionRecovery(row.id, { requestBytes: new Uint8Array([1]), notes: [] });
+      const first = (await vault.readRecoveryJournal())?.entries.find(
+        entry => entry.kind === 'transaction' && entry.id === row.id
+      );
+      if (first?.kind !== 'transaction') throw new Error('Missing critical fixture');
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      const retain = vault.retainRecoveryEntries.bind(vault);
+      const latestEvidence = { transactionId: 'latest-chain-id', finalCommitment: 'latest-state' };
+      if (ordering === 'receipt after critical') {
+        let interleaved = false;
+        const spy = jest.spyOn(vault, 'retainRecoveryEntries').mockImplementation(async (entries, retries) => {
+          if (!interleaved) {
+            interleaved = true;
+            await vault.retainTransactionRecovery(
+              row.id,
+              { requestBytes: new Uint8Array([9]), notes: [] },
+              latestEvidence
+            );
+          }
+          await retain(entries, retries);
+        });
+        const current = await Repo.transactions.get(row.id);
+        if (!current) throw new Error('Missing receipt fixture');
+        await checkpointProviderReceipt(current).catch(() => {});
+        spy.mockRestore();
+      } else {
+        await Repo.transactions.update(row.id, { extraInputs: { ...row.extraInputs, evmTxHash: 'hash-b' } });
+        const current = await Repo.transactions.get(row.id);
+        if (!current) throw new Error('Missing receipt fixture');
+        await checkpointProviderReceipt(current);
+        await vault.retainRecoveryEntries([{ ...first, requestBytes: new Uint8Array([9]), evidence: latestEvidence }]);
+      }
+      const entries = (await vault.readRecoveryJournal())?.entries;
+      const critical = entries?.find(entry => entry.kind === 'transaction' && entry.id === row.id);
+      expect(critical?.kind === 'transaction' && Array.from(critical.requestBytes)).toEqual([9]);
+      expect(critical?.kind === 'transaction' && critical.evidence.transactionId).toBe('latest-chain-id');
+      const receipt = entries?.find(entry => entry.kind === 'receipt' && entry.id === row.id);
+      expect(receipt?.kind === 'receipt' && receipt.row.extraInputs?.evmTxHash).toBe(
+        ordering === 'receipt after critical' ? 'hash-a' : 'hash-b'
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    }
+  );
+
+  it('Task4C2 finalseams reuses identical provider evidence despite refreshed poll timestamps', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const row = oneClickReceiptRow();
+    row.accountId = 'retained';
+    row.extraInputs.oneClick.accountId = 'retained';
+    row.extraInputs.oneClick.updatedAt = 1;
+    await Repo.transactions.put(row);
+    installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+    await checkpointProviderReceipt(row);
+    const first = await vault.readRecoveryJournal();
+    const writes = mockStorageSets.length;
+    row.extraInputs.oneClick.updatedAt = 2;
+    await Repo.transactions.put(row);
+    await checkpointProviderReceipt(row);
+    expect((await vault.readRecoveryJournal())?.sequence).toBe(first?.sequence);
+    expect(mockStorageSets.length).toBe(writes);
+    expect(getStorageHealth().status).toBe('healthy');
+  });
+
+  it('establishes an encrypted first checkpoint after coherent retained account reads', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const snapshot = await vault.readRecoveryJournal();
+    expect(snapshot).toMatchObject({
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      entries: expect.arrayContaining([
+        { kind: 'note', id: 'private-note', noteFile: new Uint8Array([1, 2]), provenance: 'input' }
+      ])
+    });
+    expect(await Repo.metadata.get('generation')).toMatchObject({ origin: 'authorized' });
+    const writes = mockStorageSets.length;
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    expect(mockStorageSets.slice(writes).flat()).not.toContain('miden_recovery_v1_1');
+  });
+
+  it.each(['complete', 'new incident', 'pending read'])(
+    'Task4C1 actual Vault reconciliation handles %s',
+    async scenario => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      await Repo.transactions.put({
+        id: 'reconcile-actual',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        attemptId: 'attempt',
+        submitEvidence: [
+          {
+            attemptId: 'attempt',
+            capturedAt: 1,
+            source: 'stage',
+            transactionId: 'transaction',
+            initialCommitment: 'state-4',
+            finalCommitment: 'state-5',
+            initialNonce: '4',
+            refBlock: 10,
+            refBlockCommitment: 'header',
+            outputNoteIds: [],
+            nullifiers: [],
+            expirationBlock: 30
+          }
+        ]
+      });
+      await vault.retainTransactionRecovery('reconcile-actual', { requestBytes: new Uint8Array([7, 8]), notes: [] });
+      await Repo.transactions.update('reconcile-actual', { restoredFromBackup: true, restoredFromJournal: true });
+      const prior = await vault.readRecoveryJournal();
+      if (!prior) throw new Error('Missing reconciliation fixture');
+      let release = () => {};
+      const pending = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const dispose = jest.fn();
+      const reads = jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockResolvedValue({
+        dispose,
+        identity: async () => undefined,
+        header: async () => 'header',
+        scan: async () => [],
+        node: {
+          blockCommitment: async () => 'header',
+          account: async () => {
+            if (scenario === 'pending read') await pending;
+            if (scenario === 'new incident')
+              markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+            return { ok: true, state: { blockNum: 20, commitment: 'state-5', nonce: '5' } };
+          },
+          noteInclusions: async () => new Map(),
+          nullifierHeight: async () => undefined
+        }
+      });
+      markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+      try {
+        const complete = scenario === 'complete';
+        const outcome = await vault.reconcileStorageRecovery().then(
+          value => ({ value, error: undefined }),
+          (error: unknown) => ({ value: undefined, error })
+        );
+        const unavailable = expect.objectContaining({ name: 'StorageUnavailableError' });
+        expect(outcome.error).toEqual(complete ? undefined : unavailable);
+        expect(outcome.value).toEqual(complete ? { reconciled: 1, retired: 0 } : undefined);
+        expect(await Repo.transactions.get('reconcile-actual')).toMatchObject({
+          status: complete ? ITransactionStatus.Completed : ITransactionStatus.Unconfirmed,
+          restoredFromBackup: true,
+          restoredFromJournal: true
+        });
+        const saved = await vault.readRecoveryJournal();
+        expect(saved?.sequence).toBe((prior?.sequence ?? 0) + (complete ? 1 : 0));
+        const resolved = expect.arrayContaining([
+          expect.objectContaining({
+            id: 'reconcile-actual',
+            resolved: { outcome: 'landed', at: expect.any(Number) },
+            row: expect.objectContaining({ submitEvidence: [expect.objectContaining({ landingSeenBy: 1 })] })
+          })
+        ]);
+        expect(saved?.entries).toEqual(complete ? resolved : prior.entries);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(getStorageHealth().status).toBe('unavailable');
+      } finally {
+        release();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        reads.mockReset();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+        await Repo.db.open();
+      }
+    }
+  );
+
+  it('preserves retained vault identity and the journal when an SDK account disappears', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    readSnapshot.mockRejectedValueOnce(new StorageContinuityError());
+    try {
+      expect(await vault.verifyStorageContinuity()).toBe(false);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity' });
+      expect(await vault.fetchAccounts()).toEqual([expect.objectContaining({ publicKey: 'retained' })]);
+      expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it.each(['spending limit', 'charged transaction'])('refuses recovery after partial loss of %s', async lost => {
+    await Repo.spendingLimits.put({
+      accountId: 'retained',
+      limit: '5000000',
+      revision: 'policy-1',
+      createdAt: 1,
+      updatedAt: 1
+    });
+    await Repo.transactions.put({
+      id: 'debit-1',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Failed,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      spentUsd: 4000000n,
+      displayIcon: 'FAILED',
+      neverCommittedAt: 1
+    });
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    if (lost === 'spending limit') await Repo.spendingLimits.delete('retained');
+    else await Repo.transactions.delete('debit-1');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses recovery when a journaled uncertain transaction row disappears', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    await Repo.transactions.put({
+      id: 'uncertain',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND',
+      mayHaveSubmitted: true,
+      attemptId: 'attempt-a'
+    });
+    await vault.retainTransactionRecovery('uncertain', { requestBytes: new Uint8Array([7, 8]), notes: [] });
+    await Repo.transactions.delete('uncertain');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses a fresh wallet database before establishing retained expectations', async () => {
+    await Repo.metadata.put({ id: 'generation', generation: 'fresh', origin: 'fresh' });
+    try {
+      expect(await vault.verifyStorageContinuity()).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('requires the real journal and both store markers before clearing an incident', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    expect(await vault.checkStorageRecovery()).toBe(true);
+    expect(getStorageHealth().status).toBe('healthy');
+    expect(readSnapshot).toHaveBeenLastCalledWith(
+      ['retained'],
+      true,
+      expect.objectContaining({ expiresAt: expect.any(Number) }),
+      expect.arrayContaining([expect.objectContaining({ id: 'private-note' })])
+    );
+  });
+
+  it('validates retained stores through scoped reads when the ordinary wallet handle is closed', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    Repo.db.close();
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(true);
+      expect(getStorageHealth().status).toBe('healthy');
+      await expect(Repo.metadata.get('generation')).resolves.toMatchObject({ generation: 'wallet-fixture' });
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      await Repo.db.open();
+    }
+  });
+
+  it('refuses stale recovery completion after a repeated storage incident', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    readSnapshot.mockImplementationOnce(async () => {
+      markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+      return { generation, accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }], notes: [] };
+    });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('does not clear an incident through a Vault retired before its recovery check', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    vault.retire();
+    try {
+      await expect(vault.checkStorageRecovery()).resolves.toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses a retired vault writer after reset without poisoning the replacement wallet', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    await removeMany([keys.check]);
+    await expect(vault.retainRecoveryEntries([])).rejects.toThrow('StorageUnavailableError');
+    expect(getStorageHealth().status).toBe('healthy');
+    expect(await vault.readRecoveryJournal()).toEqual(prior);
+  });
+
+  it.each(['complete', 'retired vault', 'changed binding', 'new incident'])(
+    'explicit storage reconstruction handles %s',
+    async scenario => {
+      const account = {
+        publicKey: 'retained',
+        name: 'Account',
+        isPublic: false,
+        type: WalletType.Guardian,
+        hdIndex: -1,
+        authScheme: 'ecdsa',
+        hotPublicKey: '02'.repeat(33),
+        guardianEndpoint: 'https://guardian.example',
+        guardianOperatorCommitment: 'aa'
+      };
+      await encryptAndSaveMany(
+        [
+          [keys.accounts, [account]],
+          [keys.accAuthSecretKey(account.hotPublicKey), 'test-ciphertext']
+        ],
+        fixtureKey
+      );
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const prior = await vault.readRecoveryJournal();
+      if (!prior) throw new Error('Missing journal fixture');
+      let sdkAccount = false;
+      generation = null;
+      readSnapshot.mockImplementation(async () => {
+        if (!sdkAccount) throw new StorageContinuityError();
+        return { generation, accounts: prior.accounts, notes: prior.entries.filter(entry => entry.kind === 'note') };
+      });
+      const restore = jest.spyOn(midenClientProxy, 'restoreStorageRecovery').mockImplementation(async command => {
+        if (command.kind === 'account') sdkAccount = true;
+        if (command.kind === 'generation') generation = command.generation;
+      });
+      mockRecoveryCommitment.mockResolvedValue('bb');
+      mockRecoveryGuardianState.mockImplementation(async () => {
+        if (scenario === 'retired vault') vault.retire();
+        if (scenario === 'changed binding')
+          await encryptAndSaveMany([[keys.accounts, [{ ...account, guardianEpoch: 1 }]]], fixtureKey);
+        if (scenario === 'new incident') markStorageUnavailable('quota', { backend: 'sdk', operation: 'mutate' });
+        return { accountBytes: new Uint8Array([1]), chainCommitment: 'state-4' };
+      });
+      await Repo.db.delete();
+      markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+      try {
+        const progress: import('../recovery/types').StorageRecoveryProgress[] = [];
+        await expect(vault.recoverStorage(value => progress.push(value))).resolves.toBe(scenario === 'complete');
+        expect(await vault.readRecoveryJournal()).toEqual(prior);
+        expect(progress.at(-1)?.phase).toBe(scenario === 'complete' ? 'complete' : 'accounts');
+        const completed = scenario === 'complete';
+        expect(getStorageHealth().status).toBe(completed ? 'healthy' : 'unavailable');
+        expect(generation).toBe(completed ? prior.scope.sdkGeneration : null);
+        expect(restore).toHaveBeenCalledTimes(
+          completed
+            ? 2 + prior.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input').length
+            : 0
+        );
+        expect(
+          (await vault.fetchAccounts()).map(value => ({
+            publicKey: value.publicKey,
+            guardianNoteRecoveryPending: value.guardianNoteRecoveryPending
+          }))
+        ).toEqual([{ publicKey: 'retained', guardianNoteRecoveryPending: completed ? true : undefined }]);
+        const marker = completed ? await Repo.metadata.get('generation') : undefined;
+        expect(marker).toEqual(
+          completed ? { id: 'generation', generation: prior.scope.walletGeneration, origin: 'authorized' } : undefined
+        );
+      } finally {
+        restore.mockRestore();
+        mockRecoveryCommitment.mockReset();
+        mockRecoveryGuardianState.mockReset();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+        await Repo.db.open();
+      }
+    }
+  );
 });

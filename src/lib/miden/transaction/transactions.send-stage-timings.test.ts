@@ -222,10 +222,14 @@ async function runSend(id: string) {
  * callback's contribution. */
 async function driveStages(): Promise<string[]> {
   stamped.length = 0;
-  const onStage = mockProxySendTransaction.mock.calls[0]![2] as (s: string) => Promise<void>;
+  const onStage = mockProxySendTransaction.mock.calls[0]?.[2];
+  if (typeof onStage !== 'function') throw new Error('Missing stage callback');
   for (const stage of ['executing', 'proving', 'submitting']) {
     // eslint-disable-next-line no-await-in-loop
-    await onStage(stage);
+    await onStage(
+      stage,
+      stage === 'submitting' ? { recovery: { requestBytes: new Uint8Array([1]), notes: [] } } : undefined
+    );
   }
   return stamped;
 }
@@ -292,10 +296,11 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     // so an unguarded rejection would propagate out of the send and Fail the row.
     mockThrowOnStage = 'proving';
     mockProxySendTransaction.mockImplementationOnce(async (..._a: unknown[]) => {
-      const onStage = _a[2] as (s: string) => Promise<void>;
+      const onStage = _a[2];
+      if (typeof onStage !== 'function') throw new Error('Missing stage callback');
       await onStage('executing');
       await onStage('proving');
-      await onStage('submitting');
+      await onStage('submitting', { recovery: { requestBytes: new Uint8Array([1]), notes: [] } });
       return makeResult();
     });
 
@@ -418,7 +423,7 @@ describe('which dispatches carry a stamp (#1081)', () => {
       { id: 'cf', type: 'consume', noteId: 'n', noteIds: ['n'], rotationFunding: true },
       'consumeNoteId',
       2,
-      false
+      true
     ],
     [
       'a swap',
@@ -446,7 +451,7 @@ describe('which dispatches carry a stamp (#1081)', () => {
       { id: 'p', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'epoch' } },
       'newTransaction',
       4,
-      false
+      true
     ]
   ])('%s', async (_label, row, leaf, stampIndex, stamped) => {
     await runRow(row);
@@ -663,4 +668,24 @@ describe('the cold-start sweep against a row the real writer moved to Generating
     }
     await sending;
   });
+});
+
+jest.mock('../recovery/checkpoint', () => ({
+  checkpointTransactionRecovery: jest.fn(async (_id: string, capture: unknown) => {
+    jest.requireActual<typeof import('../recovery/capture')>('../recovery/capture').decodeRecoveryCapture(capture);
+    jest.requireActual<typeof import('../storage-health')>('../storage-health').assertStorageHealthy();
+  })
+}));
+
+it('Task4C2 compatibility refuses a reliable source submit with missing recovery capture', async () => {
+  const submit = jest.fn();
+  mockProxySendTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+    const onStage = args[2];
+    if (typeof onStage !== 'function') throw new Error('Missing stage callback');
+    await onStage('submitting');
+    submit();
+    return makeResult();
+  });
+  await expect(runSend('missing-recovery')).rejects.toMatchObject({ name: 'SubmitCrossingUnrecordedError' });
+  expect(submit).not.toHaveBeenCalled();
 });

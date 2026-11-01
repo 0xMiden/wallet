@@ -24,6 +24,7 @@ import {
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
+import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from './storage-health';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -825,10 +826,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.1', () => {
+  it('keys spending limits by account alone on schema version 3.3', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.1);
+    expect(db.verno).toBe(3.3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1006,7 +1007,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1057,7 +1058,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1099,7 +1100,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.1);
+      expect(upgraded.verno).toBe(3.3);
       expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
       expect(
         await upgraded
@@ -2044,7 +2045,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.2)
+          .version(3.4)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2076,7 +2077,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.2)
+        .version(3.4)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;
@@ -2086,6 +2087,30 @@ describe('wallet storage rejection boundaries', () => {
       expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_limits', 'mutate'));
     } finally {
       await dispose(target);
+    }
+  });
+
+  it('guards recovery-debit mutations after health changes inside an open transaction', async () => {
+    const target = database();
+    try {
+      await target.open();
+      const failure = await rejection(() =>
+        target.transaction('rw', target.table(Table.RecoveryDebits), async () => {
+          markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+          await target.table<import('./recovery/types').RecoveryDebitEntry, string>(Table.RecoveryDebits).put({
+            kind: 'debit',
+            id: 'debit-1',
+            accountId: 'account-1',
+            initiatedAt: 1
+          });
+        })
+      );
+
+      expect(failure).toMatchObject({ name: 'StorageUnavailableError' });
+      expect(snapshotCrashDiagnostics(failure)).toEqual(pair('wallet_transactions', 'mutate'));
+    } finally {
+      await dispose(target);
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
     }
   });
 });

@@ -34,6 +34,20 @@ describe('guardian note recovery progress', () => {
     mockFetchFromStorage.mockResolvedValue(null);
   });
 
+  it('does not clear progress after recovery expires during its storage read', async () => {
+    let current = true;
+    mockFetchFromStorage.mockImplementationOnce(async () => {
+      current = false;
+      return { retained: { accountId: 'retained', step: 'history' } };
+    });
+    await expect(
+      clearGuardianNoteRecoveryProgress('retained', () => {
+        if (!current) throw new Error('expired recovery');
+      })
+    ).rejects.toThrow('expired recovery');
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
   it('normalizes a valid entry and drops malformed optional block values', () => {
     expect(
       normalizeGuardianNoteRecoveryProgress(

@@ -459,3 +459,5 @@ describe('isUsdcxPayoutDelayed', () => {
     expect(isUsdcxPayoutDelayed(undefined, 1, NOW)).toBe(false);
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

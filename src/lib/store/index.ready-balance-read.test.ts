@@ -1,7 +1,8 @@
 import '../../../test/jest-mocks';
 
 import type { TokenBalanceData } from 'lib/miden/front/balance';
-import { WalletStatus } from 'lib/shared/types';
+import type { StorageHealth } from 'lib/miden/storage-health';
+import { type WalletAccount, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { useWalletStore } from './index';
@@ -29,8 +30,16 @@ jest.mock('lib/intercom/client', () => ({
   createIntercomClient: jest.fn(() => ({ request: jest.fn(), subscribe: jest.fn(() => () => {}) }))
 }));
 
-const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+const account: WalletAccount = {
+  publicKey: 'pk1',
+  name: 'Account 1',
+  isPublic: true,
+  type: WalletType.Guardian,
+  hdIndex: 0,
+  authScheme: 'ecdsa'
+};
 const readyState = {
+  storageAvailability: { status: 'healthy', epoch: 0 },
   status: WalletStatus.Ready,
   accounts: [account],
   currentAccount: account,
@@ -64,6 +73,7 @@ describe('the balance read when the wallet becomes Ready', () => {
     fetchingAddresses.clear();
     useWalletStore.setState({
       status: WalletStatus.Locked,
+      storageAvailability: { status: 'pending' },
       balances: {},
       balancesLoading: {},
       balancesLastFetched: {}
@@ -219,5 +229,148 @@ describe('the store fetchBalances action', () => {
 
     expect(mockFetchBalances).not.toHaveBeenCalled();
     expect(useWalletStore.getState().balancesLoading.pk1).toBeUndefined();
+  });
+});
+
+describe('Task5 availability', () => {
+  const retainedAccount: WalletAccount = { ...account, type: WalletType.Guardian, authScheme: 'ecdsa' };
+
+  beforeEach(() => {
+    mockFetchBalances.mockReset().mockResolvedValue([row]);
+    fetchingAddresses.clear();
+    useWalletStore.setState({
+      status: WalletStatus.Locked,
+      storageAvailability: { status: 'pending' },
+      balances: {},
+      balancesLoading: {},
+      balancesLastFetched: {}
+    });
+  });
+
+  afterEach(async () => {
+    await flush();
+    fetchingAddresses.clear();
+  });
+
+  it('unavailable Ready queues no balance read', () => {
+    const storageAvailability: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    const state = {
+      ...readyState,
+      accounts: [retainedAccount],
+      currentAccount: retainedAccount,
+      storageAvailability
+    };
+
+    useWalletStore.getState().syncFromBackend(state);
+
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+    expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+    expect(fetchingAddresses.has('pk1')).toBe(false);
+  });
+
+  it('pending Ready queues no balance read', () => {
+    const storageAvailability: { status: 'pending' } = { status: 'pending' };
+    const state = {
+      ...readyState,
+      accounts: [retainedAccount],
+      currentAccount: retainedAccount,
+      storageAvailability
+    };
+
+    useWalletStore.getState().syncFromBackend(state);
+
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+    expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+    expect(fetchingAddresses.has('pk1')).toBe(false);
+  });
+});
+
+describe('Task5 availability followon', () => {
+  const incident: StorageHealth = {
+    status: 'unavailable',
+    epoch: 9,
+    reason: 'continuity',
+    backend: 'sdk',
+    operation: 'open',
+    time: 1000
+  };
+  const healthy: StorageHealth = { status: 'healthy', epoch: 8 };
+
+  beforeEach(() => {
+    mockFetchBalances.mockReset().mockResolvedValue([row]);
+    fetchingAddresses.clear();
+    useWalletStore.setState({
+      status: WalletStatus.Locked,
+      storageAvailability: { status: 'pending' },
+      balances: {},
+      balancesLoading: {},
+      balancesLastFetched: {}
+    });
+  });
+
+  afterEach(async () => {
+    await flush();
+    fetchingAddresses.clear();
+  });
+
+  it('a missing availability payload grants no balance authority', () => {
+    const { storageAvailability: _omitted, ...missing } = readyState;
+    useWalletStore.getState().syncFromBackend(missing);
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+    expect(Reflect.get(useWalletStore.getState(), 'storageAvailability')).toEqual({ status: 'pending' });
+  });
+
+  it('a stale healthy Ready snapshot cannot clear an incident or start a balance read', () => {
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: incident });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: healthy });
+    expect(Reflect.get(useWalletStore.getState(), 'storageAvailability')).toEqual(incident);
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+  });
+
+  it('a balance read started before an incident cannot publish a late result', async () => {
+    let finish!: (rows: TokenBalanceData[]) => void;
+    mockFetchBalances.mockImplementationOnce(
+      () =>
+        new Promise<TokenBalanceData[]>(resolve => {
+          finish = resolve;
+        })
+    );
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: healthy });
+    expect(mockFetchBalances).toHaveBeenCalledTimes(1);
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: incident });
+    finish([row]);
+    await flush();
+    expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+  });
+
+  it('a newer verified recovery epoch admits one balance read without changing authenticated Ready', () => {
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: incident });
+    const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: recovered });
+    expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+    expect(mockFetchBalances).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a delayed pre-recovery incident after the newer healthy state arrives', () => {
+    const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: recovered });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: incident });
+    expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
+  });
+
+  it('does not let an older healthy snapshot replace a newer verified state', () => {
+    const recovered: StorageHealth = { status: 'healthy', epoch: 10 };
+    useWalletStore.setState({ status: WalletStatus.Ready, storageAvailability: recovered });
+    useWalletStore.getState().syncFromBackend({ ...readyState, storageAvailability: healthy });
+    expect(useWalletStore.getState().storageAvailability).toEqual(recovered);
   });
 });

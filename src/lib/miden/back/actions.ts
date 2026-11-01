@@ -24,12 +24,19 @@ import {
   unlocked,
   withInited,
   withUnlocked,
+  assertUnlocked,
   settingsUpdated,
   seedPhraseStatusUpdated,
   accountsUpdated,
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import {
+  RECOVERY_DATA_FILE_MAX_BYTES,
+  RecoveryDataFileError,
+  type RecoveryDataImportResult
+} from 'lib/miden/recovery/external-file';
+import { installNoteAcquisitionSink } from 'lib/miden/recovery/note-acquisition';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
@@ -52,6 +59,15 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
+import {
+  assertStorageHealthy,
+  captureStorageRecoveryGuard,
+  getStorageHealth,
+  initializeStorageHealth,
+  markStorageUnavailable,
+  StorageUnavailableError,
+  type StorageAvailability
+} from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -164,9 +180,13 @@ function syncRealmInsertKeySink() {
   installRealmKeystore({
     insertKey: state.status === WalletStatus.Ready && state.vault ? state.vault.insertKeySink : null
   });
+  installNoteAcquisitionSink(
+    state.status === WalletStatus.Ready && state.vault ? state.vault.noteAcquisitionSink : undefined
+  );
 }
 
 export async function init() {
+  await initializeStorageHealth();
   console.log('[Actions.init] Starting...');
   // This realm's one SDK client signs every inline write with the vault (#878):
   // installed once, here, before anything can ask it to sign. Every realm that
@@ -180,13 +200,25 @@ export async function init() {
     )
   });
   const vault = await getVault(); // wait for vault initialization
-  const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
+  const check = captureStorageRecoveryGuard();
+  const exists = await vault.isExist();
+  let vaultExist: boolean;
+  if (exists) {
+    vaultExist = await keepsSetupPendingAdmission();
+  } else {
+    const retainedCustody = await vault.hasRetainedCustody();
+    check();
+    if (retainedCustody) markStorageUnavailable('continuity', { backend: 'independent', operation: 'open' });
+    vaultExist = retainedCustody;
+  }
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<GetStateResponse['state']> {
+export async function getFrontState(): Promise<
+  GetStateResponse['state'] & { storageAvailability: StorageAvailability }
+> {
   try {
     const state = store.getState();
     if (state.inited) {
@@ -195,9 +227,10 @@ export async function getFrontState(): Promise<GetStateResponse['state']> {
   } catch {
     // store not initialized yet
   }
-  // Pending Idle must not hydrate the frontend as a real onboarding state.
+  // Authentication and storage hydration must both settle before onboarding is admitted.
   return {
-    status: 0,
+    storageAvailability: { status: 'pending' },
+    status: WalletStatus.Idle,
     accounts: [],
     currentAccount: null,
     networks: [],
@@ -392,6 +425,7 @@ export function registerNewWallet(
         const currentAccount = await vault.getCurrentAccount();
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -432,6 +466,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -473,6 +508,7 @@ export function registerImportedWallet(
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -520,6 +556,7 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
+        const storageReady = await vault.verifyStorageContinuity();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -533,7 +570,7 @@ export function unlock(password?: string) {
         // whether a pipeline is mid-sign with it, and unlock() can run over an
         // already-Ready vault whose transaction loop is live (#878). Declining
         // the lock leaves the status at 'removing', which is the designed retry.
-        if ((await vault.fetchSeedPhraseStatus()) === 'removing') {
+        if (storageReady && (await vault.fetchSeedPhraseStatus()) === 'removing') {
           await navigator.locks
             .request('generate-transactions-loop', { ifAvailable: true }, async lock => {
               if (lock) await vault.removeSeedPhrase();
@@ -589,7 +626,9 @@ export function createHDAccount(walletType: WalletType, name?: string) {
         }
       }
 
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       const accounts = await vault.createHDAccount(walletType, name);
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       // A Guardian creation registers outside the WASM lock, so a lock can land meanwhile. The
       // `locked` state is built fresh on purpose; publishing into it would hand a locked popup
       // the account list. The vault holds the account, and the next unlock loads it (#1207).
@@ -696,7 +735,9 @@ export function importAccount(privateKey: string, name?: string) {
         }
       }
 
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       accountsUpdated({ accounts });
       return accounts[accounts.length - 1]!.publicKey;
     })
@@ -714,6 +755,56 @@ export function updateSettings(settings: Partial<WalletSettings>) {
     const updatedSettings = await vault.updateSettings(settings);
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
+  });
+}
+
+export async function checkpointFinancialRecovery(
+  accountId: string,
+  entry: unknown,
+  expectedEpoch: number
+): Promise<void> {
+  if (!Number.isSafeInteger(expectedEpoch)) throw new StorageUnavailableError();
+  assertStorageHealthy(expectedEpoch);
+  return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
+}
+
+export async function checkpointProviderReceipt(value: unknown, expectedEpoch: number): Promise<void> {
+  const state = store.getState();
+  assertUnlocked(state);
+  await state.vault.checkpointProviderReceipt(value, expectedEpoch);
+}
+
+export async function recoverWalletStorage(
+  operation: 'check' | 'rebuild' | 'reconcile',
+  expectedEpoch: number
+): Promise<import('../recovery/types').StorageRecoveryResult> {
+  if (
+    !Number.isSafeInteger(expectedEpoch) ||
+    getStorageHealth().epoch !== expectedEpoch ||
+    (operation !== 'check' && operation !== 'rebuild' && operation !== 'reconcile')
+  )
+    throw new StorageUnavailableError();
+  return withUnlocked(async ({ vault }) => {
+    if (operation === 'reconcile') {
+      const result = await vault.reconcileStorageRecovery();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      return { recovered: false, ...result };
+    }
+    let progress: import('../recovery/types').StorageRecoveryProgress | undefined;
+    const recovered = await (operation === 'check'
+      ? vault.checkStorageRecovery()
+      : vault.recoverStorage(value => {
+          progress = value;
+        }));
+    if (store.getState().vault !== vault) throw new StorageUnavailableError();
+    if (recovered) {
+      const accounts = await vault.fetchAccounts();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      const currentAccount = await vault.getCurrentAccount();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      accountsUpdated({ accounts, currentAccount });
+    }
+    return { recovered, ...(progress === undefined ? {} : { progress }) };
   });
 }
 
@@ -743,6 +834,139 @@ export async function assessOutgoingSpendingLimit(
     spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
   });
   return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
+}
+
+interface RecoveryFileOperation {
+  active: boolean;
+  epoch: number;
+  incident: () => void;
+  check: () => void;
+  acceptQuarantine: (epoch: number | undefined) => void;
+}
+const recoveryFileOperations = new Map<string, RecoveryFileOperation>();
+const validRecoveryFileOperation = (id: string) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+
+function beginRecoveryFileOperation(expectedEpoch: number, operationId: string): RecoveryFileOperation {
+  if (
+    !Number.isSafeInteger(expectedEpoch) ||
+    expectedEpoch < 0 ||
+    expectedEpoch !== getStorageHealth().epoch ||
+    !validRecoveryFileOperation(operationId) ||
+    recoveryFileOperations.has(operationId) ||
+    recoveryFileOperations.size >= 2
+  )
+    throw new StorageUnavailableError();
+  const initial = store.getState();
+  if (!initial.inited) throw new StorageUnavailableError();
+  const vault = initial.vault;
+  const status = initial.status;
+  const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const owner = () => {
+    const current = store.getState();
+    if (
+      !operation.active ||
+      recoveryFileOperations.get(operationId) !== operation ||
+      !current.inited ||
+      current.vault !== vault ||
+      current.status !== status ||
+      `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network
+    )
+      throw new StorageUnavailableError();
+  };
+  const operation: RecoveryFileOperation = {
+    active: true,
+    epoch: expectedEpoch,
+    incident: captureStorageRecoveryGuard(),
+    check() {
+      owner();
+      operation.incident();
+    },
+    acceptQuarantine(epoch) {
+      owner();
+      if (epoch !== undefined) {
+        const health = getStorageHealth();
+        if (
+          epoch !== operation.epoch + 1 ||
+          health.epoch !== epoch ||
+          health.status !== 'unavailable' ||
+          health.reason !== 'continuity' ||
+          health.backend !== 'independent' ||
+          health.operation !== 'import'
+        )
+          throw new StorageUnavailableError();
+        operation.epoch = epoch;
+        operation.incident = captureStorageRecoveryGuard();
+      }
+      operation.check();
+    }
+  };
+  recoveryFileOperations.set(operationId, operation);
+  operation.check();
+  return operation;
+}
+
+function endRecoveryFileOperation(operationId: string, operation: RecoveryFileOperation): void {
+  operation.active = false;
+  if (recoveryFileOperations.get(operationId) === operation) recoveryFileOperations.delete(operationId);
+}
+
+export async function exportRecoveryDataFile(
+  filePassword: string,
+  expectedEpoch: number,
+  operationId: string,
+  credential?: string
+): Promise<string> {
+  const operation = beginRecoveryFileOperation(expectedEpoch, operationId);
+  try {
+    const content = await Vault.exportRecoveryData(filePassword, credential, operation.check);
+    operation.check();
+    return content;
+  } finally {
+    endRecoveryFileOperation(operationId, operation);
+  }
+}
+
+export async function importRecoveryDataFile(
+  content: string,
+  filePassword: string,
+  expectedEpoch: number,
+  operationId: string,
+  credential?: string
+): Promise<RecoveryDataImportResult> {
+  if (
+    content.length > RECOVERY_DATA_FILE_MAX_BYTES ||
+    new TextEncoder().encode(content).byteLength > RECOVERY_DATA_FILE_MAX_BYTES
+  )
+    throw new RecoveryDataFileError('size');
+  const operation = beginRecoveryFileOperation(expectedEpoch, operationId);
+  const vault = store.getState().vault;
+  try {
+    const result = await Vault.importRecoveryData(
+      content,
+      filePassword,
+      expectedEpoch,
+      credential,
+      operation.check,
+      vault && typeof vault.verifyStorageContinuity === 'function'
+        ? async capability => {
+            operation.check();
+            const verified = await vault.verifyStorageContinuity(false, capability);
+            operation.check();
+            return verified;
+          }
+        : undefined
+    );
+    operation.acceptQuarantine(result.quarantinedEpoch);
+    return { imported: result.imported, retainedEntries: result.retainedEntries };
+  } finally {
+    endRecoveryFileOperation(operationId, operation);
+  }
+}
+
+export async function cancelRecoveryDataOperation(operationId: string): Promise<void> {
+  if (!validRecoveryFileOperation(operationId)) throw new StorageUnavailableError();
+  const operation = recoveryFileOperations.get(operationId);
+  if (operation) operation.active = false;
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {

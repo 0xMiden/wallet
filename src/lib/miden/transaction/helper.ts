@@ -165,6 +165,8 @@ export function isLockedError(err: unknown): boolean {
   return /wallet is locked|vault is (?:null|locked|unavailable)|not initialized/i.test(msg);
 }
 
+export const MAX_DAPP_RESULT_BYTES = 16 * 1024 * 1024;
+
 /**
  * Update the status of the transaction
  * @param id The id of the transaction to update
@@ -205,7 +207,19 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // run; only their own writers change these (#1081).
     const storedEvidence = t.submitEvidence;
     const storedNeverCommittedAt = t.neverCommittedAt;
+    const dappOwned =
+      t.type === 'execute' ||
+      Boolean(t.dappOrigins?.length) ||
+      Boolean((otherValues as Partial<ITransaction>).dappOrigins?.length);
     Object.assign(t, otherValues);
+    if (status === ITransactionStatus.Completed && dappOwned && t.resultBytes) {
+      if (t.resultBytes.byteLength > MAX_DAPP_RESULT_BYTES) {
+        delete t.resultBytes;
+        t.resultTooLarge = true;
+      } else {
+        delete t.resultTooLarge;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(otherValues, 'failureDiagnostics') && t.failureDiagnostics === undefined) {
       delete t.failureDiagnostics;
     }
@@ -1224,7 +1238,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
           // forever while the activity row reads Completed.
           //
-          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // A Completed row arrives here without `resultBytes` after size limiting, or when the reaper
           // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
           // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
           // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
@@ -1235,8 +1249,11 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
               // only the local apply failed. It stays an error, since no output exists to return, but
               // says so, or a dApp reading "not sent" asks the user to sign and pay again.
               resolve({
-                errorMessage:
-                  tx.resultReleasedAt != null
+                errorMessage: tx.resultTooLarge
+                  ? tx.transactionId
+                    ? `Transaction ${tx.transactionId} was accepted by the network, but its result exceeds the size limit`
+                    : 'Transaction completed, but its result exceeds the size limit'
+                  : tx.resultReleasedAt != null
                     ? RESULT_EXPIRED_MESSAGE
                     : tx.transactionId
                       ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`

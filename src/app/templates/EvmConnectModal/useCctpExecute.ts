@@ -51,22 +51,29 @@ export function useCctpExecute(): CctpExecute {
         args: [message, attestation]
       });
 
+      const retainExecution = () =>
+        updateBridgedReceivePhase(txId, 'delivering', undefined, undefined, {
+          claimCctpExecution: { source, message, attestation, sourceDomain: leg.sourceDomain }
+        });
       let hash: Hash;
       if (nativeReownAvailable) {
         // A session that did not approve the target chain fails here, before the wallet prompt.
         await prepareNativeSessionChain(target.chain.id);
+        const fees = await readNativeFeeFields(target.chain.id);
+        await retainExecution();
         const result = await NativeReown.sendTransaction({
           chainId: target.chain.id,
           to: target.executor,
           value: toHex(0n),
           data,
-          ...(await readNativeFeeFields(target.chain.id))
+          ...fees
         });
         const unwrapped = unwrapNativeResult(result.hash);
         if (!isHash(unwrapped)) throw new Error('The wallet returned no transaction hash.');
         hash = unwrapped;
       } else {
         await switchChainAsync({ chainId: target.chain.id });
+        await retainExecution();
         hash = await writeContract.mutateAsync({
           chainId: target.chain.id,
           abi: GENERIC_EXECUTOR_ABI,

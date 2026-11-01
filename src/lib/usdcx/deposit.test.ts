@@ -106,8 +106,10 @@ describe('runUsdcxDeposit', () => {
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'readAllowance',
+      'phase:submitting',
       'approve',
       'receipt:approve',
+      'phase:submitting',
       'depositToRemote',
       'phase:submitting',
       'receipt:deposit',
@@ -132,6 +134,32 @@ describe('runUsdcxDeposit', () => {
     await runUsdcxDeposit('row-1', '1', MIXED_CASE_RECIPIENT, deps);
 
     expect(jest.mocked(deps.updatePhase).mock.calls).toEqual([
+      [
+        'row-1',
+        'submitting',
+        undefined,
+        undefined,
+        {
+          claimSourceExecution: {
+            provider: 'usdcx',
+            source: getUsdcxXReserveSource(ARC_TESTNET_ID),
+            recipient: MIXED_CASE_RECIPIENT
+          }
+        }
+      ],
+      [
+        'row-1',
+        'submitting',
+        undefined,
+        undefined,
+        {
+          continueSourceExecution: {
+            provider: 'usdcx',
+            source: getUsdcxXReserveSource(ARC_TESTNET_ID),
+            recipient: MIXED_CASE_RECIPIENT
+          }
+        }
+      ],
       ['row-1', 'submitting', { evmTxHash: DEPOSIT_HASH, usdcxRemoteRecipient: RECIPIENT }],
       ['row-1', 'delivering', { evmTxHash: DEPOSIT_HASH }]
     ]);
@@ -163,6 +191,8 @@ describe('runUsdcxDeposit', () => {
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'phase:submitting',
+      'phase:submitting',
       'depositToRemote',
       'phase:submitting',
       'receipt:deposit',
@@ -210,7 +240,7 @@ describe('runUsdcxDeposit', () => {
 
     await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('Transaction reverted');
 
-    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledTimes(3);
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
       evmTxHash: DEPOSIT_HASH,
       usdcxRemoteRecipient: RECIPIENT
@@ -230,7 +260,10 @@ describe('runUsdcxDeposit', () => {
     await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('User rejected');
 
     expect(deps.signer.depositToRemote).not.toHaveBeenCalled();
-    expect(deps.updatePhase).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', undefined, undefined, {
+      claimSourceExecution: { provider: 'usdcx', source: getUsdcxXReserveSource(ARC_TESTNET_ID), recipient: RECIPIENT }
+    });
   });
 
   it('recognises only its own error class', () => {

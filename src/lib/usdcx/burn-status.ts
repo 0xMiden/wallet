@@ -1,6 +1,7 @@
 import { NoteId } from '@miden-sdk/miden-sdk/lazy';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import * as Repo from 'lib/miden/repo';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
@@ -69,6 +70,7 @@ export async function pollUsdcxBurn(
   const observation = await readStatus(burn.noteId);
   const phase = burnPhaseFromStatus(observation.status);
   if (!phase) return;
+  let retained: ITransaction | undefined;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
     const previous = current?.usdcxBurn;
@@ -96,5 +98,7 @@ export async function pollUsdcxBurn(
         lastError: observation.lastError
       }
     };
+    retained = { ...row };
   });
+  if (retained) await checkpointProviderReceipt(retained);
 }

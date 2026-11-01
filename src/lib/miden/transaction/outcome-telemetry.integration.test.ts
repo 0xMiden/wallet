@@ -432,3 +432,7 @@ describe('the rows that are Completed from birth', () => {
     expect(reported).toEqual([]);
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({
+  checkpointProviderReceipt: jest.fn().mockResolvedValue(undefined)
+}));

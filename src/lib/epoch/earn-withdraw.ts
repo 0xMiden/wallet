@@ -19,6 +19,7 @@ import {
   type IEarnWithdrawPreparedExecution,
   type ITransaction
 } from 'lib/miden/db/types';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import {
@@ -316,6 +317,7 @@ async function submitEarnWithdrawal(
       executionChain.id
     );
     assertCurrent();
+    let initialized: ITransaction | undefined;
     await Repo.transactions.where({ id: txId }).modify(row => {
       row.extraInputs = {
         ...row.extraInputs,
@@ -325,7 +327,11 @@ async function submitEarnWithdrawal(
         chainId: executionChain.id,
         ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
       };
+      initialized = { ...row };
     });
+    if (!initialized) throw new Error('Withdrawal row disappeared before preparation');
+    await checkpointProviderReceipt(initialized);
+    assertCurrent();
     args.onRowCreated?.(txId);
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
     let preparedExecution: IEarnWithdrawPreparedExecution | undefined;
@@ -926,7 +932,7 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
         startedAt
       ) => {
         if (!attemptId || startedAt === undefined) throw new Error('Withdrawal attempt identity is missing.');
-        let claimed = false;
+        let claimed: ITransaction | undefined;
         await Repo.transactions.where({ id: txId }).modify(current => {
           if (
             current.type !== 'earn-withdraw' ||
@@ -951,9 +957,10 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
             error: undefined
           };
           current.error = undefined;
-          claimed = true;
+          claimed = { ...current };
         });
         if (!claimed) throw new Error('This withdrawal attempt is no longer available to retry.');
+        await checkpointProviderReceipt(claimed);
         return txId;
       }
     },
@@ -992,6 +999,8 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
       claimed = current;
     });
     if (!context.isCurrent() || !claimed) return;
+    await checkpointProviderReceipt(claimed);
+    if (!context.isCurrent()) return;
     const identity = earnWithdrawExecutionIdentity(claimed);
     const execution =
       identity && validateEarnWithdrawPreparedExecution(claimed.extraInputs.preparedExecution, identity);

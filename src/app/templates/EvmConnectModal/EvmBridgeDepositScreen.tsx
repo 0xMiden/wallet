@@ -32,7 +32,9 @@ import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import type { ProviderSourceExecution } from 'lib/miden/transaction/complete';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -56,6 +58,7 @@ import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import {
+  bridgeReceiveLibraryError,
   type BridgeBalanceCheck,
   type BridgeReceiveRequestClient,
   type BridgeReceiveFailureSource,
@@ -1274,6 +1277,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             throw walletRaised(new Error(ALLOWANCE_READ_FAILED, { cause }));
           })) < amountInBaseUnits;
 
+        const execution: ProviderSourceExecution = {
+          provider: 'agglayer',
+          route: captured,
+          sourceAddress: evmAddress,
+          amount: amount.trim()
+        };
+        await updateBridgedReceivePhase(trackingTxId, 'submitting', undefined, undefined, {
+          claimSourceExecution: execution
+        });
+        const retainCurrentSource = () =>
+          updateBridgedReceivePhase(trackingTxId, 'submitting', undefined, undefined, {
+            continueSourceExecution: execution
+          });
         let hash: `0x${string}`;
         if (nativeReownAvailable) {
           if (needsApproval) {
@@ -1283,13 +1299,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               args: [contractAddress, amountInBaseUnits]
             });
             step = 'wallet_approve';
+            const approvalFees = await readNativeFeeFields(agglayerChainId);
+            await retainCurrentSource();
             const approval = await NativeReown.sendTransaction({
               chainId: agglayerChainId,
               from: evmAddress,
               to: tokenAddress,
               value: toHex(0n),
               data: approveData,
-              ...(await readNativeFeeFields(agglayerChainId))
+              ...approvalFees
             });
             setAwaitingNextConfirmation(true);
             step = 'approve_receipt';
@@ -1301,13 +1319,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             args
           });
           step = 'wallet_deposit';
+          const depositFees = await readNativeFeeFields(agglayerChainId);
+          await retainCurrentSource();
           const result = await NativeReown.sendTransaction({
             chainId: agglayerChainId,
             from: evmAddress,
             to: contractAddress,
             value: toHex(value),
             data,
-            ...(await readNativeFeeFields(agglayerChainId))
+            ...depositFees
           });
           hash = unwrapNativeResult(result.hash) as `0x${string}`;
         } else {
@@ -1322,6 +1342,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           await switchChainAsync({ chainId: agglayerChainId });
           if (needsApproval) {
             step = 'wallet_approve';
+            await retainCurrentSource();
             const approvalHash = await writeContract.mutateAsync({
               chainId: agglayerChainId,
               abi: ERC20_APPROVE_ABI,
@@ -1334,6 +1355,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             await waitForEvmReceipt(approvalHash, chain);
           }
           step = 'wallet_deposit';
+          await retainCurrentSource();
           hash = await writeContract.mutateAsync({
             chainId: agglayerChainId,
             abi: AGGLAYER_BRIDGE_ABI,
@@ -1360,6 +1382,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: depositHash }).catch(
             () => undefined
           );
+          setSlowStatus('submitted');
+          return;
+        }
+        if (await hasAmbiguousSourceAttempt(trackingTxId, step, err)) {
           setSlowStatus('submitted');
           return;
         }
@@ -1495,11 +1521,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
         };
         const waitForReceipt = (hash: Hash) => waitForEvmReceipt(hash, usdcxChain);
-        const updatePhase: typeof updateBridgedReceivePhase = async (txId, phase, details) => {
+        const updatePhase: typeof updateBridgedReceivePhase = async (txId, phase, details, expected, guards) => {
           depositHash = details?.evmTxHash ?? depositHash;
           // A recorded hash is a signed deposit, so what is left is its receipt.
           if (depositHash !== undefined) step = 'deposit_receipt';
-          await updateBridgedReceivePhase(txId, phase, details);
+          await updateBridgedReceivePhase(txId, phase, details, expected, guards);
         };
         step = 'precheck_route';
         switch (usdcxSource.route) {
@@ -1590,6 +1616,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: depositHash }).catch(
             () => undefined
           );
+          setSlowStatus('submitted');
+          return;
+        }
+        if (await hasAmbiguousSourceAttempt(trackingTxId, step, err)) {
           setSlowStatus('submitted');
           return;
         }
@@ -2467,6 +2497,26 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     </div>
   );
 };
+
+async function hasAmbiguousSourceAttempt(id: string, step: BridgeReceiveFailureStep, error: unknown): Promise<boolean> {
+  if (step !== 'wallet_approve' && step !== 'wallet_deposit') return false;
+  const failure = bridgeReceiveLibraryError(error);
+  if (
+    [
+      'user_rejected',
+      'insufficient_funds',
+      'reverted',
+      'request_invalid',
+      'transaction_rejected',
+      'invalid_permissions'
+    ].includes(failure)
+  )
+    return false;
+  const row = await Repo.transactions.get(id);
+  return (
+    row?.type === 'bridged-receive' && row.extraInputs.sourceSubmission === 'attempted' && !row.extraInputs.evmTxHash
+  );
+}
 
 export const EvmBridgeDepositScreen: React.FC<EvmBridgeDepositScreenProps> = props => (
   <NavigatorProvider routes={BRIDGE_ROUTES} initialRouteName={ReceiveStep.ShowBridgePageTakeAmount}>

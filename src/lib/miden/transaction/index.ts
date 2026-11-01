@@ -51,6 +51,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -175,6 +176,8 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
+import { captureRecoveryNotes } from '../recovery/capture';
+import { checkpointTransactionRecovery } from '../recovery/checkpoint';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
@@ -595,6 +598,10 @@ const stageStampFor =
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
           : recordSubmitCrossing(txId, detail?.evidence, attempt));
+        if (detail?.reliable !== false) {
+          if (!detail?.recovery) throw new Error('Transaction recovery capture unavailable');
+          await checkpointTransactionRecovery(txId, detail.recovery, detail.evidence, attempt?.attemptId);
+        }
       } catch (err) {
         // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
         // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
@@ -621,9 +628,12 @@ const stageStampFor =
 const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) => {
   let opened = false;
   let settled = false;
-  const gate: SubmitGate = async evidence => {
+  const gate: SubmitGate = async (evidence, recovery) => {
+    assertStorageHealthy();
+    const healthEpoch = getStorageHealth().epoch;
     if (settled) return false;
-    await stamp('submitting', { evidence });
+    await stamp('submitting', { evidence, recovery });
+    assertStorageHealthy(healthEpoch);
     if (settled) return false;
     opened = true;
     return true;
@@ -835,6 +845,7 @@ function scheduleRequeueWake(
   const hardExpiresAt = chainStartedAt + MAX_REQUEUE_WAKE_LIFETIME_MS;
   const timer = setTimeout(() => {
     requeueWakes.delete(txId);
+    if (getStorageHealth().status !== 'healthy') return;
     void (async () => {
       try {
         await safeGenerateTransactionsLoop(signCallback, false, guardianProvider);
@@ -1462,6 +1473,9 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
+  const healthEpoch = getStorageHealth().epoch;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1488,6 +1502,7 @@ export const generateTransaction = async (
       guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
+    assertStorageHealthy(healthEpoch);
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
   } finally {
     // Never let the release become the pipeline's outcome. On mobile and desktop
@@ -2007,12 +2022,12 @@ const generateTransactionWithProvider = async (
               preparedBytes,
               transaction.delegateTransaction,
               signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
+              stageStampFor(transaction.id, attempt)
             )
           : midenClientProxy.consumeNoteId(
               transaction as ConsumeTransaction,
               signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
+              stageStampFor(transaction.id, attempt)
             )
       );
       break;
@@ -2084,11 +2099,15 @@ const generateTransactionWithProvider = async (
             requestBytes,
             transaction.delegateTransaction,
             signCallback,
-            attempt && stageStampFor(transaction.id, attempt)
+            stageStampFor(transaction.id, attempt)
           )
         );
       } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+        result = await midenClientProxy.sendTransaction(
+          transaction as SendTransaction,
+          signCallback,
+          stageStampFor(transaction.id, undefined)
+        );
       }
       break;
     case 'execute':
@@ -2654,7 +2673,10 @@ const runGuardianPipeline = async (
       throw error;
     }
     try {
-      await setStage('submitting', { evidence });
+      await setStage('submitting', {
+        evidence,
+        recovery: captureRecoveryNotes(executedTx.result, tr.serialize(), () => getCurrentWasmLockHold() === hold)
+      });
     } catch (error) {
       observe(error, 'submitting_stage_write');
       throw error;
@@ -2721,8 +2743,10 @@ const runWriteLeaf = async <T>(
   leaf: () => Promise<T>
 ): Promise<T> => {
   try {
+    assertStorageHealthy();
     return await leaf();
   } catch (error) {
+    if (getStorageHealth().status !== 'healthy') throw error;
     if (
       attempt !== undefined &&
       offscreen &&
@@ -4712,6 +4736,9 @@ export const generateTransactionsLoop = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
+  const loopHealthEpoch = getStorageHealth().epoch;
   await cancelStuckTransactions();
   let admissionMembers: readonly QueueAdmissionMember[] = [];
   await cancelStaleQueuedTransactions(rows => {
@@ -4745,6 +4772,7 @@ export const generateTransactionsLoop = async (
   try {
     await importAllNotes();
   } catch (e) {
+    if (getStorageHealth().status !== 'healthy') throw e;
     logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
   }
 
@@ -4804,8 +4832,10 @@ export const generateTransactionsLoop = async (
   // Call safely to cancel transaction and unlock records if something goes wrong
   beginAttemptInThisRealm(nextTransaction.id);
   try {
+    assertStorageHealthy(loopHealthEpoch);
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
+    if (getStorageHealth().status !== 'healthy') throw e;
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
     // offscreen bus re-attaches a forwarded code as `errorCode`). web-sdk 0.16
@@ -5017,7 +5047,7 @@ export const safeGenerateTransactionsLoop = async (
 ): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
     .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) return 'idle';
+      if (!lock || getStorageHealth().status !== 'healthy') return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
       if (result === true) return 'processed';

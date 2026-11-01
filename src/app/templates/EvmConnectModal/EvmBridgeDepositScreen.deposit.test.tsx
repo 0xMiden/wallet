@@ -13,6 +13,9 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
+import * as RealRepo from 'lib/miden/repo';
+import { getStorageHealth } from 'lib/miden/storage-health';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -288,6 +291,24 @@ jest.mock('lib/epoch', () => ({
     getState: () => epochState
   })
 }));
+
+let mockSubmissionComplete = () => {};
+jest.mock('lib/miden/activity/bridge-receive', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/activity/bridge-receive')>(
+    'lib/miden/activity/bridge-receive'
+  );
+  return {
+    ...actual,
+    startBridgeReceiveSubmission: (create: () => Promise<string>, drive: (id: string) => Promise<void>) =>
+      actual.startBridgeReceiveSubmission(create, async id => {
+        try {
+          await drive(id);
+        } finally {
+          mockSubmissionComplete();
+        }
+      })
+  };
+});
 
 jest.mock('lib/miden/activity', () => ({
   initiateBridgedReceiveTransaction: jest.fn(),
@@ -957,6 +978,123 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     );
   });
 
+  it.each([false, true])(
+    'Task4C2 finalseams retains AggLayer source attempt before native=%s wallet mutation',
+    async native => {
+      await RealRepo.db.open();
+      mockNativeReown = native;
+      let walletStarted = () => {};
+      const walletCall = new Promise<void>(resolve => {
+        walletStarted = resolve;
+      });
+      mockMutateAsync.mockImplementation(async () => {
+        walletStarted();
+        return '0x1111111111111111111111111111111111111111111111111111111111111111';
+      });
+      jest.mocked(NativeReown.sendTransaction).mockImplementation(async () => {
+        walletStarted();
+        return { hash: '0x1111111111111111111111111111111111111111111111111111111111111111' };
+      });
+      let release = () => {};
+      let entered = () => {};
+      const ack = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const started = new Promise<void>(resolve => {
+        entered = resolve;
+      });
+      installProviderReceiptBackend(async () => {});
+      const initiate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      ).initiateBridgedReceiveTransaction;
+      const update = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+        'lib/miden/transaction/complete'
+      ).updateBridgedReceivePhase;
+      jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async args => {
+        const id = await initiate({ ...args, faucetId: 'known-delivery-faucet' });
+        installProviderReceiptBackend(async () => {
+          entered();
+          await ack;
+        });
+        return id;
+      });
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(update);
+      const rendered = renderScreen();
+      try {
+        await reachReview();
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await settle();
+        await Promise.race([started, walletCall]);
+        expect(mockMutateAsync.mock.calls.length + jest.mocked(NativeReown.sendTransaction).mock.calls.length).toBe(0);
+        release();
+        await settle();
+      } finally {
+        release();
+        await settle();
+        rendered.unmount();
+        installProviderReceiptBackend(undefined);
+        mockNativeReown = false;
+        jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
+        jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
+      }
+    }
+  );
+
+  it.each([false, true])(
+    'Task4C2 supplemental preserves AggLayer attempted source after native=%s wallet response loss',
+    async native => {
+      await RealRepo.db.open();
+      mockNativeReown = native;
+      installProviderReceiptBackend(async () => {});
+      let createdId = '';
+      let observedAttempt: unknown;
+      let complete = () => {};
+      const finished = new Promise<void>(resolve => {
+        complete = resolve;
+      });
+      mockSubmissionComplete = complete;
+      const initiate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      ).initiateBridgedReceiveTransaction;
+      const update = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+        'lib/miden/transaction/complete'
+      ).updateBridgedReceivePhase;
+      jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async args => {
+        createdId = await initiate(args);
+        return createdId;
+      });
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(update);
+      const loseResponse = async () => {
+        observedAttempt = (await RealRepo.transactions.get(createdId))?.extraInputs.sourceSubmission;
+        throw new Error('Wallet response lost');
+      };
+      mockMutateAsync.mockImplementation(loseResponse);
+      jest.mocked(NativeReown.sendTransaction).mockImplementation(loseResponse);
+
+      const rendered = renderScreen();
+      try {
+        await reachReview();
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await act(async () => {
+          await finished;
+        });
+        expect(mockMutateAsync.mock.calls.length + jest.mocked(NativeReown.sendTransaction).mock.calls.length).toBe(1);
+        expect(observedAttempt).toBe('attempted');
+        const row = await RealRepo.transactions.get(createdId);
+        expect(row?.extraInputs.phase).toBe('submitting');
+        expect(row?.extraInputs.sourceSubmission).toBe('attempted');
+        expect(row?.extraInputs.evmTxHash).toBeUndefined();
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        mockSubmissionComplete = () => {};
+        rendered.unmount();
+        installProviderReceiptBackend(undefined);
+        mockNativeReown = false;
+        jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
+        jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
+      }
+    }
+  );
   it('bridges the Slow route through the L1 bridge and the rollup id the config names', async () => {
     mockSwitchChainAsync.mockClear();
     renderScreen();
@@ -1905,10 +2043,9 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     'keeps a signed deposit submitting when its delivering write fails (native=%s)',
     async native => {
       mockNativeReown = native;
-      jest
-        .mocked(updateBridgedReceivePhase)
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('storage unavailable'));
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(async (_id, phase) => {
+        if (phase === 'delivering') throw new Error('storage unavailable');
+      });
       render(depositScreen(undefined, EVM_WALLET));
 
       await reachReview();

@@ -27,6 +27,12 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  assertStorageHealthy,
+  getStorageHealth,
+  markStorageUnavailable,
+  StorageUnavailableError
+} from 'lib/miden/storage-health';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -196,6 +202,8 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[] | null> {
+  assertStorageHealthy();
+  const storageEpoch = getStorageHealth().epoch;
   const {
     setAssetsMetadata,
     faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
@@ -239,6 +247,11 @@ export async function fetchBalances(
   const readAccount = async (hold: WasmLockHold) => {
     const finishSnapshot = beginBalanceSnapshot();
     const acc = await midenClientProxy.getAccount(address);
+    assertStorageHealthy(storageEpoch);
+    if (!acc) {
+      markStorageUnavailable('continuity', { backend: 'sdk', operation: 'get' });
+      throw new StorageUnavailableError();
+    }
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
     // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
@@ -294,7 +307,8 @@ export async function fetchBalances(
   }
   // The call went through, which is the one observation that puts this probe's fuse out.
   noteSyncSuccess('balances');
-  const { account, assets } = read.value;
+  const { assets } = read.value;
+  assertStorageHealthy(storageEpoch);
   onSnapshot?.(read.value.snapshot);
 
   // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
@@ -365,25 +379,6 @@ export async function fetchBalances(
     await Promise.all(metadataFetchPromises);
   }
 
-  // Handle case where account doesn't exist (outside the lock)
-  if (!account) {
-    console.warn(`Account not found: ${address}`);
-    // Can only fabricate a "0 MIDEN" row once discovery has learned the
-    // native asset ID. Until then return [] and let the UI render a skeleton.
-    if (!midenFaucetId) return [];
-    const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId);
-    return [
-      {
-        tokenId: midenFaucetId,
-        tokenSlug: nativeMetadata.symbol,
-        metadata: nativeMetadata,
-        ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-        balance: 0,
-        balanceBaseUnits: '0'
-      }
-    ];
-  }
-
   // Update metadata stores with newly fetched metadata (outside the lock)
   for (const [id, metadata] of Object.entries(fetchedMetadatas)) {
     localMetadatas[id] = metadata;
@@ -444,5 +439,6 @@ export async function fetchBalances(
     });
   }
 
+  assertStorageHealthy(storageEpoch);
   return balances;
 }

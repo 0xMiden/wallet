@@ -11,6 +11,8 @@ import {
 } from './tracking';
 import type { OneClickStatusResponse } from './types';
 
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: jest.fn(async () => {}) }));
+
 jest.mock('lib/one-click/client', () => ({
   ...jest.requireActual('lib/one-click/client'),
   fetchOneClickStatus: jest.fn()

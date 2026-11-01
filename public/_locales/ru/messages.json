@@ -8607,5 +8607,179 @@
   "arcadePostingPolicy": {
     "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "Хранение в кошельке недоступно",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Не удалось проверить данные вашего кошелька. Остатки и операции с кошельком приостановлены до проверки хранилища.",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "Отправленная транзакция может ещё завершиться. Проверьте её статус, прежде чем повторить попытку.",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "Хранение чеков",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "Восстановление на основе данных восстановления",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "Проверьте отправленные транзакции",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "Проверка сохраненных данных кошелька...",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "Проверка не удалось завершить. Действия кошелька остаются приостановленными.",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "Хранение не прошло проверку. Действия с кошельком по-прежнему приостановлены.",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "Проверенные счета: $verifiedAccounts$ из $expectedAccounts$. Проверенные входы: $verifiedInputs$ из $expectedInputs$.",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "Сохранить файл данных восстановления",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "Подготовка файла данных для восстановления...",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "Не удалось сохранить данные для восстановления",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "Файл данных для восстановления не удалось доставить. Попытайтесь ещё раз, прежде чем полагаться на эту копию.",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "Данные для восстановления",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "сохранено",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "Храните эту зашифрованную копию последних проверенных данных для восстановления за пределами этого устройства и берегите пароль к ней. Она может не содержать более новых учетных записей или данных об активности.",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "Данный файл не содержит ваших ключей подписи или фразы восстановления.",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "Сначала восстановите доступ подписанта отдельно, затем импортируйте эти данные и проверьте хранилище кошелька, прежде чем повторять транзакции.",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "Данные для восстановления",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "Экспорт данных восстановления",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "Импорт данных восстановления",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "Экспортируйте последние проверенные данные для восстановления в файл, хранящийся за пределами этого устройства. Они могут не включать более новые учетные записи или действия. Этот файл не содержит ключей подписи или вашей фразы восстановления. Перед импортом отдельно восстановите доступ подписанта.",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataImportDescription": {
+    "message": "Выберите ранее экспортированный файл данных восстановления. Он не содержит ключей подписи или фразы восстановления, поэтому восстановите доступ к подписи отдельно.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Введите пароль для шифрования файла данных восстановления.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
+  "recoveryDataChooseFile": {
+    "message": "Выберите файл данных для восстановления",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "Очистить выбранный файл",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "Пароль файла восстановления",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "Пройдите аутентификацию с помощью средства защиты кошелька, чтобы получить доступ к данным для восстановления.",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "Сохранение данных для восстановления",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "Импортированные доказательства не возобновляют активность кошелька. Проверьте и восстановите хранилище кошелька, а затем сведите отправленные транзакции перед повторной попыткой.",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "Неверный пароль файла восстановления.",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "Это не является действительным файлом данных для восстановления.",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "Эта версия файла восстановления не поддерживается.",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "Файл данных восстановления превышает ограничение по размеру.",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "Эти данные для восстановления относятся к другой сети.",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "Эти данные восстановления не соответствуют сохраненным учетным записям кошельков.",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "Проверенные данные о восстановлении недоступны.",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "Данные восстановления",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "Не удалось прочитать выбранный файл восстановления. Выберите его заново и попробуйте ещё раз.",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }

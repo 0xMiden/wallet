@@ -9,6 +9,7 @@ import {
 
 const mockValues = new Map<string, object | string>();
 let mockBeforeWrite: (() => Promise<void>) | undefined;
+let mockAfterGenerationWrite: (() => void) | undefined;
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: async (key: string) => mockValues.get(key) ?? null,
   putToStorage: async (key: string, value: object | string) => {
@@ -18,6 +19,7 @@ jest.mock('lib/miden/front/storage', () => ({
       await callback();
     }
     mockValues.set(key, value);
+    if (key === 'guardian_history_generation_v1') mockAfterGenerationWrite?.();
   }
 }));
 const checkpoint: GuardianHistoryCheckpoint = {
@@ -35,6 +37,7 @@ const checkpoint: GuardianHistoryCheckpoint = {
 beforeEach(() => {
   mockValues.clear();
   mockBeforeWrite = undefined;
+  mockAfterGenerationWrite = undefined;
 });
 
 it('retains the page cursor across reads', async () => {
@@ -103,4 +106,17 @@ it('reads the stored generation, storing a fresh one when the key is missing', a
 it('starts again when a saved checkpoint is malformed', async () => {
   mockValues.set(GUARDIAN_HISTORY_STORAGE_KEY, { generation: 'initial', checkpoints: { test: { cursor: 12 } } });
   expect((await readGuardianHistoryState()).checkpoints).toEqual({});
+});
+
+it('does not write checkpoints after the recovery permission expires during generation storage', async () => {
+  let current = true;
+  mockAfterGenerationWrite = () => {
+    current = false;
+  };
+  await expect(
+    clearGuardianHistoryCheckpoints(() => {
+      if (!current) throw new Error('expired recovery');
+    })
+  ).rejects.toThrow('expired recovery');
+  expect(mockValues.has(GUARDIAN_HISTORY_STORAGE_KEY)).toBe(false);
 });

@@ -29,7 +29,10 @@ import React from 'react';
 
 import { act, cleanup, render, screen } from '@testing-library/react';
 
+import type { StorageHealth } from 'lib/miden/storage-health';
+import { type WalletAccount, WalletStatus } from 'lib/shared/types';
 import * as Woozie from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
@@ -44,7 +47,32 @@ const mockLocation: { pathname: string; trigger: string | null } = {
   trigger: null
 };
 const mockEnv = { popup: false, fullPage: false, sidePanel: false };
-const mockMiden = { ready: false, locked: false, hydrated: false };
+type TestStorageAvailability = StorageHealth | { status: 'pending' };
+const createHealthyAvailability = (): TestStorageAvailability => ({ status: 'healthy', epoch: 0 });
+const healthyAvailability = createHealthyAvailability();
+const retainedAccount: WalletAccount = {
+  publicKey: 'retained-account',
+  name: 'Retained account',
+  isPublic: true,
+  type: WalletType.Guardian,
+  hdIndex: 0,
+  authScheme: 'ecdsa'
+};
+let mockMiden = {
+  ready: false,
+  locked: false,
+  hydrated: false,
+  storageAvailability: healthyAvailability,
+  state: {
+    status: WalletStatus.Ready,
+    accounts: [retainedAccount],
+    currentAccount: retainedAccount,
+    networks: [],
+    settings: null,
+    ownMnemonic: false,
+    storageAvailability: healthyAvailability
+  }
+};
 const mockSwapEnabled = { value: true };
 // Whether the user has already answered the telemetry consent prompt. Read by
 // the `/help-improve-wallet` route factory, which refuses to re-ask.
@@ -157,7 +185,15 @@ jest.mock('app/pages/Unlock', () => {
   const R = require('react');
   return {
     __esModule: true,
-    default: () => <div data-testid="unlock" />,
+    default: ({ onStorageRecovery }: { onStorageRecovery?: () => void }) => (
+      <div data-testid="unlock">
+        {onStorageRecovery && (
+          <button type="button" onClick={onStorageRecovery}>
+            storageRecoveryTitle
+          </button>
+        )}
+      </div>
+    ),
     retireLockoutRecord: () => mockRetireLockoutRecord(),
     // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
     useRetireLockoutOnReady: (ready: boolean) =>
@@ -272,9 +308,14 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockEnv.popup = ctx.popup ?? false;
   mockEnv.fullPage = ctx.fullPage ?? false;
   mockEnv.sidePanel = ctx.sidePanel ?? false;
-  mockMiden.ready = ctx.ready ?? false;
-  mockMiden.locked = ctx.locked ?? false;
-  mockMiden.hydrated = ctx.hydrated ?? false;
+  mockMiden = {
+    ...mockMiden,
+    ready: ctx.ready ?? false,
+    locked: ctx.locked ?? false,
+    hydrated: ctx.hydrated ?? false,
+    storageAvailability: healthyAvailability,
+    state: { ...mockMiden.state, storageAvailability: healthyAvailability }
+  };
   return render(<PageRouter />);
 }
 
@@ -920,6 +961,158 @@ describe('app/PageRouter - encoded route parameters', () => {
     unmount();
     renderAt('/contacts/mtst1%3Aabc', ready);
     expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
+  });
+});
+
+describe('Task5 availability', () => {
+  it('unavailable Ready mounts no Home or layered page', () => {
+    const { container, rerender } = renderAt('/', ready);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    mockLocation.pathname = '/settings/general';
+    rerender(<PageRouter />);
+    expect(screen.getByTestId('settings')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(2);
+    const storageAvailability: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability,
+      state: { ...mockMiden.state, storageAvailability }
+    };
+
+    rerender(<PageRouter />);
+
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(0);
+  });
+
+  it('retained pending state mounts no onboarding', () => {
+    const { rerender } = renderAt('/', ready);
+    const storageAvailability: TestStorageAvailability = { status: 'pending' };
+    mockMiden = {
+      ...mockMiden,
+      ready: false,
+      hydrated: true,
+      storageAvailability,
+      state: { ...mockMiden.state, status: WalletStatus.Idle, storageAvailability }
+    };
+
+    rerender(<PageRouter />);
+
+    expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+});
+
+jest.mock('./StorageRecoveryPage', () => ({
+  StorageRecoveryPage: () => <div data-testid="storage-recovery-page" />
+}));
+
+describe('Task5 availability recovery navigation', () => {
+  it('routes a quota failure during database open to storage recovery', async () => {
+    const [{ createSchemaFor }, { getStorageAvailability }, { default: Dexie }] = await Promise.all([
+      import('lib/miden/repo'),
+      import('lib/miden/storage-health'),
+      import('dexie')
+    ]);
+    const target = createSchemaFor(`storage-open-quota-${Date.now()}`);
+    const factory = Dexie.dependencies.indexedDB;
+    if (factory === undefined) throw new Error('fake-indexeddb is unavailable');
+    const originalOpen = factory.open;
+    const failure = new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    const open = jest.spyOn(factory, 'open').mockImplementation(function (this: IDBFactory, name, version) {
+      if (name === target.name) throw failure;
+      return originalOpen.call(this, name, version);
+    });
+
+    try {
+      await expect(target.open()).rejects.toBeDefined();
+
+      const storageAvailability = getStorageAvailability();
+      expect(storageAvailability).toMatchObject({
+        status: 'unavailable',
+        reason: 'quota',
+        backend: 'wallet',
+        operation: 'open'
+      });
+
+      const view = renderAt('/', { ready: false, locked: false, hydrated: true });
+      mockMiden = {
+        ...mockMiden,
+        storageAvailability,
+        state: { ...mockMiden.state, storageAvailability }
+      };
+      view.rerender(<PageRouter />);
+
+      expect(screen.getByTestId('storage-recovery-page')).toBeInTheDocument();
+    } finally {
+      open.mockRestore();
+      target.close();
+      await Dexie.delete(target.name);
+    }
+  });
+
+  it.each(['/developer-settings', '/settings/network-endpoints'])(
+    'keeps the existing authenticated network route %s available without a wallet page layer',
+    pathname => {
+      const storageAvailability: StorageHealth = {
+        status: 'unavailable',
+        epoch: 9,
+        reason: 'continuity',
+        backend: 'sdk',
+        operation: 'open',
+        time: 1000
+      };
+      const view = renderAt(pathname, ready);
+      mockMiden = { ...mockMiden, storageAvailability, state: { ...mockMiden.state, storageAvailability } };
+      view.rerender(<PageRouter />);
+      expect(screen.queryByTestId('developer-settings')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+      expect(view.container.querySelectorAll('[data-page-layer]')).toHaveLength(0);
+    }
+  );
+});
+
+describe('Task5 locked recovery data navigation', () => {
+  const unavailable: StorageHealth = {
+    status: 'unavailable',
+    epoch: 19,
+    reason: 'journal',
+    backend: 'wallet',
+    operation: 'query',
+    time: 1
+  };
+
+  it('opens explicit storage recovery while locked without a healthy transition', () => {
+    const view = renderAt('/storage-recovery', { ready: false, locked: true, hydrated: true });
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability: unavailable,
+      state: { ...mockMiden.state, storageAvailability: unavailable }
+    };
+    view.rerender(<PageRouter />);
+    expect(screen.queryByTestId('storage-recovery-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('unlock')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('keeps the ordinary locked screen with an explicit recovery entry', () => {
+    const view = renderAt('/', { ready: false, locked: true, hydrated: true });
+    mockMiden = {
+      ...mockMiden,
+      storageAvailability: unavailable,
+      state: { ...mockMiden.state, storageAvailability: unavailable }
+    };
+    view.rerender(<PageRouter />);
+    expect(screen.queryByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'storageRecoveryTitle' })).toBeInTheDocument();
   });
 });
 

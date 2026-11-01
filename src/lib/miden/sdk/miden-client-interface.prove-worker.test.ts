@@ -8,10 +8,11 @@
  * Imports are dynamic and per test so the interface, the lock and the transport slot
  * all come from one fresh module registry.
  */
-import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
+import { ConsumeTransaction, SendTransaction, SwapTransaction, type StageDetail } from '../db/types';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { LocalProveOptions, LocalProveRequest } from './local-prove-transport';
+import { nativeStorageCapability, nativeStorageWasm } from './test-fixtures/nativeStorageCapability';
 
 const IN_REALM = 'in-realm prove reached';
 
@@ -19,7 +20,10 @@ type ProveOptions = { prover?: unknown } | undefined;
 
 function buildHarness() {
   const order: string[] = [];
-  const result = { serialize: jest.fn(() => new Uint8Array([7, 7])) };
+  const result = {
+    serialize: jest.fn(() => new Uint8Array([7, 7])),
+    executedTransaction: () => ({ inputNotes: () => ({ notes: () => [] }), userOutputNotes: () => [] })
+  };
   // `onProve` runs inside a delegated prove, before it settles.
   const delegated: { fail: boolean; onProve?: () => void } = { fail: false };
   // Set, a local prove may run in this realm (no transport), and it runs this first.
@@ -85,6 +89,7 @@ function buildHarness() {
     })
   };
   const fakeClient = {
+    storeIdentifier: jest.fn(() => 'test-store'),
     transactions: {
       executeRequest,
       submitProven,
@@ -126,12 +131,15 @@ type Harness = ReturnType<typeof buildHarness>;
 
 function sdkLazyMock(harness: Harness, newRemoteProver: jest.Mock = jest.fn(() => 'remote')) {
   return {
+    ...nativeStorageCapability(),
     MidenClient: { create: jest.fn(async () => harness.fakeClient) },
     NoteFile: { deserialize: jest.fn() },
     AccountFile: { deserialize: jest.fn() },
     NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
     NoteType: { Private: 'Private', Public: 'Public' },
-    TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ requestBytes: Array.from(bytes) })) },
+    TransactionRequest: {
+      deserialize: jest.fn((bytes: Uint8Array) => ({ requestBytes: Array.from(bytes), serialize: () => bytes.slice() }))
+    },
     TransactionProver: {
       newRemoteProver,
       newLocalProver: jest.fn(() => 'local'),
@@ -139,6 +147,7 @@ function sdkLazyMock(harness: Harness, newRemoteProver: jest.Mock = jest.fn(() =
     },
     ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) },
     getWasmOrThrow: jest.fn(async () => ({
+      ...nativeStorageWasm(),
       AccountId: { fromHex: jest.fn((id: string) => id), fromBech32: jest.fn((id: string) => id) },
       NoteType: { Public: 'public', Private: 'private' },
       ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) }
@@ -167,7 +176,7 @@ function installMocks(
     accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
     canonicalWalletAccountId: (id: string) => `sdk-${id}`,
     buildSendTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })),
-    buildPswapCreateRequest: jest.fn(() => ({ pswapRequest: true })),
+    buildPswapCreateRequest: jest.fn(() => ({ pswapRequest: true, serialize: () => new Uint8Array([8, 5]) })),
     buildConsumeTransactionRequest: jest.fn((_notes: unknown[], _expirationDelta: number) => ({
       serialize: () => new Uint8Array([3, 3])
     }))
@@ -298,14 +307,16 @@ describe('send (site 5)', () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
     const stages: string[] = [];
+    let recovery: StageDetail['recovery'];
     // Stages push into the SAME `order` array as the worker/submit/apply steps, not a
     // separate one: a stage stamp is only pinned relative to the write's other steps
     // if both live in one timeline (#945 review: a mutant moving the 'submitting'
     // stamp after `submitProven` left `stages` alone and passed with two arrays).
     const returned = await withWasmClientLock(async () =>
-      client.sendTransaction(sendTx(false), stage => {
+      client.sendTransaction(sendTx(false), (stage, detail) => {
         stages.push(stage);
         harness.order.push(`stage:${stage}`);
+        if (stage === 'submitting') recovery = detail?.recovery;
       })
     );
     expectWorkerProved(harness);
@@ -320,6 +331,7 @@ describe('send (site 5)', () => {
       'apply'
     ]);
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    expect(recovery).toEqual({ requestBytes: new Uint8Array([1]), notes: [] });
   });
 
   it('a delegated attempt that fails before submit re-proves in the worker, without a prewarm', async () => {
@@ -563,10 +575,10 @@ describe('newTransaction (site 6)', () => {
     harness.inner.executeTransaction.mockRejectedValueOnce(original);
     const { client, withWasmClientLock } = await loadOffscreenProved(harness);
     const lazy = await import('@miden-sdk/miden-sdk/lazy');
-    const request = { authArg: () => undefined };
+    const bytes = new Uint8Array([4, 19]);
+    const request = { authArg: () => undefined, serialize: () => bytes.slice() };
     const deserialize = jest.fn(() => request);
     Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
-    const bytes = new Uint8Array([4, 19]);
     await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, false))).rejects.toBe(original);
     const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
     expect(snapshotCrashDiagnostics(original)).toMatchObject({
@@ -663,7 +675,14 @@ describe('consume (site 7)', () => {
     const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
     expect(buildConsumeTransactionRequest).toHaveBeenCalledWith([{ note: 'n1' }, { note: 'n2' }], 600);
     expect(harness.inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
-    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { requestBytes: [3, 3] });
+    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', {
+      requestBytes: [3, 3],
+      serialize: expect.any(Function)
+    });
+    const request = harness.executeRequest.mock.calls[0]?.[1];
+    expect(
+      typeof request === 'object' && request !== null && Reflect.apply(Reflect.get(request, 'serialize'), request, [])
+    ).toEqual(new Uint8Array([3, 3]));
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);
     expect(harness.fakeClient.transactions.consume).not.toHaveBeenCalled();
@@ -759,7 +778,14 @@ describe('swap (site 8)', () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
     const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(false)));
-    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { pswapRequest: true });
+    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', {
+      pswapRequest: true,
+      serialize: expect.any(Function)
+    });
+    const request = harness.executeRequest.mock.calls[0]?.[1];
+    expect(
+      typeof request === 'object' && request !== null && Reflect.apply(Reflect.get(request, 'serialize'), request, [])
+    ).toEqual(new Uint8Array([8, 5]));
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);
     expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();

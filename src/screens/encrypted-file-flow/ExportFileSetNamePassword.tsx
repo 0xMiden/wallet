@@ -7,13 +7,18 @@ import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
 import { lettersNumbersMixtureRegx, specialCharacterRegx, uppercaseLowercaseMixtureRegx } from 'app/defaults';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { IconButton } from 'components/ui/IconButton';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
 
 export interface ExportFilePasswordProps {
+  error?: UserErrorId;
+  description?: string;
+  passwordDescription?: string;
   onGoNext: () => void;
   onGoBack: () => void;
   passwordValue: string;
@@ -24,6 +29,9 @@ export interface ExportFilePasswordProps {
 
 const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   onGoNext,
+  error,
+  description,
+  passwordDescription,
   handlePasswordChange,
   passwordValue,
   fileName,
@@ -123,6 +131,8 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         />
       }
     >
+      {description && <SubPageSection description={description} />}
+      <ErrorLine errorId={error}>{error && t(error)}</ErrorLine>
       <TextField
         data-testid="export-file-name-input"
         placeholder={DEFAULT_FILE_NAME}
@@ -135,7 +145,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         autoFocus
       />
 
-      <SubPageSection description={t('enterPasswordToEncrypt')} className="gap-4">
+      <SubPageSection description={passwordDescription ?? t('enterPasswordToEncrypt')} className="gap-4">
         <TextField
           ref={passwordRef}
           data-testid="export-file-password-input"

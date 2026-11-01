@@ -9,6 +9,7 @@ import { buildCrossChainIntent, getCrossChainQuote, normalizeMidenIdToHex } from
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
+import { createEpochReceiptOwner } from './receipt';
 import { getEpochReadOnlySdk } from './sdk';
 import type { CrossChainIntentParams } from './types';
 
@@ -158,9 +159,11 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   let bridgeTxId: string | undefined;
   let spendingLimitError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
+  const receiptOwner = createEpochReceiptOwner(sdk, () => bridgeTxId);
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
     preFetchedQuote: quote,
+    recovery: receiptOwner.hooks,
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
@@ -175,6 +178,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
           destinationAddress: args.destinationAddress,
           destinationNetwork: usdc.chainId,
           allocatorUrl,
+          epochExecution: receiptOwner.preparation(),
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization
@@ -198,7 +202,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     // succeeded while their funds sit in an unconsumed, recallable note. A row the
     // note pipeline already failed for its own reason keeps that failure instead -
     // markBridgedSendFailed leaves an already-Failed row untouched (#1250).
-    if (bridgeTxId) {
+    if (bridgeTxId && !receiptOwner.retentionFailed() && !intent.executionUncertain) {
       await markBridgedSendFailed(bridgeTxId, intent.error);
     }
     throw new Error(intent.error);

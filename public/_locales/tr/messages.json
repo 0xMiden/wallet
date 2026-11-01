@@ -8605,5 +8605,179 @@
   "arcadePostingPolicy": {
     "message": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "storageRecoveryTitle": {
+    "message": "Cüzdan depolama alanı kullanılamıyor",
+    "englishSource": "Wallet storage unavailable"
+  },
+  "storageRecoveryDescription": {
+    "message": "Cüzdan verileriniz doğrulanamadı. Depolama alanı kontrol edilene kadar bakiyeler ve cüzdan işlemleri askıya alınmıştır.",
+    "englishSource": "Your wallet data could not be verified. Balances and wallet actions are paused until storage is checked."
+  },
+  "storageRecoverySubmissionWarning": {
+    "message": "Gönderilen bir işlem hâlâ tamamlanabilir. Tekrar denemeden önce durumunu kontrol edin.",
+    "englishSource": "A submitted transaction may still complete. Check its status before trying again."
+  },
+  "storageRecoveryCheck": {
+    "message": "Depolamayı kontrol edin",
+    "englishSource": "Check storage"
+  },
+  "storageRecoveryRebuild": {
+    "message": "Kurtarma verilerinden yeniden oluşturma",
+    "englishSource": "Rebuild from recovery data"
+  },
+  "storageRecoveryReconcile": {
+    "message": "Gönderilen işlemleri kontrol edin",
+    "englishSource": "Check submitted transactions"
+  },
+  "storageRecoveryWorking": {
+    "message": "Saklanan cüzdan verileri kontrol ediliyor...",
+    "englishSource": "Checking retained wallet data..."
+  },
+  "storageRecoveryFailed": {
+    "message": "Kontrol işlemi tamamlanamadı. Cüzdan işlemleri askıya alınmış durumda.",
+    "englishSource": "The check could not finish. Wallet actions remain paused."
+  },
+  "storageRecoveryIncomplete": {
+    "message": "Depolama doğrulanmamıştır. Cüzdan işlemleri askıya alınmış durumdadır.",
+    "englishSource": "Storage has not been verified. Wallet actions remain paused."
+  },
+  "storageRecoveryProgress": {
+    "message": "Doğrulanmış hesaplar: $verifiedAccounts$ / $expectedAccounts$. Doğrulanmış girdiler: $verifiedInputs$ / $expectedInputs$.",
+    "englishSource": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiedinputs": {
+        "content": "$3"
+      },
+      "expectedinputs": {
+        "content": "$4"
+      }
+    }
+  },
+  "saveRecoveryDataFile": {
+    "message": "Kurtarma veri dosyasını kaydedin",
+    "englishSource": "Save recovery data file"
+  },
+  "recoveryDataExporting": {
+    "message": "Kurtarma veri dosyanız hazırlanıyor...",
+    "englishSource": "Preparing your recovery data file..."
+  },
+  "recoveryDataExportFailedTitle": {
+    "message": "Kurtarma verileri kaydedilemedi",
+    "englishSource": "Could not save recovery data"
+  },
+  "recoveryDataExportFailedDesc": {
+    "message": "Kurtarma veri dosyası teslim edilemedi. Bu kopyaya güvenmeden önce lütfen tekrar deneyin.",
+    "englishSource": "The recovery data file could not be delivered. Try again before relying on this copy."
+  },
+  "recoveryDataExportedTitle1": {
+    "message": "Kurtarma verileri",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExportedTitle2": {
+    "message": "kaydedildi",
+    "englishSource": "saved"
+  },
+  "recoveryDataExportedDesc1": {
+    "message": "Son doğrulanmış kurtarma verilerinin bu şifreli kopyasını bu cihazın dışında saklayın ve şifresini güvenli bir yerde tutun. Bu veriler, daha yeni hesapları veya etkinlikleri içermeyebilir.",
+    "englishSource": "Keep this encrypted copy of the last verified recovery data outside this device and keep its password safe. It may not include newer accounts or activity."
+  },
+  "recoveryDataExportedDesc2": {
+    "message": "Bu dosya, imza anahtarlarınızı veya kurtarma ifadesini içermez.",
+    "englishSource": "This file does not contain your signing keys or recovery phrase."
+  },
+  "recoveryDataExportedDesc3": {
+    "message": "İmzalayanın erişimini ayrı olarak geri yükleyin, ardından bu verileri içe aktarın ve işlemleri yeniden denemeden önce cüzdan depolama alanını kontrol edin.",
+    "englishSource": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
+  },
+  "recoveryDataTitle": {
+    "message": "Kurtarma verileri",
+    "englishSource": "Recovery data"
+  },
+  "recoveryDataExport": {
+    "message": "Kurtarma verilerini dışa aktarın",
+    "englishSource": "Export recovery data"
+  },
+  "recoveryDataImport": {
+    "message": "Kurtarma verilerini içe aktarın",
+    "englishSource": "Import recovery data"
+  },
+  "recoveryDataDescription": {
+    "message": "En son doğrulanmış kurtarma verilerini bu cihazın dışında tutulan bir dosyaya aktarın. Bu veriler, daha yeni hesapları veya etkinlikleri içermeyebilir. Bu dosya, imzalama anahtarlarını veya kurtarma ifadenizi içermez. İçe aktarmadan önce imzalayan erişimini ayrı olarak geri yükleyin.",
+    "englishSource": "Export the last verified recovery data to a file kept outside this device. It may not include newer accounts or activity. This file does not contain signing keys or your recovery phrase. Restore signer access separately before importing."
+  },
+  "recoveryDataImportDescription": {
+    "message": "Daha önce dışa aktarılmış bir kurtarma verisi dosyası seçin. Bu dosya imzalama anahtarlarını veya kurtarma ifadenizi içermez; imzalama erişimini ayrıca geri yükleyin.",
+    "englishSource": "Choose a previously exported recovery data file. It does not contain signing keys or your recovery phrase, so restore signer access separately."
+  },
+  "recoveryDataExportPasswordDescription": {
+    "message": "Kurtarma verisi dosyanızı şifrelemek için bir parola girin.",
+    "englishSource": "Enter a password to encrypt your recovery data file."
+  },
+  "recoveryDataChooseFile": {
+    "message": "Kurtarma veri dosyasını seçin",
+    "englishSource": "Choose recovery data file"
+  },
+  "recoveryDataClearFile": {
+    "message": "Seçili dosyayı temizle",
+    "englishSource": "Clear selected file"
+  },
+  "recoveryDataFilePassword": {
+    "message": "Kurtarma dosyası şifresi",
+    "englishSource": "Recovery file password"
+  },
+  "recoveryDataAuthenticate": {
+    "message": "Kurtarma verilerine erişmek için cüzdan koruyucunuzla kimlik doğrulaması yapın.",
+    "englishSource": "Authenticate with your wallet protector to access recovery data."
+  },
+  "recoveryDataImported": {
+    "message": "Saklanan kurtarma verileri",
+    "englishSource": "Recovery data retained"
+  },
+  "recoveryDataCheckRequired": {
+    "message": "İçe aktarılan kanıtlar cüzdan faaliyetlerini yeniden başlatmaz. Yeniden denemeden önce cüzdan depolama alanını kontrol edip yeniden oluşturun, ardından gönderilen işlemleri mutabakatlayın.",
+    "englishSource": "Imported evidence does not resume wallet activity. Check and rebuild wallet storage, then reconcile submitted transactions before retrying."
+  },
+  "recoveryDataWrongPassword": {
+    "message": "Kurtarma dosyasının şifresi yanlış.",
+    "englishSource": "The recovery file password is incorrect."
+  },
+  "recoveryDataMalformed": {
+    "message": "Bu, geçerli bir kurtarma veri dosyası değildir.",
+    "englishSource": "This is not a valid recovery data file."
+  },
+  "recoveryDataVersion": {
+    "message": "Bu kurtarma dosyası sürümü desteklenmemektedir.",
+    "englishSource": "This recovery file version is not supported."
+  },
+  "recoveryDataSize": {
+    "message": "Kurtarma veri dosyası boyut sınırını aşıyor.",
+    "englishSource": "The recovery data file exceeds the size limit."
+  },
+  "recoveryDataNetwork": {
+    "message": "Bu kurtarma verileri farklı bir ağa aittir.",
+    "englishSource": "This recovery data belongs to a different network."
+  },
+  "recoveryDataAccount": {
+    "message": "Bu kurtarma verileri, saklanan cüzdan hesaplarıyla eşleşmemektedir.",
+    "englishSource": "This recovery data does not match the retained wallet accounts."
+  },
+  "recoveryDataUnavailable": {
+    "message": "Doğrulanmış kurtarma verileri mevcut değildir.",
+    "englishSource": "Verified recovery data is not available."
+  },
+  "recoveryDataDefaultFileName": {
+    "message": "Kurtarma Verileri",
+    "englishSource": "Recovery Data"
+  },
+  "recoveryDataReadFailed": {
+    "message": "Seçilen kurtarma dosyası okunamadı. Dosyayı tekrar seçin ve denemeye devam edin.",
+    "englishSource": "The selected recovery file could not be read. Choose it again and try again."
   }
 }

@@ -1,9 +1,10 @@
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
+import type { IOneClickTrackingData, IEpochExecutionReceipt } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import * as Repo from 'lib/miden/repo';
 import { assertSwapQueueAvailable } from 'lib/miden/swap/admission';
 import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
@@ -73,6 +74,7 @@ import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ER
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
+import { recoveryCompactRequest, recoveryEpochExecution } from '../recovery/provider-record';
 
 export { ClaimFeeRefusedError } from './claim-fee';
 
@@ -652,7 +654,8 @@ const queueConsumeRows = async (
   if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
     outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
   }
-  const tables = outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions] : [Repo.transactions];
+  const tables =
+    outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions, Repo.recoveryDebits] : [Repo.transactions];
   const insertRows = async (): Promise<ConsumeNotesQueueResult | undefined> => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
@@ -1039,7 +1042,8 @@ export const initiateBridgedSendTransaction = async (
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  epochExecution?: IEpochExecutionReceipt
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -1057,7 +1061,14 @@ export const initiateBridgedSendTransaction = async (
     if (!agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
   }
-  if (provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  if (provider === 'epoch') {
+    dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+    dbTransaction.extraInputs.epochExecution = epochExecution && recoveryEpochExecution.parse(epochExecution);
+    if (epochExecution)
+      dbTransaction.extraInputs.intentNonce = recoveryCompactRequest.parse(
+        JSON.parse(epochExecution.requestJson)
+      ).compact.nonce;
+  }
   if (provider === 'usdcx') {
     if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
@@ -1089,7 +1100,8 @@ export const initiateEarnDepositTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   epochAllocatorUrl?: string,
   protocol?: '1delta' | 'dummy-lending',
-  chainId?: number
+  chainId?: number,
+  epochExecution?: IEpochExecutionReceipt
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -1105,6 +1117,11 @@ export const initiateEarnDepositTransaction = async (
     chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  dbTransaction.extraInputs.epochExecution = epochExecution && recoveryEpochExecution.parse(epochExecution);
+  if (epochExecution)
+    dbTransaction.extraInputs.intentNonce = recoveryCompactRequest.parse(
+      JSON.parse(epochExecution.requestJson)
+    ).compact.nonce;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };
@@ -1143,6 +1160,7 @@ export const initiateEarnWithdrawTransaction = async (
     chainId
   );
   await Repo.transactions.add(dbTransaction);
+  await checkpointProviderReceipt(dbTransaction);
   return dbTransaction.id;
 };
 
@@ -1188,6 +1206,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
   await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+  await checkpointProviderReceipt(dbTransaction);
   return dbTransaction.id;
 };
 
