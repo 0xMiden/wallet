@@ -513,6 +513,8 @@
   "swapSameToken": "Pick two different tokens to swap.",
   "swapInvalidAmounts": "Enter a valid amount to swap.",
   "swapPairNotListed": "This pair can no longer be swapped. Go back and choose another token.",
+  "swapBelowMinimum": "Offer at least $1 worth of assets to swap.",
+  "swapMinimumPriceUnavailable": "The USD price is unavailable. Try again shortly.",
   "swapPriceUnavailable": "Price unavailable. Try again shortly.",
   "swapOrderReservedNote": "Your $amount$ stays reserved for this order until it's filled.",
   "swapSuccessSourcingLiquidity": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds.",

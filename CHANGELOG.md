@@ -2,6 +2,7 @@
 
 ## 1.17.10 (TBD)
 
+- [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
 - [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header with vertical overscroll containment.

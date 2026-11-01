@@ -513,6 +513,8 @@
   "swapSameToken": "請選擇兩個不同的代幣來交換。",
   "swapInvalidAmounts": "請輸入有效的兌換金額。",
   "swapPairNotListed": "這對代幣已無法進行兌換。請返回並選擇另一種代幣。",
+  "swapBelowMinimum": "請提供價值至少 1 美元的資產進行交換。",
+  "swapMinimumPriceUnavailable": "目前無法提供美元價格。請稍後再試。",
   "swapPriceUnavailable": "價格暫未提供。請稍後再試。",
   "swapOrderReservedNote": "您的「$amount$」將持續為此訂單保留，直至訂單完成為止。",
   "swapSuccessSourcingLiquidity": "我們正在為您的掉期交易籌措流動性。通常約 30 秒內即可成交。",

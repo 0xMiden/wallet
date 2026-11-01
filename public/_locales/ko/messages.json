@@ -2452,6 +2452,14 @@
     "message": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "스왑할 자산의 가치가 최소 $1 이상이어야 합니다.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "USD 가격은 확인할 수 없습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     "englishSource": "Price unavailable. Try again shortly."

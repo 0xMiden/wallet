@@ -513,6 +513,8 @@
   "swapSameToken": "选择两个不同的代币进行交换。",
   "swapInvalidAmounts": "请输入有效的兑换金额。",
   "swapPairNotListed": "该交易对已无法进行兑换。请返回并选择另一种代币。",
+  "swapBelowMinimum": "请提供价值至少 1 美元的资产用于交换。",
+  "swapMinimumPriceUnavailable": "美元价格暂不可用。请稍后再试。",
   "swapPriceUnavailable": "价格暂不可用。请稍后再试。",
   "swapOrderReservedNote": "您的$amount$将一直为该订单保留，直到订单完成为止。",
   "swapSuccessSourcingLiquidity": "我们正在为您这笔掉期交易匹配流动性。通常大约30秒内即可成交。",
