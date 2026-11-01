@@ -98,17 +98,22 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     accent,
+    iconLeft,
+    'aria-busy': busy,
     'data-testid': testId
   }: {
     title?: string;
     onClick?: () => void;
     disabled?: boolean;
     accent?: string;
+    iconLeft?: React.ReactNode;
+    'aria-busy'?: boolean;
     'data-testid'?: string;
   }) => {
     if (testId === 'earn-withdraw-review-confirm') mockConfirmClick = onClick;
     return (
-      <button type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
+      <button aria-busy={busy} type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
+        {iconLeft}
         {title}
       </button>
     );
@@ -205,7 +210,13 @@ describe('EarnWithdrawReview', () => {
 
   it('renders the selected position and the full-withdraw route details', async () => {
     render(<EarnWithdrawReview positionId="position-1" />);
+    const confirm = screen.getByRole('button', { name: 'withdraw' });
+    expect(confirm).toBeDisabled();
+    expect(confirm).toHaveAttribute('aria-busy', 'true');
+    expect(confirm.querySelector('svg circle')).not.toBeNull();
     await confirmEnabled();
+    expect(confirm).toHaveAttribute('aria-busy', 'false');
+    expect(confirm.querySelector('svg circle')).toBeNull();
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     // The protocol is the title; the asset and its network are the muted line under it.

@@ -213,14 +213,19 @@ jest.mock('components/Button', () => ({
     title,
     onClick,
     disabled,
+    iconLeft,
+    'aria-busy': busy,
     accent
   }: {
     title?: string;
     onClick?: () => void;
     disabled?: boolean;
+    iconLeft?: React.ReactNode;
+    'aria-busy'?: boolean;
     accent?: string;
   }) => (
-    <button data-testid="open-position-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
+    <button aria-busy={busy} data-testid="open-position-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
+      {iconLeft}
       {title}
     </button>
   ),
@@ -431,6 +436,9 @@ describe('EarnDepositReview', () => {
       expect(cta).toBeEnabled();
 
       fireEvent.click(cta);
+      expect(cta).toBeDisabled();
+      expect(cta).toHaveAttribute('aria-busy', 'true');
+      expect(cta.querySelector('svg circle')).not.toBeNull();
 
       // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
       // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
@@ -969,6 +977,7 @@ describe('EarnDepositReview after a failed load', () => {
     mockLoadState = { isLoading: true };
     renderReview('no-such-vault', '?amount=10');
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
     expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();

@@ -137,10 +137,11 @@ const USDC_ROW = {
   metadata: { symbol: 'USDC', decimals: 6 }
 };
 let mockBalanceRows: unknown[] = [USDC_ROW];
+let mockBalancesLoading = false;
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
   useAllTokensBaseMetadata: () => ({}),
-  useAllBalances: () => ({ data: mockBalanceRows })
+  useAllBalances: () => ({ data: mockBalanceRows, isLoading: mockBalancesLoading })
 }));
 
 const USDC_QUOTE = { USDC: { price: 1.0002, change24h: 0, percentageChange24h: 0 } };
@@ -181,6 +182,7 @@ const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no de
 const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount-input'), { target: { value } });
 
 beforeEach(() => {
+  mockBalancesLoading = false;
   mockNavigate.mockClear();
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
@@ -441,6 +443,7 @@ describe('EarnDepositAmount after a failed load', () => {
     mockLoadState = { isLoading: true };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByTestId('select-amount')).toBeNull();
   });
@@ -655,4 +658,16 @@ describe('user-visible deposit amount reports', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
+});
+
+it('shows a spinner until balances load, then shows amount entry', () => {
+  mockBalancesLoading = true;
+  const { rerender } = render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
+  expect(screen.queryByTestId('select-amount')).toBeNull();
+  expect(screen.queryByText('insufficientFeeAsset')).toBeNull();
+  mockBalancesLoading = false;
+  rerender(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  expect(screen.queryByRole('status', { name: 'loading' })).toBeNull();
+  expect(screen.getByTestId('select-amount')).toBeInTheDocument();
 });
