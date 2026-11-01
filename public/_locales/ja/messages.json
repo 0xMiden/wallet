@@ -2456,6 +2456,14 @@
     "message": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "スワップの対象として、少なくとも1ドル相当の資産を提供してください。",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "米ドル価格は現在利用できません。しばらくしてから再度お試しください。",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "価格が表示されません。しばらくしてからもう一度お試しください。",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4911,6 +4919,31 @@
   "deadletteredNotesBodyOne": {
     "message": "1 件の送金を自動的にインポートできませんでした。",
     "englishSource": "1 transfer couldn't be imported automatically."
+  },
+  "deadletteredNotesReasonSummary": {
+    "message": "インポートが停止した理由: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "接続の問題",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "読み取れないノート",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "ノードによる拒否",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "理由を確認できません",
+    "englishSource": "Reason unavailable"
   },
   "tomorrow": {
     "message": "明日",

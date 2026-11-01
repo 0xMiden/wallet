@@ -28,6 +28,8 @@ export interface EvmBridgeDepositReviewProps {
   fiat?: number;
   sourceQuote?: TokenPriceInfo;
   outputFaucetId?: string;
+  /** The symbol of the Miden faucet an Epoch deposit delivers into; the arriving token is named by it. */
+  deliveredSymbol?: string;
   /** Selected bridge route — drives the route label + arrival ETA. */
   route: IBridgeProvider;
   /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
@@ -46,7 +48,7 @@ export interface EvmBridgeDepositReviewProps {
   promptAmount?: string;
   /** Configured source-chain contract that the deposit or burn targets. */
   promptContract?: string;
-  /** True only for the ETH balance path, not an ERC-20 that happens to use the ETH symbol. */
+  /** True only for a native coin (ETH on AggLayer, a native Epoch token), not an ERC-20 that uses its symbol. */
   nativeSource?: boolean;
   /** Circle's CCTP executor route burns on the source chain instead of depositing to xReserve there. */
   usdcxExecutor?: boolean;
@@ -69,11 +71,16 @@ export interface EvmBridgeDepositReviewProps {
 }
 
 /**
- * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
- * route delivers the plain symbol and Circle xReserve mints USDCx. The amount step and the Review both name the
- * arriving token through it.
+ * What a deposit arrives on Miden as: the Epoch route delivers into its token's Miden faucet (`deliveredSymbol`, else
+ * the label the bridge's USDC is shown under), the Slow route delivers the plain symbol and Circle xReserve mints USDCx.
+ * The amount step and the Review both name the arriving token through it.
  */
-export function arrivingTokenName(route: IBridgeProvider, symbol: string, label: string): string {
+export function arrivingTokenName(
+  route: IBridgeProvider,
+  symbol: string,
+  label: string,
+  deliveredSymbol?: string
+): string {
   switch (route) {
     case 'agglayer':
       return symbol;
@@ -81,7 +88,7 @@ export function arrivingTokenName(route: IBridgeProvider, symbol: string, label:
       return USDCX_SYMBOL;
     case 'epoch':
     default:
-      return label;
+      return deliveredSymbol || label;
   }
 }
 
@@ -98,6 +105,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   label,
   sourceQuote,
   outputFaucetId,
+  deliveredSymbol,
   route,
   outputAmount,
   fee,
@@ -138,22 +146,23 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
     }
   })();
   const name = label ?? symbol;
-  const receiveName = arrivingTokenName(route, symbol, name);
+  const receiveName = arrivingTokenName(route, symbol, name, deliveredSymbol);
   const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
   const actionAmount = promptAmount ?? amount;
   const promptCopy = { amount: actionAmount, token: name, network: networkName };
   const epochUsesExistingCollateral = route === 'epoch' && epochResourceLockRequired === false;
-  const approvalKey = epochUsesExistingCollateral
-    ? undefined
-    : route === 'epoch'
-      ? 'bridgeWalletPromptEpochApprove'
-      : route === 'agglayer'
-        ? nativeSource
-          ? undefined
-          : 'bridgeWalletPromptAgglayerApprove'
-        : usdcxExecutor
-          ? 'bridgeWalletPromptExecutorApprove'
-          : 'bridgeWalletPromptUsdcxApprove';
+  // A native coin is deposited as the call's value, so neither Epoch nor AggLayer asks for an approval first.
+  const approvalKey = (() => {
+    if (epochUsesExistingCollateral) return undefined;
+    switch (route) {
+      case 'epoch':
+        return nativeSource ? undefined : 'bridgeWalletPromptEpochApprove';
+      case 'agglayer':
+        return nativeSource ? undefined : 'bridgeWalletPromptAgglayerApprove';
+      default:
+        return usdcxExecutor ? 'bridgeWalletPromptExecutorApprove' : 'bridgeWalletPromptUsdcxApprove';
+    }
+  })();
   const depositKey = epochUsesExistingCollateral
     ? undefined
     : route === 'epoch'

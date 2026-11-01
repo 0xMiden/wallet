@@ -2456,6 +2456,14 @@
     "message": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "스왑할 자산의 가치가 최소 $1 이상이어야 합니다.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "USD 가격은 확인할 수 없습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4911,6 +4919,31 @@
   "deadletteredNotesBodyOne": {
     "message": "이체 1건을 자동으로 가져오지 못했습니다.",
     "englishSource": "1 transfer couldn't be imported automatically."
+  },
+  "deadletteredNotesReasonSummary": {
+    "message": "가져오기가 중단된 이유: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "연결 문제",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "읽을 수 없는 노트",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "노드에서 거부함",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "이유를 확인할 수 없음",
+    "englishSource": "Reason unavailable"
   },
   "tomorrow": {
     "message": "내일",

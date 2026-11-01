@@ -32,11 +32,16 @@ import { useWalletStore } from 'lib/store';
  */
 export const OnboardingNetwork: FC<{
   children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => ReactNode;
-}> = ({ children }) => {
+  /** Show code entry without a remote config check. */
+  requireInviteOnly?: boolean;
+  /** Keep the welcome actions available while mainnet setup runs. */
+  showWhilePreparing?: boolean;
+}> = ({ children, requireInviteOnly = false, showWhilePreparing = false }) => {
   const { t } = useTranslation();
   const launched = useMainnetLaunched();
   const status = useWalletStore(s => s.status);
-  const required = isInviteOnlyRequired(launched, getEffectiveNetworkName(), hasDeveloperNetworkChoice());
+  const required =
+    requireInviteOnly || isInviteOnlyRequired(launched, getEffectiveNetworkName(), hasDeveloperNetworkChoice());
   const [inviteOnly, setInviteOnly] = useState(required);
   const [state, setState] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [attempt, setAttempt] = useState(0);
@@ -48,7 +53,7 @@ export const OnboardingNetwork: FC<{
   const unlockInviteOnly = useCallback(() => setInviteOnly(true), []);
 
   const ready = state === 'ready';
-  const blocking = armed && !ready;
+  const blocking = armed && !ready && (!showWhilePreparing || state === 'failed' || attempt > 0);
   // Latched once the child has been shown. Its step and credentials live there, so a later
   // preparation covers that child instead of unmounting it.
   const revealed = useRef(false);

@@ -20,6 +20,7 @@ import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
@@ -47,6 +48,8 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
+  /** Show spendable-balance shortcuts on amount-entry fields that support them. */
+  showAmountShortcuts?: boolean;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
@@ -119,6 +122,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
+  showAmountShortcuts = false,
   children,
   onAmountChange,
   onSelectToken,
@@ -140,6 +144,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
+  const [shortcutSelection, setShortcutSelection] = React.useState(0);
   const accentClasses = ACCENT_CLASSES[accent];
 
   const prices = useWalletStore(state => state.tokenPrices);
@@ -294,6 +299,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       scaleIsKnown={!!token?.scaleIsKnown}
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
+      tokenIntentKey={shortcutSelection}
       unfocusedDisplayValue={amountDisplayValue}
       decimalsLimit={amountDecimalsLimit ?? (token ? token.decimals : 6)}
       maxLength={amountMaxLength}
@@ -315,8 +321,28 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     />
   );
 
+  const amountShortcuts = showAmountShortcuts && token && (
+    <AmountShortcuts
+      balance={token.balance}
+      decimals={token.decimals}
+      scaleIsKnown={token.scaleIsKnown}
+      onAmountChange={value => {
+        setShortcutSelection(selection => selection + 1);
+        onAmountChange(value);
+      }}
+      disabled={loading}
+      compact={embedded}
+      className={accentClasses.ink}
+    />
+  );
+
   if (embedded) {
-    return amountField;
+    return (
+      <>
+        {amountField}
+        {amountShortcuts}
+      </>
+    );
   }
 
   return (
@@ -335,6 +361,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           </span>
         )}
         {amountField}
+        {amountShortcuts}
         {children}
       </div>
 

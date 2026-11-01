@@ -3004,6 +3004,51 @@ describe('History', () => {
   });
 });
 
+describe('History Agglayer destination plumbing', () => {
+  it('keeps the saved EVM route on completed and pending entries', async () => {
+    const agglayerRoute = {
+      chainId: 1,
+      contractAddress: '0x0000000000000000000000000000000000000001',
+      midenBridgeId: '0xbridge',
+      indexerUrl: 'https://indexer.example',
+      rollupId: 1,
+      evmNetworkId: 0
+    };
+    const extraInputs = { provider: 'agglayer', destinationNetwork: 0, agglayerRoute };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'AGG-COMPLETE',
+              status: STATUS.Completed,
+              type: 'bridged-send',
+              completedAt: 3000,
+              extraInputs
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'AGG-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'bridged-send',
+        initiatedAt: 1000,
+        extraInputs
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'completed-AGG-COMPLETE', bridgeAgglayerRoute: agglayerRoute }),
+        expect.objectContaining({ key: 'pending-AGG-PENDING', bridgeAgglayerRoute: agglayerRoute })
+      ])
+    );
+  });
+});
+
 describe('History USDCx entry plumbing', () => {
   it('threads burn and bridged-receive state onto completed and pending entries', async () => {
     const completedBurn = {

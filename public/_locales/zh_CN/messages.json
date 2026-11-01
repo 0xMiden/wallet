@@ -2456,6 +2456,14 @@
     "message": "该交易对已无法进行兑换。请返回并选择另一种代币。",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "请提供价值至少 1 美元的资产用于交换。",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "美元价格暂不可用。请稍后再试。",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "价格暂不可用。请稍后再试。",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4911,6 +4919,31 @@
   "deadletteredNotesBodyOne": {
     "message": "有 1 笔转账无法自动导入。",
     "englishSource": "1 transfer couldn't be imported automatically."
+  },
+  "deadletteredNotesReasonSummary": {
+    "message": "导入停止原因：$reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "连接问题",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "无法读取的便笺",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "节点拒绝",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "原因不可用",
+    "englishSource": "Reason unavailable"
   },
   "tomorrow": {
     "message": "明天",

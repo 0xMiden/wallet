@@ -26,7 +26,8 @@ for (const theme of ['light', 'dark'] as const) {
           `--disable-extensions-except=${extension}`,
           `--load-extension=${extension}`,
           '--window-size=1400,1000',
-          '--force-renderer-accessibility'
+          '--force-renderer-accessibility',
+          '--remote-debugging-port=0'
         ],
         ignoreDefaultArgs: ['--disable-extensions']
       });
@@ -39,6 +40,143 @@ for (const theme of ['light', 'dark'] as const) {
       execFileSync('import', ['-window', 'root', path]);
       execFileSync('convert', [path, '-resize', '1800x1800>', path]);
       await testInfo.attach(name, { path, contentType: 'image/png' });
+    };
+    type SidebarState = {
+      at: number;
+      hidden: boolean;
+      rootFallback: boolean;
+      routeFallback: boolean;
+      rootEmpty: boolean;
+      unlock: boolean;
+      navigation: boolean;
+    };
+    type SidebarSummary = { timeOrigin: number; current: SidebarState; samples: SidebarState[] };
+    const sidebarSnapshot = async (capturePath?: string) => {
+      const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const targets: unknown = await response.json();
+      if (!Array.isArray(targets)) throw new Error('Chrome target inventory unavailable');
+      const target = targets.find(item => typeof item?.url === 'string' && item.url.includes('/sidepanel.html'));
+      if (!target) return { present: false };
+      if (typeof target.webSocketDebuggerUrl !== 'string') throw new Error('Sidebar debugging endpoint unavailable');
+      let captured = false;
+      const summary = await new Promise<SidebarSummary>((resolveSnapshot, reject) => {
+        let diagnostic: SidebarSummary | undefined;
+        const connection = new WebSocket(target.webSocketDebuggerUrl);
+        const timeout = setTimeout(() => {
+          connection.close();
+          reject(new Error('Sidebar snapshot timed out'));
+        }, 5000);
+        connection.addEventListener('open', () => {
+          connection.send(
+            JSON.stringify({
+              id: 1,
+              method: 'Runtime.evaluate',
+              params: {
+                expression: `(() => {
+              const inspect = () => ({
+                at: performance.now(),
+                hidden: document.hidden,
+                rootFallback: Boolean(document.querySelector('.flex.items-center.justify-center.h-screen.bg-app-bg')),
+                routeFallback: Boolean(document.querySelector('[data-testid="wallet-route-loading"]')),
+                loadingText: /(?:^|\\n)Loading(?:\\.\\.\\.|…)?(?:$|\\n)/.test(document.body?.innerText ?? ''),
+                rootEmpty: !document.getElementById('root')?.childElementCount,
+                unlock: Boolean(document.querySelector('#unlock-password, [data-testid="unlock-passcode"]')),
+                navigation: Boolean(document.querySelector('nav'))
+              });
+              if (!window.__sidebarReopenProbe) {
+                const samples = [];
+                const record = () => { samples.push(inspect()); if (samples.length > 600) samples.shift(); };
+                const observer = new MutationObserver(record);
+                observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+                document.addEventListener('visibilitychange', record);
+                window.__sidebarReopenProbe = samples;
+                record();
+              }
+              return { timeOrigin: performance.timeOrigin, current: inspect(), samples: window.__sidebarReopenProbe };
+            })()`,
+                returnByValue: true
+              }
+            })
+          );
+        });
+        connection.addEventListener('message', event => {
+          const message = JSON.parse(String(event.data));
+          if (message.id !== 1 && message.id !== 2) return;
+          if (message.error || message.result?.exceptionDetails) {
+            clearTimeout(timeout);
+            connection.close();
+            reject(new Error('Sidebar evaluation failed'));
+            return;
+          }
+          if (message.id === 1) {
+            const value = message.result?.result?.value;
+            if (!value || typeof value.timeOrigin !== 'number' || !Array.isArray(value.samples)) {
+              clearTimeout(timeout);
+              connection.close();
+              reject(new Error('Sidebar diagnostic payload unavailable'));
+              return;
+            }
+            diagnostic = value;
+            if (capturePath && value.current.routeFallback) {
+              connection.send(
+                JSON.stringify({
+                  id: 2,
+                  method: 'Page.captureScreenshot',
+                  params: { format: 'png', captureBeyondViewport: false }
+                })
+              );
+              return;
+            }
+          } else if (capturePath && typeof message.result?.data === 'string') {
+            writeFileSync(capturePath, Buffer.from(message.result.data, 'base64'));
+            execFileSync('convert', [capturePath, '-resize', '1800x1800>', capturePath]);
+            captured = true;
+          }
+          clearTimeout(timeout);
+          connection.close();
+          if (diagnostic) resolveSnapshot(diagnostic);
+          else reject(new Error('Sidebar diagnostic missing after capture'));
+        });
+        connection.addEventListener('error', () => {
+          clearTimeout(timeout);
+          reject(new Error('Sidebar debugging connection failed'));
+        });
+      });
+      return { present: true, targetId: target.id, summary, captured };
+    };
+    const persistDiagnostic = async (name: string, value: unknown) => {
+      const path = testInfo.outputPath(`${theme}-${name}.json`);
+      writeFileSync(path, JSON.stringify(value, null, 2));
+      await testInfo.attach(name, { path, contentType: 'application/json' });
+    };
+    const captureEarlyReopen = async (name: string) => {
+      const samples = [];
+      for (let frame = 0; frame < 8; frame++) {
+        samples.push({ frame, snapshot: await sidebarSnapshot() });
+        const path = testInfo.outputPath(`${theme}-${name}-frame-${frame}.png`);
+        execFileSync('import', ['-window', 'root', path]);
+        execFileSync('convert', [path, '-resize', '1800x1800>', path]);
+        await testInfo.attach(`${name}-frame-${frame}`, { path, contentType: 'image/png' });
+      }
+      await persistDiagnostic(`${name}-diagnostics`, samples);
+    };
+    const verifyWarmReopen = async () => {
+      const samples = [];
+      const path = testInfo.outputPath(`${theme}-warm-route-loading.png`);
+      let captured = false;
+      let readyFrames = 0;
+      for (let frame = 0; frame < 600 && readyFrames < 3; frame++) {
+        const snapshot = await sidebarSnapshot(captured ? undefined : path);
+        if (snapshot.captured) captured = true;
+        samples.push({ frame, snapshot });
+        readyFrames = snapshot.summary?.current.navigation ? readyFrames + 1 : 0;
+        await new Promise(resolve => setTimeout(resolve, 16));
+      }
+      await persistDiagnostic('warm-reopen-regression', samples);
+      if (captured) await testInfo.attach('warm-route-loading', { path, contentType: 'image/png' });
+      expect(readyFrames).toBe(3);
+      expect(samples.some(sample => sample.snapshot.summary?.samples.some(state => state.routeFallback))).toBe(false);
     };
     const activate = () => {
       const value: unknown = JSON.parse(
@@ -153,12 +291,28 @@ for (const theme of ['light', 'dark'] as const) {
         .click();
       await expect.poll(panelCount).toBe(1);
       await capture('ready-sidebar');
+      await persistDiagnostic('ready-sidebar-diagnostic', await sidebarSnapshot());
       activate();
       await expect.poll(panelCount).toBe(0);
       await capture('native-action-closed');
+      await persistDiagnostic('closed-sidebar-diagnostic', await sidebarSnapshot());
       activate();
+      await captureEarlyReopen('initial-reopen');
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-reopened');
+      const readySidebar = await sidebarSnapshot();
+      await persistDiagnostic('settled-warm-sidebar', readySidebar);
+      expect(readySidebar).toMatchObject({
+        present: true,
+        summary: { current: { hidden: false, rootFallback: false, rootEmpty: false, navigation: true } }
+      });
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      await persistDiagnostic('warm-sidebar-closed', await sidebarSnapshot());
+      activate();
+      await verifyWarmReopen();
+      await expect.poll(panelCount).toBe(1);
+      await capture('settled-warm-reopen');
       activate();
       await expect.poll(panelCount).toBe(0);
       await worker.evaluate(async () => {

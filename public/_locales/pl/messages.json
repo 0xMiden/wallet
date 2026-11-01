@@ -2456,6 +2456,14 @@
     "message": "Tej pary nie można już wymienić. Wróć i wybierz inny token.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "Zaoferuj aktywa o wartości co najmniej 1 dolara do wymiany.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "Cena w USD jest niedostępna. Spróbuj ponownie za chwilę.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "Cena niedostępna. Spróbuj ponownie za chwilę.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4912,6 +4920,31 @@
   "deadletteredNotesBodyOne": {
     "message": "Nie udało się automatycznie zaimportować 1 transferu.",
     "englishSource": "1 transfer couldn't be imported automatically."
+  },
+  "deadletteredNotesReasonSummary": {
+    "message": "Import zatrzymano z powodu: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Problem z połączeniem",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Nieczytelna notatka",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Odrzucenie przez węzeł",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Powód niedostępny",
+    "englishSource": "Reason unavailable"
   },
   "tomorrow": {
     "message": "Jutro",

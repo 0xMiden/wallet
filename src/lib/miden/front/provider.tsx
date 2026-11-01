@@ -78,6 +78,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // constructor reached before the module has initialized crashes the whole
   // tree with `__wbindgen_malloc` undefined.
   const [ready, setReady] = useState(false);
+  const [overridesReady, setOverridesReady] = useState(false);
   // A failed start is thrown to the root error boundary, whose screen reports it once and offers Try Again; left
   // unhandled, it kept the page blank.
   const [startFailure, setStartFailure] = useState<Error | null>(null);
@@ -105,6 +106,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
         })
       ]).finally(() => clearTimeout(budgetTimer));
       await loadEndpointOverrides();
+      if (!cancelled) setOverridesReady(true);
       // Prime native-asset-id discovery on every page mount. On extension this
       // also happens on the SW side, but the SW can be killed before the popup
       // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
@@ -167,18 +169,19 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
 
   if (startFailure) throw startFailure;
 
-  if (!ready) {
-    return null;
-  }
+  const canStartSync = ready || (isExtension() && overridesReady);
+  if (!canStartSync) return null;
 
   return (
     <WalletStoreProvider>
-      <MidenContextProvider>
-        {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
-            landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
-        <PriceProvider />
-        <ConditionalProviders>{children}</ConditionalProviders>
-      </MidenContextProvider>
+      {ready && (
+        <MidenContextProvider>
+          {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
+              landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
+          <PriceProvider />
+          <ConditionalProviders>{children}</ConditionalProviders>
+        </MidenContextProvider>
+      )}
     </WalletStoreProvider>
   );
 };

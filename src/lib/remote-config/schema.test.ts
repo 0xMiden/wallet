@@ -569,16 +569,26 @@ describe('values this build does not know', () => {
     }
   });
 
-  it('leaves out an Epoch or USDCx route that lists no token it knows', () => {
+  it('keeps an Epoch route of any token and its Miden symbol, and leaves out one that lists none', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const listed = { WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH' } };
+    const withEpoch = (tokens: Record<string, { contractAddress: string; midenSymbol?: string }>) => {
+      const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
+      return parseBridgeConfig(
+        withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } } }),
+        'testnet'
+      );
+    };
+    expect(withEpoch(listed)?.supportedEvmChains['base-sepolia']?.bridges.epoch?.tokens).toStrictEqual({
+      WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH', outputs: [] }
+    });
+    expect(withEpoch({})).toStrictEqual(published);
+    expect(withEpoch({ WETH: { ...listed.WETH, midenSymbol: 'eth' } })).toBeNull();
+  });
+
+  it('leaves out a USDCx route that lists no token it knows', () => {
     const baseSepolia = chains['base-sepolia'];
     const tokens = { USDT: { contractAddress: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' } };
-    const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
-    const body = withChains({
-      ...chains,
-      'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } }
-    });
-    expect(parseBridgeConfig(body, 'testnet')).not.toBeNull();
-    expect(parseBridgeConfig(body, 'testnet')).toStrictEqual(published);
     const usdcx = { ...baseSepolia.bridges.usdcx, tokens };
     const parsed = parseBridgeConfig(
       withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx } } }),
@@ -682,7 +692,7 @@ it('ignores removed market configuration', () => {
 });
 
 it('supports each chain in the wallet registry', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10]);
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10, 137, 4663]);
 });
 
 it('takes supported ids from the wallet registry', () => {

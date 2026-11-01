@@ -7,10 +7,12 @@ import { act } from 'react-dom/test-utils';
 
 import { type BackupRefreshOutcome, type BackupRefreshReason, WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { MidenContextProvider, useMidenContext } from './client';
 
 const mockExportAccountFileRequests: any[] = [];
+const mockRefreshFailure: { error: Error | null } = { error: null };
 
 jest.mock('lib/intercom', () => {
   class MockIntercomClient {
@@ -19,7 +21,11 @@ jest.mock('lib/intercom', () => {
         mockExportAccountFileRequests.push(req);
         return { type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BwgJ' };
       }
+      if (req.type === WalletMessageType.CreateAccountRequest) {
+        return { type: WalletMessageType.CreateAccountResponse };
+      }
       if (req.type === WalletMessageType.GetStateRequest) {
+        if (mockRefreshFailure.error) throw mockRefreshFailure.error;
         return {
           type: WalletMessageType.GetStateResponse,
           state: {
@@ -283,6 +289,41 @@ describe('useMidenContext exportAccountFile', () => {
       { type: WalletMessageType.ExportAccountFileRequest, accountPublicKey: 'pk', password: 'pw' }
     ]);
     expect(Array.from(bytes)).toEqual([7, 8, 9]);
+  });
+});
+
+const CreateAccountOutcomeProbe: React.FC = () => {
+  const { createAccount } = useMidenContext();
+  const [outcome, setOutcome] = React.useState('');
+
+  React.useEffect(() => {
+    void createAccount(WalletType.OnChain, 'name').then(setOutcome);
+  }, [createAccount]);
+
+  return <div>{outcome}</div>;
+};
+
+describe('useMidenContext createAccount', () => {
+  it('shows pending when the acknowledged create is followed by a failed refresh', async () => {
+    mockRefreshFailure.error = new Error('refresh failed');
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <MidenContextProvider>
+            <CreateAccountOutcomeProbe />
+          </MidenContextProvider>
+        );
+      });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(container.textContent).toBe('pending');
+    } finally {
+      mockRefreshFailure.error = null;
+      await act(async () => root.unmount());
+    }
   });
 });
 

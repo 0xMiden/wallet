@@ -65,6 +65,7 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   BackupRefreshOutcome,
   BackupRefreshReason,
+  GetStateResponse,
   GuardianRecoveryAction,
   GuardianSyncStatus,
   EstimateUsdcxBurnFeeRequest,
@@ -77,7 +78,6 @@ import {
   WalletAccount,
   WalletMessageType,
   WalletSettings,
-  WalletState,
   WalletStatus
 } from 'lib/shared/types';
 import { resolveTelemetryContext } from 'lib/telemetry/context';
@@ -196,24 +196,25 @@ export async function init() {
   console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<WalletState> {
+export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return toFront(state);
+      return { ...toFront(state), backendInitialized: true };
     }
   } catch {
     // store not initialized yet
   }
-  // Return Idle immediately so the UI can render while backend inits.
+  // Pending Idle must not hydrate the frontend as a real onboarding state.
   return {
     status: 0,
     accounts: [],
     currentAccount: null,
     networks: [],
     settings: null,
-    ownMnemonic: null
-  } as WalletState;
+    ownMnemonic: null,
+    backendInitialized: false
+  };
 }
 
 export async function isDAppEnabled() {

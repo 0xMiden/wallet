@@ -1,6 +1,28 @@
 # Changelog
 
-## 1.17.9 (TBD)
+## 1.17.10 (TBD)
+
+- [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
+- [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
+- [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
+
+## 1.17.9 (2026-10-31)
+
+- [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
+- [CHANGE][extension] Link the no-code sheet to the mainnet early-access list.
+- [CHANGE][ci] Verify eligibility rate limits and allowed origins through a local workerd topology harness.
+
+- [CHANGE][all] Move the mainnet endpoints from the `cedar` hosts to the `mainnet` hosts (RPC, prover, note transport, explorer and the Agglayer bridge indexer).
+- [FIX][extension] Keep Welcome on the shared launch and network policy, and cover it when mainnet preparation fails until Retry succeeds.
+- [CHANGE][all] Show the code and recovery options at once while mainnet setup runs, and move account recovery from the no-code drawer to a secondary welcome button.
+
+- [CHANGE][all] Distinguish primary and realm-reader SDK client creation failures in crash diagnostics without sending raw error details.
+- [FIX][extension] Avoid a redundant loading screen when reopening an unlocked sidebar while preserving startup and lock checks.
+- [CHANGE][all] Update dependencies Dependabot reports as vulnerable, including Capacitor 8.4.3, Vite 8.1.6, Storybook 8.6.19, axios 1.20.0, Tauri 2.12.5 and rustls 0.23.46.
+- [FIX][all] Preserve proposal creation error categories through diagnostic filtering.
+- [CHANGE][all] Include the closed mainnet access-code refusal stage in Sentry diagnostics.
+- [CHANGE][all] Include the closed wallet request client in bridge approval and deposit failure diagnostics.
+- [CHANGE][all] Add 25%, 50%, 75% and Max amount shortcuts based on the spendable balance in Swap and Bridge.
 
 - [FIX][all] Preserve the previous and new Guardian endpoints in encrypted history so other devices show the Guardian names on switch receipts.
 
@@ -11,6 +33,8 @@
 - [CHANGE][all] Explore opens All on a Featured carousel of store cards, adds a Finance hero, and enlarges My Badges' medallions with bolder, shorter descriptions.
 - [CHANGE][all] Home's Arcade banner shows the arcade logo on a solid orange bubble, and Receive's Share and Cross-chain tiles get new icons, with a caption under Cross-chain.
 - [CHANGE][all] Profile's avatar sits on the Settings grey and My Badges shows its medals artwork.
+- [CHANGE][all] Activity history explains saved incoming-note import warnings with fixed reason categories while keeping note contents in storage.
+- [FIX][all] Token price history shows an unavailable state when no market samples are available instead of a fabricated flat line.
 - [CHANGE][all] Positions-load warnings report the failing read stage and whether the current load partially succeeded, without portfolio or owner data.
 - [CHANGE][all] Distinguish bridge balance read failures using fixed diagnostic categories without account or balance data.
 - [CHANGE][all] Crash reports distinguish burn fee, access-check and note-claim failures and retain fixed execution categories through privacy filtering without including financial or authentication data.
@@ -38,8 +62,10 @@
 - [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
 
 - [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
+- [FIX][all] Bridge activity shows the saved destination chain, including Ethereum mainnet for Agglayer withdrawals.
 
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
+- [CHANGE][all] An Epoch route of the bridge config lists any number of EVM tokens, each settling into the token-list faucet of its `midenSymbol`, and names the chain's native coin (native ETH, POL) at the zero address; faucet IDs use the shared account parser, a Fast send arrives as the route's token for the sent Miden token, and Polygon and Robinhood Chain are supported chains. Bridge in lists every chain with a deposit route and offers each Epoch token of the picked chain (native coins included), with Circle and Fast as the two routes for USDC where both name the same contract.
 
 ## 1.17.8 (2026-10-27)
 

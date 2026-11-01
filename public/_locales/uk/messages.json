@@ -2456,6 +2456,14 @@
     "message": "Цю пару більше не можна обміняти. Поверніться назад і виберіть інший токен.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "Запропонуйте для обміну активи на суму щонайменше 1 долар.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "Ціна в доларах США недоступна. Спробуйте ще раз незабаром.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "Ціна недоступна. Спробуйте ще раз трохи пізніше.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4913,6 +4921,31 @@
   "deadletteredNotesBodyOne": {
     "message": "Не вдалося автоматично імпортувати 1 переказ.",
     "englishSource": "1 transfer couldn't be imported automatically."
+  },
+  "deadletteredNotesReasonSummary": {
+    "message": "Імпорт зупинено через: $reasons$",
+    "englishSource": "Import stopped because: $reasons$",
+    "placeholders": {
+      "reasons": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesReasonTransport": {
+    "message": "Проблема з’єднання",
+    "englishSource": "Connection problem"
+  },
+  "deadletteredNotesReasonMalformed": {
+    "message": "Нотатку неможливо прочитати",
+    "englishSource": "Unreadable note"
+  },
+  "deadletteredNotesReasonRejected": {
+    "message": "Відхилено вузлом",
+    "englishSource": "Node rejected the note"
+  },
+  "deadletteredNotesReasonUnavailable": {
+    "message": "Причина недоступна",
+    "englishSource": "Reason unavailable"
   },
   "tomorrow": {
     "message": "Завтра",
