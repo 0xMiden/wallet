@@ -17,8 +17,12 @@ let resolved: Promise<string | undefined> | undefined;
 function accountIdsIn(name: string): Promise<Set<string>> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name);
-    // Only ever called for a listed store; aborting the upgrade guarantees the check never creates one.
-    request.onupgradeneeded = () => request.transaction?.abort();
+    // Only ever called for a listed store. One deleted since the listing opens as new: abort that upgrade and close the
+    // connection, so the check neither creates a store nor holds one open against the SDK's own upgrade of it.
+    request.onupgradeneeded = () => {
+      request.transaction?.abort();
+      request.result.close();
+    };
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;

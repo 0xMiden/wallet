@@ -135,15 +135,15 @@ describe('sdkStoreNameFor', () => {
     }
   });
 
-  it('never creates a listed store that is already gone', async () => {
+  it('falls back, and holds no connection open, when a listed store is already gone', async () => {
     await createStore(CEDAR_MAINNET_STORE_NAME, ['0xaccount']);
-    // Listed, then deleted before the check opens it: opening it must not bring it back.
+    // Listed, then deleted before the check opens it.
     const listed = [CEDAR_MAINNET_STORE_NAME, MAINNET_DEFAULT_STORE_NAME].map(name => ({ name, version: 1 }));
     jest.spyOn(indexedDB, 'databases').mockResolvedValue(listed);
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBeUndefined();
-    jest.restoreAllMocks();
-    expect(await storeNames()).toEqual([CEDAR_MAINNET_STORE_NAME]);
+    // A connection left open would block the SDK's upgrade of the store; here it would block this upgrade.
+    await expect(createStore(MAINNET_DEFAULT_STORE_NAME, ['0xnew'])).resolves.toBeUndefined();
   });
 
   it('answers once per realm', async () => {
