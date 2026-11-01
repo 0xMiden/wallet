@@ -1244,6 +1244,32 @@
     "message": "ネットワークはこの提出を拒否しました。もう一度試してください。",
     "englishSource": "The network refused this submission. Try again."
   },
+  "submissionHeldByGuardian": {
+    "message": "この取引はGuardianによってまだ保持されているため、現時点では再試行できません。",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "ネットワークにより、この取引は成立しなかったことが確認されたため、何も移動していません。Guardianが依然としてそれを保持しているため、現時点では再試行することはできません。",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "この取引は現在もGuardianによって保持されています。$time$経過後に再試行できます。",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$後に再試行できます",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "submissionUnanswered": {
     "message": "この送信に対して応答はありませんでした。ウォレット側では送信が正常に処理されたかどうかを確認できません。まだ処理が完了する可能性もありますので、再試行する前に確認してください。",
     "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."

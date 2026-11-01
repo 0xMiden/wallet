@@ -1244,6 +1244,32 @@
     "message": "系統拒絕了此提交。請重新嘗試。",
     "englishSource": "The network refused this submission. Try again."
   },
+  "submissionHeldByGuardian": {
+    "message": "您的 Guardian 目前仍持有這筆交易，因此尚無法重新嘗試。",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "網路已確認此筆交易從未完成，因此並未發生任何資金流動。您的「Guardian」仍持有該資產，因此目前尚無法重新嘗試。",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "您的 Guardian 目前仍持有這筆交易。您可在 $time$ 後重新嘗試。",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "您可在 $time$ 後重試",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "submissionUnanswered": {
     "message": "此提交未收到任何回應。錢包無法確認該操作是否成功傳送。該操作仍可能完成，因此請先確認後再嘗試。",
     "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."

@@ -1,7 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 import { captureDiagnosticLog } from 'lib/telemetry/crash';
 
-import { cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
+import { cancelTransaction, cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -66,6 +66,25 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(notices().notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
     expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
     expect(report()).toHaveBeenCalledWith(expect.objectContaining({ result: 'errored' }));
+  });
+
+  it('notifies a refusal past the crossing as not confirmed, as Activity reads it (#2060)', async () => {
+    const row = generating({
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      cancelledInFlightAt: undefined,
+      submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }]
+    });
+    await Repo.transactions.put(row);
+    await cancelTransaction(
+      row,
+      new Error(
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+      )
+    );
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
+    expect(notices().notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
+    expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
   });
 
   // The burn note lands on its own once submitted, so failing the row would hide a burn the faucet still consumes.

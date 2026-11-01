@@ -12,11 +12,12 @@ import {
 import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
 import { judgeSubmitEvidence } from './reconcile-judge';
 import { NodeReads } from './reconcile-reads';
+import { GUARDIAN_PENDING_HOLD_SEC, keptCandidateHoldUntil } from './verdict-rules';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.mock('../back/background-notification', () => ({
@@ -127,6 +128,73 @@ describe('out-of-band ends (#1081)', () => {
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Failed);
     expect(row?.submitEvidence?.[0]).toMatchObject({ endedBy: 'out-of-band' });
+  });
+});
+
+describe('a crossed attempt ended from outside its pipeline (#2060)', () => {
+  const crossing: ISubmitEvidence = {
+    attemptId: 'a1',
+    capturedAt: NOW - 30,
+    source: 'stage',
+    guardianProposalNonce: 9
+  };
+  const candidate = { endpoint: 'https://guardian.test', nonce: 9, proposedAt: Date.now() - 40_000, attemptId: 'a1' };
+  const crossed = (overrides: Partial<ITransaction> = {}): ITransaction =>
+    generating({
+      type: 'send',
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      submitEvidence: [crossing],
+      guardianCandidate: candidate,
+      ...overrides
+    });
+  const ends: Array<[string, () => Promise<unknown>, Partial<ITransaction>]> = [
+    ['the stuck reaper', () => cancelStuckTransactions(), { processingStartedAt: NOW - 60 * 60 }],
+    ['the cold-start sweep', () => failInterruptedTransactions(), { processingStartedAt: 1 }]
+  ];
+
+  it.each(ends)('%s records the candidate as kept, so Retry shows its hold', async (_label, run, overrides) => {
+    await Repo.transactions.put(crossed(overrides));
+    await run();
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({ endedBy: 'out-of-band', candidateKept: true, guardianProposalNonce: 9 })
+    ]);
+    expect(keptCandidateHoldUntil(row!, NOW)).toBe(NOW - 30 + GUARDIAN_PENDING_HOLD_SEC);
+  });
+
+  it.each(ends)('%s takes the nonce from the row when the crossing lacks it', async (_label, run, overrides) => {
+    await Repo.transactions.put(
+      crossed({ ...overrides, submitEvidence: [{ ...crossing, guardianProposalNonce: undefined }] })
+    );
+    await run();
+    expect((await read())?.submitEvidence?.[0]).toMatchObject({ candidateKept: true, guardianProposalNonce: 9 });
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['an attempt retired before its submit', { submitEvidence: [{ ...crossing, preSubmitEnd: true }] }],
+    ['a row that recorded no crossing', { submitEvidence: undefined, mayHaveSubmitted: undefined }],
+    ['a crossing only an earlier attempt recorded', { submitEvidence: [{ ...crossing, attemptId: 'a0' }] }],
+    [
+      'no known nonce',
+      { submitEvidence: [{ ...crossing, guardianProposalNonce: undefined }], guardianCandidate: undefined }
+    ],
+    [
+      'only an earlier attempt`s candidate',
+      {
+        submitEvidence: [{ ...crossing, guardianProposalNonce: undefined }],
+        guardianCandidate: { ...candidate, attemptId: 'a0' }
+      }
+    ],
+    ['a row that cannot await a verdict', { type: 'bridged-send', extraInputs: { provider: 'epoch' } }]
+  ])('leaves no kept mark for %s', async (_label, overrides) => {
+    await Repo.transactions.put(crossed({ processingStartedAt: 1, ...overrides }));
+    await failInterruptedTransactions();
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence?.some(entry => entry.candidateKept === true) ?? false).toBe(false);
+    expect(keptCandidateHoldUntil(row!, NOW)).toBeUndefined();
   });
 });
 

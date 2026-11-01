@@ -1,6 +1,7 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { markFailedReexecution, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
@@ -10,9 +11,11 @@ import {
   ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
+  guardianHoldRetryMessage,
   INVALID_NOTE_ERROR,
   isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
+  isNodeOutage,
   isOutcomeUnconfirmed,
   isProverProcedureMismatch,
   isUnconfirmedFailure,
@@ -23,6 +26,7 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
+  STALE_PROOF_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -584,6 +588,76 @@ describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
   });
 });
 
+describe('a proof that kept going stale (#2060)', () => {
+  it.each([
+    ['at the stage that reads as a prover failure, delegated', 'proving', true],
+    ['at the stage that reads as a prover failure, local', 'proving', false],
+    ['on an extension row, whose stage stays at sending', 'sending', true]
+  ] as const)('never blames the prover %s', (_label, stage, delegated) => {
+    expect(resolveTransactionErrorMessage(new StaleProofError(), stage, delegated)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('reads the same through a wrapper', () => {
+    const wrapped = new Error('wrapped', { cause: new StaleProofError() });
+    expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('lets a kill in the chain win, since that pipeline may still submit', () => {
+    const killed = new WasmClientPoisonedError('watchdog', new StaleProofError());
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('tells the user nothing went out and to try again', () => {
+    expect(STALE_PROOF_ERROR).toMatch(/nothing was sent and no funds moved/);
+    expect(STALE_PROOF_ERROR).toMatch(/try again/);
+  });
+
+  it('reads as Failed, not Not confirmed', () => {
+    expect(isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR })).toBe(
+      false
+    );
+  });
+});
+
+describe('a sync or execute that failed on a re-execution (#2060)', () => {
+  it.each([
+    ['a dropped request, delegated', 'Failed to fetch', true],
+    ['a dropped request, local', 'Failed to fetch', false],
+    ['a timeout, delegated', 'sync timeout', true],
+    ['a timeout, local', 'sync timeout', false]
+  ])('keeps its own words at the proving stage: %s', (_label, message, delegated) => {
+    const failure = markFailedReexecution(new Error(message));
+    expect(resolveTransactionErrorMessage(failure, 'proving', delegated)).toBe(formatRawTransactionError(failure));
+  });
+
+  it('keeps the kernel copy a failed execute earns', () => {
+    const shortfall = new Error('the amount of the asset in the vault is less than the amount to remove');
+    expect(resolveTransactionErrorMessage(markFailedReexecution(shortfall), 'proving', true)).toBe(
+      TRANSACTION_VAULT_SHORTFALL_ERROR
+    );
+  });
+
+  it('leaves a kill as a kill, since that pipeline may still submit', () => {
+    const killed = markFailedReexecution(new WasmClientPoisonedError('watchdog', new Error('evicted')));
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('leaves every other failure at the proving stage to the prover', () => {
+    expect(resolveTransactionErrorMessage(new Error('Failed to fetch'), 'proving', true)).toBe(
+      REMOTE_PROVER_FAILED_ERROR
+    );
+  });
+});
+
+describe('guardianHoldRetryMessage (#2060)', () => {
+  // AM and PM are no zone, and a runner in UTC has no offset to print, so a bare GMT or UTC has to pass.
+  const NAMES_A_ZONE = /\b(?:(?:GMT|UTC)(?:[+-]\d{1,2}(?::\d{2})?)?|(?![AP]M\b)[A-Z]{2,5})\b/;
+
+  it('names an explicit zone or UTC offset', () => {
+    expect(guardianHoldRetryMessage(Math.floor(Date.now() / 1000) + 600)).toMatch(NAMES_A_ZONE);
+  });
+});
+
 describe('RotationGateConsumeRefusal', () => {
   it.each([ROTATION_PENDING_CONSUME_ERROR, ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, ROTATION_FUNDING_NON_NATIVE_ERROR])(
     'lands on the row as written: %s',
@@ -648,6 +722,175 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     a.cause = b;
     b.cause = a;
     expect(isGuardianOutage(a)).toBe(false);
+  });
+});
+
+describe('a node that gave the leaf no usable answer (#2060)', () => {
+  // web-sdk's `build_error_chain`: its context, `ClientError::RpcError`, the request, then the tonic status.
+  const REQUEST = 'failed to sync chain: RPC error: grpc request failed for sync_chain_mmr: ';
+  const EXECUTE_REQUEST = 'failed to execute transaction: RPC error: grpc request failed for get_account: ';
+  const UNAVAILABLE = 'Miden node is unavailable; check that the node is running and reachable';
+  const INTERNAL = 'Miden node returned an internal error; this is likely a node-side issue';
+  const HEADER_MISSING = 'grpc-status header missing, mapped from HTTP status code';
+  // idxdb-store's `await_js_value`. wasm-bindgen's Debug prints the rejection's name, message and stack, and Dexie
+  // words an aborted transaction 'AbortError: <cause's name> <cause's message>'.
+  const STORE_REJECTED = 'database-related non-query error: failed to apply state sync: ';
+
+  it.each([
+    ['the SDK naming an unavailable node', `${REQUEST}${UNAVAILABLE}`],
+    ['the SDK timing a request out', `${REQUEST}request to Miden node timed out; the node may be under heavy load`],
+    ['a dropped request the SDK has no status for', `${REQUEST}unknown error: `],
+    ['a cancelled request', `${REQUEST}operation was cancelled`],
+    ['an aborted request', `${REQUEST}operation was aborted`],
+    ['a node-side failure', `${REQUEST}${INTERNAL}`],
+    ['a rate limit', `${REQUEST}request was rate-limited or the node's resources are exhausted; retry after a delay`],
+    [
+      'an outage, whatever its status says',
+      `${EXECUTE_REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', message: "no healthy upstream"`
+    ],
+    ['a connection that never opened', 'failed to execute transaction: RPC error: failed to connect to the Miden node'],
+    ['Chrome dropping a fetch', 'Failed to fetch'],
+    ['WebKit dropping a fetch', 'Load failed'],
+    ['WebKit losing a connection', 'The network connection was lost.'],
+    ['a named read that failed on the network', `failed to fetch note script via RPC: ${REQUEST}${UNAVAILABLE}`],
+    ['a gateway that is struggling', 'transport error: status code 503'],
+    [
+      'a failed connection under the data store wrapper, which only sounds like the store',
+      'failed to execute transaction: data store error: failed to fetch storage map via RPC: ' +
+        'failed to connect to the Miden node'
+    ],
+    [
+      'an outage whose status quotes the store, since the kind decides a request',
+      `${REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', ` +
+        `message: "storage error: ${STORE_REJECTED}"`
+    ]
+  ])('reads %s as an outage', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(true);
+  });
+
+  it.each([
+    [
+      'a store that ran out of quota',
+      `failed to sync chain: storage error: ${STORE_REJECTED}` +
+        'JsValue(AbortError: QuotaExceededError The quota has been exceeded.)'
+    ],
+    [
+      'an aborted IndexedDB transaction',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a rejection whose stack prints a 5xx line',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(ConstraintError: Key already exists\n` +
+        'ConstraintError: Key already exists\n    at put (https://wallet.test/assets/Cargo-2c1.js:512:17))'
+    ],
+    [
+      'the same failure through the data store',
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data ' +
+        `store: store error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a StoreError the SDK reports bare',
+      `failed to get setting value from the store: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    ['a block number the store prints', 'failed to sync chain: storage error: block header for block 512 not found'],
+    ['the data store printing one', 'failed to fetch inputs: store error: block header for block 512 not found']
+  ])('reads %s as no statement about the node', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  it('reads the outage at any depth, and off a value that is not an Error', () => {
+    expect(isNodeOutage(new Error('could not execute', { cause: new TypeError('Failed to fetch') }))).toBe(true);
+    expect(isNodeOutage('Failed to fetch')).toBe(true);
+  });
+
+  it.each([
+    [
+      'a read of the local store the SDK named',
+      'failed to fetch transaction inputs from the data store: account with id 0xabc not found in data store'
+    ],
+    ['a request that can never succeed', `${HEADER_MISSING} 404`],
+    ['a node that refused', `${REQUEST}invalid request parameters`],
+    [
+      'a note the node does not hold',
+      'failed to execute transaction: RPC error: note 0xabc was not found on the Miden node'
+    ],
+    [
+      'an answer the SDK cannot read',
+      'failed to sync chain: RPC error: received an invalid response from the Miden node: missing block header'
+    ],
+    [
+      'an answer that does not decode',
+      'failed to sync chain: RPC error: failed to deserialize response from the Miden node: eof'
+    ],
+    [
+      'a client the node does not support',
+      'failed to sync chain: RPC error: accept header validation failed: server rejected request - please check your ' +
+        'version and network settings (client version: 0.17.5, genesis commitment: 0xabc)'
+    ],
+    [
+      'a gateway that rejects the bytes',
+      `${REQUEST}${INTERNAL}: code: 'Internal error', message: "${HEADER_MISSING} 400"`
+    ],
+    [
+      // Base ended these at once. A gateway's refusal the SDK words as a node's stays on that side of the lopsided cost.
+      'a gateway refusal the SDK words as the node refusing',
+      `${REQUEST}permission denied: code: 'The caller does not have permission to execute the specified operation', ` +
+        `message: "${HEADER_MISSING} 403"`
+    ],
+    [
+      'a kernel failure, whatever its diagnostic prints',
+      'failed to execute transaction: transaction execution failed: failed to execute transaction kernel program:\n' +
+        '  x connection assertion failed\n 512 |   exec.note::abort'
+    ],
+    ['a kernel failure read by its code', `execution failed: ${ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE} 503`],
+    ['a prover that lacks a procedure', 'procedure with root digest 0xabc could not be found: connection']
+  ])('leaves %s to the terminal path', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  // The gRPC kinds that answer the request, each with tonic's own text for the code.
+  it.each([
+    ['resource not found', 'Some requested entity was not found'],
+    ['invalid request parameters', 'Client specified an invalid argument'],
+    ['permission denied', 'The caller does not have permission to execute the specified operation'],
+    ['resource already exists', 'Some entity that we attempted to create already exists'],
+    ['precondition failed', "The system is not in a state required for the operation's execution"],
+    [
+      'the requested method is not implemented by this version of the Miden node',
+      'Operation is not implemented or not supported'
+    ],
+    [
+      'request was rejected as unauthenticated; check your credentials and connection settings',
+      'The request does not have valid authentication credentials'
+    ],
+    ['operation was attempted past the valid range', 'Operation was attempted past the valid range'],
+    ['unrecoverable data loss or corruption', 'Unrecoverable data loss or corruption']
+  ])('reads a node that answered "%s" by that kind alone, not by what its message prints', (kind, code) => {
+    for (const request of [REQUEST, EXECUTE_REQUEST]) {
+      expect(isNodeOutage(new Error(`${request}${kind}`))).toBe(false);
+      const printed = `${request}${kind}: code: '${code}', message: "connection timed out at block 512"`;
+      expect(isNodeOutage(new Error(printed))).toBe(false);
+    }
+  });
+
+  it('reads a kind this SDK does not name as an answer, the cheap side of the lopsided cost', () => {
+    expect(isNodeOutage(new Error(`${REQUEST}the node has moved on: connection`))).toBe(false);
+  });
+
+  it('is no statement about the node when a Guardian went silent', () => {
+    const timeout = new GuardianRequestTimeoutError('https://guardian.test/delta', GUARDIAN_REQUEST_TIMEOUT_MS);
+    expect(isNodeOutage(timeout)).toBe(false);
+    expect(isNodeOutage(new Error('the send failed', { cause: timeout }))).toBe(false);
+  });
+
+  it('is never an outage under a killed pipeline, at any depth', () => {
+    // The abandoned pipeline may still submit, and every kill reads as transport-shaped text.
+    const poisoned = new WasmClientPoisonedError('watchdog', new TypeError('Failed to fetch'));
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    for (const kill of [poisoned, aborted]) {
+      expect(isNodeOutage(kill)).toBe(false);
+      expect(isNodeOutage(new Error('transport error', { cause: kill }))).toBe(false);
+    }
   });
 });
 

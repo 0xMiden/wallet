@@ -1244,6 +1244,32 @@
     "message": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
     "englishSource": "The network refused this submission. Try again."
   },
+  "submissionHeldByGuardian": {
+    "message": "Guardian'ınız bu işlemi hâlâ elinde tutuyor, bu nedenle henüz yeniden denenemez.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Ağ, bu işlemin hiçbir zaman gerçekleşmediğini doğruladı; dolayısıyla hiçbir şey hareket etmedi. Token'ınız hâlâ Guardian'da tutuluyor; bu nedenle henüz yeniden denenemez.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Guardian'ınız bu işlemi hâlâ bekletiyor. $time$ sonra yeniden deneyebilirsiniz.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$ sonra tekrar deneyebilirsiniz.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "submissionUnanswered": {
     "message": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
     "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."

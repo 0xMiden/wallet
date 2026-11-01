@@ -62,8 +62,14 @@ export const ActivityPendingHistory = ({
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
   // sent it. It is the ONE bulk action on this tab; there is no per-asset or per-sender variant.
+  // A claim the Guardian still holds is not one: its own Retry is off until the hold ends.
   const claimableNotes = listItems
-    .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
+    .filter(
+      item =>
+        (item.status === 'pending' || item.status === 'failed') &&
+        item.note.fromCache !== true &&
+        item.holdUntil === undefined
+    )
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
   // Every acceptable transfer is already in flight: the action stays, in its loading state, so it

@@ -43,8 +43,13 @@ import {
   annotateTerminalReport,
   PREFLIGHT_SYNC_REPORTS,
   QUEUE_HIDDEN_BUCKETS,
+  SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS,
   type PreflightSyncReport,
-  type QueueHiddenBucket
+  type ProofWindowBucket,
+  type QueueHiddenBucket,
+  type SubmitHiddenAnswer,
+  type SubmitLegBucket
 } from './terminal-report-diagnostics';
 import {
   AUTH_LAYOUTS,
@@ -57,6 +62,7 @@ import { TELEMETRY_ERROR_KINDS } from './types';
 import packageJson from '../../../package.json';
 
 export { AUTH_LAYOUTS, COMMITMENT_MATCHES, ACCOUNT_AUTH_CODES } from './transaction-execution-diagnostics';
+export { SUBMIT_HIDDEN_ANSWERS, SUBMIT_LEG_BUCKETS } from './terminal-report-diagnostics';
 
 export const AUTH_PREPARATIONS = ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const;
 
@@ -79,7 +85,8 @@ export const FAILURE_REASONS = [
   'consume_not_landed',
   'consume_landed_external',
   'note_invalid',
-  'never_committed'
+  'never_committed',
+  'stale_proof'
 ] as const;
 
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
@@ -162,15 +169,6 @@ export const SUBMIT_NODE_ERRORS = [
   'none',
   'other'
 ] as const;
-
-export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
-
-export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', 'unavailable'] = [
-  'under_9s',
-  '9_to_11s',
-  'over_11s',
-  'unavailable'
-];
 
 /**
  * How long a transaction waited between its execution and its submit, against the blocks its expiration allows. The
@@ -333,7 +331,8 @@ export const CONSUME_DEFERRAL_CAUSES = [
   'delegated_prover_failed',
   'guardian_rate_limited',
   'guardian_unreachable',
-  'guardian_unauthorized'
+  'guardian_unauthorized',
+  'node_unreachable'
 ] as const;
 
 export type ConsumeDeferralCause = (typeof CONSUME_DEFERRAL_CAUSES)[number];
@@ -428,6 +427,10 @@ export interface TransactionFailure {
   preflightSync?: PreflightSyncReport;
   /** Hidden time this process recorded while the row waited. */
   queueHidden?: QueueHiddenBucket;
+  /** Hidden share of the way from the proposal to the submit stamp; absent on a row that never reached a submit. */
+  submitApproachHidden?: QueueHiddenBucket;
+  /** Blocks this attempt's expiration allowed; absent on a row that never reached a submit. */
+  proofWindow?: ProofWindowBucket;
   /** Whether this attempt's committed evidence shows that it reached the submit call. */
   submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -778,29 +781,24 @@ function indefiniteSubmitOutcome(error: unknown):
   };
 }
 
+const submitHiddenAnswer = (hidden: boolean | undefined): SubmitHiddenAnswer =>
+  hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no';
+
+function submitLegBucket(legMs: number | undefined): SubmitLegBucket {
+  if (legMs === undefined || !Number.isFinite(legMs) || legMs < 0) return 'unavailable';
+  if (legMs < 9000) return 'under_9s';
+  return legMs <= 11000 ? '9_to_11s' : 'over_11s';
+}
+
 export function captureSubmitContext(error: unknown, hidden: boolean | undefined, legMs: number | undefined) {
   const outcome = indefiniteSubmitOutcome(error);
   if (outcome === undefined) return undefined;
   const { endpoint, status } = outcome;
-  const leg =
-    legMs === undefined || !Number.isFinite(legMs) || legMs < 0
-      ? 'unavailable'
-      : legMs < 9000
-        ? 'under_9s'
-        : legMs <= 11000
-          ? '9_to_11s'
-          : 'over_11s';
-  return { endpoint, status, hidden: hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no', leg };
+  return { endpoint, status, hidden: submitHiddenAnswer(hidden), leg: submitLegBucket(legMs) };
 }
 
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
-  const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
-    hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
-  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
-    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
-  }
-  return `app hidden during submit ${hidden}; submit leg ${bucket}`;
+  return `app hidden during submit ${submitHiddenAnswer(hiddenDuringSubmit)}; submit leg ${submitLegBucket(submitLegMs)}`;
 }
 
 function submitOutcomeIdentity(
@@ -1116,6 +1114,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     if (inherited.proposalStep === 'proposal_create') transferProposalCreateDiagnostics(failure.error, report);
     annotateGuardianProving(report, snapshotGuardianProving(failure.error));
     if (identity.startsWith('offscreen_aborted_deadline;')) transferOffscreenDeadline(failure.error, report);
+    // An unknown outcome's message names these two. A refusal's cannot, or each answer would split its Sentry issue.
+    const refused = identity.startsWith(`${coined('submit_rejected')};`);
     annotateTerminalReport(report, {
       queueAdmissionObservation:
         reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueAdmissionObservation') : undefined,
@@ -1125,7 +1125,12 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       reapStartRelation:
         reason === 'stuck_reaped'
           ? safeOwnDiagnosticData(safeOwnDiagnosticData(failure, 'reap'), 'startRelation')
-          : undefined
+          : undefined,
+      // Facts of the row's own submit, which stay true whichever report ends it: `submitApproach` sets them only there.
+      submitApproachHidden: safeOwnDiagnosticData(failure, 'submitApproachHidden'),
+      proofWindow: safeOwnDiagnosticData(failure, 'proofWindow'),
+      submitHidden: refused ? submitHiddenAnswer(failure.hiddenDuringSubmit) : undefined,
+      submitLeg: refused ? submitLegBucket(failure.submitLegMs) : undefined
     });
     // Each is checked against its closed list there; a value the wallet does not define is dropped.
     const bridgeSource = failure.bridgeReceive;

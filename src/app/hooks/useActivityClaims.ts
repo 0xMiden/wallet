@@ -16,7 +16,7 @@ import {
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { agglayerDeliverySenders } from 'lib/miden/activity/bridge-in';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
@@ -25,7 +25,9 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
-import { submissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { isGuardianHoldRetryError, retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { shownSubmissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { keptCandidateHoldUntil, nowSeconds } from 'lib/miden/transaction/verdict-rules';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -49,7 +51,7 @@ type FeeSnapshot = {
   balancesLoading: boolean;
 };
 type ClaimAttempt = PendingActivityItem & { feeRefusedAt?: FeeSnapshot };
-type RetryFailure = { message: string } & NonNullable<PendingActivityItem['failure']>;
+type RetryFailure = { message: string; metHold?: true } & NonNullable<PendingActivityItem['failure']>;
 type Attempts = ReadonlyMap<string, ClaimAttempt>;
 type ClaimSlot = {
   attempts: Attempts;
@@ -86,22 +88,27 @@ function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return a.size === b.size && [...a].every(id => b.has(id));
 }
 
+function sameSubmission(left: SubmissionFeedback | undefined, right: SubmissionFeedback | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return (
+    left.kind === right.kind &&
+    left.messageKey === right.messageKey &&
+    left.rowCopy === right.rowCopy &&
+    left.details === right.details
+  );
+}
+
+function sameHolds(left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>): boolean {
+  return left.size === right.size && [...right].every(([id, until]) => left.get(id) === until);
+}
+
 function sameFeedback(
   left: ReadonlyMap<string, SubmissionFeedback>,
   right: ReadonlyMap<string, SubmissionFeedback>
 ): boolean {
   if (left.size !== right.size) return false;
   for (const [id, value] of right) {
-    const previous = left.get(id);
-    if (
-      previous === undefined ||
-      previous.kind !== value.kind ||
-      previous.messageKey !== value.messageKey ||
-      previous.rowCopy !== value.rowCopy ||
-      previous.details !== value.details
-    ) {
-      return false;
-    }
+    if (!sameSubmission(left.get(id), value)) return false;
   }
   return true;
 }
@@ -192,11 +199,15 @@ export function useActivityClaims() {
     });
   }, [key, feeSnapshot]);
 
-  // Rows of every claiming item: session attempts and the claiming map's held rows alike (#1081).
+  // Rows of every claiming item: session attempts and the claiming map's held rows alike (#1081). A failed claim's row
+  // too, whichever path found it: what its card may say follows the hold and the reconciler (#2060).
   const watchedTxIds = [
     ...new Set([
-      ...[...attempts.values()].flatMap(item => (item.status === 'claiming' && item.txId ? [item.txId] : [])),
-      ...claim.safeClaimableNotes.flatMap(n => (n.isBeingClaimed && n.claimingTxId ? [n.claimingTxId] : []))
+      ...[...attempts.values()].flatMap(item =>
+        (item.status === 'claiming' || item.status === 'failed') && item.txId ? [item.txId] : []
+      ),
+      ...claim.safeClaimableNotes.flatMap(n => (n.isBeingClaimed && n.claimingTxId ? [n.claimingTxId] : [])),
+      ...claim.retriableTxIds.values()
     ])
   ]
     .sort()
@@ -210,77 +221,116 @@ export function useActivityClaims() {
     txIds: new Set()
   });
   const [submissionByTx, setSubmissionByTx] = useState<ReadonlyMap<string, SubmissionFeedback>>(() => new Map());
+  const [holdByTx, setHoldByTx] = useState<ReadonlyMap<string, number>>(() => new Map());
 
   useEffect(() => {
     if (!watchedTxIds) {
       setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
       setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
+      setHoldByTx(previous => (previous.size === 0 ? previous : new Map()));
       return;
     }
     const txIds = watchedTxIds.split(',');
-    return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
-      next: rows => {
-        const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
-        const failedRows = new Map<string, (typeof rows)[number]>();
-        const held = new Set<string>();
-        const waiting = new Set<string>();
-        const submissions = new Map<string, SubmissionFeedback>();
-        for (const tx of rows) {
-          const feedback = submissionFeedback(tx);
-          if (feedback !== undefined) submissions.set(tx.id, feedback);
-          if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
-            waiting.add(tx.id);
-          } else if (tx.status === ITransactionStatus.Completed) {
-            settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
-          } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
-            if (holdsNotes(tx)) held.add(tx.id);
-            else {
-              settled.set(tx.id, {
-                status: 'failed',
-                claimedAt: tx.completedAt,
-                submission: feedback
-              });
-              failedRows.set(tx.id, tx);
-            }
+    let latestRows: ITransaction[] | undefined;
+    let holdEnds: ReturnType<typeof setTimeout> | undefined;
+    const publish = (rows: ITransaction[]) => {
+      latestRows = rows;
+      clearTimeout(holdEnds);
+      const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
+      const failedRows = new Map<string, ITransaction>();
+      const held = new Set<string>();
+      const waiting = new Set<string>();
+      const submissions = new Map<string, SubmissionFeedback>();
+      const holds = new Map<string, number>();
+      const nowSec = nowSeconds();
+      for (const tx of rows) {
+        const feedback = shownSubmissionFeedback(tx);
+        if (feedback !== undefined) submissions.set(tx.id, feedback);
+        if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
+          waiting.add(tx.id);
+        } else if (tx.status === ITransactionStatus.Completed) {
+          settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
+        } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
+          const until = keptCandidateHoldUntil(tx, nowSec);
+          if (until !== undefined) holds.set(tx.id, until);
+          if (holdsNotes(tx)) held.add(tx.id);
+          else {
+            settled.set(tx.id, {
+              status: 'failed',
+              claimedAt: tx.completedAt,
+              submission: feedback
+            });
+            failedRows.set(tx.id, tx);
           }
         }
-        setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
-        // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
-        setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
-        setGuardianWait(previous =>
-          previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
+      }
+      setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
+      setHoldByTx(previous => (sameHolds(previous, holds) ? previous : holds));
+      // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
+      setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
+      setGuardianWait(previous =>
+        previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
+      );
+      // A refusal describes the hold it met: it ends with that hold, and once the row moves on it must not return with
+      // a later one.
+      setRetryErrors(previous => {
+        const moved = rows.filter(
+          tx => previous.has(tx.id) && (!held.has(tx.id) || (previous.get(tx.id)?.metHold && !holds.has(tx.id)))
         );
-        // A refusal describes the hold it met; once the row moves on it must not return with a later hold.
-        setRetryErrors(previous => {
-          const moved = rows.filter(tx => !held.has(tx.id) && previous.has(tx.id));
-          if (moved.length === 0) return previous;
-          const next = new Map(previous);
-          for (const tx of moved) next.delete(tx.id);
-          return next;
-        });
-        updateAttempts(key, previous => {
-          let next: Map<string, PendingActivityItem> | undefined;
-          for (const [noteId, item] of previous) {
-            const outcome = item.status === 'claiming' && item.txId ? settled.get(item.txId) : undefined;
-            if (!outcome) continue;
-            const failed = item.txId === undefined ? undefined : failedRows.get(item.txId);
-            let failure: PendingActivityItem['failure'];
-            if (failed !== undefined) {
-              const raw = safeOwnDiagnosticData(failed, 'rawError');
-              const error = typeof raw === 'string' && raw.length > 0 ? raw : safeOwnDiagnosticData(failed, 'error');
-              failure = noteClaimFailure(
-                'transaction_row',
-                typeof error === 'string' && error.length > 0 ? classifyUiFailure(error) : 'unavailable'
-              );
-            }
+        if (moved.length === 0) return previous;
+        const next = new Map(previous);
+        for (const tx of moved) next.delete(tx.id);
+        return next;
+      });
+      updateAttempts(key, previous => {
+        let next: Map<string, PendingActivityItem> | undefined;
+        for (const [noteId, item] of previous) {
+          if (item.txId === undefined) continue;
+          if (item.status === 'failed') {
+            // The failure itself stays one object, or the card would restart its report on every re-read.
+            const submission = submissions.get(item.txId);
+            if (sameSubmission(item.submission, submission)) continue;
             next ??= new Map(previous);
-            next.set(noteId, { ...item, ...outcome, ...(failure === undefined ? {} : { failure }) });
+            next.set(noteId, { ...item, submission });
+            continue;
           }
-          return next ?? previous;
-        });
-      },
+          const outcome = item.status === 'claiming' ? settled.get(item.txId) : undefined;
+          if (!outcome) continue;
+          const failed = failedRows.get(item.txId);
+          let failure: PendingActivityItem['failure'];
+          if (failed !== undefined) {
+            const raw = safeOwnDiagnosticData(failed, 'rawError');
+            const error = typeof raw === 'string' && raw.length > 0 ? raw : safeOwnDiagnosticData(failed, 'error');
+            failure = noteClaimFailure(
+              'transaction_row',
+              typeof error === 'string' && error.length > 0 ? classifyUiFailure(error) : 'unavailable'
+            );
+          }
+          next ??= new Map(previous);
+          next.set(noteId, { ...item, ...outcome, ...(failure === undefined ? {} : { failure }) });
+        }
+        return next ?? previous;
+      });
+      // A hold ends with no write to its row, so no emission would ever take its notice down. Its countdown reads the
+      // wall clock every second, so this does too: a timer set for the whole hold leaves Retry off after a clock step.
+      if (holds.size > 0) {
+        holdEnds = setTimeout(() => publish(rows), Math.min(1_000, Math.min(...holds.values()) * 1000 - Date.now()));
+      }
+    };
+    // A freeze holds the timer up, so the way back reads the clock rather than wait out what it had left.
+    const resample = () => {
+      if (latestRows !== undefined && document.visibilityState === 'visible') publish(latestRows);
+    };
+    document.addEventListener('visibilitychange', resample);
+    const unsubscribe = subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
+      next: publish,
       error: error => console.warn('[activity] Could not read claim status', error)
     });
+    return () => {
+      clearTimeout(holdEnds);
+      document.removeEventListener('visibilitychange', resample);
+      unsubscribe();
+    };
   }, [watchedTxIds, key]);
 
   const items = useMemo(() => {
@@ -288,9 +338,13 @@ export function useActivityClaims() {
     const rowFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission'> => {
-      if (status !== 'claiming' || txId === undefined) return {};
+    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission' | 'holdUntil'> => {
+      if (txId === undefined) return {};
       const submission = submissionByTx.get(txId);
+      const holdUntil = holdByTx.get(txId);
+      const hold = holdUntil === undefined ? {} : { holdUntil };
+      if (status === 'failed') return { ...hold, ...(submission === undefined ? {} : { submission }) };
+      if (status !== 'claiming') return {};
       if (!heldTxIds.has(txId)) {
         const guardianBusy = guardianWait.key === key && guardianWait.txIds.has(txId);
         if (!guardianBusy && submission === undefined) return {};
@@ -301,9 +355,10 @@ export function useActivityClaims() {
       }
       const retryError = retryErrors.get(txId);
       return retryError === undefined
-        ? { held: true, ...(submission !== undefined ? { submission } : {}) }
+        ? { held: true, ...hold, ...(submission !== undefined ? { submission } : {}) }
         : {
             held: true,
+            ...hold,
             retryError: retryError.message,
             failure: retryError,
             ...(submission !== undefined ? { submission } : {})
@@ -327,7 +382,7 @@ export function useActivityClaims() {
           status = 'failed';
           break;
       }
-      const txId = note.claimingTxId;
+      const txId = note.claimingTxId ?? (status === 'failed' ? claim.retriableTxIds.get(note.id) : undefined);
       result.set(note.id, { note, status, txId, ...rowFields(status, txId) });
     }
     for (const [id, attempt] of attempts) {
@@ -368,10 +423,12 @@ export function useActivityClaims() {
     claim.checkingNoteIds,
     claim.invalidNoteIds,
     claim.retriableNoteIds,
+    claim.retriableTxIds,
     attempts,
     heldTxIds,
     guardianWait,
     submissionByTx,
+    holdByTx,
     key,
     retryErrors,
     balances,
@@ -554,17 +611,13 @@ export function useActivityClaims() {
     try {
       await requeueFailedTransaction(txId);
     } catch (error) {
-      const message =
-        error instanceof ClaimFeeRefusedError
-          ? t('insufficientFeeAsset')
-          : error instanceof Error
-            ? error.message
-            : String(error);
+      const message = error instanceof ClaimFeeRefusedError ? t('insufficientFeeAsset') : retryRefusalText(error, t);
       const id = error instanceof ClaimFeeRefusedError ? 'insufficientFeeAsset' : 'raw_pending_activity_retry_failed';
       setRetryErrors(previous =>
         new Map(previous).set(txId, {
           message,
           id,
+          ...(isGuardianHoldRetryError(error) ? { metHold: true as const } : {}),
           ...(id === 'raw_pending_activity_retry_failed'
             ? {
                 diagnostics: {

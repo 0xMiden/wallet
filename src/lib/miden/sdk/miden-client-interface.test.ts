@@ -2,6 +2,7 @@ import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
+import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
 import type { WasmLockHold } from './miden-client';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
@@ -1765,7 +1766,7 @@ describe('MidenClientInterface', () => {
       staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
       const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
       mockStagedSdk();
-      const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
+      const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       const pending = client.consumeNoteId({

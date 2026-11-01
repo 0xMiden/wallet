@@ -12,6 +12,7 @@ import {
 import { ClaimFeeRefusedError } from './initiate';
 import { NodeReads } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
+import { isGuardianHoldRetryError } from './retry-refusal';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
@@ -804,6 +805,16 @@ describe('the refusal copy (#1081)', () => {
 
 describe('the Guardian hold (#1081)', () => {
   const kept = (capturedAt: number) => entry({ candidateKept: true, guardianProposalNonce: 9, capturedAt });
+
+  it('refuses with the typed hold, carrying when it clears and keeping its English message and annotation', async () => {
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
+    const error = await refusal();
+    expect(isGuardianHoldRetryError(error)).toBe(true);
+    expect(error).toHaveProperty('clearsAtSec', NOW + 980);
+    expect(error).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
+    expect(snapshotPendingRetry(error)).toBe('guardian_hold');
+    expect(acknowledgementOf(error)).toBeNull();
+  });
 
   it('refuses while a kept candidate is under 1080 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
