@@ -2524,6 +2524,25 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackKeepsPreviewStateOnTheController() throws Exception {
+        boolean fieldExists = true;
+        try {
+            WebViewDialog.class.getDeclaredField("backPreviewStarted");
+        } catch (NoSuchFieldException ignored) {
+            fieldExists = false;
+        }
+        assertFalse("preview lifecycle stays on the controller", fieldExists);
+
+        fieldExists = true;
+        try {
+            WebViewDialog.class.getDeclaredField("backGestureStarted");
+        } catch (NoSuchFieldException ignored) {
+            fieldExists = false;
+        }
+        assertFalse("preview lifecycle stays on the controller", fieldExists);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
     public void predictiveBackCommitRequestsTheExistingParkPathOnce() throws Exception {
         openMorph(false);
         reveal();
@@ -2634,7 +2653,7 @@ public class BreadPresentationControllerTest {
             ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
                 ReflectionHelpers.ClassParameter.from(float.class, 1f));
         }
-        assertFalse(ReflectionHelpers.getField(dialog, "backPreviewStarted"));
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
         assertTrue(collapse(card(), "settled-collapse"));
         BreadMorphControllerTest.settle();
         assertNull(ReflectionHelpers.getField(controller, "morphId"));
@@ -2666,7 +2685,7 @@ public class BreadPresentationControllerTest {
             ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
                 ReflectionHelpers.ClassParameter.from(float.class, 1f));
         }
-        assertFalse(ReflectionHelpers.getField(dialog, "backPreviewStarted"));
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
         assertTrue(collapse(card(), "seed-collapse"));
         assertTrue(expand(card(), "page-morph"));
         assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
@@ -2716,7 +2735,7 @@ public class BreadPresentationControllerTest {
             ReflectionHelpers.ClassParameter.from(float.class, 0f));
         try {
             callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
-            assertFalse(ReflectionHelpers.getField(dialog, "backPreviewStarted"));
+            assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
             callback.onBackInvoked();
             verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
                 eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
