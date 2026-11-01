@@ -100,9 +100,8 @@ describe('miden repo export/import', () => {
     await importDb(await exportDb());
 
     const [restored] = await transactions.toArray();
-    // The provenance stamp is the ONLY thing import adds to a terminal row —
-    // asserting the whole object is what proves nothing else was rewritten.
-    expect(restored).toEqual({ ...original, restoredFromBackup: true });
+    // Import drops local badge provenance and assigns a fresh local revision.
+    expect(restored).toEqual({ ...original, restoredFromBackup: true, badgeEvidenceRevision: expect.any(String) });
   });
 
   // A row carries BigInt in more places than the top-level `amount`: `assetTotals`
@@ -526,7 +525,8 @@ describe('miden repo export/import', () => {
 
     const [restored] = await transactions.toArray();
     expect(restored).not.toHaveProperty('recoveredBadgeNetwork');
-    expect(restored).not.toHaveProperty('badgeEvidenceRevision');
+    expect(restored!.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(restored!.badgeEvidenceRevision).not.toBe('backup-token');
     expect(badgesFromHistory([restored!], ['victim'], ['first-send'])).toEqual([]);
   });
 
@@ -875,10 +875,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.1', () => {
+  it('keys spending limits by account alone on schema version 3.2', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.1);
+    expect(db.verno).toBe(3.2);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1056,7 +1056,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.2);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1107,7 +1107,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.2);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1149,8 +1149,10 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.1);
-      expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
+      expect(upgraded.verno).toBe(3.2);
+      const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
+      expect(upgradedLegacy).toMatchObject(legacy);
+      expect(upgradedLegacy?.badgeEvidenceRevision).toEqual(expect.any(String));
       expect(
         await upgraded
           .table(Table.Transactions)
@@ -1180,7 +1182,8 @@ describe('writing a transaction row', () => {
     await transactions.bulkAdd([
       old,
       { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
-      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' }
+      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' },
+      { ...old, id: 'badge-recovered', recovered: true, restoredFromBackup: true, recoveredBadgeNetwork: 'mainnet' }
     ]);
     expect(
       await transactions
@@ -1188,7 +1191,68 @@ describe('writing a transaction row', () => {
         .equals(['mainnet', ITransactionStatus.Completed, 'send'])
         .primaryKeys()
     ).toEqual(['badge-mainnet']);
-    expect(await transactions.get('badge-legacy')).toEqual(old);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-recovered']);
+    expect(await transactions.get('badge-legacy')).toMatchObject(old);
+    expect((await transactions.get('badge-legacy'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+  });
+
+  it('refreshes row revisions on add, update, and put while retaining the issuer index', async () => {
+    const input: ITransaction = {
+      id: 'badge-revision',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      badgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'untrusted-input'
+    };
+    await transactions.add(input);
+    const added = (await transactions.get(input.id))!;
+    expect(added.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(added.badgeEvidenceRevision).not.toBe('untrusted-input');
+
+    await transactions.update(input.id, { extraInputs: { phase: 'ready' } });
+    const updated = (await transactions.get(input.id))!;
+    expect(updated.badgeEvidenceRevision).not.toBe(added.badgeEvidenceRevision);
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send', added.badgeEvidenceRevision!])
+        .count()
+    ).resolves.toBe(0);
+
+    await transactions.bulkUpdate([{ key: input.id, changes: { extraInputs: { phase: 'received' } } }]);
+    const bulkUpdated = (await transactions.get(input.id))!;
+    expect(bulkUpdated.badgeEvidenceRevision).not.toBe(updated.badgeEvidenceRevision);
+
+    await transactions.put({ ...bulkUpdated, badgeEvidenceRevision: 'backup-revision' });
+    const replaced = (await transactions.get(input.id))!;
+    expect(replaced.badgeEvidenceRevision).not.toBe(bulkUpdated.badgeEvidenceRevision);
+    expect(replaced.badgeEvidenceRevision).not.toBe('backup-revision');
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).resolves.toEqual([input.id]);
   });
   it.each([
     ['missing', undefined],
@@ -1473,7 +1537,7 @@ describe('wallet storage rejection boundaries', () => {
   // never become telemetry merely because it passed through the wallet middleware.
   it('does not guess an owner for a historical or unknown table', async () => {
     const target = database();
-    target.version(3.2).stores({ transactionRequests: 'id', unrelated: 'id' });
+    target.version(3.3).stores({ transactionRequests: 'id', unrelated: 'id' });
     const failures = new Map<string, Error>();
     target.use({
       stack: 'dbcore',
@@ -1837,7 +1901,13 @@ describe('wallet storage rejection boundaries', () => {
               });
           });
           expect(consumed).toBe(true);
-          expect(await target.table(table).get('consumed-success')).toEqual(row('consumed-success'));
+          const consumedRow = await target.table(table).get('consumed-success');
+          expect(consumedRow).toMatchObject(row('consumed-success'));
+          expect(Boolean(consumedRow?.badgeEvidenceRevision)).toBe(instrumented && table === Table.Transactions);
+          const rows = await target.table(table).toArray();
+          if (table === Table.Transactions) {
+            for (const entry of rows) delete entry.badgeEvidenceRevision;
+          }
           outcomes.push({
             scalar: scalar.name,
             inner: scalar.inner.name,
@@ -1847,7 +1917,7 @@ describe('wallet storage rejection boundaries', () => {
             modifyFailures: modify.failures.map((error: unknown) => (error instanceof Error ? error.name : error)),
             successCount: modify.successCount,
             failedKeys: modify.failedKeys,
-            rows: await target.table(table).toArray()
+            rows
           });
           if (instrumented) {
             for (const error of [scalar, bulk, modify, rollback]) {
@@ -2094,7 +2164,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.2)
+          .version(3.3)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2126,7 +2196,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.2)
+        .version(3.3)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;

@@ -18,11 +18,13 @@ import * as Repo from 'lib/miden/repo';
 import { withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { BadgeIssuanceManager } from './BadgeIssuanceManager';
 import { BADGE_STORAGE_KEY, type BadgeId } from './types';
+import { __resetBadgeBackfillScanForTests } from './useBadgeBackfill';
 import { useWalletBadges } from './useWalletBadges';
 
 let mockStored: BadgeId[] = [];
@@ -30,7 +32,8 @@ let mockSeen: unknown = null;
 let mockMainnet = true;
 let mockOverride: object | null = null;
 let mockApprovedPair = true;
-let mockResetListener: () => void = () => {};
+const mockResetListeners = new Set<() => void>();
+const mockResetListener = () => mockResetListeners.forEach(listener => listener());
 const mockIsStored = jest.fn();
 const mockListeners = new Set<() => void>();
 const mockAccounts = [{ publicKey: 'account-a' }, { publicKey: 'account-b' }];
@@ -112,8 +115,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 jest.mock('lib/storage-cleared', () => ({
   onStorageCleared: (callback: () => void) => {
-    mockResetListener = callback;
-    return jest.fn();
+    mockResetListeners.add(callback);
+    return () => mockResetListeners.delete(callback);
   }
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -164,6 +167,8 @@ function ProfileCounter() {
 
 beforeEach(async () => {
   await Repo.transactions.clear();
+  __resetBadgeBackfillScanForTests();
+  mockResetListeners.clear();
   mockStored = [];
   mockSeen = null;
   mockBalances = {};
@@ -214,6 +219,57 @@ it('reads badge candidates through the bounded local provenance indexes', async 
   expect(where).toHaveBeenCalledWith('[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]');
   expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
   view.unmount();
+});
+
+it('invalidates the bounded history scan when an existing row gains badge evidence', async () => {
+  const toArray = jest.spyOn(Repo.db.Collection.prototype, 'toArray');
+  try {
+    await Repo.transactions.add(
+      row({
+        id: 'deposit',
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        extraInputs: { phase: 'ready' }
+      })
+    );
+
+    const firstVisit = render(<MyBadges />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    });
+    expect(mockWrite).not.toHaveBeenCalled();
+    const firstReadCount = toArray.mock.calls.length;
+    expect(firstReadCount).toBeGreaterThan(0);
+    firstVisit.unmount();
+
+    const unchangedVisit = render(<MyBadges />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    });
+    expect(mockWrite).not.toHaveBeenCalled();
+    expect(toArray).toHaveBeenCalledTimes(firstReadCount);
+    mockResetListener();
+    unchangedVisit.unmount();
+
+    const clearedVisit = render(<MyBadges />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    });
+    expect(mockWrite).not.toHaveBeenCalled();
+    const clearedReadCount = toArray.mock.calls.length;
+    expect(clearedReadCount).toBeGreaterThan(firstReadCount);
+    clearedVisit.unmount();
+
+    await updateBridgedReceivePhase('deposit', 'received', {}, { amount: 10n, faucetId: 'coin-a' });
+    const updatedVisit = render(<MyBadges />);
+    await waitFor(() =>
+      expect(screen.getByTestId('badge-medallion-first-deposit')).toHaveAttribute('data-earned', 'true')
+    );
+    expect(toArray.mock.calls.length).toBeGreaterThan(clearedReadCount);
+    updatedVisit.unmount();
+  } finally {
+    toArray.mockRestore();
+  }
 });
 
 it('backfills recovered history only with locally proven Mainnet provenance', async () => {

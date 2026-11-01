@@ -52,6 +52,13 @@ export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accoun
 /** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
 export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
+const TRANSACTIONS_V3_2_STORE = indexes(
+  TRANSACTIONS_V2_STORE,
+  '[badgeNetwork+status+type]',
+  '[badgeNetwork+status+type+badgeEvidenceRevision]',
+  '[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]'
+);
+
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
 
@@ -266,6 +273,21 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  target
+    .version(3.2)
+    .stores({
+      [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<ITransaction, string>(Table.Transactions)
+        .toCollection()
+        .modify(row => {
+          row.badgeEvidenceRevision = crypto.randomUUID();
+        });
+    });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -280,14 +302,54 @@ function defineSchema(target: Dexie): void {
         return {
           ...table,
           mutate: req => {
+            let mutation = req;
             if (req.type === 'add') {
               const rows: readonly ITransaction[] = req.values;
               const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
               if (unplaceable !== undefined) {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
+              mutation = {
+                ...req,
+                values: req.values.map((row: ITransaction) => ({
+                  ...row,
+                  badgeEvidenceRevision: crypto.randomUUID()
+                }))
+              };
+            } else if (req.type === 'put') {
+              const revisions = new Map<string, string>();
+              const revisionFor = (key: unknown) => {
+                const id = String(key);
+                let revision = revisions.get(id);
+                if (!revision) {
+                  revision = crypto.randomUUID();
+                  revisions.set(id, revision);
+                }
+                return revision;
+              };
+              const values = req.values.map((row: ITransaction) => ({
+                ...row,
+                badgeEvidenceRevision: revisionFor(row.id)
+              }));
+              const updates = req.updates && {
+                ...req.updates,
+                changeSpecs: req.updates.changeSpecs.map((changes, index) => ({
+                  ...changes,
+                  badgeEvidenceRevision: revisionFor(req.updates!.keys[index])
+                }))
+              };
+              const changeSpec = req.changeSpec && {
+                ...req.changeSpec,
+                badgeEvidenceRevision: crypto.randomUUID()
+              };
+              mutation = {
+                ...req,
+                values,
+                ...(updates && { updates }),
+                ...(changeSpec && { changeSpec })
+              };
             }
-            return table.mutate(req);
+            return table.mutate(mutation);
           }
         };
       }

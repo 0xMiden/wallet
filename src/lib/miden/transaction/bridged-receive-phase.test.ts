@@ -44,6 +44,18 @@ describe('updateBridgedReceivePhase', () => {
     expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('received');
   });
 
+  it('changes the badge evidence revision when the phase changes', async () => {
+    const id = await seed('ready');
+    const before = await Repo.transactions.get(id);
+
+    await updateBridgedReceivePhase(id, 'received', {}, { amount: 5n, faucetId: 'delivered-faucet' });
+
+    const after = await Repo.transactions.get(id);
+    expect(after?.extraInputs.phase).toBe('received');
+    expect(after?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(after?.badgeEvidenceRevision).not.toBe(before?.badgeEvidenceRevision);
+  });
+
   it('never moves a ready row back to delivering, but still lets it fail', async () => {
     const id = await seed('ready');
 

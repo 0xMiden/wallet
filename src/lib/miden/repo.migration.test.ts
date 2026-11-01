@@ -2,7 +2,8 @@
  * The v1.3/v1.4 upgrades walk the whole transactions table with `.modify()`. Dexie re-puts a deep
  * clone of every row whose callback returns anything but `false`, so a bare return there rewrote
  * every row - `resultBytes` blobs included - inside the `versionchange` transaction on the critical
- * path of `db.open()`. This asserts only the rows that actually change are written.
+ * path of `db.open()`. This checks those migrations change only matching rows; v3.2 separately
+ * rewrites every row to assign its evidence revision.
  */
 import Dexie from 'dexie';
 
@@ -23,9 +24,7 @@ describe('transactions upgrades', () => {
     await Dexie.delete(DB_NAME);
 
     // Seed at v1.2 - before the v1.3 bridge rename and the v1.4 consume backfill. A fixture per
-    // ARM, not per row type: every `??` fallback in the upgrade has both sides represented, and
-    // each declining condition has a row that takes it. A write-count assertion alone is
-    // satisfied equally by a correct migration and by a deleted one.
+    // ARM: every `??` fallback has both sides, and each declining condition has a row that takes it.
     const legacy = new Dexie(DB_NAME);
     legacy.version(1.2).stores({ transactions: 'id, accountId, transactionId, initiatedAt, completedAt' });
     await legacy.open();
@@ -70,8 +69,19 @@ describe('transactions upgrades', () => {
       return r;
     };
 
-    // WHICH rows were written...
-    expect(written.sort()).toEqual(['bridge-bare', 'bridge-full', 'consume-1']);
+    // The old migrations rewrite three rows; v3.2 assigns revisions to every legacy row.
+    expect(written.sort()).toEqual([
+      'bridge-bare',
+      'bridge-bare',
+      'bridge-full',
+      'bridge-full',
+      'consume-1',
+      'consume-1',
+      'consume-bare',
+      'consume-done',
+      'send-1',
+      'send-2'
+    ]);
 
     // ...and WHAT they became. Without these, deleting either upgrade body still passes.
     expect(get('bridge-bare').type).toBe('bridged-send');
@@ -96,6 +106,7 @@ describe('transactions upgrades', () => {
     expect(get('consume-bare').noteIds).toBeUndefined();
     // The blobs the whole PR is about must survive a migration untouched.
     expect(get('send-1').resultBytes).toBeDefined();
+    for (const row of rows) expect(row.badgeEvidenceRevision).toEqual(expect.any(String));
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);
@@ -182,7 +193,14 @@ describe('transactions upgrades', () => {
     await repo!.db.open();
     const byId = Object.fromEntries((await repo!.transactions.toArray()).map(row => [row.id, row]));
 
-    expect(written).toEqual(['pending-spent']);
+    expect(written.sort()).toEqual([
+      'pending-spent',
+      'pending-spent',
+      'relayed-spent',
+      'restored-spent',
+      'undelivered-old',
+      'undelivered-unspent'
+    ]);
     expect(byId['pending-spent']).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending' });
     expect(byId['pending-spent']!.nextRelayAt).toBeUndefined();
     expect(byId['pending-spent']!.resultBytes).toBeDefined();
@@ -190,7 +208,8 @@ describe('transactions upgrades', () => {
     expect(byId['relayed-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['restored-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['undelivered-unspent']).toMatchObject({ relayAttempts: 2, nextRelayAt: now + 1800 });
-    expect(repo!.db.verno).toBe(3.1);
+    for (const row of Object.values(byId)) expect(row.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(repo!.db.verno).toBe(3.2);
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);
