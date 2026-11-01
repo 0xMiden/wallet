@@ -29,6 +29,8 @@ import {
   setActiveVault
 } from './testing/backup-harness';
 
+jest.setTimeout(60_000);
+
 jest.mock('lib/miden/back/store', () => {
   const harness = jest.requireActual<typeof import('./testing/backup-harness')>('./testing/backup-harness');
   return {

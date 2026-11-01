@@ -15,6 +15,22 @@
 - Prettier passes for the edited Privacy Policy paragraph. The Terms, Support FAQ, changelog, and task plan also fail on the unmodified `origin/main` baselines, so I left their existing Markdown formatting intact.
 - Review Council and current-head CI: pending.
 
+# Issue #1978 - multi-device signer management
+
+## Plan
+
+- [x] Inspect exact-head PR Tests, changelog, and store-screenshot failures and preserve their logs.
+- [x] Confirm the failures are in the PR's new backup tests, device-signers label, and workflow guard; current main does not run the PR Tests workflow.
+- [x] Complete the changelog, Worker-job guard, translation-source, and production-crypto test-timeout corrections in the isolated worktree.
+- [ ] Run light checks through ci-local when machine load permits; otherwise validate on the exact PR head in CI.
+- [ ] Complete a fresh Review Council review, fix actionable P0-P2 findings, and pass all current-head checks including the 95% coverage gate.
+- [ ] Squash-merge only after review, CI, and branch-protection gates are satisfied.
+
+## Review
+
+- Guarded local verification passed: 31 tests across three named Jest suites, ESLint on both changed backup test files, Prettier on the English source file and both backup tests, and `git diff --check`. The linked-runtime harness suite is kept for CI because the local guard classifies its Playwright path as browser work.
+- Pending exact-head Review Council and CI.
+
 # Fee faucet discovery and USDCX value
 
 - [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.
