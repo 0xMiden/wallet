@@ -3,6 +3,7 @@
 ## 1.17.11 (TBD)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
+- [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 
 ## 1.17.10 (2026-11-01)
 

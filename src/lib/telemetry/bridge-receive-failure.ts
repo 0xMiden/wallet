@@ -108,6 +108,7 @@ export const BRIDGE_RECEIVE_LIBRARY_ERRORS = [
   'rpc_unavailable',
   'transaction_rejected',
   'rpc_limited',
+  'cctp_quote_refused',
   'http_',
   'invalid_permissions',
   'unknown_rpc_error'
@@ -169,6 +170,7 @@ const TIMED_OUT =
 // simulation timeout. A user rejection comes first: viem wraps one that carries no code, as the native plugins send it,
 // in an unknown RPC error.
 const LIBRARY_ERROR_RULES: ReadonlyArray<readonly [LibraryError, (link: Link) => boolean]> = [
+  ['cctp_quote_refused', link => link.name === 'CctpQuoteRefusedError'],
   [
     'user_rejected',
     link => link.code === 4001 || link.name === 'UserRejectedRequestError' || USER_REJECTED.test(link.text)
