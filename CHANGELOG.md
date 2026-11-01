@@ -3,6 +3,7 @@
 ## 1.17.11 (TBD)
 
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
+- [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 
 ## 1.17.10 (2026-11-01)
 
