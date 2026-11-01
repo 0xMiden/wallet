@@ -5882,6 +5882,10 @@
     "message": "跨鏈存入失敗",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "您已連線的錢包在此網路中沒有餘額為正的代幣。",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "您已連線的錢包在 $network$ 上持有 $balance$ $token$，此金額低於本次存款所需。因此並未發送任何代幣。",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",

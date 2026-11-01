@@ -1307,6 +1307,7 @@
   "bridgeDepositProcessing": "確認跨鏈存入",
   "bridgeDepositProcessingDescription": "請在您的錢包中批准這些請求——系統可能會多次提示——並在來源網路確認這些請求期間，保持此畫面開啟。",
   "bridgeDepositFailed": "跨鏈存入失敗",
+  "bridgeDepositNoTokenBalance": "您已連線的錢包在此網路中沒有餘額為正的代幣。",
   "bridgeDepositBalanceTooLow": "您已連線的錢包在 $network$ 上持有 $balance$ $token$，此金額低於本次存款所需。因此並未發送任何代幣。",
   "bridgeDepositBalanceReadFailed": "無法在 $network$ 上查詢您的 $token$ 餘額。未發送任何內容。",
   "bridgeDepositBalanceCapExceeded": "此帳戶最多可持有 $cap$ 美元。目前持有 $held$ 美元，本次存款將增加 $deposit$ 美元。請輸入較小的金額。",

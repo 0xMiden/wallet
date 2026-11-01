@@ -1301,6 +1301,7 @@
   "bridgeDepositProcessing": "Confirmando el depósito",
   "bridgeDepositProcessingDescription": "Aprueba las solicitudes en tu monedero —puede que te lo pida más de una vez— y mantén esta pantalla abierta mientras la red de origen las confirma.",
   "bridgeDepositFailed": "No se ha podido completar el depósito",
+  "bridgeDepositNoTokenBalance": "Tu monedero conectado no tiene tokens con saldo positivo en esta red.",
   "bridgeDepositBalanceTooLow": "Tu monedero conectado contiene $balance$ $token$ en $network$, una cantidad inferior a la que requiere este depósito. No se ha enviado nada.",
   "bridgeDepositBalanceReadFailed": "No se ha podido comprobar el saldo de $token$ en $network$. No se ha enviado nada.",
   "bridgeDepositBalanceCapExceeded": "Esta cuenta puede contener como máximo $cap$ USD. Contiene $held$ USD y este depósito añade $deposit$ USD. Introduce una cantidad menor.",

@@ -1307,6 +1307,7 @@
   "bridgeDepositProcessing": "Confirming bridge deposit",
   "bridgeDepositProcessingDescription": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
   "bridgeDepositFailed": "Bridge deposit failed",
+  "bridgeDepositNoTokenBalance": "Your connected wallet has no tokens with a positive balance on this network.",
   "bridgeDepositBalanceTooLow": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
   "bridgeDepositBalanceReadFailed": "Could not check your $token$ balance on $network$. Nothing was sent.",
   "bridgeDepositBalanceCapExceeded": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",

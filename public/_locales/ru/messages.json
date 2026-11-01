@@ -5886,6 +5886,10 @@
     "message": "Ошибка при внесении депозита через мост",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "В вашем подключенном кошельке нет токенов с положительным балансом в этой сети.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "В вашем подключенном кошельке на $network$ хранится $balance$ $token$, что меньше суммы, необходимой для этого депозита. Ничего не было отправлено.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
