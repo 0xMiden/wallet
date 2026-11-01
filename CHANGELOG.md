@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.11 (TBD)
+
+- [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+
 ## 1.17.10 (2026-11-01)
 
 - [FIX][all] Mainnet balances and accounts appear again after updating to 1.17.9: a wallet set up before 1.17.9 reopens the local store it was created in, which the move to the mainnet hosts had left behind (#2086).
