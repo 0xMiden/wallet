@@ -90,6 +90,7 @@ import {
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
+import { sdkStoreNameFor } from './store-name';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
@@ -595,15 +596,9 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
     generation,
     rpcUrl,
     feeFaucetId,
-    client: WasmWebClient.createClient(
-      rpcUrl,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      undefined,
-      feeFaucetId
+    // The 4th parameter is the store: the reader reads the same store as the realm's client.
+    client: sdkStoreNameFor(rpcUrl).then(storeName =>
+      WasmWebClient.createClient(rpcUrl, undefined, undefined, storeName, undefined, false, undefined, feeFaucetId)
     ),
     failures: cached && sameKey ? cached.failures : 0
   };
@@ -681,8 +676,11 @@ export class MidenClientInterface {
       // watchdog pause off - see wrapSignWithWatchdogPause.
       const liveness: ClientLiveness = { disposed: false };
 
+      const rpcUrl = getEffectiveRpcUrl();
+      const storeName = await sdkStoreNameFor(rpcUrl);
       const midenClient = await MidenClient.create({
-        rpcUrl: getEffectiveRpcUrl(),
+        rpcUrl,
+        ...(storeName ? { storeName } : {}),
         noteTransportUrl: getEffectiveNoteTransportUrl(),
         noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
         seed: options.seed,
