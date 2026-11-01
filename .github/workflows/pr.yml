@@ -291,6 +291,15 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Upload profile settings screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-settings-screenshots
+          path: test-results/**/profile-settings-*.png
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload wallet picker screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
