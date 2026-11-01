@@ -12,9 +12,10 @@ export function badgesFromHistory(
 ): BadgeId[] {
   const completed = rows.filter(
     row =>
-      (row.badgeNetwork ?? row.recovery?.network) === 'mainnet' &&
+      (row.recovered === true
+        ? row.recoveredBadgeNetwork === 'mainnet'
+        : row.badgeNetwork === 'mainnet' && row.restoredFromBackup !== true) &&
       row.status === ITransactionStatus.Completed &&
-      (!row.restoredFromBackup || row.recovered === true) &&
       accounts.some(account => compareAccountIds(account, row.accountId))
   );
   return wanted.filter(badge =>

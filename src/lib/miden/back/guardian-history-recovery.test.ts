@@ -77,7 +77,11 @@ jest.mock('lib/miden-chain/constants', () => ({
 // The pass hydrates the config document before it reads the network's operators.
 const mockInitBridgeConfig = jest.fn(async () => undefined);
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+const mockProvenBadgeNetwork = jest.fn<string | undefined, []>(() => 'testnet');
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  provenBadgeNetwork: () => mockProvenBadgeNetwork()
+}));
 // The node a terminal fee answer came from: the effective RPC URL and network name.
 let mockFeeScope = 'rpc-a|testnet';
 jest.mock('lib/miden-chain/native-asset', () => ({ cacheScope: () => mockFeeScope }));
@@ -145,6 +149,7 @@ function source(endpoint: string, pages: HistoryPage[]) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockProvenBadgeNetwork.mockReturnValue('testnet');
   forgetUnsupportedHistorySources();
   mockFeeScope = 'rpc-a|testnet';
   await transactions.clear();
@@ -166,6 +171,7 @@ it('paginates current source first, removes duplicate operators, and merges dupl
   expect(createClient.mock.calls.map(call => call[1])).toEqual(['https://one', 'https://two']);
   const rows = await transactions.toArray();
   expect(rows).toHaveLength(3);
+  expect(rows.every(row => row.recoveredBadgeNetwork === 'testnet')).toBe(true);
   expect(rows.find(row => row.recovery?.nonce === 2)?.recovery?.operators).toEqual(['https://one', 'https://two']);
   expect(clients.get('https://one')?.getDeltaHistory).toHaveBeenNthCalledWith(2, 'account', {
     limit: 50,
@@ -175,6 +181,12 @@ it('paginates current source first, removes duplicate operators, and merges dupl
   await run();
   expect(createClient).not.toHaveBeenCalled();
   expect(await transactions.count()).toBe(3);
+});
+
+it('stores an empty badge provenance stamp when the recovery endpoints are not proven', async () => {
+  mockProvenBadgeNetwork.mockReturnValue(undefined);
+  await run();
+  expect((await transactions.toArray()).every(row => row.recoveredBadgeNetwork === '')).toBe(true);
 });
 
 it('imports sent P2IDE notes before completing a history page', async () => {
@@ -599,7 +611,9 @@ it('clears checkpoints on import and retains recovered records in backups', asyn
   const before = await transactions.toArray();
   await importDb(await exportDb());
   expect((await readGuardianHistoryState()).checkpoints).toEqual({});
-  expect(await transactions.toArray()).toEqual(before);
+  expect(await transactions.toArray()).toEqual(
+    before.map(({ recoveredBadgeNetwork: _recoveredBadgeNetwork, ...row }) => row)
+  );
   await run();
   expect(await transactions.count()).toBe(3);
 });

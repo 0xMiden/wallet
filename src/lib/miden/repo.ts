@@ -759,12 +759,20 @@ export async function exportDb(): Promise<string> {
   await db.transaction('r', transactions, async () => {
     const rawTransactions = await transactions.toArray();
     // `dappOrigins` stays out: a backup must not record which dApps the user used (#1416).
-    const serializableTransactions = rawTransactions.map(({ amount, dappOrigins: _dappOrigins, ...rest }) => ({
-      ...mapValues(rest, toSerializable),
-      // `amount` keeps its plain-string shape so files stay readable by builds
-      // that predate the tag; `fromSerializable` accepts either form.
-      ...(amount !== undefined && { amount: amount.toString() })
-    }));
+    const serializableTransactions = rawTransactions.map(
+      ({
+        amount,
+        dappOrigins: _dappOrigins,
+        recoveredBadgeNetwork: _recoveredBadgeNetwork,
+        badgeEvidenceRevision: _badgeEvidenceRevision,
+        ...rest
+      }) => ({
+        ...mapValues(rest, toSerializable),
+        // `amount` keeps its plain-string shape so files stay readable by builds
+        // that predate the tag; `fromSerializable` accepts either form.
+        ...(amount !== undefined && { amount: amount.toString() })
+      })
+    );
     dump[Table.Transactions] = serializableTransactions;
   });
   return JSON.stringify(dump);
@@ -802,7 +810,14 @@ export async function importDb(dump: string): Promise<void> {
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
       // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
-      const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
+      const {
+        amount,
+        dappOrigins: _dappOrigins,
+        recoveredBadgeNetwork: _recoveredBadgeNetwork,
+        badgeEvidenceRevision: _badgeEvidenceRevision,
+        extraInputs,
+        ...rest
+      } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
         ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),

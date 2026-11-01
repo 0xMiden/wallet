@@ -205,25 +205,33 @@ it('backfills on each collection visit without SDK calls or balance snapshots', 
   nextVisit.unmount();
 });
 
-it('backfills recovered Mainnet history without a badgeNetwork stamp', async () => {
-  await Repo.transactions.add(
-    row({
-      status: ITransactionStatus.Completed,
-      badgeNetwork: undefined,
-      recovered: true,
-      restoredFromBackup: true,
-      recovery: {
-        version: 5,
-        network: 'mainnet',
-        operators: ['guardian'],
-        nonce: 1,
-        inputNotes: [],
-        outputNotes: [],
-        completeness: 'decoded',
-        reclaimed: false
-      }
-    })
-  );
+it('backfills recovered history only with locally proven Mainnet provenance', async () => {
+  const recovered = row({
+    status: ITransactionStatus.Completed,
+    badgeNetwork: undefined,
+    recovered: true,
+    restoredFromBackup: true,
+    recovery: {
+      version: 5,
+      network: 'mainnet',
+      operators: ['guardian'],
+      nonce: 1,
+      inputNotes: [],
+      outputNotes: [],
+      completeness: 'decoded',
+      reclaimed: false
+    }
+  });
+  await Repo.transactions.add(recovered);
+  const unproven = render(<MyBadges />);
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  });
+  expect(mockWrite).not.toHaveBeenCalled();
+  unproven.unmount();
+
+  await Repo.transactions.clear();
+  await Repo.transactions.add({ ...recovered, recoveredBadgeNetwork: 'mainnet' });
   const view = render(<MyBadges />);
   await waitFor(() => expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true'));
   expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();

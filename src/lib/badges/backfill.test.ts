@@ -34,7 +34,7 @@ it('awards a completed send without a chain ID, SDK record, or balance snapshot'
   expect(evaluate([row()])).toEqual(['first-send']);
 });
 
-it('does not treat the Guardian-reported network as badge provenance for recovered history', () => {
+it('requires locally proven network provenance for recovered badge history', () => {
   const recovered = row({
     badgeNetwork: undefined,
     recovered: true,
@@ -51,6 +51,7 @@ it('does not treat the Guardian-reported network as badge provenance for recover
     }
   });
   expect(evaluate([recovered])).toEqual([]);
+  expect(evaluate([{ ...recovered, recoveredBadgeNetwork: 'mainnet' }])).toEqual(['first-send']);
 });
 
 it.each<Partial<ITransaction>>([

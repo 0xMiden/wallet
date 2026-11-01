@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, provenBadgeNetwork } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -458,6 +458,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               answer.delta,
               summary
             );
+            record.recoveredBadgeNetwork = provenBadgeNetwork() ?? '';
             // Import one output per call so each operation releases the WASM lock.
             for (const note of summary.outputNotes) {
               await check();

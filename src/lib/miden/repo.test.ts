@@ -9,6 +9,7 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
+import { badgesFromHistory } from '../badges/backfill';
 import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
@@ -478,6 +479,55 @@ describe('miden repo export/import', () => {
     const [restored] = await transactions.toArray();
     expect(restored!.restoredFromBackup).toBe(true);
     expect(restored).not.toHaveProperty('dappOrigins');
+  });
+
+  it('keeps local badge provenance out of exports and ignores provenance supplied by a dump', async () => {
+    await transactions.add({
+      id: 'local-recovery',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      accountId: 'victim',
+      secondaryAccountId: 'recipient',
+      initiatedAt: 1,
+      completedAt: 2,
+      amount: 10n,
+      displayIcon: 'SEND',
+      recovered: true,
+      restoredFromBackup: true,
+      recoveredBadgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'local-token',
+      recovery: {
+        version: 5,
+        network: 'mainnet',
+        operators: ['guardian'],
+        nonce: 1,
+        inputNotes: [],
+        outputNotes: [],
+        completeness: 'decoded',
+        reclaimed: false
+      }
+    });
+
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(dumped).not.toHaveProperty('badgeEvidenceRevision');
+
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            ...dumped,
+            recoveredBadgeNetwork: 'mainnet',
+            badgeEvidenceRevision: 'backup-token'
+          }
+        ]
+      })
+    );
+
+    const [restored] = await transactions.toArray();
+    expect(restored).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(restored).not.toHaveProperty('badgeEvidenceRevision');
+    expect(badgesFromHistory([restored!], ['victim'], ['first-send'])).toEqual([]);
   });
 
   // On a Guardian-recovered order the Cancel stamp is the permission settlement acts on to return the order, and only
