@@ -245,6 +245,8 @@ const LIBRARY_CASES: ReadonlyArray<readonly [string, unknown]> = [
   ['http_other', named('HttpRequestError', 'HTTP request failed.', { status: '429' })],
   ['unknown_rpc_error', 'An unknown RPC error occurred.\n\nDetails: Something went wrong.\nVersion: viem@2.55.4'],
   ['unknown_rpc_error', named('UnknownRpcError', 'An unknown error occurred.')],
+  ['cctp_quote_refused', new CctpQuoteRefusedError('private-provider-code', 'private provider response')],
+  ['other', named('CctpQuoteRefusedErrorExtended', 'provider refusal')],
   ['receipt_timeout', named('WaitForTransactionReceiptTimeoutError', 'Timed out while waiting for transaction.')],
   ['chain_mismatch', named('ChainMismatchError', 'The current chain of the wallet does not match.')],
   ['chain_unconfigured', named('ChainNotFoundError', 'No chain was provided to the request.')],
