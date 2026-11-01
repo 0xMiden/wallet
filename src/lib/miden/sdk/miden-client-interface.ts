@@ -90,7 +90,6 @@ import {
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
-import { sdkStoreNameFor } from './store-name';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
@@ -110,6 +109,7 @@ import {
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit
 } from './sdk-error-code';
+import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
