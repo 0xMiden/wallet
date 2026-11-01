@@ -71,7 +71,8 @@ function sorted(vault: Record<string, string>): string {
  * Waits until the wallet shows `expected` (or, without one, the same vault in both places) for its account: in the
  * store, after a balance read that landed, and in a sync its service worker published since `since`. A sync from before
  * `since` is the previous build's, kept in extension storage across the update, so it proves nothing about this one.
- * `check` runs on every attempt and may throw to end the wait. Returns the vault it matched.
+ * `check` runs on every attempt and may throw to end the wait; any other failed read only fails that attempt. Returns
+ * the vault it matched.
  */
 async function expectWalletVault(
   wallet: GuardianAwareWalletPage,
@@ -89,7 +90,11 @@ async function expectWalletVault(
           .refreshBalancesLanded(60_000)
           .then(() => 'landed')
           .catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
-        const { store, sync } = await vaultReadingOfCurrentAccount(wallet.page);
+        const reading = await vaultReadingOfCurrentAccount(wallet.page).catch((error: unknown) =>
+          error instanceof Error ? error.message : String(error)
+        );
+        if (typeof reading === 'string') return JSON.stringify({ balanceRead: landed, vaultReading: reading });
+        const { store, sync } = reading;
         const synced = sync !== null && sync.syncedAtMs > since ? sync.vault : null;
         const want = expected ?? synced;
         if (landed === 'landed' && synced !== null && want !== null) {
@@ -145,8 +150,10 @@ test.describe('after the update', () => {
     const since = Date.now();
     const before: Snapshot = JSON.parse(readFileSync(SNAPSHOT, 'utf8'));
     // Phase 1's vault is the only reference for a private account, and it holds only while the account has not moved.
+    // A read the node fails is no evidence either way; only a commitment it reports as moved ends the run.
     const unmoved = async () => {
-      const { commitment } = await nodeAccount(getEnvironmentConfig().rpcUrl, before.address);
+      const read = await nodeAccount(getEnvironmentConfig().rpcUrl, before.address).catch(() => null);
+      const commitment = read?.commitment ?? before.commitment;
       if (commitment !== before.commitment) {
         throw new Error(
           `${before.address} transacted between the phases (node commitment ${before.commitment} to ${commitment}), ` +

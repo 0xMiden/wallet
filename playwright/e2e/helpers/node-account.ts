@@ -29,14 +29,26 @@ export type NodeAccount = {
 export async function nodeAccount(
   rpcUrl: string,
   address: string,
-  timeoutMs = 60_000,
+  attempts = 3,
   sdkRoot = path.resolve(__dirname, '../../..')
 ): Promise<NodeAccount> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await readNodeAccount(rpcUrl, address, sdkRoot);
+    } catch (error) {
+      // One refused or timed-out RPC is not evidence about the account.
+      if (attempt >= attempts) throw error;
+      await new Promise(resolve => setTimeout(resolve, 5_000));
+    }
+  }
+}
+
+async function readNodeAccount(rpcUrl: string, address: string, sdkRoot: string): Promise<NodeAccount> {
   const output = await new Promise<string>((resolve, reject) => {
     execFile(
       process.execPath,
       ['--input-type=module', '--eval', query, rpcUrl, address],
-      { cwd: sdkRoot, timeout: timeoutMs },
+      { cwd: sdkRoot, timeout: 60_000 },
       (error, stdout, stderr) =>
         error ? reject(new Error(`node account ${address}: ${stderr.trim() || error.message}`)) : resolve(stdout)
     );
