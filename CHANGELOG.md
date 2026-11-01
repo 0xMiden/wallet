@@ -4,6 +4,7 @@
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
 - [FIX][all] Remove redundant leading zeroes from amount edits while preserving exact decimal text and cursor placement.
+- [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 
 ## 1.17.10 (2026-11-01)
 
