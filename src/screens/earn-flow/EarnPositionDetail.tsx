@@ -12,7 +12,14 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel, MetricCard } from './components';
+import {
+  EarnAssetMark,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnSummaryPanel,
+  MetricCard,
+  useEarnAssetFaucetId
+} from './components';
 import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnPosition } from './types';
@@ -143,17 +150,20 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
 
 /** What the rest of the page is about: the position itself, under the account-wide summary, named
  *  as the header names it, the protocol over its asset and network beside the decorative mark. */
-const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => (
-  <div className="flex items-center gap-2">
-    <EarnAssetMark asset={position.asset} network={position.network} decorative />
-    <div className="min-w-0">
-      <h2 className="text-hero-name text-ink">{earnSubjectTitle(position)}</h2>
-      <p className="text-caption-heading text-muted">
-        <EarnSubjectSubtitle subject={position} />
-      </p>
+const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => {
+  const assetFaucetId = useEarnAssetFaucetId();
+  return (
+    <div className="flex items-center gap-2">
+      <EarnAssetMark asset={position.asset} network={position.network} faucetId={assetFaucetId} decorative />
+      <div className="min-w-0">
+        <h2 className="text-hero-name text-ink">{earnSubjectTitle(position)}</h2>
+        <p className="text-caption-heading text-muted">
+          <EarnSubjectSubtitle subject={position} />
+        </p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();

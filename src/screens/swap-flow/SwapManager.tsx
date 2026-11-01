@@ -1104,8 +1104,7 @@ const SwapFlowGate: React.FC = () => {
     ? {
         symbol: firstMidenAsset.symbol,
         faucetId: normalizedFaucetId(firstMidenAsset.faucetId),
-        decimals: firstMidenAsset.decimals,
-        logoSymbol: firstMidenAsset.symbol
+        decimals: firstMidenAsset.decimals
       }
     : undefined;
   const defaultPair = getDefaultSwapPair() ?? (fallbackToken ? { offer: fallbackToken, request: fallbackToken } : null);

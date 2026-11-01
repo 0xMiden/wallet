@@ -21,8 +21,8 @@ jest.mock('lib/i18n/numbers', () => ({
   }
 }));
 
-const USDC = { symbol: 'USDC', faucetId: 'faucet-usdc', decimals: 6, logoSymbol: 'USDC' };
-const ETH = { symbol: 'ETH', faucetId: 'faucet-eth', decimals: 6, logoSymbol: 'ETH' };
+const USDC = { symbol: 'USDC', faucetId: 'faucet-usdc', decimals: 6 };
+const ETH = { symbol: 'ETH', faucetId: 'faucet-eth', decimals: 6 };
 
 /** A quote stand-in: only the fields the hook reads, tagged by the price so a test can tell them apart. */
 const quoteWith = (fillPrice: string, fetchedAt = 0) => ({

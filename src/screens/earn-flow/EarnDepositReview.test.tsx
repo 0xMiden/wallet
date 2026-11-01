@@ -203,8 +203,8 @@ jest.mock('recharts', () => ({
 
 // --- Presentational children: keep just enough to assert the wiring.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -243,11 +243,11 @@ jest.mock('./components', () => {
         'data-network': network,
         'data-decorative': String(Boolean(decorative))
       }),
-    EarnAmountUnit: ({ symbol }: { symbol: string }) =>
+    EarnAmountUnit: ({ symbol, faucetId }: { symbol: string; faucetId: string | undefined }) =>
       R.createElement(
         'span',
         null,
-        R.createElement('span', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': 'md' }),
+        R.createElement('span', { 'data-testid': 'token-logo', 'data-faucet-id': faucetId, 'data-size': 'md' }),
         symbol
       ),
     EarnHero: ({
@@ -348,9 +348,9 @@ describe('EarnDepositReview', () => {
       // Amount from the query string, as typed: never padded.
       expect(within(screen.getByTestId('earn-hero')).getByText('1000')).toBeInTheDocument();
 
-      // The deposit asset is always USDC (Epoch Earn is USDC-only).
+      // The deposit asset is always USDC (Epoch Earn is USDC-only); the collateral faucet keys its logo.
       const logo = screen.getByTestId('token-logo');
-      expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-faucet-id', USDC.faucetId);
       expect(logo).toHaveAttribute('data-size', 'md');
       expect(screen.getAllByText('USDC').length).toBeGreaterThan(0);
     });

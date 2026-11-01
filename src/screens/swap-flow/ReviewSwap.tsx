@@ -229,14 +229,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       <Pill tone="neutral">{t('youSend')}</Pill>
       <Hero
         className="mt-2"
-        visual={
-          <TokenLogo
-            symbol={offerToken.symbol}
-            faucetId={offerToken.faucetId}
-            fallbackSymbol={offerToken.logoSymbol}
-            size="md"
-          />
-        }
+        visual={<TokenLogo faucetId={offerToken.faucetId} size="md" />}
         subtitle={
           <TokenUsdValue
             amount={offerAmount}
@@ -262,14 +255,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       <Pill tone="neutral">{t('youReceive')}</Pill>
       <Hero
         className="mt-2"
-        visual={
-          <TokenLogo
-            symbol={requestToken.symbol}
-            faucetId={requestToken.faucetId}
-            fallbackSymbol={requestToken.logoSymbol}
-            size="md"
-          />
-        }
+        visual={<TokenLogo faucetId={requestToken.faucetId} size="md" />}
         subtitle={
           <TokenUsdValue
             amount={requestAmount}

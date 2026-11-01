@@ -69,8 +69,6 @@ export interface SelectAmountProps {
    * carries one colour throughout (design-system.md, "Action colours").
    */
   accent?: FlowAccent;
-  /** The mark drawn when `token.name` has none and the verified list gives no logo, e.g. the DEX `logoSymbol`. */
-  logoSymbol?: string;
   /**
    * The token's name in the selector and the Available line, such as a testnet label. Defaults to `token.name`, which
    * still keys the logo.
@@ -129,7 +127,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onConfirm,
   embedded = false,
   accent = 'brand',
-  logoSymbol,
   tokenLabel,
   isBridge = false,
   network,
@@ -180,7 +177,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="sm" />
+        <TokenLogo faucetId={token.id} size="sm" />
       ) : embedded ? (
         <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
@@ -205,7 +202,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         className="flex items-center gap-3 text-left"
       >
         {token ? (
-          <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="md" />
+          <TokenLogo faucetId={token.id} size="md" />
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}

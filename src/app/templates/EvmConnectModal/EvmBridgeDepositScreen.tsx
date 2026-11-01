@@ -2278,7 +2278,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
-              logoFaucetId={route === 'epoch' ? midenUsdcFaucetId : undefined}
+              logoFaucetId={outputFaucetId}
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
@@ -2320,7 +2320,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       usdPrices,
       sourceTokenAddress,
       outputFaucetId,
-      midenUsdcFaucetId,
       deliveredSymbol,
       fastNative,
       token,
@@ -2410,14 +2409,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // Circle's USDC or AggLayer's native ETH is that row, and Epoch is its other route.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         ethLoading={ethBalance.loading}
+        ethFaucetId={selectNativeEthFaucet(bridgeConfig, agglayerChainId) ?? undefined}
         circleUsdcBalance={circleOffered ? circleUsdcBalance.formatted : undefined}
+        circleUsdcFaucetId={nativeUsdFaucetId ?? undefined}
         epochRows={epochTokens.flatMap((candidate): DepositEpochRow[] => {
           if (ownRowCarries(candidate)) return [];
           const balance = epochBalances[candidate.key] ?? EMPTY_BALANCE;
           return [
             {
               key: candidate.key,
-              symbol: candidate.symbol,
               address: candidate.address,
               midenFaucetId: candidate.midenFaucetId,
               name: candidate.key === 'USDC' ? evmUsdcLabel(bridgeConfig, candidate.symbol) : candidate.symbol,
