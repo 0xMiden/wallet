@@ -1,0 +1,25 @@
+diff --git a/node_modules/react-infinite-scroller/dist/InfiniteScroll.js b/node_modules/react-infinite-scroller/dist/InfiniteScroll.js
+index abbbd05..a52b9b5 100644
+--- a/node_modules/react-infinite-scroller/dist/InfiniteScroll.js
++++ b/node_modules/react-infinite-scroller/dist/InfiniteScroll.js
+@@ -175,5 +175,8 @@ var InfiniteScroll = function (_Component) {
+     key: 'scrollListener',
+     value: function scrollListener() {
+       var el = this.scrollComponent;
++      if (!el) {
++        return;
++      }
+       var scrollEl = window;
+       var parentNode = this.getParentElement(el);
+diff --git a/node_modules/react-infinite-scroller/src/InfiniteScroll.js b/node_modules/react-infinite-scroller/src/InfiniteScroll.js
+index 332f7bd..d17bab6 100644
+--- a/node_modules/react-infinite-scroller/src/InfiniteScroll.js
++++ b/node_modules/react-infinite-scroller/src/InfiniteScroll.js
+@@ -189,4 +189,7 @@ export default class InfiniteScroll extends Component {
+   scrollListener() {
+     const el = this.scrollComponent;
++    if (!el) {
++      return;
++    }
+     const scrollEl = window;
+     const parentNode = this.getParentElement(el);
