@@ -16,6 +16,8 @@ import androidx.webkit.Page;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -35,6 +37,7 @@ import com.getcapacitor.PluginCall;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.mockito.ArgumentCaptor;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -1665,6 +1668,36 @@ public class BreadPresentationControllerTest {
         return phases;
     }
 
+    private int morphEventCount() {
+        int count = 0;
+        for (org.mockito.invocation.Invocation invocation : mockingDetails(callbacks).getInvocations())
+            if ("presentationMorph".equals(invocation.getMethod().getName())) count++;
+        return count;
+    }
+
+    private String assertSettledCollapsePrecedesNullMinimizeRequest() {
+        List<org.mockito.invocation.Invocation> invocations = new ArrayList<>(mockingDetails(callbacks).getInvocations());
+        int settled = -1, requested = -1;
+        String id = null;
+        for (int i = 0; i < invocations.size(); i++) {
+            org.mockito.invocation.Invocation invocation = invocations.get(i);
+            if ("presentationMorph".equals(invocation.getMethod().getName())) {
+                BreadMorphEvent event = invocation.getArgument(0);
+                if ("settled".equals(event.phase) && "collapsed".equals(event.target)
+                    && event.morphId.startsWith("native-")) {
+                    settled = i;
+                    id = event.morphId;
+                }
+            } else if ("presentationMinimizeRequested".equals(invocation.getMethod().getName())) {
+                requested = i;
+                assertNull("a completed native collapse has no live morph id", invocation.getArgument(3));
+            }
+        }
+        assertNotNull("synchronous collapse emitted its terminal native id", id);
+        assertTrue("the terminal collapse event precedes the park request", settled >= 0 && settled < requested);
+        return id;
+    }
+
     @Test @Config(shadows = PaintWebView.class)
     public void expandShowsProxyAtCardAndFadesItAfterTheVisualStateFence() throws Exception {
         openMorph(false);
@@ -2058,6 +2091,729 @@ public class BreadPresentationControllerTest {
         assertEquals("a slow drag past 30 percent commits to the dragged end", 1, grabAndRelease(card, 0.31f, false), 0);
         assertEquals("a fast flick commits to the flicked end", 1, grabAndRelease(card, 0.1f, true), 0);
         assertEquals("a short slow drag springs back", 0, grabAndRelease(card, 0.1f, false), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleSwipeStillMinimizes() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16, null);
+            assertTrue("the short downward swipe crosses the fling threshold",
+                gesture.verticalSpeedDpPerSecond >= 450f);
+            verify(callbacks, times(1).description("a downward capsule swipe minimizes with animations disabled"))
+                .presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                    eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleSwipeCanMinimizeBelowTheFlingThreshold() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 60, 200, null);
+            assertTrue("the slow downward swipe stays below the fling threshold",
+                gesture.verticalSpeedDpPerSecond < 450f);
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void animatedCapsuleIgnoresHorizontalFlingBelowTheVerticalGate() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+
+        CapsuleGestureResult gesture = dispatchCapsuleGesture(12, 0, 16, null);
+
+        assertTrue("the horizontal swipe exceeds the vector fling threshold", gesture.speedDpPerSecond >= 450f);
+        assertTrue("the downward component stays below the vertical fling threshold",
+            gesture.verticalSpeedDpPerSecond < 450f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        assertTrue("a horizontal fling leaves the dialog open", dialog.isShowing());
+        assertEquals("a horizontal fling leaves the page expanded", 1f, driver().target(), 0f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleIgnoresHorizontalFlingBelowTheVerticalGate() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            CapsuleGestureResult gesture = dispatchCapsuleGesture(12, 0, 16, null);
+
+            assertTrue("the horizontal swipe exceeds the vector fling threshold", gesture.speedDpPerSecond >= 450f);
+            assertTrue("the downward component stays below the vertical fling threshold",
+                gesture.verticalSpeedDpPerSecond < 450f);
+            verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+            assertTrue("a horizontal fling leaves the dialog open", dialog.isShowing());
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionVerticalFlingMinimizesOnALongMorphPath() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard longPathFixture = new BreadMorphCard(new RectF(1600, 1600, 1640, 1640), 16);
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16,
+                () -> driver().place(longPathFixture, 1f));
+            assertTrue("the vertical swipe crosses the fling threshold", gesture.verticalSpeedDpPerSecond >= 450f);
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void pageReleaseKeepsVectorSpeedWhenVerticalSpeedStaysBelowTheGate() throws Exception {
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        openMorph(false);
+        reveal();
+        BreadMorphCard host = hostCardInside(0.35f, 0.88f, 0.39f, 0.92f);
+        assertTrue(collapse(host, "page-vector"));
+        BreadMorphController morph = driver();
+        float density = activity.getResources().getDisplayMetrics().density;
+        float pathOffset = 800 * density;
+        float halfCard = 20 * density;
+        BreadMorphCard longPathFixture = new BreadMorphCard(new RectF(
+            root.getWidth() / 2f - pathOffset - halfCard,
+            root.getHeight() / 2f + pathOffset - halfCard,
+            root.getWidth() / 2f - pathOffset + halfCard,
+            root.getHeight() / 2f + pathOffset + halfCard), 16 * density);
+        morph.place(longPathFixture, 1f);
+        morph.animateTo(0, longPathFixture, 0, BreadMorphPhysics.COLLAPSE);
+        BreadMorphControllerTest.frame();
+        assertTrue("the collapsed target is still moving", morph.running());
+
+        RectF page = controller.morphPageRect();
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop() + 1;
+        float x = page.centerX(), y = page.centerY();
+        float slopX = x + slop;
+        float releaseX = slopX + 16 * density;
+        long t = android.os.SystemClock.uptimeMillis();
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, x, y, t),
+            touch(android.view.MotionEvent.ACTION_MOVE, slopX, y, t + 8),
+            touch(android.view.MotionEvent.ACTION_MOVE, slopX, y, t + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, releaseX, y, t + 516),
+            touch(android.view.MotionEvent.ACTION_UP, releaseX, y, t + 520));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        try {
+            for (int i = 0; i < events.size(); i++) {
+                android.view.MotionEvent event = events.get(i);
+                measured.addMovement(event);
+                assertTrue(dialog.dispatchTouchEvent(event));
+                if (i == 0) assertTrue("the gesture begins on the moving page", ReflectionHelpers.getField(controller, "onPage"));
+                if (i == 1) assertTrue("the gesture grabs the moving page", ReflectionHelpers.getField(controller, "tracking"));
+            }
+            measured.computeCurrentVelocity(1000);
+            float speed = (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density;
+            float verticalSpeed = Math.abs(measured.getYVelocity()) / density;
+            List<BreadMorphEvent> eventsForMorph = morphEvents("page-vector");
+            BreadMorphEvent release = eventsForMorph.get(eventsForMorph.size() - 1);
+            BreadMorphEvent grab = null;
+            for (BreadMorphEvent event : eventsForMorph) if (event.tracking) grab = event;
+            assertNotNull("the page reports its tracked starting position", grab);
+            float projectedTravel = release.progress + 0.30f * release.velocity - grab.progress;
+            assertTrue("the horizontal gesture exceeds the vector fling threshold", speed >= 450f);
+            assertTrue("the vertical gesture stays below the fling threshold", verticalSpeed < 450f);
+            assertTrue("the projected page velocity clears the floor: " + release.velocity, Math.abs(release.velocity) > 0.01f);
+            assertTrue("projected travel stays below the commit threshold", Math.abs(projectedTravel) < 0.30f);
+            assertEquals("the page release keeps its collapsed target", "retargeted", release.phase);
+            assertFalse("the page release stopped tracking", release.tracking);
+            assertEquals("the vector fling expands the page", 1f, morph.target(), 0f);
+            verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        } finally {
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleReleaseReportsNullMorphIdWhenReduceMotionChangesBeforeActionUp() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+        String[] liveMorphId = new String[1];
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        try {
+            assertTrue("the drag starts with animator motion enabled",
+                android.animation.ValueAnimator.areAnimatorsEnabled());
+            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16, null, () -> {
+                assertTrue("the drag selected the animated capsule path",
+                    ReflectionHelpers.getField(controller, "tracking"));
+                assertFalse("the drag did not select the initial reduced-motion path",
+                    ReflectionHelpers.getField(controller, "capsuleReducedMotion"));
+                liveMorphId[0] = ReflectionHelpers.getField(controller, "morphId");
+                assertNotNull("the animated drag has a live native morph id before release", liveMorphId[0]);
+                ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                    ReflectionHelpers.ClassParameter.from(float.class, 0f));
+                assertFalse("reduce motion changes before ACTION_UP",
+                    android.animation.ValueAnimator.areAnimatorsEnabled());
+            });
+
+            assertTrue("the vertical release sample exceeds the fling threshold",
+                gesture.verticalSpeedDpPerSecond >= 450f);
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertEquals("the completed event belongs to the animated id captured before release", liveMorphId[0],
+                assertSettledCollapsePrecedesNullMinimizeRequest());
+            assertNull("synchronous settlement clears the live morph id",
+                ReflectionHelpers.getField(controller, "morphId"));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(sdk = {28, 29, 30, 31, 32}, shadows = PaintWebView.class)
+    public void legacyDialogBackRequestsManagedMinimizeInsteadOfClosing() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        doReturn(false).when(webView).canGoBack();
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            dialog.onBackPressed();
+
+            verify(callbacks, times(1).description("legacy dialog back requests managed minimize"))
+                .presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                    eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
+            assertTrue("managed back keeps the dApp dialog open", dialog.isShowing());
+            assertFalse("managed back does not begin host close", dialog.managedClosing());
+            verify(callbacks, never()).closeEvent(any());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackKeepsThePageBackChosenWhenPreviewCannotRun() throws Exception {
+        openMorph(false);
+        reveal();
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            options.setToolbarType("navigation");
+            options.setActiveNativeNavigationForWebview(false);
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(webView, times(1).description("frozen page-back calls goBack when preview cannot run")).goBack();
+            assertFalse("a frozen page-back action does not start managed close", dialog.managedClosing());
+
+            options.setToolbarType("default");
+            options.setActiveNativeNavigationForWebview(true);
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(webView, times(2)).goBack();
+            assertFalse("native-navigation page back does not start managed close", dialog.managedClosing());
+
+            doReturn(false).when(webView).canGoBack();
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            doReturn(true).when(webView).canGoBack();
+            callback.onBackInvoked();
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+            verify(webView, times(2)).goBack();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    private static final class CapsuleGestureResult {
+        final float speedDpPerSecond;
+        final float verticalSpeedDpPerSecond;
+
+        CapsuleGestureResult(float speedDpPerSecond, float verticalSpeedDpPerSecond) {
+            this.speedDpPerSecond = speedDpPerSecond;
+            this.verticalSpeedDpPerSecond = verticalSpeedDpPerSecond;
+        }
+    }
+
+    private CapsuleGestureResult dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
+        Runnable afterTracking) {
+        return dispatchCapsuleGesture(horizontalDp, downwardDp, travelMillis, afterTracking, null);
+    }
+
+    private CapsuleGestureResult dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
+        Runnable afterTracking, Runnable beforeUp) {
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float density = activity.getResources().getDisplayMetrics().density;
+        float slopY = 20 + android.view.ViewConfiguration.get(activity).getScaledTouchSlop() + 1;
+        float releaseX = 20 + horizontalDp * density;
+        float releaseY = slopY + downwardDp * density;
+        long downTime = android.os.SystemClock.uptimeMillis();
+        List<android.view.MotionEvent> events = List.of(
+            touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, downTime),
+            touch(android.view.MotionEvent.ACTION_MOVE, 20, slopY, downTime + 100),
+            touch(android.view.MotionEvent.ACTION_MOVE, 20, slopY, downTime + 500),
+            touch(android.view.MotionEvent.ACTION_MOVE, releaseX, releaseY, downTime + 500 + travelMillis),
+            touch(android.view.MotionEvent.ACTION_UP, releaseX, releaseY, downTime + 504 + travelMillis));
+        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
+        try {
+            for (int i = 0; i < events.size(); i++) {
+                android.view.MotionEvent event = events.get(i);
+                if (i == events.size() - 1 && beforeUp != null) beforeUp.run();
+                measured.addMovement(event);
+                assertTrue(capsule.dispatchTouchEvent(event));
+                if (i == 1 && afterTracking != null) afterTracking.run();
+            }
+            measured.computeCurrentVelocity(1000);
+            return new CapsuleGestureResult(
+                (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density,
+                Math.abs(measured.getYVelocity()) / density);
+        } finally {
+            measured.recycle();
+            for (android.view.MotionEvent event : events) event.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void downwardCapsuleDragTracksTheNativeCollapseAndCancelRestoresThePage() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 100, t + 100));
+
+        BreadMorphController morph = driver();
+        assertTrue("the native morph follows the capsule drag", morph.progress() < 1f);
+        assertTrue(morph.progress() > 0f);
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_CANCEL, 20, 100, t + 120));
+        assertEquals(1f, morph.target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(1f, root.getScaleX(), 0f);
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void committedCapsuleDragUsesTheExistingParkRequestExactlyOnce() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 150, t + 400));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 150, t + 800));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 20, 150, t + 900));
+
+        assertEquals(0f, driver().target(), 0f);
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        BreadMorphControllerTest.settle();
+        assertEquals(0f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void shortCapsuleDragReversesWithoutRequestingPark() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        float slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        long t = android.os.SystemClock.uptimeMillis();
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 20, 20, t));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 20 + slop + 1, t + 20));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, 20, 50, t + 1000));
+        capsule.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 20, 50, t + 2000));
+
+        assertEquals(1f, driver().target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertEquals(1f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        assertTrue("the fullscreen capsule is shown for the owned-touch fixture", capsule.isShown());
+        int[] location = new int[2];
+        capsule.getLocationOnScreen(location);
+        long t = android.os.SystemClock.uptimeMillis();
+        float x = location[0] + capsule.getWidth() / 2f;
+        float y = location[1] + capsule.getHeight() / 2f;
+        android.view.MotionEvent down = touch(android.view.MotionEvent.ACTION_DOWN, x, y, t);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(down));
+        down.recycle();
+
+        ReflectionHelpers.setField(controller, "posed", true);
+        android.view.MotionEvent move = touch(android.view.MotionEvent.ACTION_MOVE, x, y + 40, t + 100);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(move));
+        move.recycle();
+        android.view.MotionEvent up = touch(android.view.MotionEvent.ACTION_UP, x, y + 40, t + 120);
+        assertEquals(BreadPresentationController.TOUCH_PASS, controller.routeTouch(up));
+        up.recycle();
+        ReflectionHelpers.setField(controller, "posed", false);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackProgressTracksCollapseAndCancelRestoresThePage() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(120, 0, 0.45f, BackEvent.EDGE_LEFT));
+        assertEquals(0.55f, driver().progress(), 1e-5f);
+        callback.onBackCancelled();
+
+        assertEquals(1f, driver().target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(1f, root.getScaleX(), 0f);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackKeepsPreviewStateOnTheController() throws Exception {
+        boolean fieldExists = true;
+        try {
+            WebViewDialog.class.getDeclaredField("backPreviewStarted");
+        } catch (NoSuchFieldException ignored) {
+            fieldExists = false;
+        }
+        assertFalse("preview lifecycle stays on the controller", fieldExists);
+
+        fieldExists = true;
+        try {
+            WebViewDialog.class.getDeclaredField("backGestureStarted");
+        } catch (NoSuchFieldException ignored) {
+            fieldExists = false;
+        }
+        assertFalse("preview lifecycle stays on the controller", fieldExists);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCommitRequestsTheExistingParkPathOnce() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(280, 0, 1f, BackEvent.EDGE_LEFT));
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), startsWith("native-"));
+        BreadMorphControllerTest.settle();
+        assertEquals(0f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackInvokeMinimizesAfterTheControllerCancelsThePreview() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        assertTrue(expand(card(), "page-morph"));
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        assertEquals("page-morph", ReflectionHelpers.getField(controller, "morphId"));
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), eq("page-morph"));
+        assertEquals(0f, driver().target(), 0f);
+        assertTrue(phases("page-morph").contains("retargeted:collapsed"));
+        BreadMorphControllerTest.settle();
+        assertEquals("settled:collapsed", phases("page-morph").get(phases("page-morph").size() - 1));
+        assertFalse(phases("page-morph").contains("settled:expanded"));
+        verify(callbacks, times(1)).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackInvokeMinimizesAfterTheScriptedExpansionSettles() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        assertTrue(expand(card(), "page-morph"));
+        BreadMorphControllerTest.settle();
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertFalse(ReflectionHelpers.getField(controller, "posed"));
+        callback.onBackInvoked();
+
+        ArgumentCaptor<String> id = ArgumentCaptor.forClass(String.class);
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), id.capture());
+        assertTrue(id.getValue().startsWith("native-"));
+        BreadMorphControllerTest.settle();
+        assertEquals("settled:collapsed", phases(id.getValue()).get(phases(id.getValue()).size() - 1));
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackInvokeMinimizesAfterResizeSettlesThePreviewCollapsed() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(280, 0, 1f, BackEvent.EDGE_LEFT));
+        resizePage(webView, root.getWidth() - 10, root.getHeight() - 10);
+        assertFalse(ReflectionHelpers.getField(controller, "tracking"));
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertTrue(ReflectionHelpers.getField(controller, "posed"));
+        assertEquals(0f, driver().progress(), 0f);
+        int eventsBeforeInvoke = morphEventCount();
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
+        assertEquals(0f, driver().progress(), 0f);
+        assertEquals(eventsBeforeInvoke, morphEventCount());
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackInvokeMinimizesAfterNoPreviewCollapseSettles() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
+        assertTrue(collapse(card(), "settled-collapse"));
+        BreadMorphControllerTest.settle();
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertTrue(ReflectionHelpers.getField(controller, "posed"));
+        assertEquals(0f, driver().progress(), 0f);
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1).description("a settled collapse with no preview still requests minimize"))
+            .presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
+        assertEquals(List.of("started:collapsed", "settled:collapsed"), phases("settled-collapse"));
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackInvokeMinimizesAfterNoPreviewExpansionStarts() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
+        assertTrue(collapse(card(), "seed-collapse"));
+        assertTrue(expand(card(), "page-morph"));
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        assertEquals("page-morph", ReflectionHelpers.getField(controller, "morphId"));
+
+        callback.onBackInvoked();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), eq("page-morph"));
+        assertEquals(0f, driver().target(), 0f);
+        assertTrue(phases("page-morph").contains("retargeted:collapsed"));
+        BreadMorphControllerTest.settle();
+        assertEquals("settled:collapsed", phases("page-morph").get(phases("page-morph").size() - 1));
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackNoPreviewSkipsARefusedCollapse() throws Exception {
+        openMorph(false);
+        reveal();
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+        root.layout(0, 0, 0, 0);
+        callback.onBackInvoked();
+
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        assertFalse(ReflectionHelpers.getField(controller, "posed"));
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackMinimizeUsesNullMorphIdWhenReduceMotionSettlesSynchronously() throws Exception {
+        openMorph(false);
+        reveal();
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+            assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
+            callback.onBackInvoked();
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), eq("managed"), isNull());
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCapsuleClickRequestsNullMorphIdAfterSynchronousSettlement() throws Exception {
+        openMorph(false);
+        reveal();
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+            capsule.performClick();
+            verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+                eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+            assertNull(ReflectionHelpers.getField(controller, "morphId"));
+            assertSettledCollapsePrecedesNullMinimizeRequest();
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void settledCollapsedCapsuleClickRequestsNullMorphId() throws Exception {
+        openMorph(false);
+        reveal();
+        assertTrue(collapse(card(), "settled-collapse"));
+        BreadMorphControllerTest.settle();
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertTrue(ReflectionHelpers.getField(controller, "posed"));
+        assertEquals(0f, driver().progress(), 0f);
+
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertEquals(0f, driver().progress(), 0f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void fullscreenExpansionCapsuleClickRetargetsUnderTheSameMorphId() throws Exception {
+        openMorph(true);
+        reveal();
+        assertTrue(collapse(card(), "seed-collapse"));
+        BreadMorphControllerTest.settle();
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+        assertNull(ReflectionHelpers.getField(controller, "morphId"));
+        assertTrue(ReflectionHelpers.getField(controller, "posed"));
+        assertEquals(0f, driver().progress(), 0f);
+        assertTrue(expand(card(), "page-morph"));
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        assertEquals(1f, driver().target(), 0f);
+        assertEquals("page-morph", ReflectionHelpers.getField(controller, "morphId"));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        for (int i = 0; i < 30 && capsule.getAlpha() <= 0; i++) BreadMorphControllerTest.frame();
+        assertTrue(capsule.isShown());
+        assertTrue(capsule.getAlpha() > 0);
+
+        capsule.performClick();
+
+        verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), eq("page-morph"));
+        assertEquals(0f, driver().target(), 0f);
+        assertTrue(phases("page-morph").contains("retargeted:collapsed"));
+        BreadMorphControllerTest.settle();
+        List<String> phases = phases("page-morph");
+        assertEquals("settled:collapsed", phases.get(phases.size() - 1));
+        assertFalse(phases.contains("settled:expanded"));
+        verify(callbacks, times(1)).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
     }
 
     @Test @Config(shadows = PaintWebView.class)

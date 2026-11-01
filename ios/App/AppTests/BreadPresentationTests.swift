@@ -2282,6 +2282,89 @@ private final class SnapshotLog {
 final class BreadMorphPresentationTests: XCTestCase {
     private typealias Motion = BreadPresentationState.Motion
 
+    func testCapsuleHasANativePanRecognizerForPullDownMinimization() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        let capsule = try XCTUnwrap(live.owner.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier == "bread-presentation-minimize" })
+
+        XCTAssertTrue(capsule.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer } == true,
+                      "the native capsule must recognize a pull-down minimization gesture")
+    }
+
+    func testCapsulePullOnlyBeginsForDownwardDominantMotion() {
+        XCTAssertTrue(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 0, verticalVelocity: 1))
+        XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 2, verticalVelocity: 1))
+        XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 0, verticalVelocity: -1))
+    }
+
+    func testCapsulePullMapsDownwardDistanceToCollapseProgress() {
+        XCTAssertEqual(BreadCapsuleDrag.progress(translationY: 90, distance: 300), 0.7, accuracy: 1e-9)
+        XCTAssertGreaterThan(BreadCapsuleDrag.progress(translationY: -30, distance: 300), 1)
+        XCTAssertEqual(BreadCapsuleDrag.progress(translationY: 30, distance: 0), 1)
+    }
+
+    func testCapsuleReleaseProjectsTravelAndUsesFlingDirection() {
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.65, progressVelocity: 0, verticalVelocity: 0), 0)
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.98, progressVelocity: -2, verticalVelocity: 600), 0)
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.98, progressVelocity: 2, verticalVelocity: -600), 1)
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.95, progressVelocity: 0, verticalVelocity: 0), 1)
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.2, verticalVelocity: 600), 0,
+                       "a downward fling under the travel threshold collapses")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.40, progressVelocity: 0.2, verticalVelocity: -600), 1,
+                       "an upward fling overrides a collapsing projection")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.2, verticalVelocity: 400), 1,
+                       "the same projection below fling speed stays expanded")
+        XCTAssertEqual(BreadCapsuleDrag.releaseTarget(progress: 0.99, progressVelocity: -0.01, verticalVelocity: 600), 1,
+                       "progress velocity at the strict floor does not use the fling")
+    }
+
+    func testCapsulePullTracksAndCommitsOneNativeMinimization() async throws {
+        guard !UIAccessibility.isReduceMotionEnabled else { throw XCTSkip("Interactive tracking is disabled by Reduce Motion") }
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+
+        live.presentation.handleCapsulePan(.began, translation: .zero, velocity: .zero)
+        let id = try XCTUnwrap(live.presentation.morphId)
+        live.presentation.handleCapsulePan(.changed, translation: CGPoint(x: 0, y: 150), velocity: .zero)
+
+        XCTAssertLessThan(try XCTUnwrap(live.presentation.animator).progress(), 0.7)
+        live.presentation.handleCapsulePan(.ended, translation: CGPoint(x: 0, y: 150), velocity: .zero)
+
+        XCTAssertEqual(plugin.minimizations.count, 1)
+        XCTAssertEqual(plugin.minimizations.first?["morphId"] as? String, id)
+        XCTAssertTrue(live.presentation.state.motion == .collapsing)
+    }
+
+    func testCancelledCapsulePullReturnsToExpandedWithoutMinimizing() async throws {
+        guard !UIAccessibility.isReduceMotionEnabled else { throw XCTSkip("Interactive tracking is disabled by Reduce Motion") }
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+
+        live.presentation.handleCapsulePan(.began, translation: .zero, velocity: .zero)
+        live.presentation.handleCapsulePan(.changed, translation: CGPoint(x: 0, y: 60), velocity: .zero)
+        live.presentation.handleCapsulePan(.cancelled, translation: CGPoint(x: 0, y: 60), velocity: .zero)
+
+        XCTAssertTrue(plugin.minimizations.isEmpty)
+        let restored = try await eventually { live.presentation.morphId == nil && live.presentation.state.motion == .none }
+        XCTAssertTrue(restored)
+        XCTAssertEqual(live.presentation.animator?.progress() ?? 0, 1, accuracy: 0.01)
+    }
+
+    func testShortCapsulePullSettlesBackWithoutMinimizing() async throws {
+        guard !UIAccessibility.isReduceMotionEnabled else { throw XCTSkip("Interactive tracking is disabled by Reduce Motion") }
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+
+        live.presentation.handleCapsulePan(.began, translation: .zero, velocity: .zero)
+        live.presentation.handleCapsulePan(.ended, translation: CGPoint(x: 0, y: 20), velocity: .zero)
+
+        XCTAssertTrue(plugin.minimizations.isEmpty)
+        let restored = try await eventually { live.presentation.morphId == nil && live.presentation.state.motion == .none }
+        XCTAssertTrue(restored)
+        XCTAssertEqual(live.presentation.animator?.progress() ?? 0, 1, accuracy: 0.01)
+    }
+
     func testAThrowingFixtureReleasesTheWindowAndTheRegistryEntry() async throws {
         for arm in ["livePresentation", "revealedMorph", "parkedWithProxy"] {
             var captured: (id: String, window: UIWindow)?

@@ -599,4 +599,23 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - SDK 0.17.1 provides full input notes and output IDs, metadata and optional assets. Output scripts exist only for full output notes. Known script roots can label P2ID, P2IDE and PSWAP; partial output semantics need richer SDK data. The storage patch exposes named slots, operations and changed map entry counts, but application-specific slot meaning needs an account schema.
 - The extension confirmation and shared mobile/desktop modal now use the same note-flow DTO. The mobile/desktop request takes it from the existing dry run, without repeating execution.
 - Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
-- Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
+- Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.\n\n# Issue #1818 - capsule pull-down and Android predictive back
+
+## Plan
+
+- [x] Trace the React capsule, native presentation controller, plugin boundary, and Android dialog back behavior.
+- [x] Write and self-review the behavior spec and implementation plan in docs/superpowers.
+- [x] Add red capsule tests for progress forwarding, reversal, cancellation, and button exclusion.
+- [x] Add native capsule tracking from the expanded resting state to the Android and iOS presentation controllers.
+- [x] Add Android predictive-back preview, cancel, and commit handling for the managed dApp dialog.
+- [x] Seal the frozen simplicity review on `b06129841ea7b08eefda6fc77690a3db8f514360` before changing its source base.
+- [x] Merge current `origin/main` at `c60fcd3dad17b156453afc9af48ee9e4c8a640dc`.
+- [ ] Add Android UI E2E and iOS gesture verification.
+- [ ] Complete fresh Council review on the integrated source and fix accepted P0-P2 findings.
+- [ ] Run exact-head CI and the recorded Android UI and iOS gesture checks.
+
+## Review
+
+The issue body provides the behavior definition. Native progress stays in the existing presentation controller, while the capsule recognizes only gestures outside its controls. The Android system-back callback must park once on commit and restore the expanded state on cancellation. The gesture and warm-up behaviors now share the integrated Android presentation controller.
+
+The frozen simplicity receipt is `/private/tmp/rev-1818-current-SlIZxv/r1-coverage.receipt.json` (SHA-256 `bfafd9cd644e4c5eabfee45ddbbd8a1d06953239e21522641de8b59594dc3398`), bound to source `b06129841ea7b08eefda6fc77690a3db8f514360`, base `a32809631441488387e8b474fce68570cbe7ef8a`, and snapshot tree `493c3b3a068d3dcdb45858afcd575a3607f5798f`. It records three actionable P2 groups: managed minimize on API 28-32 back; reduced-motion swipe/state behavior; and Android gesture fixture quality. The receipt does not certify the integrated head.

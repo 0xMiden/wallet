@@ -25,7 +25,7 @@ struct BreadPresentationOptions {
 enum BreadMorphTarget: String { case collapsed, expanded }
 enum BreadMorphPhase: String { case started, retargeted, settled, cancelled }
 
-final class BreadPresentationController: NSObject {
+final class BreadPresentationController: NSObject, UIGestureRecognizerDelegate {
     static var snapshotHook: ((WKSnapshotConfiguration) -> Void)?
     let state: BreadPresentationState
     let proxy = UIImageView()
@@ -38,6 +38,7 @@ final class BreadPresentationController: NSObject {
     private weak var hostWindow: UIWindow?
     private let cover = UIView()
     private let button = UIButton(type: .system)
+    private var capsulePanRecognizer: UIPanGestureRecognizer?
     private let capsuleBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private var revealAnimator: UIViewPropertyAnimator?
     private let errorLabel = UILabel()
@@ -67,6 +68,7 @@ final class BreadPresentationController: NSObject {
     private var preparedProxy: (generation: Int, layout: Int, at: CFTimeInterval)?
     private var systemUIHeld: Bool?
     private var grab: (start: Double, target: Double, raw: Double)?
+    private var capsuleDrag: (distance: Double, morphId: String?, tracksMorph: Bool)?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
         self.options = options
@@ -172,6 +174,7 @@ final class BreadPresentationController: NSObject {
     @discardableResult
     func morph(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, morphId id: String,
                policyRevision: Int?, sequence: Int?) -> Bool {
+        capsuleDrag = nil
         animator?.boost()
         let accepted = startMorph(target, card: card, velocity: velocity, id: id, policyRevision: policyRevision, sequence: sequence)
         if !accepted {
@@ -384,6 +387,7 @@ final class BreadPresentationController: NSObject {
         systemUIHeld = nil
         morphId = nil
         grab = nil
+        capsuleDrag = nil
         crossfade?.cancel()
         crossfade = nil
         proxyFade?.stopAnimation(true)
@@ -444,6 +448,7 @@ final class BreadPresentationController: NSObject {
         systemUIHeld = nil
         morphId = nil
         grab = nil
+        capsuleDrag = nil
         crossfade?.cancel()
         crossfade = nil
         if end == .expanded {
@@ -478,9 +483,78 @@ final class BreadPresentationController: NSObject {
     }
 
     func handleTap() {
-        guard let id = morphId, let animator, grab == nil else { return }
+        guard let id = morphId, let animator, grab == nil, capsuleDrag == nil else { return }
         let target: BreadMorphTarget = heading == .collapsed ? .expanded : .collapsed
         retarget(id, to: target, velocity: animator.velocity(), physics: target == .expanded ? .expand : .collapse)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === capsulePanRecognizer else { return true }
+        guard state.effectiveVisibility, !moving, animator != nil, owner?.managedClose?.closing != true,
+              let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+        let velocity = pan.velocity(in: button)
+        return BreadCapsuleDrag.shouldBegin(horizontalVelocity: velocity.x, verticalVelocity: velocity.y)
+    }
+
+    func handleCapsulePan(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {
+        switch phase {
+        case .began:
+            guard state.effectiveVisibility, !moving, owner?.managedClose?.closing != true,
+                  let animator else { return }
+            let path = morphPath()
+            let distance = max(180, Double(hypot(path.x, path.y)))
+            guard !UIAccessibility.isReduceMotionEnabled else {
+                capsuleDrag = (distance: distance, morphId: nil, tracksMorph: false)
+                return
+            }
+            let id = "native-" + UUID().uuidString
+            let card = WebViewRegistry.shared.morphCard.map {
+                BreadMorphCard(rect: $0.rect.offsetBy(dx: -(instance?.containerWindow?.frame.minX ?? 0),
+                                                      dy: -(instance?.containerWindow?.frame.minY ?? 0)),
+                               cornerRadius: $0.cornerRadius)
+            }
+            guard morph(to: .collapsed, card: card, velocity: .zero, morphId: id,
+                        policyRevision: nil, sequence: nil) else { return }
+            _ = animator.freeze()
+            capsuleDrag = (distance: distance, morphId: id, tracksMorph: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.capsuleDrag?.morphId == id else { return }
+                self.emit(.retargeted, id: id, target: .collapsed, progress: animator.progress(),
+                          velocity: 0, tracking: true)
+            }
+        case .changed:
+            guard let drag = capsuleDrag, drag.tracksMorph, let animator else { return }
+            animator.track(BreadCapsuleDrag.progress(translationY: Double(translation.y), distance: drag.distance))
+        case .ended, .cancelled, .failed:
+            defer { capsuleDrag = nil; BreadFrameRateBoost.shared.release() }
+            guard let drag = capsuleDrag else { return }
+            let progress = BreadCapsuleDrag.progress(translationY: Double(translation.y), distance: drag.distance)
+            let progressVelocity = BreadCapsuleDrag.progressVelocity(verticalVelocity: Double(velocity.y), distance: drag.distance)
+            let end = BreadCapsuleDrag.releaseTarget(progress: progress, progressVelocity: progressVelocity,
+                                                     verticalVelocity: Double(velocity.y))
+            guard phase == .ended, end == 0 else {
+                if drag.tracksMorph, let id = drag.morphId {
+                    if let animator { animator.track(progress) }
+                    let releaseVelocity = phase == .ended ? progressVelocity : 0
+                    retarget(id, to: .expanded, velocity: releaseVelocity, physics: .release)
+                }
+                return
+            }
+            if drag.tracksMorph, let id = drag.morphId, let animator {
+                animator.track(progress)
+                requestMinimize(morphId: id)
+                retarget(id, to: .collapsed, velocity: progressVelocity, physics: .release)
+            } else {
+                minimizeTapped()
+            }
+        default:
+            break
+        }
+    }
+
+    @objc private func capsulePanned(_ recognizer: UIPanGestureRecognizer) {
+        handleCapsulePan(recognizer.state, translation: recognizer.translation(in: button),
+                         velocity: recognizer.velocity(in: button))
     }
 
     func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {
@@ -918,6 +992,10 @@ final class BreadPresentationController: NSObject {
         button.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
         button.addTarget(self, action: #selector(capsuleTouchDown), for: .touchDown)
         button.addTarget(self, action: #selector(capsuleTouchEnded), for: [.touchCancel, .touchUpOutside])
+        let capsulePan = UIPanGestureRecognizer(target: self, action: #selector(capsulePanned(_:)))
+        capsulePan.delegate = self
+        button.addGestureRecognizer(capsulePan)
+        capsulePanRecognizer = capsulePan
         view.addSubview(button)
         render()
     }
@@ -950,16 +1028,28 @@ final class BreadPresentationController: NSObject {
             capsuleTouchEnded()
             return
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        var data: [String: Any] = ["id": owner.instanceId ?? "", "policyRevision": state.policyRevision,
-            "visibilitySequence": state.acknowledgedVisibilitySequence]
+        var morphId: String?
         if !moving, let window = instance?.containerWindow {
             let id = "native-" + UUID().uuidString
             let card = WebViewRegistry.shared.morphCard.map {
                 BreadMorphCard(rect: $0.rect.offsetBy(dx: -window.frame.minX, dy: -window.frame.minY), cornerRadius: $0.cornerRadius)
             }
-            if morph(to: .collapsed, card: card, velocity: .zero, morphId: id, policyRevision: nil, sequence: nil) { data["morphId"] = id }
+            if morph(to: .collapsed, card: card, velocity: .zero, morphId: id, policyRevision: nil, sequence: nil) {
+                morphId = id
+            }
         }
+        requestMinimize(morphId: morphId)
+    }
+
+    private func requestMinimize(morphId: String?) {
+        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else {
+            capsuleTouchEnded()
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        var data: [String: Any] = ["id": owner.instanceId ?? "", "policyRevision": state.policyRevision,
+            "visibilitySequence": state.acknowledgedVisibilitySequence]
+        if let morphId { data["morphId"] = morphId }
         if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
         owner.capBrowserPlugin?.notifyListeners("presentationMinimizeRequested", data: data)
     }
