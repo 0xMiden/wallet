@@ -1,6 +1,6 @@
 # Changelog
 
-## (TBD)
+## 1.17.11 (TBD)
 
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 
