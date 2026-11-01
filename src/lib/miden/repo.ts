@@ -336,7 +336,7 @@ function observeWalletStorage<T>(
 function observeWalletCursor(cursor: DBCoreCursor, owner: StorageOwner): DBCoreCursor {
   const start = cursor.start;
   const observedStart: DBCoreCursor['start'] = function (this: DBCoreCursor, ...args) {
-    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor');
+    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor_iteration');
   };
   // Dexie replaces start on exhaustion; next must keep using that replacement.
   cursor.start = observedStart;
@@ -375,7 +375,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
           const count: DBCoreTable['count'] = (...args) =>
             observeWalletStorage(() => table.count(...args), owner, 'count');
           const openCursor: DBCoreTable['openCursor'] = (...args) =>
-            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor').then(cursor =>
+            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor_open').then(cursor =>
               cursor === null ? null : observeWalletCursor(cursor, owner)
             );
           const mutate: DBCoreTable['mutate'] = (...args) =>

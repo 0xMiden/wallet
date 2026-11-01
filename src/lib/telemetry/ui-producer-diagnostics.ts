@@ -2,6 +2,7 @@ import { BURN_FEE_FAILURES, type BurnFeeFailure } from 'lib/usdcx/burn-fee-failu
 
 import { classifyError } from './classify';
 import { closedDiagnosticPair, ownDiagnosticData } from './closed-root-diagnostics';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 
 export const FEATURE_UNAVAILABLE_FEATURES = [
   'earnDeposit',
@@ -26,6 +27,8 @@ export const SUBMISSION_FEEDBACK_BRANCHES = [
   'grpc_unknown',
   'no_answer'
 ] as const;
+export type SubmissionRejectedEndpoint = (typeof SUBMIT_ENDPOINTS)[number];
+export type SubmissionRejectedStatus = (typeof SUBMIT_GRPC_STATUSES)[number];
 export const PENDING_RETRY_REASONS = [
   'row_missing',
   'not_retryable',
@@ -152,6 +155,11 @@ export type UiEvidenceInput =
       featureUnavailableReason: FeatureUnavailableReason;
     }
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
+  | {
+      kind: 'submission_rejected';
+      submissionRejectedEndpoint: SubmissionRejectedEndpoint;
+      submissionRejectedStatus: SubmissionRejectedStatus;
+    }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
   | {
       kind: 'history_retry';
@@ -182,6 +190,8 @@ export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
+  submissionRejectedEndpoint?: SubmissionRejectedEndpoint;
+  submissionRejectedStatus?: SubmissionRejectedStatus;
   pendingRetryReason?: PendingRetryReason;
   retryNoticeOrigin?: RetryNoticeOrigin;
   recipientValidationStage?: RecipientValidationStage;
@@ -200,6 +210,8 @@ export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
+  'submissionRejectedEndpoint',
+  'submissionRejectedStatus',
   'pendingRetryReason',
   'retryNoticeOrigin',
   'recipientValidationStage',
@@ -236,6 +248,11 @@ const groups = {
     id: 'submissionUnanswered',
     surface: 'status_screen',
     fields: { submissionFeedbackBranch: SUBMISSION_FEEDBACK_BRANCHES }
+  },
+  submission_rejected: {
+    id: 'submissionRejectedByNetwork',
+    surface: 'notice',
+    fields: { submissionRejectedEndpoint: SUBMIT_ENDPOINTS, submissionRejectedStatus: SUBMIT_GRPC_STATUSES }
   },
   pending_retry: {
     id: 'raw_pending_activity_retry_failed',

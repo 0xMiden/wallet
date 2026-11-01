@@ -1,3 +1,5 @@
+import { BOUNDED_JSON_FAILURES, type BoundedJsonFailure } from 'lib/remote-json';
+
 import type { OneClickConfig } from './schema';
 
 /**
@@ -44,6 +46,7 @@ export const STARTUP_ELIGIBILITY_REASONS = [
   'version_mismatch',
   'unexpected'
 ] as const;
+export const STARTUP_ELIGIBILITY_REQUEST_FAILURES = BOUNDED_JSON_FAILURES;
 export const STARTUP_ELIGIBILITY_RETRIES = [
   'not_attempted',
   'config_not_advanced',
@@ -51,10 +54,12 @@ export const STARTUP_ELIGIBILITY_RETRIES = [
   'retry_failed'
 ] as const;
 export type StartupEligibilityReason = (typeof STARTUP_ELIGIBILITY_REASONS)[number];
+export type StartupEligibilityRequestFailure = BoundedJsonFailure;
 export interface StartupEligibilityDiagnostics {
   startupEligibilityStage: (typeof STARTUP_ELIGIBILITY_STAGES)[number];
   startupEligibilityReason: StartupEligibilityReason;
   startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
+  startupEligibilityRequestFailure?: StartupEligibilityRequestFailure;
 }
 
 /** A failed startup decision keeps geo-gated features off until the page restarts; the wallet stays open. */

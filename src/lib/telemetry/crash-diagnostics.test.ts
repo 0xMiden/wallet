@@ -76,16 +76,23 @@ describe('source-bound crash diagnostics', () => {
   it('retains a coherent storage pair on the exact frozen Error', () => {
     const failure = Object.freeze(new Error('cursor request failed'));
     annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
-    expect(snapshotCrashDiagnostics(failure)).toEqual({
-      storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor'
-    });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({});
     expect(snapshotCrashDiagnostics(new Error('unrelated'))).toEqual({});
   });
 
   it('accepts every compatible closed owner and operation', () => {
     for (const storageOwner of ['wallet_transactions', 'wallet_limits']) {
-      for (const storageOperation of ['get', 'query', 'count', 'cursor', 'mutate', 'transaction', 'open']) {
+      for (const storageOperation of [
+        'get',
+        'query',
+        'count',
+        'cursor',
+        'cursor_open',
+        'cursor_iteration',
+        'mutate',
+        'transaction',
+        'open'
+      ]) {
         const pair = { storageOwner, storageOperation };
         const failure = new Error('storage failure');
         annotateCrash(failure, pair);
@@ -101,7 +108,10 @@ describe('source-bound crash diagnostics', () => {
     const diagnostics = jest.requireActual<Record<string, unknown>>('./crash-diagnostics');
     const valueSets: ReadonlyArray<readonly [string, readonly string[]]> = [
       ['STORAGE_OWNERS', ['wallet_transactions', 'wallet_limits', 'wallet_database']],
-      ['STORAGE_OPERATIONS', ['get', 'query', 'count', 'cursor', 'mutate', 'transaction', 'open']],
+      [
+        'STORAGE_OPERATIONS',
+        ['get', 'query', 'count', 'cursor', 'cursor_open', 'cursor_iteration', 'mutate', 'transaction', 'open']
+      ],
       ['PAGE_VISIBILITY', ['visible', 'hidden', 'unknown']]
     ];
     for (const [name, values] of valueSets) {
@@ -135,7 +145,7 @@ describe('source-bound crash diagnostics', () => {
       { storageOperation: 'open' },
       { pageVisibility: 'visible' }
     ];
-    for (const storageOperation of ['get', 'query', 'count', 'cursor', 'mutate']) {
+    for (const storageOperation of ['get', 'query', 'count', 'cursor', 'cursor_open', 'cursor_iteration', 'mutate']) {
       invalid.push({ storageOwner: 'wallet_database', storageOperation });
     }
     const hostile = new Proxy(
@@ -1057,13 +1067,15 @@ test('startup evidence is closed and bound to the eligibility startup identity',
     userErrorId: 'walletAccessUnavailableBody',
     userErrorSurface: 'startup',
     startupEligibilityStage: 'eligibility_retry',
-    startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'retry_failed'
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'retry_failed',
+    startupEligibilityRequestFailure: 'http_error'
   });
   expect(snapshotCrashDiagnostics(error)).toMatchObject({
     startupEligibilityStage: 'eligibility_retry',
-    startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'retry_failed'
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'retry_failed',
+    startupEligibilityRequestFailure: 'http_error'
   });
   const hostile = new Error('other');
   annotateCrash(hostile, {
@@ -1071,12 +1083,33 @@ test('startup evidence is closed and bound to the eligibility startup identity',
     userErrorSurface: 'startup',
     startupEligibilityStage: 'https://private.example',
     startupEligibilityReason: '0x123',
-    startupEligibilityRetry: 'seed alpha bravo'
+    startupEligibilityRetry: 'seed alpha bravo',
+    startupEligibilityRequestFailure: 'https://private.example'
   });
   expect(snapshotCrashDiagnostics(hostile)).toEqual({
     userErrorId: 'walletAccessUnavailableBody',
     userErrorSurface: 'startup'
   });
+  const wrongReason = new Error('unavailable');
+  annotateCrash(wrongReason, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'http_error'
+  });
+  expect(snapshotCrashDiagnostics(wrongReason)).not.toHaveProperty('startupEligibilityRequestFailure');
+  const hostileFailure = new Error('unavailable');
+  annotateCrash(hostileFailure, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'https://private.example'
+  });
+  expect(snapshotCrashDiagnostics(hostileFailure)).not.toHaveProperty('startupEligibilityRequestFailure');
 });
 
 test('reannotating an error for a different display cannot retain a startup attempt', () => {
@@ -1085,11 +1118,13 @@ test('reannotating an error for a different display cannot retain a startup atte
     userErrorId: 'walletAccessUnavailableBody',
     userErrorSurface: 'startup',
     startupEligibilityStage: 'eligibility_lookup',
-    startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'not_attempted'
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'timeout'
   });
   annotateCrash(error, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'review' });
   expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityStage');
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityRequestFailure');
 });
 
 it.each(['walletAccessUnavailableBody', 'usdcxFaucetUnavailable'])(
@@ -1100,11 +1135,13 @@ it.each(['walletAccessUnavailableBody', 'usdcxFaucetUnavailable'])(
       userErrorId: 'walletAccessUnavailableBody',
       userErrorSurface: 'startup',
       startupEligibilityStage: 'eligibility_lookup',
-      startupEligibilityReason: 'version_mismatch',
-      startupEligibilityRetry: 'not_attempted'
+      startupEligibilityReason: 'request_failed',
+      startupEligibilityRetry: 'not_attempted',
+      startupEligibilityRequestFailure: 'timeout'
     });
     const outer = new Error('new display', { cause: inner });
     annotateCrash(outer, { userErrorId, userErrorSurface: 'startup' });
     expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityStage');
+    expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityRequestFailure');
   }
 );
