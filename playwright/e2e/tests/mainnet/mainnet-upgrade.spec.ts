@@ -1,42 +1,95 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { getEnvironmentConfig } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
 import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
-import { vaultAssetsOfCurrentAccount } from '../../helpers/balance-truth';
+import { vaultReadingOfCurrentAccount } from '../../helpers/balance-truth';
+import { chainVault } from '../../helpers/chain-vault';
 
 // An update must keep every account and balance (#2086: 1.17.9 moved the mainnet RPC host, the SDK names its store
 // after that host, and every updated wallet opened an empty one). e2e-upgrade.yml runs this file twice on the same
 // Chrome profiles and the same extension path, so the extension keeps its id and its storage: `before` restores the
-// two long-lived mainnet accounts on the previous release's build and records what each shows; `after` reopens the
-// profiles on the build under test, restores nothing, and must show the same account holding the same balances.
+// two long-lived mainnet accounts on the previous release's build, `after` reopens the profiles on the build under test
+// and restores nothing. In each phase every account must show, from a sync of that build, exactly what the node holds
+// for it. Comparing with the node rather than with the first phase lets the nightly that spends these accounts run at
+// the same time.
 
 test.use({ injectFeeFaucet: false });
 test.skip(process.env.E2E_NETWORK !== 'mainnet', 'this spec restores long-lived mainnet accounts');
 
 const PHASE = process.env.E2E_UPGRADE_PHASE;
 const SNAPSHOT = process.env.E2E_UPGRADE_SNAPSHOT ?? 'test-results/upgrade/before.json';
+const AUTO_CONSUME_KEY = 'auto_consume_setting';
 
-type WalletSnapshot = {
+type WalletRecord = {
   address: string;
-  /** Nonzero vault assets of the account, faucet id to base units. */
-  assets: Record<string, string>;
+  version: string;
+  /** Nonzero vault assets, faucet to base units, as the wallet and the node both showed them. */
+  vault: Record<string, string>;
   /** IndexedDB databases of the extension, for a failure to name the store each build opened. */
   databases: string[];
 };
-type Snapshot = { plain: WalletSnapshot; guardian: WalletSnapshot };
+type Snapshot = { plain: WalletRecord; guardian: WalletRecord };
 
-async function snapshotOf(wallet: GuardianAwareWalletPage): Promise<WalletSnapshot> {
-  await wallet.refreshBalancesLanded(60_000);
-  return {
-    address: await wallet.getAccountAddress(),
-    assets: await vaultAssetsOfCurrentAccount(wallet.page),
-    databases: await databasesOf(wallet)
-  };
+/** The build each phase must run, from the workflow, so a phase cannot pass on the wrong one. */
+async function expectVersion(wallet: GuardianAwareWalletPage): Promise<string> {
+  const expected = process.env.E2E_UPGRADE_VERSION;
+  if (!expected) throw new Error('E2E_UPGRADE_VERSION is unset');
+  const version = await wallet.page.evaluate(() => chrome.runtime.getManifest().version);
+  expect(version, 'the extension version this phase runs').toBe(expected);
+  return version;
+}
+
+/**
+ * Auto-consume off, as a user can set it (the setting and its service-worker mirror, settings/helpers.ts). The run then
+ * sends nothing: it cannot spend these accounts or race the nightly's claims.
+ */
+async function turnOffAutoConsume(wallet: GuardianAwareWalletPage): Promise<void> {
+  await wallet.page.evaluate(async key => {
+    localStorage.setItem(key, JSON.stringify(false));
+    await chrome.storage.local.set({ [key]: false });
+  }, AUTO_CONSUME_KEY);
 }
 
 async function databasesOf(wallet: GuardianAwareWalletPage): Promise<string[]> {
   return [...new Set((await wallet.listIndexedDBStores()).map(row => row.db))].sort();
+}
+
+/**
+ * Waits until the wallet shows exactly the node's vault for its account: in the store, after a balance read that
+ * landed, and in a sync its service worker published since `since`. A sync from before `since` is the previous
+ * build's, kept in extension storage across the update, so it proves nothing about this one.
+ */
+async function expectNodeVault(wallet: GuardianAwareWalletPage, name: string, since: number) {
+  const { rpcUrl } = getEnvironmentConfig();
+  const address = await wallet.getAccountAddress();
+  let matched: Record<string, string> = {};
+  await expect
+    .poll(
+      async () => {
+        const landed = await wallet
+          .refreshBalancesLanded(60_000)
+          .then(() => 'landed')
+          .catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
+        const { store, sync } = await vaultReadingOfCurrentAccount(wallet.page);
+        const node = await chainVault(rpcUrl, 'mainnet', address);
+        const fresh = sync !== null && sync.syncedAtMs > since ? sync.vault : null;
+        const same = (vault: Record<string, string> | null) => JSON.stringify(vault) === JSON.stringify(sorted(node));
+        if (landed === 'landed' && same(sorted(store)) && fresh !== null && same(sorted(fresh))) {
+          matched = node;
+          return 'matches the node';
+        }
+        return JSON.stringify({ balanceRead: landed, store, sync: fresh ?? 'none since this build started', node });
+      },
+      { timeout: 300_000, intervals: [5_000], message: `${name} ${address} against the node` }
+    )
+    .toBe('matches the node');
+  return { address, vault: matched };
+}
+
+function sorted(vault: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(vault).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 test.describe('before the update', () => {
@@ -44,26 +97,30 @@ test.describe('before the update', () => {
 
   test('restore the long-lived accounts on the previous release', async ({ walletA, walletB }) => {
     test.setTimeout(1_200_000);
+    const since = Date.now();
     const seed = process.env.E2E_MAINNET_PLAIN_SEED;
     const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
     if (!seed || !keyPair) throw new Error('E2E_MAINNET_PLAIN_SEED or E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
 
     await walletA.importOnChainWallet(seed.trim().split(/\s+/));
     await walletB.recoverGuardianFromHotKey(keyPair.trim());
-    await walletA.triggerSync(true);
-    await walletB.triggerSync(true);
-    // A note left pending here would be consumed on the build under test (auto-consume is on by default) and move
-    // the vault between the two runs, so drain them first, as the nightly does. It sends nothing when none is pending.
-    await walletA.claimAllNotes(600_000);
-    await walletB.claimAllNotes(600_000);
+    const records: WalletRecord[] = [];
+    for (const [name, wallet] of [
+      ['plain', walletA],
+      ['guardian', walletB]
+    ] as const) {
+      await turnOffAutoConsume(wallet);
+      const version = await expectVersion(wallet);
+      await wallet.triggerSync(true);
+      const { address, vault } = await expectNodeVault(wallet, name, since);
+      // An empty vault equals the empty store a broken update opens, so it would prove nothing.
+      expect(Object.keys(vault), `${name} ${address} holds no asset`).not.toHaveLength(0);
+      records.push({ address, version, vault, databases: await databasesOf(wallet) });
+    }
 
-    const snapshot: Snapshot = { plain: await snapshotOf(walletA), guardian: await snapshotOf(walletB) };
-    // An empty vault compares equal to the empty store a broken update opens, so it would prove nothing.
-    expect(Object.keys(snapshot.plain.assets), `plain ${snapshot.plain.address} holds no asset`).not.toHaveLength(0);
-    expect(
-      Object.keys(snapshot.guardian.assets),
-      `guardian ${snapshot.guardian.address} holds no asset`
-    ).not.toHaveLength(0);
+    const [plain, guardian] = records;
+    if (!plain || !guardian) throw new Error('a wallet recorded nothing');
+    const snapshot: Snapshot = { plain, guardian };
     mkdirSync(dirname(SNAPSHOT), { recursive: true });
     writeFileSync(SNAPSHOT, `${JSON.stringify(snapshot, null, 2)}\n`);
   });
@@ -74,29 +131,20 @@ test.describe('after the update', () => {
 
   test('the build under test keeps every account and balance', async ({ walletA, walletB }) => {
     test.setTimeout(1_200_000);
+    const since = Date.now();
     const before: Snapshot = JSON.parse(readFileSync(SNAPSHOT, 'utf8'));
-    const wallets = [
+    for (const [name, wallet, was] of [
       ['plain', walletA, before.plain],
       ['guardian', walletB, before.guardian]
-    ] as const;
-
-    for (const [name, wallet, was] of wallets) {
+    ] as const) {
       await wallet.unlockWallet();
+      await expectVersion(wallet);
       expect(await wallet.getAccountAddress(), `${name} account after the update`).toBe(was.address);
       await wallet.triggerSync(true);
-      const databases = await databasesOf(wallet);
-      console.log(`${name} databases before: ${was.databases.join(', ')}; after: ${databases.join(', ')}`);
-      // A balance read that never lands (an account missing from the store) leaves the last reading, so the poll
-      // ends on the assertion below rather than on the refresh.
-      await expect
-        .poll(
-          async () => {
-            await wallet.refreshBalancesLanded(60_000).catch(() => {});
-            return vaultAssetsOfCurrentAccount(wallet.page);
-          },
-          { timeout: 300_000, message: `${name} ${was.address} balances after the update` }
-        )
-        .toEqual(was.assets);
+      console.log(
+        `${name} databases before: ${was.databases.join(', ')}; after: ${(await databasesOf(wallet)).join(', ')}`
+      );
+      await expectNodeVault(wallet, name, since);
     }
   });
 });
