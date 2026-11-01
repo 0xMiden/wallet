@@ -3,6 +3,7 @@
 ## 1.17.11 (TBD)
 
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
 
 ## 1.17.10 (2026-11-01)
 
