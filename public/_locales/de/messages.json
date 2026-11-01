@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr unterzeichnen. Verwenden Sie die Wiederherstellungsphrase, um es wieder zum Hauptgerät zu machen, oder entfernen Sie die Wallet von diesem Gerät.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr signieren. Entfernen Sie die Wallet von diesem Gerät. Sie können den Zugriff mit der Wiederherstellungsphrase wiederherstellen.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authentifizieren Sie sich, um dieses Gerät zu widerrufen.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Widerruf der Verpflichtung des Unterzeichners",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Geräte",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Dieses Gerät",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Gerät widerrufen",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Dieses Gerät kann keine Transaktionen mehr signieren. Der Zugriff kann wiederhergestellt werden, wenn die Wiederherstellungsphrase vorliegt.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Geräte, die für die Signatur dieses Kontos registriert sind. Der Wiederherstellungsschlüssel wird nicht angezeigt.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Die auf diesem Gerät gespeicherte Wiederherstellungsphrase genehmigt die Widerrufung.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Geben Sie die Wiederherstellungsphrase ein, um den Widerruf zu bestätigen. Sie wird nicht auf diesem Gerät gespeichert.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Die Geräteliste kann nicht gelesen werden. Versuchen Sie es erneut, nachdem die Wallet synchronisiert wurde.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Gerät $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Gerät gesperrt",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Dieses Gerät wurde gesperrt",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Widerrufstransaktion",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Sichern Sie Ihre Seed-Phrase",
     "englishSource": "Back up your recovery phrase"

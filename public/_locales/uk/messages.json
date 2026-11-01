@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Цей пристрій було видалено зі списку підписантів облікового запису, і він більше не може підписувати транзакції. Використовуйте фразу відновлення, щоб знову зробити його основним пристроєм, або видаліть гаманець з цього пристрою.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Цей пристрій було видалено зі списку підписантів рахунку, і він більше не може підписувати транзакції. Видаліть гаманець з цього пристрою. Ви можете відновити доступ за допомогою фрази відновлення.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Пройдіть аутентифікацію, щоб скасувати цей пристрій.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Скасоване зобов’язання підписувача",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Пристрої",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Цей пристрій",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Скасувати пристрій",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Цей пристрій більше не зможе підписувати транзакції. Він може відновити доступ, якщо має фразу відновлення.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Пристрої, зареєстровані для підписання операцій за цим рахунком. Ключ відновлення не відображається.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Фраза відновлення, що зберігається на цьому пристрої, підтвердить скасування.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Введіть фразу відновлення, щоб підтвердити скасування. Вона не буде збережена на цьому пристрої.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Не вдається прочитати список пристроїв. Спробуйте ще раз після синхронізації гаманця.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Пристрій $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Пристрій анульовано",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Цей пристрій було скасовано",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Транзакція скасування",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Створіть резервну копію вашої фрази-насіння",
     "englishSource": "Back up your recovery phrase"

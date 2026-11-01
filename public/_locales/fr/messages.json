@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Cet appareil a été supprimé de la liste des signataires du compte et ne peut plus signer de transactions. Utilisez la phrase de récupération pour en faire à nouveau l’appareil principal, ou supprimez le portefeuille de cet appareil.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Cet appareil a été supprimé de la liste des signataires du compte et ne peut plus signer de transactions. Supprimez le portefeuille de cet appareil. Vous pouvez rétablir l’accès à l’aide de la phrase de récupération.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authentifiez-vous pour révoquer ce dispositif.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Engagement du signataire révoqué",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Appareils",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Cet appareil",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Révoquer un appareil",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Cet appareil ne pourra plus signer de transactions. Il pourra retrouver l’accès s’il dispose de la phrase de récupération.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Appareils enregistrés pour signer au nom de ce compte. La clé de récupération n’est pas affichée.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "La phrase de récupération stockée sur cet appareil permettra d’approuver la révocation.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Saisissez la phrase de récupération pour valider la révocation. Elle ne sera pas enregistrée sur cet appareil.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Impossible de lire la liste des appareils. Réessayez une fois le portefeuille synchronisé.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Appareil $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Appareil révoqué",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Ce dispositif a été révoqué",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Transaction de révocation",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Sauvegardez votre phrase de récupération",
     "englishSource": "Back up your recovery phrase"

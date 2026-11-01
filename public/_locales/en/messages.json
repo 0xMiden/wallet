@@ -11,25 +11,63 @@
     "message": "Authenticate to revoke this device.",
     "englishSource": "Authenticate to revoke this device."
   },
-  "deviceSignerCommitment": { "message": "Revoked signer commitment" },
-  "walletDevices": { "message": "Devices" },
-  "currentDevice": { "message": "This device" },
-  "revokeDevice": { "message": "Revoke device" },
+  "deviceSignerCommitment": {
+    "message": "Revoked signer commitment",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Devices",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "This device",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Revoke device",
+    "englishSource": "Revoke device"
+  },
   "revokeDeviceDescription": {
-    "message": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+    "message": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
   },
   "deviceSignersDescription": {
-    "message": "Devices registered to sign for this account. The recovery key is not shown."
+    "message": "Devices registered to sign for this account. The recovery key is not shown.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
   },
-  "deviceRecoveryStored": { "message": "The recovery phrase stored on this device will approve revocation." },
+  "deviceRecoveryStored": {
+    "message": "The recovery phrase stored on this device will approve revocation.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
   "deviceRecoveryRequired": {
-    "message": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+    "message": "Enter the recovery phrase to approve revocation. It will not be saved on this device.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
   },
-  "deviceSignersUnavailable": { "message": "Cannot read the device list. Try again after the wallet syncs." },
-  "deviceSignerNumber": { "message": "Device $number$", "placeholders": { "number": { "content": "$1" } } },
-  "deviceRevoked": { "message": "Device revoked" },
-  "thisDeviceRevoked": { "message": "This device was revoked" },
-  "deviceRevocationTransaction": { "message": "Revocation transaction" },
+  "deviceSignersUnavailable": {
+    "message": "Cannot read the device list. Try again after the wallet syncs.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Device $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Device revoked",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "This device was revoked",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Revocation transaction",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Back up your recovery phrase",
     "englishSource": "Back up your recovery phrase"

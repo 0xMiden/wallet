@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "이 기기는 계정의 서명자 목록에서 제거되었으며 더 이상 거래에 서명할 수 없습니다. 복구 문구를 사용하여 이 기기를 다시 주 기기로 설정하거나, 이 기기에서 지갑을 제거하십시오.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "이 기기는 계정의 서명자 목록에서 제거되었으며 더 이상 거래에 서명할 수 없습니다. 이 기기에서 지갑을 제거하십시오. 복구 문구를 사용하여 접근 권한을 복원할 수 있습니다.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "이 기기를 취소하려면 인증을 수행하십시오.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "취소된 서명자 약정",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "기기",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "이 장치",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "기기 권한 취소",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "이 기기는 더 이상 거래에 서명할 수 없게 됩니다. 복구 문구를 가지고 있다면 다시 접근 권한을 회복할 수 있습니다.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "이 계정의 서명을 위해 등록된 기기들입니다. 복구 키는 표시되지 않습니다.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "이 기기에 저장된 복구 문구를 통해 취소 승인이 이루어집니다.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "취소를 승인하려면 복구 문구를 입력하십시오. 이 문구는 이 기기에 저장되지 않습니다.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "기기 목록을 읽을 수 없습니다. 지갑이 동기화된 후 다시 시도해 주십시오.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "기기 $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "기기 사용 권한 취소",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "이 장치는 취소되었습니다",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "취소 거래",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "시드 문구를 백업하세요",
     "englishSource": "Back up your recovery phrase"

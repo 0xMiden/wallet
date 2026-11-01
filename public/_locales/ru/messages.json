@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Это устройство было удалено из списка подписантов счёта и больше не может подписывать транзакции. Используйте фразу восстановления, чтобы снова сделать его основным устройством, или удалите кошелёк с этого устройства.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Это устройство было удалено из списка подписантов счёта и больше не может подписывать транзакции. Удалите кошелек с этого устройства. Вы можете восстановить доступ с помощью фразы восстановления.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Пройдите аутентификацию, чтобы отменить это устройство.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Отзыв обязательства подписанта",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Устройства",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Это устройство",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Отменить устройство",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Это устройство больше не сможет подписывать транзакции. Оно может восстановить доступ, если у него есть фраза восстановления.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Устройства, зарегистрированные для подписи по данному счету. Ключ восстановления не отображается.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Фраза восстановления, хранящаяся на этом устройстве, подтвердит отзыв.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Введите фразу восстановления, чтобы подтвердить отзыв. Она не будет сохранена на этом устройстве.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Не удаётся прочитать список устройств. Повторите попытку после синхронизации кошелька.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Устройство $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Устройство аннулировано",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Данное устройство было аннулировано",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Транзакция отзыва",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Сделайте резервную копию своей семенной фразы",
     "englishSource": "Back up your recovery phrase"

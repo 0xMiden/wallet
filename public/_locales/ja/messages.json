@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "このデバイスはアカウントの署名者リストから削除され、取引への署名ができなくなりました。リカバリーフレーズを使用して、このデバイスを再びメインデバイスにするか、このデバイスからウォレットを削除してください。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "このデバイスはアカウントの署名者リストから削除され、取引への署名ができなくなりました。このデバイスからウォレットを削除してください。リカバリーフレーズを使用すれば、アクセスを復元できます。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "このデバイスを無効化するには、認証を行ってください。",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "署名者のコミットメントの取り消し",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "デバイス",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "このデバイス",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "デバイスの無効化",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "このデバイスは、今後トランザクションに署名できなくなります。リカバリーフレーズがあれば、アクセスを回復することができます。",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "このアカウントの署名用に登録されたデバイス。復旧キーは表示されません。",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "このデバイスに保存されているリカバリーフレーズにより、失効が承認されます。",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "復元フレーズを入力して、失効を承認してください。このフレーズは本デバイスには保存されません。",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "デバイス一覧を読み取れません。ウォレットの同期が完了してから、もう一度お試しください。",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "デバイス $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "デバイスの無効化",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "このデバイスは無効化されました",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "失効取引",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "シードフレーズをバックアップしてください",
     "englishSource": "Back up your recovery phrase"

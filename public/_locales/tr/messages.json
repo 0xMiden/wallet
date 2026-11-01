@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Kurtarma ifadesini kullanarak bu cihazı tekrar ana cihaz yapın veya cüzdanı bu cihazdan kaldırın.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Cüzdanı bu cihazdan kaldırın. Kurtarma ifadesini kullanarak erişimi geri yükleyebilirsiniz.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Bu cihazı iptal etmek için kimlik doğrulaması yapın.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "İptal edilen imza sahibi taahhüdü",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Cihazlar",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Bu cihaz",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Cihazı iptal et",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Bu cihaz artık işlemleri imzalayamayacaktır. Kurtarma ifadesi varsa erişimi geri kazanabilir.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Bu hesap için imza vermek üzere kayıtlı cihazlar. Kurtarma anahtarı gösterilmez.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Bu cihazda saklanan kurtarma ifadesi, iptal işlemini onaylayacaktır.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "İptali onaylamak için kurtarma ifadesini girin. Bu ifade bu cihaza kaydedilmeyecektir.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Cihaz listesi okunamıyor. Cüzdan senkronize olduktan sonra tekrar deneyin.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Cihaz $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Cihaz iptal edildi",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Bu cihazın yetkisi iptal edildi",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "İptal işlemi",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Tohum ifadenizi yedekleyin",
     "englishSource": "Back up your recovery phrase"

@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请使用恢复短语将其重新设为主设备，或从该设备中移除该钱包。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请将钱包从该设备中移除。您可以使用助记词恢复访问权限。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "请进行身份验证以撤销此设备的权限。",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "撤销签名人承诺",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "设备",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "该设备",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "撤销设备",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "该设备将无法再对交易进行签名。若持有恢复短语，则可重新获得访问权限。",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "已注册用于为该账户签名的设备。恢复密钥不会显示。",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "存储在此设备上的恢复短语将批准撤销操作。",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "输入恢复短语以批准撤销操作。该短语不会保存在本设备上。",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "无法读取设备列表。请在钱包同步完成后重试。",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "设备 $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "设备已撤销",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "该设备已被撤销",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "撤销交易",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "备份您的助记词",
     "englishSource": "Back up your recovery phrase"
