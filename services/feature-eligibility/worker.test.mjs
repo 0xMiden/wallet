@@ -159,11 +159,16 @@ function harness(options = {}) {
     query = 'network=testnet',
     method = 'GET',
     headers = {},
+    origin = 'https://wallet.example',
     cf = { colo: 'ZRH' }
   } = {}) => {
     const incoming = new Request(`https://eligibility.example${path}?${query}`, {
       method,
-      headers: { 'CF-Connecting-IP': '203.0.113.7', Origin: 'https://wallet.example', ...headers }
+      headers: {
+        'CF-Connecting-IP': '203.0.113.7',
+        ...(origin === null ? {} : { Origin: origin }),
+        ...headers
+      }
     });
     Object.defineProperty(incoming, 'cf', { value: cf });
     return service.fetch(incoming, env);
@@ -246,6 +251,14 @@ test('validation and origin failures have distinct private bodies', async () => 
   assert.equal(forbidden.status, 403);
   assert.deepEqual(await forbidden.json(), { error: 'forbidden' });
   assert.equal(h.callerStates.size, 0);
+});
+
+test('accepts extension service-worker requests that omit Origin', async () => {
+  const h = harness();
+  const response = await h.request({ origin: null });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), null);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
 });
 
 test('overloaded caller objects fail closed without retrying', async () => {

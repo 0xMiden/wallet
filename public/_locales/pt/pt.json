@@ -517,6 +517,8 @@
   "swapSameToken": "Escolha duas fichas diferentes para trocar.",
   "swapInvalidAmounts": "Insira um valor válido para a troca.",
   "swapPairNotListed": "Este par não pode mais ser trocado. Volte e escolha outro token.",
+  "swapBelowMinimum": "Ofereça pelo menos US$ 1 em ativos para troca.",
+  "swapMinimumPriceUnavailable": "O preço em USD não está disponível. Tente novamente em breve.",
   "swapPriceUnavailable": "Preço indisponível. Tente novamente em breve.",
   "swapOrderReservedNote": "Seu $amount$ permanecerá reservado para este pedido até que ele seja atendido.",
   "swapSuccessSourcingLiquidity": "Estamos obtendo liquidez para o seu swap. Normalmente, a operação é concluída em cerca de 30 segundos.",

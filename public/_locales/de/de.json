@@ -517,6 +517,8 @@
   "swapSameToken": "Wähle zwei verschiedene Spielsteine aus, die du tauschen möchtest.",
   "swapInvalidAmounts": "Geben Sie einen gültigen Betrag für den Tausch ein.",
   "swapPairNotListed": "Dieses Paar kann nicht mehr getauscht werden. Gehen Sie zurück und wählen Sie ein anderes Token aus.",
+  "swapBelowMinimum": "Bieten Sie Vermögenswerte im Wert von mindestens 1 $ zum Tausch an.",
+  "swapMinimumPriceUnavailable": "Der USD-Kurs ist derzeit nicht verfügbar. Bitte versuchen Sie es in Kürze erneut.",
   "swapPriceUnavailable": "Preis nicht verfügbar. Bitte versuchen Sie es in Kürze erneut.",
   "swapOrderReservedNote": "Ihr „$amount$“ bleibt für diese Bestellung reserviert, bis sie ausgeführt ist.",
   "swapSuccessSourcingLiquidity": "Wir beschaffen Liquidität für Ihren Swap. Der Handel wird in der Regel innerhalb von etwa 30 Sekunden ausgeführt.",

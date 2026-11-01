@@ -2478,6 +2478,14 @@
     "message": "This pair can no longer be swapped. Go back and choose another token.",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "Offer at least $1 worth of assets to swap.",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "The USD price is unavailable. Try again shortly.",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "Price unavailable. Try again shortly.",
     "englishSource": "Price unavailable. Try again shortly."
