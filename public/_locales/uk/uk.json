@@ -1040,6 +1040,8 @@
   "fast": "Швидко",
   "slow": "Повільно",
   "unavailable": "Недоступно",
+  "assetPriceUnsupported": "Непідтримувані",
+  "assetValueUnknownScale": "Невідома шкала",
   "bridgeFeatureUnavailableTitle": "Тимчасово недоступно",
   "bridgeFeatureUnavailableBody": "Ця зовнішня служба наразі не працює. Будь ласка, спробуйте пізніше.",
   "geoRestrictedTitle": "Not available where you are",

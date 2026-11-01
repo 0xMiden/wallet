@@ -1042,6 +1042,8 @@
   "fast": "速い",
   "slow": "遅い",
   "unavailable": "利用不可",
+  "assetPriceUnsupported": "未対応",
+  "assetValueUnknownScale": "不明な単位",
   "bridgeFeatureUnavailableTitle": "一時的に利用不可",
   "bridgeFeatureUnavailableBody": "この外部サービスは現在利用できません。後ほど再度お試しください。",
   "geoRestrictedTitle": "Not available where you are",

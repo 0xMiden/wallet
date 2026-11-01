@@ -53,6 +53,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
   const { isHidden } = useHiddenTokens(publicKey);
   const bridgeConfig = useBridgeConfigSnapshot();
   const nativeFaucetId = useNativeFeeFaucetId();
@@ -123,6 +124,15 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
                 const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(b.balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+                const priceStatus = !scaleIsKnown
+                  ? t('assetValueUnknownScale')
+                  : fiatValue === undefined
+                    ? priceSymbol
+                      ? pricesStatus === 'loading'
+                        ? t('loading')
+                        : t('unavailable')
+                      : t('assetPriceUnsupported')
+                    : undefined;
                 const name = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.name || b.metadata.symbol);
                 const unit = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol);
                 return (
@@ -143,6 +153,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
                         <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
                       )
                     }
+                    priceStatus={priceStatus}
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
                     onClick={() => onSelectToken(uiTokenFromBalance(b, tokenPrices))}

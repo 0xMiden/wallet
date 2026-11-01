@@ -1037,6 +1037,8 @@
   "fast": "Rápido",
   "slow": "Lento",
   "unavailable": "Indisponível",
+  "assetPriceUnsupported": "Não suportado",
+  "assetValueUnknownScale": "Escala desconhecida",
   "bridgeFeatureUnavailableTitle": "Temporariamente indisponível",
   "bridgeFeatureUnavailableBody": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
   "geoRestrictedTitle": "Not available where you are",

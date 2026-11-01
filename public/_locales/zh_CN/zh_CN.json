@@ -1042,6 +1042,8 @@
   "fast": "快",
   "slow": "慢",
   "unavailable": "不可用",
+  "assetPriceUnsupported": "不支持",
+  "assetValueUnknownScale": "未知规模",
   "bridgeFeatureUnavailableTitle": "暂时不可用",
   "bridgeFeatureUnavailableBody": "该外部服务目前无法使用。请稍后再试。",
   "geoRestrictedTitle": "Not available where you are",

@@ -4683,6 +4683,14 @@
     "message": "Kullanılamıyor",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Desteklenmeyen",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Bilinmeyen ölçek",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Geçici olarak kullanılamıyor",
     "englishSource": "Temporarily unavailable"

@@ -4684,6 +4684,14 @@
     "message": "Недоступно",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Непідтримувані",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Невідома шкала",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Тимчасово недоступно",
     "englishSource": "Temporarily unavailable"

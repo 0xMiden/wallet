@@ -19,6 +19,7 @@ import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useWalletStore } from 'lib/store';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -74,7 +75,18 @@ jest.mock('components/ui', () => ({
   // number goes through the caller's own formatter, anything else renders nothing.
   AnimatedNumber: ({ value, format }: any) =>
     typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
-  AssetListItem: ({ icon, name, amount, chart, price, delta, badge, onClick, 'data-testid': dataTestId }: any) => (
+  AssetListItem: ({
+    icon,
+    name,
+    amount,
+    chart,
+    price,
+    priceStatus,
+    delta,
+    badge,
+    onClick,
+    'data-testid': dataTestId
+  }: any) => (
     <div
       data-testid={dataTestId ?? 'asset-list-item'}
       data-name={name}
@@ -84,6 +96,7 @@ jest.mock('components/ui', () => ({
     >
       <span data-testid="row-amount">{amount}</span>
       {price !== undefined && <span data-testid="row-price">{price}</span>}
+      {priceStatus !== undefined && <span data-testid="row-price-status">{priceStatus}</span>}
       {delta && <span data-testid="row-delta">{delta.value}</span>}
       {badge}
       {icon}
@@ -149,6 +162,7 @@ function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
 beforeEach(() => {
   jest.clearAllMocks();
   mockSparklinePointsRenders.length = 0;
+  useWalletStore.setState({ tokenPricesStatus: 'loading' });
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
@@ -221,6 +235,25 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-price')).toHaveTextContent('$0.0025');
   });
 
+  it('shows a known zero balance as $0.00 and preserves a tiny positive value', () => {
+    tokenPrices = { BTC: priceInfo({ price: 2 }) };
+    const { rerender } = render(<AssetRow asset={makeAsset({ balance: 0 })} tokenPrices={tokenPrices} />);
+    expect(screen.getByTestId('row-price')).toHaveTextContent('$0.00');
+
+    rerender(<AssetRow asset={makeAsset({ balance: 0.00000001 })} tokenPrices={tokenPrices} />);
+    expect(screen.getByTestId('row-price').textContent).not.toBe('$0.00');
+    expect(screen.getByTestId('row-price').textContent).toMatch(/\$0\.0+/);
+  });
+
+  it('shows a status instead of an overflowing USD value', () => {
+    tokenPrices = { BTC: priceInfo({ price: 2 }) };
+
+    render(<AssetRow asset={makeAsset({ balance: Number.MAX_VALUE })} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByTestId('row-price')).not.toBeInTheDocument();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
+  });
+
   it('treats a move under 0.1% either way as flat: a grey pill and a grey line', () => {
     for (const change of [0, -0.02, 0.09]) {
       tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };
@@ -282,9 +315,19 @@ describe('AssetRow', () => {
 
     expect(screen.getByTestId('row-amount')).toHaveTextContent('7.00 BTC');
     expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.getByTestId('row-price-status')).toBeInTheDocument();
     expect(screen.queryByTestId('row-delta')).toBeNull();
     // No move is known either, so real points are drawn neutral, not in a stand-in 0%'s green.
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  });
+
+  it('shows unavailable after price loading finishes without a quote', () => {
+    useWalletStore.setState({ tokenPricesStatus: 'ready' });
+    tokenPrices = {};
+
+    render(<AssetRow asset={makeAsset({ balance: 7 })} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
   });
 
   // The nominal rate is a dollar figure, not a market, so it has no 24h move to show.
@@ -309,6 +352,7 @@ describe('AssetRow', () => {
     render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.getByTestId('row-price-status')).toHaveTextContent('assetPriceUnsupported');
     expect(screen.queryByTestId('row-delta')).toBeNull();
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
     expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');
@@ -454,6 +498,7 @@ describe('AssetRow', () => {
       // thing that can withhold the figure.
       expect(screen.getByTestId('row-delta')).toBeInTheDocument();
       expect(screen.queryByTestId('row-price')).toBeNull();
+      expect(screen.getByTestId('row-price-status')).toHaveTextContent('assetValueUnknownScale');
     });
 
     it('still quantifies a token that reported its own decimals', () => {

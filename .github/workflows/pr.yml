@@ -313,6 +313,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Run token display visual verification
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.token-display-visual.config.ts
+
+      - name: Upload token display visual verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-display-visual
+          path: test-results/token-display-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Run 1Click visual acceptance
         timeout-minutes: 5
         run: yarn playwright test --config playwright.one-click-visual.config.ts

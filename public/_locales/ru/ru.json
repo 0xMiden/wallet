@@ -1038,6 +1038,8 @@
   "fast": "Быстро",
   "slow": "Медленно",
   "unavailable": "Недоступно",
+  "assetPriceUnsupported": "Неподдерживаемые термины",
+  "assetValueUnknownScale": "Неизвестная шкала",
   "bridgeFeatureUnavailableTitle": "Временно недоступно",
   "bridgeFeatureUnavailableBody": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
   "geoRestrictedTitle": "Not available where you are",

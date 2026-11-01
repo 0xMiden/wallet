@@ -1041,6 +1041,8 @@
   "fast": "Hızlı",
   "slow": "Yavaş",
   "unavailable": "Kullanılamıyor",
+  "assetPriceUnsupported": "Desteklenmeyen",
+  "assetValueUnknownScale": "Bilinmeyen ölçek",
   "bridgeFeatureUnavailableTitle": "Geçici olarak kullanılamıyor",
   "bridgeFeatureUnavailableBody": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
   "geoRestrictedTitle": "Not available where you are",
