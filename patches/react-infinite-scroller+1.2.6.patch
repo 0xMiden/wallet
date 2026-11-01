@@ -15,7 +15,7 @@ diff --git a/node_modules/react-infinite-scroller/src/InfiniteScroll.js b/node_m
 index 332f7bd..d17bab6 100644
 --- a/node_modules/react-infinite-scroller/src/InfiniteScroll.js
 +++ b/node_modules/react-infinite-scroller/src/InfiniteScroll.js
-@@ -189,5 +189,8 @@ export default class InfiniteScroll extends Component {
+@@ -189,4 +189,7 @@ export default class InfiniteScroll extends Component {
    scrollListener() {
      const el = this.scrollComponent;
 +    if (!el) {
