@@ -1,12 +1,10 @@
 # Changelog
 
-## (TBD)
+## 1.17.11 (TBD)
 
 - [FIX][all] Detect storage loss and offer recovery from retained encrypted wallet data or a user-controlled recovery file (#1948).
 
 ## 1.17.10 (2026-11-01)
-
-### Changes
 
 - [FIX][all] Mainnet balances and accounts appear again after updating to 1.17.9: a wallet set up before 1.17.9 reopens the local store it was created in, which the move to the mainnet hosts had left behind (#2086).
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
