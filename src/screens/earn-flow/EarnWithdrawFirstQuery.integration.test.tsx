@@ -101,6 +101,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetMetadataSync: () => null,
   getSdkSyncedNativeAssetIdSync: () => null,
+  onNativeAssetChanged: () => () => {},
   captureNativeAssetSnapshot: () => ({ scope: 'testnet', revision: 1 })
 }));
 jest.mock('lib/miden/front', () => ({
