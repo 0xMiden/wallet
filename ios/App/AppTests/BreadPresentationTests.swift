@@ -2298,6 +2298,27 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 0, verticalVelocity: -1))
     }
 
+    func testRejectedCapsulePanDoesNotMinimizeFromTouchUpInside() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        let button = try capsule(live)
+        let pan = try XCTUnwrap(button.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.first)
+
+        button.sendActions(for: .touchDown)
+        XCTAssertTrue(live.presentation.state.effectiveVisibility)
+        XCTAssertNotNil(live.presentation.animator)
+        XCTAssertFalse(live.presentation.gestureRecognizerShouldBegin(pan))
+        button.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(plugin.minimizations.isEmpty,
+                      "a rejected capsule pan must not fall through to the button's minimize action")
+
+        let (tap, tapPlugin) = try await revealedMorph()
+        defer { tap.dispose() }
+        try capsule(tap).sendActions(for: .touchUpInside)
+        XCTAssertEqual(tapPlugin.minimizations.count, 1, "a normal capsule tap still minimizes")
+    }
+
     func testCapsulePullMapsDownwardDistanceToCollapseProgress() {
         XCTAssertEqual(BreadCapsuleDrag.progress(translationY: 90, distance: 300), 0.7, accuracy: 1e-9)
         XCTAssertGreaterThan(BreadCapsuleDrag.progress(translationY: -30, distance: 300), 1)
