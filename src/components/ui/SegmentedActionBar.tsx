@@ -18,6 +18,8 @@ export interface SegmentedActionBarItem {
 export interface SegmentedActionBarProps {
   items: SegmentedActionBarItem[];
   activeId: string;
+  /** Segment to display during a pager preview; taps still compare against `activeId`. */
+  displayId?: string | null;
   onChange: (id: string) => void;
   className?: string;
 }
@@ -97,10 +99,17 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
   );
 };
 
-export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
+export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
+  items,
+  activeId,
+  displayId,
+  onChange,
+  className
+}) => {
   const tabBarMotion = useTabBarMotion();
-  // The Home tab shown again takes its new segment at once, as the carousel under it does. One decision
-  // here drives the pill, the segments, the label and (below) the icon's own layout move.
+  // A preview moves the pill and displayed segment before the route changes; a Home tab shown again
+  // takes its new segment at once, as the carousel under it does.
+  const visualActiveId = displayId ?? activeId;
   const swap = useTabShownAgain();
   const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
@@ -125,7 +134,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
           scoped to this bar, so two mounted bars never trade pills. */}
       <Highlight
         controlledItems
-        value={activeId}
+        value={visualActiveId}
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
@@ -139,7 +148,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
           <Segment
             key={item.id}
             item={item}
-            active={item.id === activeId}
+            active={item.id === visualActiveId}
             onSelect={handleSelect}
             motionTokens={motionTokens}
             swap={swap}

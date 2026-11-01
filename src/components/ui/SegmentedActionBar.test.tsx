@@ -132,6 +132,33 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Swap')).toHaveAttribute('aria-selected', 'false');
   });
 
+  it('shows the preview while keeping tap no-ops tied to the committed route', () => {
+    const onChange = jest.fn();
+    const { rerender } = renderBar({ activeId: 'receive', onChange });
+    const previewProps: React.ComponentProps<typeof SegmentedActionBar> & { displayId: string } = {
+      items,
+      activeId: 'receive',
+      displayId: 'send',
+      onChange
+    };
+
+    rerender(<SegmentedActionBar {...previewProps} />);
+
+    expect(getTab('Send')).toHaveAttribute('aria-selected', 'true');
+    expect(getTab('Receive')).toHaveAttribute('aria-selected', 'false');
+    expect(pillIn(getTab('Send'))).not.toBeNull();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+
+    fireEvent.click(getTab('Send'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('send');
+    expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(getTab('Receive'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+  });
+
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
