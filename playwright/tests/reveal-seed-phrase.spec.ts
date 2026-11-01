@@ -76,6 +76,9 @@ test.describe('reveal recovery phrase', () => {
     await walletPage.getByTestId('Settings/RecoveryPhraseButton').click({ timeout: 10_000 });
     await walletPage.getByTestId('recovery-phrase-settings').waitFor({ state: 'visible', timeout: 10_000 });
 
+    await expect
+      .poll(() => walletPage.evaluate(() => document.documentElement.classList.contains('dark')))
+      .toBe(false);
     await walletPage.getByTestId('recovery-phrase-reveal').click({ timeout: 10_000 });
     const warningPage = walletPage.getByTestId('reveal-seed-warning');
     await warningPage.waitFor({ state: 'visible', timeout: 10_000 });
@@ -98,6 +101,9 @@ test.describe('reveal recovery phrase', () => {
 
     // The same pending-page assertion, repeated once in dark mode.
     await walletPage.evaluate(() => document.documentElement.classList.add('dark'));
+    await expect
+      .poll(() => walletPage.evaluate(() => document.documentElement.classList.contains('dark')))
+      .toBe(true);
     await viewButton.click({ timeout: 15_000 });
     await submitPasswordAndAssertNotBlank(walletPage);
     await walletPage.screenshot({ path: testInfo.outputPath('reveal-seed-phrase-dark.png') });
