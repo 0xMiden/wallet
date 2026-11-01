@@ -2452,6 +2452,14 @@
     "message": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
+  "swapBelowMinimum": {
+    "message": "スワップの対象として、少なくとも1ドル相当の資産を提供してください。",
+    "englishSource": "Offer at least $1 worth of assets to swap."
+  },
+  "swapMinimumPriceUnavailable": {
+    "message": "米ドル価格は現在利用できません。しばらくしてから再度お試しください。",
+    "englishSource": "The USD price is unavailable. Try again shortly."
+  },
   "swapPriceUnavailable": {
     "message": "価格が表示されません。しばらくしてからもう一度お試しください。",
     "englishSource": "Price unavailable. Try again shortly."
