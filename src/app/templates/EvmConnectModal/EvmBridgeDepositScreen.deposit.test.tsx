@@ -3806,7 +3806,9 @@ describe('user-visible bridge deposit producers', () => {
     mockDepositTokens = [WBTC_LISTING];
     answerBalance(FUNDED);
     const pending = holdBalanceReads();
-    const view = await renderSelectedAmount({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress });
+    const view = renderScreen();
+    await settle();
+    await chooseDepositToken({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress });
     const prior = requireHeldBalanceRead(pending, {
       url: 'https://rpc.test/11155111',
       method: 'eth_call',
