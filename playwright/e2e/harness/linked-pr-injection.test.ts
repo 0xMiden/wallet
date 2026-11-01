@@ -384,6 +384,14 @@ const workflowViolations = (file: string, text: string): string[] =>
       })
     : [];
 
+/**
+ * e2e-upgrade.yml updates a wallet from the previous release to the version under test. The previous release, and a
+ * `to` ref it names, install in checkouts of their own from their own lockfiles: what users installed, never a linked
+ * PR. Its harness checkout injects like every other job.
+ */
+const publishedCheckoutInstall = (file: string, step: Step): boolean =>
+  file === 'e2e-upgrade.yml' && ['previous', 'candidate'].includes(keyOf(step, 'working-directory') ?? '');
+
 const workflowFiles = readdirSync(workflowsDir)
   .filter(name => /\.ya?ml$/.test(name))
   .sort();
@@ -442,6 +450,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
         'e2e-resilience.yml resilience-chrome',
         'e2e-stress.yml stress-conservation',
         'e2e-telemetry.yml telemetry-egress',
+        'e2e-upgrade.yml upgrade',
         'e2e-usdcx.yml chrome-usdcx-arc',
         'e2e-usdcx.yml chrome-usdcx-l2',
         'pr-compile-surfaces.yml ios',
@@ -460,6 +469,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     const frozen = guardedJobs.flatMap(({ file, job }) =>
       job.steps
         .filter(step => step.lines.some(line => /yarn install --frozen-lockfile/.test(line)))
+        .filter(step => !publishedCheckoutInstall(file, step))
         .map(step => ({ entry: `${file} ${job.id}`, step, job }))
     );
     expect(frozen.map(({ entry }) => entry)).toEqual(expect.arrayContaining(['build-chrome.yml build']));
@@ -526,6 +536,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
+      'e2e-upgrade.yml upgrade: push 120, dispatch 165',
       'e2e-usdcx-live.yml mobile-usdcx-live: push 150, dispatch 235',
       'e2e-usdcx-live.yml mobile-usdcx-live-executor: push 200, dispatch 285',
       'e2e-usdcx.yml chrome-usdcx-arc: push 210, dispatch 240',
