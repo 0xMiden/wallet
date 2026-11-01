@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { UserRejectedRequestError } from 'viem';
 
 import { englishWordlist } from '@miden/hd-key';
+import { CctpQuoteRefusedError } from 'lib/usdcx/cctp';
 import { markReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
@@ -79,6 +80,19 @@ it('reads the library error from the cause the writer handed over, not the store
   expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', cause }, 'Service Unavailable')).toContain(
     '; via agglayer; failed at deposit_receipt; evm error http_503. '
   );
+});
+
+it('classifies a CCTP quote refusal by its fixed class without reporting provider details', () => {
+  const providerCode = 'private-provider-code';
+  const providerMessage = 'private provider response';
+  const refusal = new CctpQuoteRefusedError(providerCode, providerMessage);
+  const cause = walletRaised(new Error('Circle quote unavailable', { cause: refusal }));
+
+  const report = reportBridge({ route: 'usdcx', step: 'precheck_quote', cause }, cause);
+
+  expect(report).toContain('; via usdcx; failed at precheck_quote; evm error cctp_quote_refused. ');
+  expect(report).not.toContain(providerCode);
+  expect(report).not.toContain(providerMessage);
 });
 
 it('reports no answer for a failure the wallet raised, whose writer hands over no cause', () => {
