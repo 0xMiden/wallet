@@ -3090,6 +3090,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await exactToken.first().click({ timeout: STEP_TIMEOUT_MS });
     } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
+      // The drawer lists its rows after it opens: counting at once falls through to a row behind it.
+      await tokenRow
+        .first()
+        .waitFor({ state: 'attached', timeout: 10_000 })
+        .catch(() => {});
       const symbolRowCount = await tokenRow.count().catch(() => 0);
       if (symbolRowCount > 0) {
         await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
