@@ -205,6 +205,17 @@ it('backfills on each collection visit without SDK calls or balance snapshots', 
   nextVisit.unmount();
 });
 
+it('reads badge candidates through the bounded local provenance indexes', async () => {
+  const where = jest.spyOn(Repo.transactions, 'where');
+  await Repo.transactions.add(row({ status: ITransactionStatus.Completed, transactionId: undefined }));
+  const view = render(<MyBadges />);
+  await waitFor(() => expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true'));
+  expect(where).toHaveBeenCalledWith('[badgeNetwork+status+type+badgeEvidenceRevision]');
+  expect(where).toHaveBeenCalledWith('[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]');
+  expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+  view.unmount();
+});
+
 it('backfills recovered history only with locally proven Mainnet provenance', async () => {
   const recovered = row({
     status: ITransactionStatus.Completed,
