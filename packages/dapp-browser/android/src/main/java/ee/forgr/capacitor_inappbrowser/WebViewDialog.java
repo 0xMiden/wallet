@@ -2975,11 +2975,7 @@ public class WebViewDialog extends Dialog {
 
     @Override
     public void onBackPressed() {
-        if (pageHandlesBack()) {
-            _webView.goBack();
-        } else if (!_options.getDisableGoBackOnNativeApplication()) {
-            dismiss();
-        }
+        invokeBackWithoutPreview();
     }
 
     @Override
