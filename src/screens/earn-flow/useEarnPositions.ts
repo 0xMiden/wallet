@@ -170,6 +170,7 @@ export function useEarnPositions(): {
    * the error and reports false.
    */
   isLoading: boolean;
+  isRefreshing: boolean;
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
   errorDiagnostics?: UiEvidenceInput;
@@ -437,6 +438,7 @@ export function useEarnPositions(): {
       vaultsPending,
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
+      isRefreshing: onScreen && isValidating,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
       // of a misleading empty "$0 / no positions". Prefer the positions service's
       // own per-owner error; fall back to an SWR-level throw (e.g. the owner
@@ -462,6 +464,7 @@ export function useEarnPositions(): {
     configurationFailed,
     notOnNetwork,
     isValidating,
+    onScreen,
     mutate,
     depositProtocols
   ]);

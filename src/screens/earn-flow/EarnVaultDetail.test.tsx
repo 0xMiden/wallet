@@ -601,6 +601,7 @@ describe('EarnVaultDetail after a failed load', () => {
     mockLoadState = { isLoading: true };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();

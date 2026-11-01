@@ -22,6 +22,7 @@ import { EarnFlowHeader, EarnVaultClosedNotice } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -49,14 +50,14 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       settleRouteFlow('earn', flow => flow.cancel());
     };
   }, []);
-  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, isRefreshing, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   // The vaults come from the derivation's catalogue, which can settle after the positions read.
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
@@ -98,10 +99,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const hasAmount = amountValue > 0;
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
-  const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
+  const feeAssetMissing = !balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
   // Continue also needs the vault itself (the placeholder has no id to deposit into), a vault that accepts deposits
   // now, and Earn deposits to be up.
   const isValidAmount =
+    !balancesLoading &&
     earnDeposit.state === 'available' &&
     vault.canOpen !== false &&
     collateral !== null &&
@@ -117,15 +119,19 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
 
       {loadFailed && !found ? (
         <EarnLoadError
+          isRetrying={isRefreshing}
           onRetry={refetch}
           message={t('earnVaultLoadError')}
           errorId="earnVaultLoadError"
           className="mt-10 px-4"
         />
-      ) : pending ? null : (
+      ) : pending ? (
+        <EarnLoading />
+      ) : (
         <>
           {loadFailed && (
             <EarnLoadError
+              isRetrying={isRefreshing}
               onRetry={refetch}
               message={t('earnVaultLoadError')}
               errorId="earnVaultLoadError"
@@ -153,34 +159,38 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               />
             ))}
           <div className="min-h-0 flex-1">
-            <SelectAmount
-              accent="earn"
-              pageInset
-              showAmountDivider={false}
-              showBalanceHelper={collateral !== null}
-              token={token}
-              amount={amount}
-              isValidAmount={isValidAmount}
-              label={t('earnDepositAmountLabel')}
-              confirmTitle={t('confirm')}
-              showNetworkPill={false}
-              // Say WHY Continue is dead. Without this the user sees a positive,
-              // in-balance amount and a disabled button with no explanation — the
-              // send and swap flows both name the same condition. `SelectAmount`
-              // translates the key itself, so pass the key rather than the text.
-              errorId="insufficientFeeAsset"
-              error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
-              onAmountChange={setAmount}
-              onSelectToken={() => undefined}
-              onConfirm={() => {
-                if (isValidAmount) {
-                  handedOff.current = true;
-                  navigate(
-                    `/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}&collateral=${encodeURIComponent(token.id)}`
-                  );
-                }
-              }}
-            />
+            {balancesLoading || earnDeposit.state === 'loading' ? (
+              <EarnLoading />
+            ) : (
+              <SelectAmount
+                accent="earn"
+                pageInset
+                showAmountDivider={false}
+                showBalanceHelper={collateral !== null}
+                token={token}
+                amount={amount}
+                isValidAmount={isValidAmount}
+                label={t('earnDepositAmountLabel')}
+                confirmTitle={t('confirm')}
+                showNetworkPill={false}
+                // Say WHY Continue is dead. Without this the user sees a positive,
+                // in-balance amount and a disabled button with no explanation — the
+                // send and swap flows both name the same condition. `SelectAmount`
+                // translates the key itself, so pass the key rather than the text.
+                errorId="insufficientFeeAsset"
+                error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
+                onAmountChange={setAmount}
+                onSelectToken={() => undefined}
+                onConfirm={() => {
+                  if (isValidAmount) {
+                    handedOff.current = true;
+                    navigate(
+                      `/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}&collateral=${encodeURIComponent(token.id)}`
+                    );
+                  }
+                }}
+              />
+            )}
           </div>
         </>
       )}

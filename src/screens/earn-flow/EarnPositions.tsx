@@ -12,13 +12,14 @@ import { goBack, navigate } from 'lib/woozie';
 import { EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from './components';
 import { formatApy, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
 
   // A failed load must NOT read as "you have no positions / $0": with nothing to fall back on it
   // replaces the list; with last-good positions on screen (a failed refresh keeps them) they stay,
@@ -31,9 +32,17 @@ const EarnPositions: FC = () => {
 
   return (
     <SubPageLayout data-testid="earn-positions-page" title={t('earnPositionsTitle')} onBack={goBack}>
+      {isRefreshing && !pending && !loadFailed && <EarnLoading />}
       {showLoadError ? (
-        <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} className="mt-10" />
-      ) : pending ? null : empty ? (
+        <EarnLoadError
+          errorDiagnostics={errorDiagnostics}
+          isRetrying={isRefreshing}
+          onRetry={refetch}
+          className="mt-10"
+        />
+      ) : pending ? (
+        <EarnLoading />
+      ) : empty ? (
         <EmptyState
           surface="dashed"
           size="compact"
@@ -44,7 +53,9 @@ const EarnPositions: FC = () => {
         />
       ) : (
         <>
-          {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+          {loadFailed && (
+            <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+          )}
           <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
           {/* Cards in a list are separated by space, 12px, as on the tab root. */}

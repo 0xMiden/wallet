@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 /** Why an Earn deposit's CTA waits on its collateral: still being read, not to be had, or not the one reviewed. */
@@ -24,7 +25,11 @@ export function EarnCollateralNotice({
     <Notice
       tone="warning"
       icon={
-        <Icon name={reason === 'loading' ? IconName.Information : IconName.WarningFill} size="xs" fill="currentColor" />
+        reason === 'loading' ? (
+          <Spinner size="sm" />
+        ) : (
+          <Icon name={IconName.WarningFill} size="xs" fill="currentColor" />
+        )
       }
       className={className}
       data-testid="earn-collateral-notice"
