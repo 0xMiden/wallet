@@ -120,6 +120,7 @@ import {
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit
 } from './sdk-error-code';
+import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
@@ -625,14 +626,18 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
   const client: Promise<WasmWebClient> = Promise.resolve().then(async () => {
     assertStorageHealthy(storageEpoch);
     if (!ownsReader()) throw new Error('SDK reader owner replaced');
-    const storeName = await nativeStorageName(rpcUrl);
+    const nativeStoreName = await nativeStorageName(rpcUrl);
     assertStorageHealthy(storageEpoch);
     if (!ownsReader()) throw new Error('SDK reader owner replaced');
+    const sdkStoreName = await sdkStoreNameFor(rpcUrl);
+    assertStorageHealthy(storageEpoch);
+    if (!ownsReader()) throw new Error('SDK reader owner replaced');
+    const storeName = sdkStoreName ?? nativeStoreName;
     return WasmWebClient.createClient(
       rpcUrl,
       undefined,
       undefined,
-      undefined,
+      sdkStoreName,
       undefined,
       false,
       undefined,
@@ -736,7 +741,12 @@ export class MidenClientInterface {
       let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
       let created: MidenClient | undefined;
       try {
-        const storeName = await nativeStorageName(getEffectiveRpcUrl(), mock);
+        const rpcUrl = getEffectiveRpcUrl();
+        const sdkStoreName = mock ? undefined : await sdkStoreNameFor(rpcUrl);
+        assertCreation();
+        if (!ownsClient()) throw new Error('SDK client owner replaced');
+        const nativeStoreName = await nativeStorageName(rpcUrl, mock);
+        const storeName = sdkStoreName ?? nativeStoreName;
         assertCreation();
         if (!ownsClient()) throw new Error('SDK client owner replaced');
         const indexedDb = nativeStoragePolicy(storeName, ownsClient);
@@ -761,10 +771,11 @@ export class MidenClientInterface {
         const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
         const midenClient = await (assertCreation(),
         MidenClient.create({
+          ...(sdkStoreName ? { storeName: sdkStoreName } : {}),
           indexedDb,
           ...nativeNoteAcquisition(network, ownsClient, () => created),
           autoSync: false,
-          rpcUrl: getEffectiveRpcUrl(),
+          rpcUrl,
           noteTransportUrl: getEffectiveNoteTransportUrl(),
           noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
           seed: options.seed,
