@@ -1,17 +1,18 @@
 name: E2E Upgrade
 
-# Updates a mainnet wallet from the previous full release to the ref under test and checks that every account and
-# balance survives (#2086: 1.17.9 moved the mainnet RPC host, the SDK names its store after that host, and every
-# updated wallet opened an empty one). It builds both versions for mainnet, restores the two long-lived nightly
-# accounts on the previous release, then loads the build under test from the same extension path into the same
-# Chrome profiles, so Chrome treats it as an update of the same extension. In each phase every account must show
-# what the node holds for it.
+# Updates a mainnet wallet from the previous full release to the ref under test and checks that its account and every
+# balance survive (#2086: 1.17.9 moved the mainnet RPC host, the SDK names its store after that host, and every
+# updated wallet opened an empty one). It builds both versions for mainnet, restores the nightly's long-lived Guardian
+# account on the previous release, then loads the build under test from the same extension path into the same Chrome
+# profile, so Chrome treats it as an update of the same extension. The account is private and guarded, as every wallet
+# account is, so the node holds only its commitment: the build under test must show the vault the previous release
+# showed, while that commitment shows the account has not transacted.
 #
 # The release it updates from is the `from` input, else the release of the ref's own version when the ref is past it
 # (main after a release: what users run now), else the newest full release below that version. `to` builds another
 # ref than the one this file runs from, which is how an older pair is checked with the current harness (v1.17.8 to
-# v1.17.9 must fail). Release E2E (release-e2e.yml) dispatches it nightly and per release. It sends nothing (the
-# wallets run with auto-consume off), so it needs no lock against the mainnet nightly that spends these accounts.
+# v1.17.9 must fail). Release E2E (release-e2e.yml) dispatches it nightly and per release. It sends nothing: the
+# wallet runs with auto-consume off.
 
 on:
   workflow_dispatch:
@@ -29,6 +30,13 @@ on:
 
 permissions:
   contents: read
+
+# The mainnet nightly spends this account, and phase 1's vault is its only reference: a nightly send between the two
+# phases would read as a lost balance. A run waits for the other here; GitHub cancels an older run still pending when
+# a newer one queues in the group.
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
 
 jobs:
   upgrade:
@@ -61,7 +69,12 @@ jobs:
           set -euo pipefail
           version=$(jq -r .version "${CANDIDATE_DIR}/package.json")
           to=$(git -C "$CANDIDATE_DIR" rev-parse HEAD)
-          commit_of() { gh api "repos/${GITHUB_REPOSITORY}/commits/$1" --jq .sha 2>/dev/null || true; }
+          # gh prints an error body on stdout when the ref does not exist, so only a full SHA counts.
+          commit_of() {
+            local sha
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/$1" --jq .sha 2>/dev/null || true)
+            if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "$sha"; fi
+          }
           from="$FROM"
           if [ -z "$from" ]; then
             released=$(commit_of "v${version}")
@@ -169,14 +182,13 @@ jobs:
       # Both builds load from one path: an unpacked extension's id comes from its path, and its storage from its id.
       - name: Restore the accounts on the previous release
         env:
-          E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
           E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
           E2E_UPGRADE_VERSION: ${{ steps.previous.outputs.version }}
         run: |
           rm -rf "$RUNNER_TEMP/wallet-extension"
           cp -R "$RUNNER_TEMP/previous-extension" "$RUNNER_TEMP/wallet-extension"
           EXTENSION_DIST="$RUNNER_TEMP/wallet-extension" \
-            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" E2E_WALLET_B_PROFILE="$RUNNER_TEMP/profile-b" \
+            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" \
             E2E_UPGRADE_PHASE=before E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/upgrade-before \
             xvfb-run -a yarn playwright test mainnet-upgrade.spec.ts --config playwright.mainnet.config.ts
 
@@ -187,7 +199,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/wallet-extension"
           cp -R "$RUNNER_TEMP/candidate-extension" "$RUNNER_TEMP/wallet-extension"
           EXTENSION_DIST="$RUNNER_TEMP/wallet-extension" \
-            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" E2E_WALLET_B_PROFILE="$RUNNER_TEMP/profile-b" \
+            E2E_WALLET_A_PROFILE="$RUNNER_TEMP/profile-a" \
             E2E_UPGRADE_PHASE=after E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/upgrade-after \
             xvfb-run -a yarn playwright test mainnet-upgrade.spec.ts --config playwright.mainnet.config.ts
 
