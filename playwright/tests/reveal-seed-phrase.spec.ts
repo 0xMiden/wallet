@@ -72,6 +72,7 @@ test.describe('reveal recovery phrase', () => {
     await expect(profileTab).toBeVisible();
     await walletPage.evaluate(() => document.documentElement.classList.add('dark'));
     await walletPage.screenshot({ path: testInfo.outputPath('profile-settings-dark.png') });
+    await walletPage.evaluate(() => document.documentElement.classList.remove('dark'));
 
     await walletPage.getByTestId('Settings/RecoveryPhraseButton').click({ timeout: 10_000 });
     await walletPage.getByTestId('recovery-phrase-settings').waitFor({ state: 'visible', timeout: 10_000 });
