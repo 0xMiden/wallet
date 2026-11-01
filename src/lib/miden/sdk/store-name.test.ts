@@ -112,11 +112,38 @@ describe('sdkStoreNameFor', () => {
     expect(await storeNames()).toEqual(before);
   });
 
-  it('opens the SDK default when the stores cannot be listed', async () => {
+  it('opens the SDK default when the stores cannot be listed, and asks again on the next build', async () => {
     await createStore(CEDAR_MAINNET_STORE_NAME, ['0xaccount']);
-    jest.spyOn(indexedDB, 'databases').mockRejectedValue(new Error('denied'));
+    const databases = jest.spyOn(indexedDB, 'databases').mockRejectedValueOnce(new Error('denied'));
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBeUndefined();
+    await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBe(CEDAR_MAINNET_STORE_NAME);
+    expect(databases).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the SDK default when the listing never answers', async () => {
+    await createStore(CEDAR_MAINNET_STORE_NAME, ['0xaccount']);
+    jest.spyOn(indexedDB, 'databases').mockReturnValue(new Promise(() => undefined));
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
+    try {
+      const answer = sdkStoreNameFor(MAINNET_RPC);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await expect(answer).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('never creates a listed store that is already gone', async () => {
+    await createStore(CEDAR_MAINNET_STORE_NAME, ['0xaccount']);
+    // Listed, then deleted before the check opens it: opening it must not bring it back.
+    const listed = [CEDAR_MAINNET_STORE_NAME, MAINNET_DEFAULT_STORE_NAME].map(name => ({ name, version: 1 }));
+    jest.spyOn(indexedDB, 'databases').mockResolvedValue(listed);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBeUndefined();
+    jest.restoreAllMocks();
+    expect(await storeNames()).toEqual([CEDAR_MAINNET_STORE_NAME]);
   });
 
   it('answers once per realm', async () => {
