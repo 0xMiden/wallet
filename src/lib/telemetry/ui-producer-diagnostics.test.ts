@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
 import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
@@ -10,6 +13,23 @@ import {
   snapshotRecipientValidation
 } from './ui-producer-diagnostics';
 const evidence = { kind: 'pending_retry', pendingRetryReason: 'row_missing' } as const;
+it('loads producer diagnostics without loading transaction failure reporting', () => {
+  const source = readFileSync(join(__dirname, 'ui-producer-diagnostics.ts'), 'utf8');
+  expect(source).not.toMatch(/from\s+['"]\.\/transaction-failure['"]/);
+  jest.doMock('./transaction-failure', () => {
+    throw new Error('producer diagnostics loaded transaction failure reporting');
+  });
+  try {
+    expect(() =>
+      jest.isolateModules(() => {
+        jest.requireActual('./ui-producer-diagnostics');
+      })
+    ).not.toThrow();
+  } finally {
+    jest.dontMock('./transaction-failure');
+  }
+});
+
 it('binds the exact reporting root and pair, clearing invalid reused evidence', () => {
   const error = new Error('private');
   annotateCrash(error, { userErrorId: 'raw_pending_activity_retry_failed', userErrorSurface: 'notice' });

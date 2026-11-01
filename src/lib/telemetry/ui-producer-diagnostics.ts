@@ -2,7 +2,6 @@ import { BURN_FEE_FAILURES, type BurnFeeFailure } from 'lib/usdcx/burn-fee-failu
 
 import { classifyError } from './classify';
 import { closedDiagnosticPair, ownDiagnosticData } from './closed-root-diagnostics';
-import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 
 export const FEATURE_UNAVAILABLE_FEATURES = [
   'earnDeposit',
@@ -26,6 +25,31 @@ export const SUBMISSION_FEEDBACK_BRANCHES = [
   'guardian_unanswered',
   'grpc_unknown',
   'no_answer'
+] as const;
+export const SUBMIT_ENDPOINTS = [
+  'submit_proven_transaction',
+  'submit_proven_batch',
+  'get_transaction_encryption_key',
+  'other'
+] as const;
+export const SUBMIT_GRPC_STATUSES = [
+  'unavailable',
+  'internal',
+  'cancelled',
+  'aborted',
+  'data_loss',
+  'deadline_exceeded',
+  'unknown',
+  'not_found',
+  'invalid_argument',
+  'permission_denied',
+  'already_exists',
+  'resource_exhausted',
+  'failed_precondition',
+  'out_of_range',
+  'unimplemented',
+  'unauthenticated',
+  'other'
 ] as const;
 export type SubmissionRejectedEndpoint = (typeof SUBMIT_ENDPOINTS)[number];
 export type SubmissionRejectedStatus = (typeof SUBMIT_GRPC_STATUSES)[number];
