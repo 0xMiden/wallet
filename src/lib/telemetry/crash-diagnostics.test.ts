@@ -13,6 +13,7 @@ import {
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
   SECURITY_CHANGE_ACTIONS,
+  type StorageOperation,
   annotateCrash,
   backgroundAgeOf,
   readPageNavigation,
@@ -86,7 +87,6 @@ describe('source-bound crash diagnostics', () => {
         'get',
         'query',
         'count',
-        'cursor',
         'cursor_open',
         'cursor_iteration',
         'mutate',
@@ -110,7 +110,7 @@ describe('source-bound crash diagnostics', () => {
       ['STORAGE_OWNERS', ['wallet_transactions', 'wallet_limits', 'wallet_database']],
       [
         'STORAGE_OPERATIONS',
-        ['get', 'query', 'count', 'cursor', 'cursor_open', 'cursor_iteration', 'mutate', 'transaction', 'open']
+        ['get', 'query', 'count', 'cursor_open', 'cursor_iteration', 'mutate', 'transaction', 'open']
       ],
       ['PAGE_VISIBILITY', ['visible', 'hidden', 'unknown']]
     ];
@@ -121,6 +121,11 @@ describe('source-bound crash diagnostics', () => {
       expect(exported).toHaveLength(values.length);
       expect(new Set(exported)).toEqual(new Set(values));
     }
+  });
+
+  it('excludes generic cursor from the storage operation type', () => {
+    const genericCursorIsExcluded: [Extract<StorageOperation, 'cursor'>] extends [never] ? true : false = true;
+    expect(genericCursorIsExcluded).toBe(true);
   });
 
   it('rejects hostile and incompatible storage metadata without changing the failure', () => {
@@ -201,10 +206,10 @@ describe('source-bound crash diagnostics', () => {
         return ownerReads++ === 0 ? 'wallet_transactions' : 'poison';
       },
       get storageOperation() {
-        return operationReads++ === 0 ? 'cursor' : 'poison';
+        return operationReads++ === 0 ? 'cursor_open' : 'poison';
       }
     });
-    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor' };
+    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' };
     expect(ownerReads).toBe(1);
     expect(operationReads).toBe(1);
     expect(snapshotCrashDiagnostics(failure)).toEqual(pair);
@@ -226,7 +231,7 @@ describe('source-bound crash diagnostics', () => {
     const inner = new Error('inner');
     annotateCrash(inner, {
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'disabled'
@@ -303,7 +308,7 @@ describe('source-bound crash diagnostics', () => {
   });
 
   it('bounds hostile and oversized fixed error links', () => {
-    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor' };
+    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' };
     const leaf = new Error('leaf');
     annotateCrash(leaf, pair);
     let nested = leaf;
@@ -405,7 +410,7 @@ describe('source-bound crash diagnostics', () => {
     const cause = new Error('cause');
     annotateCrash(cause, {
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'disabled'
@@ -414,7 +419,7 @@ describe('source-bound crash diagnostics', () => {
     annotateCrash(outer, { stage: 'wasm_ready' });
     expect(snapshotCrashDiagnostics(outer)).toEqual({
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'wasm_ready',
       workerMode: 'disabled'
@@ -426,7 +431,7 @@ describe('source-bound crash diagnostics', () => {
       link: 'conflicting owners',
       wrap: cause => {
         const other = new Error('other owner');
-        annotateCrash(other, { storageOwner: 'wallet_limits', storageOperation: 'cursor' });
+        annotateCrash(other, { storageOwner: 'wallet_limits', storageOperation: 'cursor_open' });
         return Object.assign(new Error('aggregate', { cause }), { failures: [cause, other] });
       }
     },
@@ -472,7 +477,7 @@ describe('source-bound crash diagnostics', () => {
         Object.assign(new Error('aggregate', { cause }), {
           failures: Array.from({ length: 32 }, () => {
             const failure = new Error('entry');
-            annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+            annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
             return failure;
           })
         })
@@ -483,7 +488,7 @@ describe('source-bound crash diagnostics', () => {
       const cause = new Error('cause');
       annotateCrash(cause, {
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         operation: 'sdk_initialize',
         stage: 'client_create',
         workerMode: 'disabled'

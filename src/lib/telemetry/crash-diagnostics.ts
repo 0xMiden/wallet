@@ -165,7 +165,6 @@ export type StorageOperation =
   | 'get'
   | 'query'
   | 'count'
-  | 'cursor'
   | 'cursor_open'
   | 'cursor_iteration'
   | 'mutate'
@@ -178,7 +177,6 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
   'get',
   'query',
   'count',
-  'cursor',
   'cursor_open',
   'cursor_iteration',
   'mutate',
