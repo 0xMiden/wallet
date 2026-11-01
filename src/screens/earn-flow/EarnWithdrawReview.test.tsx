@@ -117,7 +117,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo">{symbol}</span>
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet={faucetId} />
+  )
 }));
 
 const position: EarnPosition = {
@@ -215,13 +217,13 @@ describe('EarnWithdrawReview', () => {
     // is hidden and the banner says it once.
     const banner = screen.getByRole('banner');
     expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
-    expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
     // The hero's figure is the quoted payout, carrying the native token as its compact unit, as on the deposit review.
     const hero = screen.getByRole('region', { name: 'youReceive' });
     expect(hero).toHaveTextContent('≈ 41.82USDCX');
     expect(within(hero).getByText('USDCX', { selector: '.text-title-page' })).toBeInTheDocument();
-    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDCX');
+    // The unit's logo is the quoted destination faucet's, the token the payout arrives as.
+    expect(within(hero).getByTestId('token-logo')).toHaveAttribute('data-faucet', 'faucet');
     expect(screen.getByText('earnWithdrawAll')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /details/ }));
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();

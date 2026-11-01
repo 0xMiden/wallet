@@ -129,7 +129,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
                   <AssetListItem
                     key={b.tokenId}
                     disabled={usdcxOnly && !isUsdcxWithdrawalAvailable(b.tokenId)}
-                    icon={<TokenLogo symbol={b.metadata.symbol} faucetId={b.tokenId} />}
+                    icon={<TokenLogo faucetId={b.tokenId} />}
                     name={name}
                     amount={
                       scaleIsKnown ? (

@@ -15,27 +15,23 @@ export const TEST_SWAP_TOKEN_DECIMALS = 8;
 export const TEST_TOKEN_IMIDEN: SwapToken = {
   symbol: 'IMIDEN',
   faucetId: 'mtst1ap6sq54y4ugv65g5rafvpmp2mg79kmry',
-  decimals: TEST_SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'MIDEN'
+  decimals: TEST_SWAP_TOKEN_DECIMALS
 };
 export const TEST_TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
   faucetId: 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0',
   decimals: TEST_SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH',
   priceSymbol: 'ETH'
 };
 export const TEST_TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
   faucetId: 'mtst1aqy5dx8uf0znr5fkmvyxduufqg33953u',
-  decimals: TEST_SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'IUSDT'
+  decimals: TEST_SWAP_TOKEN_DECIMALS
 };
 export const TEST_TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
   faucetId: 'mtst1azhcg3xy5lqfzy2xv6km5fw96qqklx5k',
   decimals: TEST_SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC',
   priceSymbol: 'BTC'
 };
 

@@ -288,7 +288,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         onBack={goBack}
         headerActions={
           found && (
-            <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+            <EarnAssetMark
+              asset={found.asset}
+              network={found.network}
+              faucetId={collateral?.faucetId}
+              fundingAsset={found.fundingAsset}
+              decorative
+            />
           )
         }
         footerLayout="stack"
@@ -343,7 +349,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               labelClassName={amountCaptionClassName}
               figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
               value={formatMoneyAmount(amount, 'typed')}
-              unit={<EarnAmountUnit symbol={depositSymbol} compact />}
+              unit={<EarnAmountUnit symbol={depositSymbol} faucetId={collateral?.faucetId} compact />}
               label={t('earnDepositAmountTitle')}
               meta={
                 collateral && (

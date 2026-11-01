@@ -3,6 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
@@ -30,6 +31,12 @@ export interface EarnSubject {
   fundingAsset?: string;
 }
 
+/**
+ * The Miden faucet of an Earn asset, which keys its logo. Earn spends the native USDCx and every position is in its
+ * route's USDC (`selectEarnCollateral`), so the asset's Miden faucet is the native one; undefined until it is read.
+ */
+export const useEarnAssetFaucetId = (): string | undefined => useNativeFeeFaucetId() ?? undefined;
+
 /** Earn's vaults are EVM-side, so anything that is not Miden itself takes the Ethereum mark. */
 const networkKind = (network: string): NetworkChipKind => (network.toLowerCase() === 'miden' ? 'miden' : 'ethereum');
 
@@ -44,17 +51,26 @@ const networkKind = (network: string): NetworkChipKind => (network.toLowerCase()
 export const EarnAssetMark: FC<{
   asset: string;
   network: string;
+  /** The Miden faucet of the asset, which keys its logo: Earn spends and returns the native USDCx. */
+  faucetId: string | undefined;
   fundingAsset?: string;
   decorative?: boolean;
   className?: string;
-}> = ({ asset: underlyingAsset, network: underlyingNetwork, fundingAsset, decorative = false, className }) => {
+}> = ({
+  asset: underlyingAsset,
+  network: underlyingNetwork,
+  faucetId,
+  fundingAsset,
+  decorative = false,
+  className
+}) => {
   const { t } = useTranslation();
   const asset = fundingAsset ?? underlyingAsset;
   const network = fundingAsset ? 'Miden' : underlyingNetwork;
 
   return (
     <span aria-hidden={decorative || undefined} className={classNames('flex shrink-0 items-center', className)}>
-      <TokenLogo symbol={asset} size="md" badge={<NetworkLogo kind={networkKind(network)} />} />
+      <TokenLogo faucetId={faucetId} size="md" badge={<NetworkLogo kind={networkKind(network)} />} />
       {!decorative && <span className="sr-only">{t('earnAssetOnNetwork', { asset, network })}</span>}
     </span>
   );
@@ -114,6 +130,7 @@ export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: bo
  *  itself. */
 export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
+  const assetFaucetId = useEarnAssetFaucetId();
 
   // No subject (loading, failed or unknown): the header names the route rather than a placeholder
   // vault, so the page keeps its h1.
@@ -128,6 +145,7 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
           <EarnAssetMark
             asset={subject.asset}
             network={subject.network}
+            faucetId={assetFaucetId}
             fundingAsset={subject.fundingAsset}
             decorative
           />
@@ -293,9 +311,13 @@ export const EarnSummaryPanel: FC<{
 /** The token a review's figure is denominated in: its mark and its symbol, on the unit type style
  *  that sits beside an entry. `compact` is the smaller line a label-first hero puts under its
  *  figure: the 24px mark and the page-title size. */
-export const EarnAmountUnit: FC<{ symbol: string; compact?: boolean }> = ({ symbol, compact = false }) => (
+export const EarnAmountUnit: FC<{ symbol: string; faucetId: string | undefined; compact?: boolean }> = ({
+  symbol,
+  faucetId,
+  compact = false
+}) => (
   <div className={classNames('flex items-center', compact ? 'mt-1 gap-1.5' : 'gap-1')}>
-    <TokenLogo symbol={symbol} size={compact ? 'sm' : 'md'} />
+    <TokenLogo faucetId={faucetId} size={compact ? 'sm' : 'md'} />
     <span className={classNames(compact ? 'text-title-page' : 'text-entry-unit', 'text-ink')}>{symbol}</span>
   </div>
 );

@@ -169,27 +169,6 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenBySymbol('IETH')?.faucetId).toBe(canonical(TEST_TOKEN_IETH.faucetId));
   });
 
-  it("draws a token under the mark of the asset its ticker names behind an 'I', else under its own ticker", () => {
-    const token = (ticker: string, last: string) => ({
-      faucetId: `0x00000000000000000000000000${last}`,
-      ticker,
-      decimals: 8
-    });
-    mockSnapshot.mockReturnValue(
-      listing({
-        tokens: [
-          token('IABC', '00ab'),
-          token('IETH', '00ac'),
-          token('IMIDEN', '00ad'),
-          token('USDCX', '00ae'),
-          token('BTC', '00af')
-        ],
-        pairs: []
-      })
-    );
-    expect(getSwapTokens().map(token => token.logoSymbol)).toEqual(['IABC', 'ETH', 'MIDEN', 'USDCX', 'BTC']);
-  });
-
   it.each([
     ['the document is still loading', UNLOADED],
     ['no document is accepted', NO_DOCUMENT],
@@ -211,8 +190,7 @@ describe('swap token registry accessor', () => {
       {
         symbol: 'MIDEN',
         faucetId: 'mtst1native',
-        decimals: 6,
-        logoSymbol: 'MIDEN'
+        decimals: 6
       },
       ...listed
     ]);
@@ -234,7 +212,7 @@ describe('swap token registry accessor', () => {
   });
 
   it('override replaces the registry for all readers', () => {
-    const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
+    const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS };
     mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
     _setSwapTokensForTest([t]);
     expect(getSwapTokens()).toEqual([t]);
@@ -383,9 +361,7 @@ describe('strictPriceSymbolFor', () => {
   });
 
   it('matches the bridge config before an overriding registry token that names the same faucet', () => {
-    _setSwapTokensForTest([
-      { symbol: 'IWETH', faucetId: MIDEN_AGGLAYER_FAUCET_ID, decimals: 8, logoSymbol: 'ETH', priceSymbol: 'USDC' }
-    ]);
+    _setSwapTokensForTest([{ symbol: 'IWETH', faucetId: MIDEN_AGGLAYER_FAUCET_ID, decimals: 8, priceSymbol: 'USDC' }]);
     try {
       expect(strictPriceSymbolFor(canonicalFaucetId(MIDEN_AGGLAYER_FAUCET_ID), 'IWETH')).toBe('ETH');
     } finally {
@@ -489,7 +465,7 @@ describe('getSwapTokenByFaucetId', () => {
   });
 
   it('reads through the overridden registry', () => {
-    const token = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
+    const token = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS };
     _setSwapTokensForTest([token]);
     expect(getSwapTokenByFaucetId('mtst1local')).toEqual(token);
     expect(getSwapTokenByFaucetId(TEST_TOKEN_IMIDEN.faucetId)).toBeUndefined();

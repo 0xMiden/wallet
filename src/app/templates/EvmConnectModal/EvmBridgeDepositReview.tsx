@@ -20,13 +20,14 @@ import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
-  /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
+  /** Token symbol: names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
   /** The token's name in the hero and rows, such as the testnet label (`evmUsdcLabel`). */
   label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   sourceQuote?: TokenPriceInfo;
+  /** The Miden faucet the deposit arrives in: it values the output and keys the hero's token logo. */
   outputFaucetId?: string;
   /** The symbol of the Miden faucet an Epoch deposit delivers into; the arriving token is named by it. */
   deliveredSymbol?: string;
@@ -183,7 +184,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           <Pill tone="neutral">{t('youAreDepositing')}</Pill>
           <Hero
             className="mt-2"
-            visual={<TokenLogo symbol={symbol} size="2xl" />}
+            visual={<TokenLogo faucetId={outputFaucetId} size="2xl" />}
             value={`${amount} ${name}`}
             subtitle={<UsdValue amount={amount} quote={sourceQuote} />}
           />
@@ -213,7 +214,10 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
         </DetailRow>
 
         <DetailRow label={t('to')} sub={destinationName}>
-          {t('miden')}
+          <span className="inline-flex items-center gap-2">
+            <NetworkLogo kind="miden" />
+            {t('miden')}
+          </span>
         </DetailRow>
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>

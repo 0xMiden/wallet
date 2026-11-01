@@ -61,24 +61,8 @@ jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({
-    symbol,
-    faucetId,
-    fallbackSymbol,
-    size
-  }: {
-    symbol: string;
-    faucetId?: string;
-    fallbackSymbol?: string;
-    size?: string;
-  }) => (
-    <span
-      data-testid="token-logo"
-      data-symbol={symbol}
-      data-faucet-id={faucetId}
-      data-fallback-symbol={fallbackSymbol}
-      data-size={size}
-    />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -251,9 +235,8 @@ describe('SelectAmount', () => {
       // Network pill (default showNetworkPill = true).
       expect(screen.getByText('miden')).toBeInTheDocument();
 
-      // Token logo defaults its symbol to token.name.
+      // The token's faucet keys its logo.
       const logo = screen.getByTestId('token-logo');
-      expect(logo).toHaveAttribute('data-symbol', 'USDC');
       expect(logo).toHaveAttribute('data-faucet-id', 't1');
       expect(logo).toHaveAttribute('data-size', 'sm');
 
@@ -505,13 +488,6 @@ describe('SelectAmount', () => {
       expect(onSelectToken).toHaveBeenCalledTimes(1);
     });
 
-    it('honors the logoSymbol override for the token logo', () => {
-      renderComponent({ logoSymbol: 'PSWAP' });
-      const logo = screen.getByTestId('token-logo');
-      expect(logo).toHaveAttribute('data-symbol', 'USDC');
-      expect(logo).toHaveAttribute('data-fallback-symbol', 'PSWAP');
-    });
-
     it('renders "select a token" text and no logo when no token is selected (page variant)', () => {
       renderComponent({ token: undefined });
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
@@ -665,13 +641,13 @@ describe('SelectAmount', () => {
     });
 
     it.each([true, false])(
-      'names the token by its label in the selector and the Available line, logo on its symbol (bridge: %s)',
+      'names the token by its label in the selector and the Available line, logo on its faucet (bridge: %s)',
       isBridge => {
         renderComponent({ isBridge, network: sepolia, tokenLabel: 'Test Epoch USDC' });
 
         expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('Test Epoch USDC');
         expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 Test Epoch USDC');
-        expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+        expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 't1');
       }
     );
 
