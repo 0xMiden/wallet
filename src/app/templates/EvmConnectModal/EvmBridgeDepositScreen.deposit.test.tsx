@@ -2213,11 +2213,9 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await typeAmount('ETH');
 
     expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
-    if (quantity === '0x') {
-      expect(screen.getByTestId('form-error')).not.toBeEmptyDOMElement();
-    } else {
-      expect(screen.getByTestId('form-error')).toHaveTextContent(/^ETH getBalance returned no quantity$/);
-    }
+    expect(screen.getByTestId('form-error')).toHaveTextContent(
+      quantity === '0x' ? /\S/ : /^ETH getBalance returned no quantity$/
+    );
     await expectContinueHeld();
   });
 
@@ -2232,19 +2230,22 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await expectContinueHeld();
   });
 
-  it.each(MALFORMED)('shows an unavailable Epoch native ETH balance for malformed getBalance quantity %p', async quantity => {
-    useEpochNativeEth();
-    answerEthQuantity(quantity);
-    await renderWallet();
-    act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
-    await settle();
-    fireEvent.click(screen.getByTestId('set-amount'));
-    await settle();
+  it.each(MALFORMED)(
+    'shows an unavailable Epoch native ETH balance for malformed getBalance quantity %p',
+    async quantity => {
+      useEpochNativeEth();
+      answerEthQuantity(quantity);
+      await renderWallet();
+      act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
+      await settle();
+      fireEvent.click(screen.getByTestId('set-amount'));
+      await settle();
 
-    expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
-    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
-    await expectContinueHeld();
-  });
+      expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
+      expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+      await expectContinueHeld();
+    }
+  );
 
   it('keeps a valid zero Epoch native ETH quantity as a known zero balance', async () => {
     useEpochNativeEth();
@@ -2579,21 +2580,24 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     );
   });
 
-  it.each(MALFORMED)('holds Continue on the shared ETH-plus-Epoch Fast route for malformed quantity %p', async quantity => {
-    mockAgglayerChainId = 11155111;
-    setEpochNativeEth();
-    quoteFast();
-    answerEthQuantity(quantity);
-    await renderWallet();
-    act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
-    await settle();
-    fireEvent.click(screen.getByTestId('set-amount-padded'));
-    await settle();
+  it.each(MALFORMED)(
+    'holds Continue on the shared ETH-plus-Epoch Fast route for malformed quantity %p',
+    async quantity => {
+      mockAgglayerChainId = 11155111;
+      setEpochNativeEth();
+      quoteFast();
+      answerEthQuantity(quantity);
+      await renderWallet();
+      act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
+      await settle();
+      fireEvent.click(screen.getByTestId('set-amount-padded'));
+      await settle();
 
-    expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
-    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
-    await expectContinueHeld();
-  });
+      expect(screen.getByTestId('form-balance')).toHaveTextContent(/^unavailable$/);
+      expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+      await expectContinueHeld();
+    }
+  );
 
   it('keeps a valid zero as a known balance on the shared ETH-plus-Epoch Fast route', async () => {
     mockAgglayerChainId = 11155111;
@@ -2643,29 +2647,32 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     }
   );
 
-  it.each([false, true])('keeps valid zero as a shared ETH-plus-Epoch Fast insufficient balance (native=%s)', async native => {
-    mockAgglayerChainId = 11155111;
-    setEpochNativeEth();
-    mockNativeReown = native;
-    quoteFast();
-    answerBalance(FUNDED);
-    await renderWallet();
-    act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
-    await settle();
-    await reachFastReview();
-    answerEthQuantity('0x0');
+  it.each([false, true])(
+    'keeps valid zero as a shared ETH-plus-Epoch Fast insufficient balance (native=%s)',
+    async native => {
+      mockAgglayerChainId = 11155111;
+      setEpochNativeEth();
+      mockNativeReown = native;
+      quoteFast();
+      answerBalance(FUNDED);
+      await renderWallet();
+      act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
+      await settle();
+      await reachFastReview();
+      answerEthQuantity('0x0');
 
-    fireEvent.click(screen.getByTestId('confirm-deposit'));
-    await settle();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
 
-    expectNoPrompt();
-    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
-      'bridge-tx',
-      'failed',
-      failedAt('precheck_balance', balanceTooLow('0', LABEL.ETH), 'bridgeDepositBalanceTooLow')
-    );
-  });
+      expectNoPrompt();
+      expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_balance', balanceTooLow('0', LABEL.ETH), 'bridgeDepositBalanceTooLow')
+      );
+    }
+  );
 
   // Every request is accepted and never answered: a fetch settles only when its signal aborts, as a real one does.
   describe('over an RPC that never answers', () => {
@@ -3812,7 +3819,9 @@ describe('user-visible bridge deposit producers', () => {
     await settle();
 
     expect(prior.signal?.aborted).toBe(true);
-    const current = pending.find(candidate => candidate !== prior && matchesBalanceRead(candidate, scenario.currentRead));
+    const current = pending.find(
+      candidate => candidate !== prior && matchesBalanceRead(candidate, scenario.currentRead)
+    );
     if (!current) throw new Error(`No replacement ERC-20 read matched ${scenario.name}`);
     expect(current.signal?.aborted).toBe(false);
 
