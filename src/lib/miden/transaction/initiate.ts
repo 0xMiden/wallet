@@ -1,4 +1,5 @@
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
+import { getMessage } from 'lib/i18n/core';
+import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -1299,11 +1300,16 @@ export const initiateSwitchGuardianTransaction = async (
  * + secureHotKey facade are only touched once we're actually processing the
  * tx) and persisted to the vault BEFORE submission. Cold-signed; default
  * `update_signers` threshold (1) means cold alone satisfies on-chain.
+ *
+ * `mode` selects the target signer set. `replace` (the default) removes the
+ * other device keys. `add` keeps them and adds the new hot key. The row
+ * records the mode, so a later run of the row uses the same mode.
  */
 export const initiateReplaceHotKeyTransaction = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  mode: HotKeyActivationMode = 'replace'
 ): Promise<string> => {
   const account = await resolveGuardianWalletAccount(
     accountId,
@@ -1315,8 +1321,26 @@ export const initiateReplaceHotKeyTransaction = async (
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
   // resolves (the account's own, else the network default), as the switch records its previous one.
   const guardianEndpoint = resolveGuardianEndpoint(account);
-  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  dbTransaction.extraInputs = guardianEndpoint ? { mode, guardianEndpoint } : { mode };
   return queueRecoveryChange(dbTransaction);
+};
+
+/** Queue removal of one device. The recovery key signs this account update. */
+export const initiateRevokeDeviceTransaction = async (
+  accountId: string,
+  commitment: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!/^0x[0-9a-f]{64}$/i.test(commitment)) throw new Error('Invalid signer commitment');
+  const account = await resolveGuardianWalletAccount(accountId, guardianProvider, 'Guardian account required');
+  const transaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  transaction.extraInputs = {
+    revokedSignerCommitment: commitment,
+    guardianEndpoint: resolveGuardianEndpoint(account)
+  };
+  transaction.displayMessage = getMessage('revokeDevice');
+  return queueRecoveryChange(transaction);
 };
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
@@ -1450,6 +1474,7 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
           row.type === transaction.type &&
           compareAccountIds(row.accountId, transaction.accountId) &&
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.revokedSignerCommitment === transaction.extraInputs?.revokedSignerCommitment &&
           row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
           row.extraInputs?.threshold === transaction.extraInputs?.threshold
       )

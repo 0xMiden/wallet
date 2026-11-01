@@ -5,9 +5,19 @@
  * store wrapper then dereferences (the exact drift this module exists to end).
  */
 
-import { WalletMessageType, WalletRequest } from 'lib/shared/types';
+import {
+  type BackupDeleteProfileRequest,
+  type BackupRefreshOutcome,
+  type BackupRefreshReason,
+  type BackupRefreshRequest,
+  WalletMessageType,
+  WalletRequest
+} from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
+
+const mockRefreshBackup = jest.fn(async (_reason: BackupRefreshReason): Promise<BackupRefreshOutcome> => 'updated');
+const mockDeleteBackup = jest.fn(async (): Promise<BackupRefreshOutcome> => 'unchanged');
 
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
@@ -21,7 +31,9 @@ jest.mock('lib/miden/back/actions', () => ({
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
-  unlock: (password: string) => mockUnlock(password)
+  unlock: (password: string) => mockUnlock(password),
+  refreshBackup: (reason: BackupRefreshReason) => mockRefreshBackup(reason),
+  deleteBackup: () => mockDeleteBackup()
 }));
 const mockStartTransactionProcessing = jest.fn(async () => undefined);
 jest.mock('lib/miden/back/transaction-processor', () => ({
@@ -107,6 +119,27 @@ describe('processInProcessRequest', () => {
       clearTimeout(timer);
     }
     expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  // The encrypted backup runs in this realm on mobile and desktop, so both backup messages need a case here.
+  it('BackupRefreshRequest runs the refresh of the named event and answers its outcome', async () => {
+    const req: BackupRefreshRequest = { type: WalletMessageType.BackupRefreshRequest, reason: 'foreground' };
+
+    const res = await processInProcessRequest(req, 'test-adapter');
+
+    expect(res).toEqual({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+    expect(mockRefreshBackup).toHaveBeenCalledWith('foreground');
+    expect(mockDeleteBackup).not.toHaveBeenCalled();
+  });
+
+  it('BackupDeleteProfileRequest deletes the backup profile and answers its outcome', async () => {
+    const req: BackupDeleteProfileRequest = { type: WalletMessageType.BackupDeleteProfileRequest };
+
+    const res = await processInProcessRequest(req, 'test-adapter');
+
+    expect(res).toEqual({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'unchanged' });
+    expect(mockDeleteBackup).toHaveBeenCalledTimes(1);
+    expect(mockRefreshBackup).not.toHaveBeenCalled();
   });
 
   it('a failed unlock does not kick transaction processing', async () => {

@@ -257,6 +257,10 @@ const sharedDefine = {
   // is 'true' (lib/explore-config/source.ts); empty by default, so every other build reads the repo.
   'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
   'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
+  // Loopback-only development override of the encrypted-backup service base URL (lib/backup/api-client.ts): an
+  // http://localhost or http://127.0.0.1 URL of a local Worker goes before the wallet-config document's
+  // backup.baseUrl; any other value is ignored. Empty by default, so every other build reads the document.
+  'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
   // exercising the real side panel / endpoint-override paths. Default 'false'

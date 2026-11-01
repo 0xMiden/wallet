@@ -112,6 +112,49 @@ describe('resolveRotationGateView: the view table', () => {
   });
 });
 
+describe('resolveRotationGateView: the device-role screen', () => {
+  it('shows first while a role is necessary and nothing exists to adopt, ahead of funding', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: true })).view).toBe('choose-role');
+    expect(resolveRotationGateView(input({ roleChoicePending: true, belowBaseFee: true })).view).toBe('choose-role');
+    // A finished rotation or claim is nothing to adopt.
+    expect(
+      resolveRotationGateView(
+        input({
+          roleChoicePending: true,
+          rotationRows: [row('old', { status: ITransactionStatus.Failed })],
+          fundingRows: [claim('claim-1', { status: ITransactionStatus.Completed })]
+        })
+      ).view
+    ).toBe('choose-role');
+  });
+
+  it('does not show without a pending choice', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: false })).view).toBe('rotating');
+    expect(resolveRotationGateView(input()).view).toBe('rotating');
+  });
+
+  it('gives way to a tracked row, a live rotation or a live claim, so a reload never asks twice', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: row('rotation-1') })).view).toBe(
+      'rotating'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: shortfall })).view).toBe('funding');
+    expect(resolveRotationGateView(input({ roleChoicePending: true, rotationRows: [row('rotation-1')] })).view).toBe(
+      'rotating'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, fundingRows: [claim('claim-1')] })).view).toBe(
+      'funding'
+    );
+  });
+
+  it('gives way to the recovery-seed prompt and to an init error', () => {
+    const awaitingSeed = row('rotation-1', { awaitingRecoverySeed: true });
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: awaitingSeed })).view).toBe(
+      'recovery-seed'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, initError: 'lock failed' })).view).toBe('failed');
+  });
+});
+
 describe('resolveRotationGateView: why the panel is up', () => {
   it('names the shortfall first, then the balance, then a claim alone', () => {
     const live = claim('claim-1');

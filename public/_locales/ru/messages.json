@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Это устройство было удалено из списка подписантов счёта и больше не может подписывать транзакции. Используйте фразу восстановления, чтобы снова сделать его основным устройством, или удалите кошелёк с этого устройства.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Это устройство было удалено из списка подписантов счёта и больше не может подписывать транзакции. Удалите кошелек с этого устройства. Вы можете восстановить доступ с помощью фразы восстановления.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Пройдите аутентификацию, чтобы отменить это устройство.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Отзыв обязательства подписанта",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Устройства",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Это устройство",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Отменить устройство",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Это устройство больше не сможет подписывать транзакции. Оно может восстановить доступ, если у него есть фраза восстановления.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Устройства, зарегистрированные для подписи по данному счету. Ключ восстановления не отображается.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Фраза восстановления, хранящаяся на этом устройстве, подтвердит отзыв.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Введите фразу восстановления, чтобы подтвердить отзыв. Она не будет сохранена на этом устройстве.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Не удаётся прочитать список устройств. Повторите попытку после синхронизации кошелька.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Устройство $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Устройство аннулировано",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Данное устройство было аннулировано",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Транзакция отзыва",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Сделайте резервную копию своей семенной фразы",
     "englishSource": "Back up your recovery phrase"
@@ -227,6 +296,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Ключ устройства сгенерирован заново",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Устройство добавлено",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Счёт защищён",
@@ -3709,6 +3782,14 @@
     "message": "Ваш повседневный ключ подвергается ротации. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Добавление этого устройства",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Это устройство получает свой собственный повседневный ключ, чтобы иметь возможность синхронизироваться и совершать транзакции.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Сбой ежедневной ротации ключей",
     "englishSource": "Everyday key rotation failed"
@@ -3756,6 +3837,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Удалить кошелек с этого устройства",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Как это устройство должно подключаться к вашему кошельку?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Это устройство получает свой собственный повседневный ключ. С счета взимается небольшая сетевая комиссия.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "У вас уже есть $count$ устройств с этим кошельком",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "У вас уже есть 1 устройство с этим кошельком",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Добавить это устройство",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Сделать это устройство основным",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Все остальные устройства удаляются из этого кошелька",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Сохранить фразу восстановления на этом устройстве?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Ежедневные транзакции на этом устройстве выполняются без использования фразы восстановления. При смене «Guardian» и повседневной замене ключа вам будет предложено ввести эту фразу. Запишите её, прежде чем удалить.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Удалить фразу восстановления",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Храните его на этом устройстве",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Ежедневная ротация ключей не подтверждена",

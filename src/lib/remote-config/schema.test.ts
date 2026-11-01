@@ -196,6 +196,67 @@ describe('features.arcadeGcPurchase and arcade.sale', () => {
   });
 });
 
+describe('features.encryptedBackup and backup.baseUrl', () => {
+  const baseUrl = 'https://wallet-api.example.workers.dev';
+  const on = (backup: ConfigValue) => doc({ features: { earn: true, encryptedBackup: true }, backup });
+
+  it('is left out when absent, so the backup is off, and has no section', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed?.features.encryptedBackup).toBeUndefined();
+    expect(parsed?.backup).toBeUndefined();
+  });
+
+  it('reads the section while the switch is on', () => {
+    const parsed = parseBridgeConfig(on({ baseUrl }), 'testnet');
+    expect(parsed?.features.encryptedBackup).toBe(true);
+    expect(parsed?.backup).toEqual({ baseUrl });
+    expect(parseBridgeConfig(on({ baseUrl: `${baseUrl}/v1` }), 'testnet')?.backup).toEqual({
+      baseUrl: `${baseUrl}/v1`
+    });
+  });
+
+  it('lower-cases the host and drops a default port, as the config repo validator does', () => {
+    expect(
+      parseBridgeConfig(on({ baseUrl: 'https://Wallet-API.Example.workers.dev:443/v1' }), 'testnet')?.backup
+    ).toEqual({ baseUrl: `${baseUrl}/v1` });
+  });
+
+  it('keeps an explicit off without a section', () => {
+    const parsed = parseBridgeConfig(doc({ features: { earn: true, encryptedBackup: false } }), 'testnet');
+    expect(parsed?.features.encryptedBackup).toBe(false);
+    expect(parsed?.backup).toBeUndefined();
+  });
+
+  it.each([
+    ['the switch on without a section', { features: { earn: true, encryptedBackup: true } }],
+    ['a section while the switch is off', { features: { earn: true, encryptedBackup: false }, backup: { baseUrl } }],
+    ['a section while the switch is absent', { backup: { baseUrl } }],
+    ['a section with no base URL', { features: { earn: true, encryptedBackup: true }, backup: {} }],
+    ['a nonboolean switch', { features: { earn: true, encryptedBackup: 'true' }, backup: { baseUrl } }],
+    ['a section that is not an object', { features: { earn: true, encryptedBackup: true }, backup: baseUrl }]
+  ])('rejects %s', (_name, overrides) => {
+    expect(parseBridgeConfig(doc(overrides), 'testnet')).toBeNull();
+  });
+
+  it.each([
+    ['an http URL', 'http://wallet-api.example.workers.dev'],
+    ['a loopback http URL', 'http://127.0.0.1:8787'],
+    ['a trailing slash', `${baseUrl}/`],
+    ['a path with a trailing slash', `${baseUrl}/backup/`],
+    ['a query', `${baseUrl}?network=testnet`],
+    ['an empty query', `${baseUrl}?`],
+    ['a fragment', `${baseUrl}#backup`],
+    ['credentials', 'https://user:secret@wallet-api.example.workers.dev'],
+    ['a relative URL', '/v1'],
+    ['another scheme', 'wss://wallet-api.example.workers.dev'],
+    ['a number', 8787]
+  ])('rejects a base URL with %s', (_name, value) => {
+    expect(parseBridgeConfig(on({ baseUrl: value }), 'testnet')).toBeNull();
+    // The E2E local http allowance of the other URLs does not reach this one.
+    expect(parseBridgeConfig(on({ baseUrl: value }), 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
 describe('features.nearIntents', () => {
   it('defaults to false when absent and accepts an explicit true', () => {
     expect(parseBridgeConfig(doc(), 'testnet')?.features.nearIntents).toBe(false);

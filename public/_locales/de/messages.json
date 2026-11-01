@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr unterzeichnen. Verwenden Sie die Wiederherstellungsphrase, um es wieder zum Hauptgerät zu machen, oder entfernen Sie die Wallet von diesem Gerät.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr signieren. Entfernen Sie die Wallet von diesem Gerät. Sie können den Zugriff mit der Wiederherstellungsphrase wiederherstellen.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authentifizieren Sie sich, um dieses Gerät zu widerrufen.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Widerruf der Verpflichtung des Unterzeichners",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Geräte",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Dieses Gerät",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Gerät widerrufen",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Dieses Gerät kann keine Transaktionen mehr signieren. Der Zugriff kann wiederhergestellt werden, wenn die Wiederherstellungsphrase vorliegt.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Geräte, die für die Signatur dieses Kontos registriert sind. Der Wiederherstellungsschlüssel wird nicht angezeigt.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Die auf diesem Gerät gespeicherte Wiederherstellungsphrase genehmigt die Widerrufung.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Geben Sie die Wiederherstellungsphrase ein, um den Widerruf zu bestätigen. Sie wird nicht auf diesem Gerät gespeichert.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Die Geräteliste kann nicht gelesen werden. Versuchen Sie es erneut, nachdem die Wallet synchronisiert wurde.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Gerät $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Gerät gesperrt",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Dieses Gerät wurde gesperrt",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Widerrufstransaktion",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Sichern Sie Ihre Seed-Phrase",
     "englishSource": "Back up your recovery phrase"
@@ -227,6 +296,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Geräteschlüssel rotiert",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Gerät hinzugefügt",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Konto gesichert",
@@ -3709,6 +3782,14 @@
     "message": "Dein Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn du ein wiederhergestelltes Konto einrichtest, damit es synchronisiert werden und Transaktionen durchführen kann.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Hinzufügen dieses Geräts",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Dieses Gerät erhält einen eigenen Alltagsschlüssel, damit es sich synchronisieren und Transaktionen durchführen kann.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Die tägliche Schlüsselrotation ist fehlgeschlagen",
     "englishSource": "Everyday key rotation failed"
@@ -3756,6 +3837,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Entfernen Sie die Wallet von diesem Gerät",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Wie sollte dieses Gerät in Ihre Wallet integriert werden?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Dieses Gerät erhält einen eigenen Tages-Schlüssel. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Sie besitzen bereits $count$ Geräte mit dieser Wallet",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Sie besitzen bereits 1 Gerät mit dieser Wallet",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Dieses Gerät hinzufügen",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Jedes andere Gerät wird aus dieser Wallet entfernt",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Die Wiederherstellungsphrase auf diesem Gerät behalten?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Tägliche Transaktionen funktionieren auf diesem Gerät ohne die Wiederherstellungsphrase. Bei Guardian-Änderungen und beim täglichen Schlüsselwechsel werden Sie aufgefordert, diese einzugeben. Notieren Sie sie sich, bevor Sie sie entfernen.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Wiederherstellungsphrase entfernen",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bewahren Sie es auf diesem Gerät auf",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",

@@ -170,6 +170,97 @@ describe('useWalletStore', () => {
       expect(state.isInitialized).toBe(true);
       expect(state.lastSyncedAt).toBeGreaterThan(0);
     });
+
+    // The encrypted backup reads its storage index on unlock, once per transition to Ready.
+    describe('the backup refresh on unlock', () => {
+      const backendState = (status: WalletStatus) => ({
+        status,
+        accounts: [],
+        currentAccount: null,
+        networks: [],
+        settings: null,
+        ownMnemonic: true
+      });
+      const backupRefreshCalls = () =>
+        mockRequest.mock.calls.filter(([req]) => req?.type === WalletMessageType.BackupRefreshRequest);
+
+      beforeEach(() => {
+        mockRequest.mockResolvedValue({ type: WalletMessageType.BackupRefreshResponse, outcome: 'unchanged' });
+      });
+
+      it('asks for an unlock refresh when the wallet turns Ready', () => {
+        useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toEqual([[{ type: WalletMessageType.BackupRefreshRequest, reason: 'unlock' }]]);
+      });
+
+      it('does not ask again for a sync that finds the wallet Ready already', () => {
+        const { syncFromBackend } = useWalletStore.getState();
+        syncFromBackend(backendState(WalletStatus.Ready));
+        syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toHaveLength(1);
+      });
+
+      it('does not ask while the wallet is locked', () => {
+        useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Locked));
+
+        expect(backupRefreshCalls()).toHaveLength(0);
+      });
+
+      it('asks again after a lock and a new unlock', () => {
+        const { syncFromBackend } = useWalletStore.getState();
+        syncFromBackend(backendState(WalletStatus.Ready));
+        syncFromBackend(backendState(WalletStatus.Locked));
+        syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toHaveLength(2);
+      });
+
+      it('logs a failed unlock refresh and does not throw', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = new Error('backend gone');
+        mockRequest.mockRejectedValueOnce(failure);
+        try {
+          expect(() => useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Ready))).not.toThrow();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(warn).toHaveBeenCalledWith('[syncFromBackend] the backup refresh on unlock failed:', failure);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+    });
+  });
+
+  describe('encrypted backup actions', () => {
+    it('refreshBackup sends the event and returns the outcome', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().refreshBackup('address-book')).resolves.toBe('updated');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.BackupRefreshRequest,
+        reason: 'address-book'
+      });
+    });
+
+    it('refreshBackup rejects a response of another type', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().refreshBackup('foreground')).rejects.toThrow();
+    });
+
+    it('deleteBackup sends the delete request and returns the outcome', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'disabled' });
+
+      await expect(useWalletStore.getState().deleteBackup()).resolves.toBe('disabled');
+      expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.BackupDeleteProfileRequest });
+    });
+
+    it('deleteBackup rejects a response of another type', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().deleteBackup()).rejects.toThrow();
+    });
   });
 
   // The Guardian cold key has no import path, so nothing may request it: the

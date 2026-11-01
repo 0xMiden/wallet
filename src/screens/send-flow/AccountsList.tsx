@@ -4,12 +4,15 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { Loader } from 'components/Loader';
 import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SearchInput } from 'components/ui/SearchInput';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { contactNetwork, contactNetworkName } from 'screens/contacts/contact-network';
 import { truncateAddress } from 'utils/string';
@@ -44,6 +47,30 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
+  const refreshBackup = useWalletStore(state => state.refreshBackup);
+  const [refreshing, setRefreshing] = useState(open);
+
+  useEffect(() => {
+    if (!open) {
+      setRefreshing(false);
+      return;
+    }
+    let cancelled = false;
+    setRefreshing(true);
+    const refresh = async () => {
+      try {
+        await refreshBackup('address-book');
+      } catch (error) {
+        console.warn('[AccountsListDrawer] the backup contacts refresh failed:', error);
+      } finally {
+        if (!cancelled) setRefreshing(false);
+      }
+    };
+    refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, refreshBackup]);
   const query = searchQuery.trim().toLowerCase();
 
   // The component stays mounted while the sheet is closed, so a search would
@@ -88,7 +115,15 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
           <DrawerTitle>{t('addressBook')}</DrawerTitle>
         </DrawerHeader>
         <div className="flex h-120 min-h-0 flex-col px-4 pb-4" data-testid="send-contacts-list">
-          {accounts.length === 0 ? (
+          {refreshing && (
+            <Notice variant="inline" role="status" data-testid="send-contacts-loading">
+              <span className="flex items-center gap-2">
+                <Loader size="xs" />
+                {t('loading')}
+              </span>
+            </Notice>
+          )}
+          {accounts.length === 0 && refreshing ? null : accounts.length === 0 ? (
             <EmptyState
               data-testid="send-contacts-empty"
               className="flex-1"

@@ -143,6 +143,14 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+// The real module, except the hot-key commitment, which needs the SDK's key decoder. A case steers it to name
+// THIS DEVICE's signer (multi-device: the signer set can hold one hot key per device).
+const mockCommitmentFromPublicKeyHex = jest.fn<Promise<string>, [string]>();
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: (publicKeyHex: string) => mockCommitmentFromPublicKeyHex(publicKeyHex)
+}));
+
 const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -2146,6 +2154,112 @@ describe('requestPermission (mobile)', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
     expectAskedAgainWith('Account not found');
+  });
+});
+
+// ── Connect hands the dApp THIS DEVICE's hot key (multi-device) ────
+
+describe('requestPermission (mobile) picks the signer by membership, never by slot', () => {
+  // An added device follows the earlier devices in the signer set, so slot 0 is another device's key.
+  const OTHER_DEVICE_BYTES = new Uint8Array(32).fill(0xcd);
+  const OWN_DEVICE_BYTES = new Uint8Array(32).fill(0xab);
+  const OWN_HOT_PUBLIC_KEY = `02${'11'.repeat(32)}`;
+  const signer = (bytes: Uint8Array) => ({
+    serialize: () => bytes,
+    toHex: () => `0x${Buffer.from(bytes).toString('hex')}`
+  });
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+
+  const mockFetchAccounts = jest.fn<Promise<Array<{ publicKey: string; hotPublicKey?: string }>>, []>();
+
+  const connect = (origin: string) =>
+    dapp.requestPermission(origin, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Multi Device Dapp' },
+      network: WalletAdapterNetwork.Testnet
+    });
+
+  beforeEach(() => {
+    mockCommitmentFromPublicKeyHex.mockReset().mockResolvedValue(`0x${Buffer.from(OWN_DEVICE_BYTES).toString('hex')}`);
+    mockFetchAccounts
+      .mockReset()
+      .mockResolvedValue([{ publicKey: 'miden-account-1', hotPublicKey: OWN_HOT_PUBLIC_KEY }]);
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
+      fn({ vault: { fetchAccounts: mockFetchAccounts } })
+    );
+    mockGetAccount.mockResolvedValue({
+      getPublicKeyCommitments: () => [signer(OTHER_DEVICE_BYTES), signer(OWN_DEVICE_BYTES)]
+    });
+  });
+
+  it("returns this device's hot key when another device holds slot 0", async () => {
+    const res = await connect('https://multi-device-1.xyz');
+
+    expect(res.publicKey).toBe(b64(OWN_DEVICE_BYTES));
+    expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith(OWN_HOT_PUBLIC_KEY);
+    expect((storageState[STORAGE_KEY] as Record<string, unknown>)['https://multi-device-1.xyz']).toEqual([
+      expect.objectContaining({ accountId: 'miden-account-1', publicKey: b64(OWN_DEVICE_BYTES) })
+    ]);
+  });
+
+  it('keeps the signer order when the wallet record has no hot key', async () => {
+    mockFetchAccounts.mockResolvedValue([{ publicKey: 'miden-account-1' }]);
+
+    const res = await connect('https://multi-device-2.xyz');
+
+    expect(res.publicKey).toBe(b64(OTHER_DEVICE_BYTES));
+    expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
+  });
+
+  it('does not use the hot key of another wallet account', async () => {
+    mockFetchAccounts.mockResolvedValue([{ publicKey: 'miden-account-2', hotPublicKey: OWN_HOT_PUBLIC_KEY }]);
+
+    const res = await connect('https://multi-device-3.xyz');
+
+    expect(res.publicKey).toBe(b64(OTHER_DEVICE_BYTES));
+    expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the signer order when the commitment cannot be derived', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length 3 (expected 33)'));
+    try {
+      const res = await connect('https://multi-device-4.xyz');
+
+      expect(res.publicKey).toBe(b64(OTHER_DEVICE_BYTES));
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not derive this device hot-key commitment'),
+        expect.any(Error)
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('falls back to the signer order when the wallet accounts cannot be read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFetchAccounts.mockRejectedValue(new Error('vault read failed'));
+    try {
+      const res = await connect('https://multi-device-5.xyz');
+
+      expect(res.publicKey).toBe(b64(OTHER_DEVICE_BYTES));
+      expect(mockGetAccount).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reads the hot key before it takes the WASM lock, outside the hold', async () => {
+    let readInsideHold = false;
+    mockFetchAccounts.mockImplementation(async () => {
+      readInsideHold = currentWasmHold !== null;
+      return [{ publicKey: 'miden-account-1', hotPublicKey: OWN_HOT_PUBLIC_KEY }];
+    });
+
+    await connect('https://multi-device-6.xyz');
+
+    expect(mockFetchAccounts).toHaveBeenCalledTimes(1);
+    expect(readInsideHold).toBe(false);
   });
 });
 

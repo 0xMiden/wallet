@@ -59,6 +59,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
   const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
+  // Encrypted backup (wallet-api): the backend holds the keys, these name the event.
+  const refreshBackup = useWalletStore(s => s.refreshBackup);
+  const deleteBackup = useWalletStore(s => s.deleteBackup);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
@@ -434,6 +437,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     exportWalletBackupMaterial,
     removeSeedPhrase,
     provideRecoverySeed,
+    refreshBackup,
+    deleteBackup,
     removeAccount,
     editAccountName,
     importAccount,

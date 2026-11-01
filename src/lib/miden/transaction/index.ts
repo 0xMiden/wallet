@@ -3797,10 +3797,29 @@ const generateGuardianTransaction = async (
       // The key is resolved once, outside the retried call, so every attempt proposes
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
+      if (rTx.extraInputs.revokedSignerCommitment) {
+        const target = rTx.extraInputs.revokedSignerCommitment;
+        if (!walletAccount.hotPublicKey || !walletAccount.coldPublicKey) {
+          throw new Error('Device and recovery public keys are required');
+        }
+        const hotPublicKey = walletAccount.hotPublicKey;
+        const coldPublicKey = walletAccount.coldPublicKey;
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createRevokeDeviceProposal(target, hotPublicKey, coldPublicKey)
+        );
+        break;
+      }
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createReplaceHotKeyProposal(sdkAccount, commitmentHex)
-      );
+      // The mode selects the target signer set. A row without a mode is from before
+      // the field existed, and it is a replace.
+      proposalResult = await withGuardianConflictRetry(() => {
+        switch (rTx.extraInputs?.mode) {
+          case 'add':
+            return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
+          default:
+            return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+        }
+      });
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {

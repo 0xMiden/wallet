@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请使用恢复短语将其重新设为主设备，或从该设备中移除该钱包。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "该设备已从账户的签名人列表中移除，无法再对交易进行签名。请将钱包从该设备中移除。您可以使用助记词恢复访问权限。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "请进行身份验证以撤销此设备的权限。",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "撤销签名人承诺",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "设备",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "该设备",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "撤销设备",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "该设备将无法再对交易进行签名。若持有恢复短语，则可重新获得访问权限。",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "已注册用于为该账户签名的设备。恢复密钥不会显示。",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "存储在此设备上的恢复短语将批准撤销操作。",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "输入恢复短语以批准撤销操作。该短语不会保存在本设备上。",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "无法读取设备列表。请在钱包同步完成后重试。",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "设备 $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "设备已撤销",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "该设备已被撤销",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "撤销交易",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "备份您的助记词",
     "englishSource": "Back up your recovery phrase"
@@ -227,6 +296,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "设备密钥已轮换",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "已添加设备",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "账户已受保护",
@@ -3709,6 +3782,14 @@
     "message": "您的日常密钥正在轮换。这是在设置已恢复的账户时必需的步骤，以便该账户能够同步并进行交易。",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "添加此设备",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "该设备将获得专属的日常密钥，以便进行同步和交易。",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "日常密钥轮换失败",
     "englishSource": "Everyday key rotation failed"
@@ -3756,6 +3837,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "从该设备中移除钱包",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "该设备应如何接入您的钱包？",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "该设备拥有专属的日常密钥。账户将支付一笔小额网络手续费。",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "您已有 $count$ 台配备此钱包的设备",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "您已拥有 1 台与该钱包关联的设备",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "添加此设备",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "将此设备设为主设备",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "该钱包中已移除所有其他设备",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "将恢复短语保存在此设备上吗？",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "在该设备上进行日常交易无需使用恢复短语。但更换“Guardian”或进行日常密钥替换时，系统会要求您输入该短语。请在移除恢复短语前将其记录下来。",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "删除恢复短语",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "请将其保存在此设备上",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "每日密钥轮换尚未得到证实",

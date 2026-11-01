@@ -26,6 +26,7 @@ import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 import { preloadStorage } from './storage';
 import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
+import { useBackupForegroundRefresh } from './useBackupForegroundRefresh';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
@@ -199,6 +200,8 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   // that arrived while backgrounded appears promptly instead of after the poll
   // intervals elapse (#462). No-op off mobile.
   useForegroundRefresh();
+  // The encrypted backup reads its storage index when the wallet comes to the foreground.
+  useBackupForegroundRefresh();
 
   return useMemo(
     () =>

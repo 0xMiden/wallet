@@ -14,6 +14,7 @@ import {
   getAgglayerL1Bridge,
   getAgglayerMidenBridge,
   getAgglayerRollupId,
+  getBackupBaseUrl,
   getEarnMarket,
   getEarnVaults,
   getEpochAllocatorUrl,
@@ -24,6 +25,7 @@ import {
   getEvmUsdc,
   getEvmUsdcAddress,
   getMidenUsdc,
+  selectBackupBaseUrl,
   selectEarnMarket,
   selectEarnVault,
   selectEarnVaultCatalog,
@@ -381,6 +383,40 @@ describe('the Earn vaults', () => {
     expect(getEarnVaults()).toEqual([vault]);
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(getEarnVaults()).toEqual([]);
+  });
+});
+
+describe('the encrypted backup base URL', () => {
+  const BACKUP_URL = 'https://wallet-api.example.workers.dev';
+  const on = snapshot({
+    ...CONFIG,
+    features: { ...CONFIG.features, encryptedBackup: true },
+    backup: { baseUrl: BACKUP_URL }
+  });
+
+  it("selects the document's URL while the switch is on", () => {
+    expect(selectBackupBaseUrl(on)).toBe(BACKUP_URL);
+  });
+
+  it('selects null while no document is accepted, or while the switch is off or absent', () => {
+    expect(selectBackupBaseUrl(EMPTY)).toBeNull();
+    expect(selectBackupBaseUrl(snapshot())).toBeNull();
+    expect(
+      selectBackupBaseUrl(
+        snapshot({
+          ...CONFIG,
+          features: { ...CONFIG.features, encryptedBackup: false },
+          backup: { baseUrl: BACKUP_URL }
+        })
+      )
+    ).toBeNull();
+  });
+
+  it("reads this realm's URL without throwing", () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(on);
+    expect(getBackupBaseUrl()).toBe(BACKUP_URL);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(getBackupBaseUrl()).toBeNull();
   });
 });
 

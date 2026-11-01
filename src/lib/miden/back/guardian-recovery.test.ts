@@ -1,5 +1,6 @@
 import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-client';
 
+import { restoreHistoryFromBackup } from 'lib/backup/refresh';
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
@@ -55,7 +56,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: (fn: () => unknown) => fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({
-  getSignerDetailsFromAccount: jest.fn().mockResolvedValue({ commitment: 'commitment' }),
+  findOwnSignerCommitment: jest.fn().mockResolvedValue('0xcommitment'),
   resolveGuardianEndpoint: jest.fn().mockReturnValue('https://guardian.test')
 }));
 jest.mock('lib/miden/guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
@@ -87,6 +88,8 @@ jest.mock('lib/miden-chain/constants', () => {
   };
 });
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
+// The encrypted backup gives no history unless a test says so: the Guardian history pass runs.
+jest.mock('lib/backup/refresh', () => ({ restoreHistoryFromBackup: jest.fn().mockResolvedValue(false) }));
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
@@ -335,6 +338,23 @@ describe('notes before a rotation that waits for funds', () => {
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
   });
 
+  it('skips the Guardian history pass and ends the recovery when the encrypted backup restored the history', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey));
+    jest.mocked(recoverGuardianHistory).mockClear();
+    jest.mocked(restoreHistoryFromBackup).mockResolvedValueOnce(true);
+
+    await expect(maybeStartGuardianRecovery({ ...account, requiresHotKeyRotation: false })).resolves.toBe(true);
+    await drainDetachedRun();
+
+    expect(restoreHistoryFromBackup).toHaveBeenCalledTimes(1);
+    expect(recoverGuardianHistory).not.toHaveBeenCalled();
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
   it('runs the notes pass again when the checkpoint belongs to a replaced wallet', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
     mockAwaitingFunding.mockResolvedValue(true);
@@ -473,17 +493,17 @@ describe('detached recovery run', () => {
   // everyday proposal flow already signs guardian requests with.
   it('falls back to the hot signer for an account with no cold key', async () => {
     const { WalletSigner } = jest.requireMock('lib/miden/guardian/signer') as { WalletSigner: jest.Mock };
-    const { getSignerDetailsFromAccount } = jest.requireMock('lib/miden/guardian/account') as {
-      getSignerDetailsFromAccount: jest.Mock;
+    const { findOwnSignerCommitment } = jest.requireMock('lib/miden/guardian/account') as {
+      findOwnSignerCommitment: jest.Mock;
     };
     const account = pendingAccount({ coldPublicKey: undefined, hotPublicKey: 'hotpub' });
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
 
-    // The commitment is read from the HOT signer slot, and the signer binds
-    // to the hot public key.
-    expect(getSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), false);
+    // The commitment is the signer that the HOT key commits to, found by
+    // membership, and the signer binds to the hot public key.
+    expect(findOwnSignerCommitment).toHaveBeenCalledWith(expect.anything(), 'hotpub');
     expect(WalletSigner).toHaveBeenCalledWith('0xhotpub', '0xcommitment', expect.any(Function));
     // The run completes like the cold-signed one does.
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
@@ -491,16 +511,31 @@ describe('detached recovery run', () => {
 
   it('still prefers the cold signer when the account has a cold key', async () => {
     const { WalletSigner } = jest.requireMock('lib/miden/guardian/signer') as { WalletSigner: jest.Mock };
-    const { getSignerDetailsFromAccount } = jest.requireMock('lib/miden/guardian/account') as {
-      getSignerDetailsFromAccount: jest.Mock;
+    const { findOwnSignerCommitment } = jest.requireMock('lib/miden/guardian/account') as {
+      findOwnSignerCommitment: jest.Mock;
     };
     const account = pendingAccount({ coldPublicKey: '0xcold', hotPublicKey: 'hotpub' });
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
 
-    expect(getSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), true);
+    expect(findOwnSignerCommitment).toHaveBeenCalledWith(expect.anything(), '0xcold');
     expect(WalletSigner).toHaveBeenCalledWith('0xcold', '0xcommitment', expect.any(Function));
+  });
+
+  it('builds no Guardian signer when no on-chain signer holds the device key', async () => {
+    const { WalletSigner } = jest.requireMock('lib/miden/guardian/signer') as { WalletSigner: jest.Mock };
+    const { findOwnSignerCommitment } = jest.requireMock('lib/miden/guardian/account') as {
+      findOwnSignerCommitment: jest.Mock;
+    };
+    findOwnSignerCommitment.mockResolvedValueOnce(undefined);
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(WalletSigner).not.toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalledWith(account.publicKey, false);
   });
 
   // The setup reads the account through the offscreen realm, so a deadline kill

@@ -264,6 +264,29 @@ jest.mock('screens/onboarding/import-wallet-flow/ImportHotKey', () => ({
     />
   )
 }));
+// The device-role screen, as two buttons: one per mode, each the role's Continue.
+jest.mock('screens/onboarding/import-wallet-flow/ChooseDeviceRole', () => ({
+  ChooseDeviceRole: ({
+    deviceCount,
+    onSubmit
+  }: {
+    deviceCount?: number;
+    onSubmit: (mode: 'add' | 'replace') => void;
+  }) => (
+    <div data-testid="choose-device-role" data-device-count={deviceCount ?? 'unknown'}>
+      <button type="button" data-testid="device-role-add" onClick={() => onSubmit('add')} />
+      <button type="button" data-testid="device-role-main" onClick={() => onSubmit('replace')} />
+    </div>
+  )
+}));
+let mockDeviceCount: number | undefined = 2;
+jest.mock('lib/miden/front/useOnChainSignerCount', () => ({
+  useOnChainSignerCount: (_accountPublicKey: string) => mockDeviceCount
+}));
+const mockArmKeepPrompt = jest.fn(async (_accountPublicKey: string): Promise<void> => {});
+jest.mock('./RecoveryPhraseKeepPrompt', () => ({
+  armRecoveryPhraseKeepPrompt: (accountPublicKey: string) => mockArmKeepPrompt(accountPublicKey)
+}));
 jest.mock('components/ui/Notice', () => ({
   Notice: ({ children, 'data-testid': testId }: { children: React.ReactNode; 'data-testid'?: string }) => (
     <div role="alert" data-testid={testId}>
@@ -326,6 +349,11 @@ const publishTable = async () => {
   });
 };
 
+/** Answer the device-role screen, as the user does before the first rotation of a recovered account. */
+const chooseRole = async (testId: 'device-role-add' | 'device-role-main' = 'device-role-add') => {
+  fireEvent.click(await screen.findByTestId(testId));
+};
+
 /** Track the adopted shortfall: the row a funding test starts from. */
 const trackShortfall = () => {
   mockTable = [shortfallRow()];
@@ -372,18 +400,76 @@ describe('HotKeyRotationGate', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
-  it('shows the blocking overlay and initiates exactly one rotation for a flagged account', async () => {
+  it('asks the device role first and starts no rotation on mount', async () => {
     render(
       <React.StrictMode>
         <HotKeyRotationGate />
       </React.StrictMode>
     );
 
+    // The spinner while the mount looks for a rotation to adopt.
     expect(screen.getByText('hotKeyRotationOverlayTitle')).toBeInTheDocument();
-    expect(screen.getByText('hotKeyRotationOverlayBody')).toBeInTheDocument();
+    expect(await screen.findByTestId('choose-device-role')).toHaveAttribute('data-device-count', '2');
+    await publishTable();
+    expect(mockInitiate).not.toHaveBeenCalled();
+    expect(mockArmKeepPrompt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['device-role-add', 'add', 'hotKeyAddOverlayTitle', 'hotKeyAddOverlayBody'],
+    ['device-role-main', 'replace', 'hotKeyRotationOverlayTitle', 'hotKeyRotationOverlayBody']
+  ] as const)('initiates exactly one rotation in the chosen mode (%s)', async (testId, mode, title, body) => {
+    render(
+      <React.StrictMode>
+        <HotKeyRotationGate />
+      </React.StrictMode>
+    );
+
+    await chooseRole(testId);
 
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' });
+    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, mode);
+    expect(mockArmKeepPrompt).toHaveBeenCalledWith('account-1');
+    expect(screen.queryByTestId('choose-device-role')).not.toBeInTheDocument();
+    // The progress copy names the chosen mode: an add keeps the other devices, a replace rotates the key.
+    expect(screen.getByText(title)).toBeInTheDocument();
+    expect(screen.getByText(body)).toBeInTheDocument();
+  });
+
+  it('shows the device-role screen without a count while the count is not known', async () => {
+    mockDeviceCount = undefined;
+    try {
+      render(<HotKeyRotationGate />);
+
+      expect(await screen.findByTestId('choose-device-role')).toHaveAttribute('data-device-count', 'unknown');
+    } finally {
+      mockDeviceCount = 2;
+    }
+  });
+
+  it('does not ask again on a reload during a rotation: it resumes the role of the failed rotation', async () => {
+    mockTable = [
+      rotationRow('tx-failed', {
+        status: ITransactionStatus.Failed,
+        error: 'guardian unreachable',
+        extraInputs: { mode: 'add' }
+      })
+    ];
+
+    render(<HotKeyRotationGate />);
+
+    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add');
+    expect(screen.queryByTestId('choose-device-role')).not.toBeInTheDocument();
+  });
+
+  it('asks again when the last rotation completed: a new flag is a new activation', async () => {
+    mockTable = [rotationRow('tx-done', { status: ITransactionStatus.Completed, extraInputs: { mode: 'add' } })];
+
+    render(<HotKeyRotationGate />);
+
+    expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+    expect(mockInitiate).not.toHaveBeenCalled();
   });
 
   it('swallows mobile back from the overlay tier while it blocks', async () => {
@@ -392,7 +478,7 @@ describe('HotKeyRotationGate', () => {
     expect(useMobileBackHandler).toHaveBeenCalledWith(expect.any(Function), [], { overlay: true });
     const [handler] = jest.mocked(useMobileBackHandler).mock.calls[0]!;
     expect(handler()).toBe(true);
-    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('choose-device-role');
   });
 
   it('adopts an existing pending rotation row instead of initiating a new one', async () => {
@@ -495,6 +581,7 @@ describe('HotKeyRotationGate', () => {
       failRotation();
 
       render(<HotKeyRotationGate />);
+      await chooseRole();
       await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
       fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
       fireEvent.click(screen.getByTestId('import-hot-key-screen'));
@@ -510,6 +597,7 @@ describe('HotKeyRotationGate', () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
 
       render(<HotKeyRotationGate />);
+      await chooseRole();
       await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
       fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
       fireEvent.click(screen.getByTestId('import-hot-key-screen'));
@@ -549,6 +637,7 @@ describe('HotKeyRotationGate', () => {
       });
 
       render(<HotKeyRotationGate />);
+      await chooseRole();
 
       await screen.findByTestId('hot-key-rotation-failed');
       expect(screen.queryByTestId('hot-key-rotation-use-key-pair')).not.toBeInTheDocument();
@@ -577,6 +666,7 @@ describe('HotKeyRotationGate', () => {
       failRotation();
 
       render(<HotKeyRotationGate />);
+      await chooseRole();
       await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
       fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
       fireEvent.click(screen.getByText('back'));
@@ -593,6 +683,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
     await waitFor(() => expect(screen.getByTestId('hot-key-rotation-start-over')).toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId('hot-key-rotation-start-over'));
@@ -612,6 +703,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
     await waitFor(() => expect(screen.getByTestId('hot-key-rotation-start-over')).toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId('hot-key-rotation-start-over'));
@@ -628,6 +720,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
 
     await waitFor(() => expect(screen.getByText('hotKeyRotationFailedGeneric')).toBeInTheDocument());
     expect(screen.queryByText('showFullError')).not.toBeInTheDocument();
@@ -647,6 +740,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
 
     await screen.findByTestId('hot-key-rotation-failed');
     expect(screen.getByText('hotKeyRotationUnconfirmedTitle')).toBeInTheDocument();
@@ -668,6 +762,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
 
     await screen.findByTestId('hot-key-rotation-failed');
     expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
@@ -681,6 +776,7 @@ describe('HotKeyRotationGate', () => {
     mockInitiate.mockRejectedValue(new Error('enqueue failed'));
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
 
     await screen.findByTestId('hot-key-rotation-failed');
     expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationFailedGeneric');
@@ -696,6 +792,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     render(<HotKeyRotationGate />);
+    await chooseRole();
 
     await screen.findByTestId('hot-key-rotation-failed');
     // A fit-content column sizes to its widest unbreakable token; `w-full` pins it to the overlay.
@@ -713,11 +810,12 @@ describe('HotKeyRotationGate', () => {
     );
     expect(gate).not.toHaveClass('backdrop-blur-xl');
     expect(gate).not.toHaveClass('backdrop-saturate-150');
-    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('choose-device-role');
   });
 
   it('disappears once the rotation flag clears', async () => {
     const { container, rerender } = render(<HotKeyRotationGate />);
+    await chooseRole();
     await waitFor(() => expect(mockInitiate).toHaveBeenCalled());
 
     storeState = { currentAccount: { publicKey: 'account-1', requiresHotKeyRotation: false } };
@@ -747,6 +845,7 @@ describe('HotKeyRotationGate', () => {
         loaded: true
       });
       render(<HotKeyRotationGate />);
+      await chooseRole();
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
 
       mockTable = [fundingRow('claim-1')];
@@ -1442,9 +1541,18 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
     });
 
+    // The rotation the claim funds: a failed one, whose role the deferred rotation resumes.
+    const earlierRotation = () =>
+      rotationRow('tx-earlier', {
+        status: ITransactionStatus.Failed,
+        initiatedAt: 50,
+        error: 'guardian unreachable',
+        extraInputs: { mode: 'add' }
+      });
+
     it('waits for its claim on a chain that charges nothing, then runs the rotation', async () => {
       mockBaseFee = 0;
-      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      mockTable = [earlierRotation(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
       render(<HotKeyRotationGate />);
       await publishTable();
       await publishTable();
@@ -1452,18 +1560,34 @@ describe('HotKeyRotationGate', () => {
       expect(lockRequests.filter(name => name === 'hot-key-rotation:account-1')).toHaveLength(1);
       expect(mockInitiate).not.toHaveBeenCalled();
 
-      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      mockTable = [earlierRotation(), fundingRow('claim-1', { status: ITransactionStatus.Failed })];
       await publishTable();
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add');
+    });
+
+    it('asks the device role once a deferral ends with no rotation whose role it can resume', async () => {
+      mockBaseFee = 0;
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await publishTable();
+      expect(screen.queryByTestId('choose-device-role')).not.toBeInTheDocument();
+
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      await publishTable();
+
+      await chooseRole('device-role-main');
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace');
     });
 
     it('tries again on the next rows read after a deferral that read newer rows', async () => {
       mockBalances = [nativeBalance(0)];
-      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      mockTable = [earlierRotation(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
       const { rerender } = render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
-      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      mockTable = [earlierRotation(), fundingRow('claim-1', { status: ITransactionStatus.Failed })];
       await publishTable();
 
       // Another surface queues a claim this gate has not read yet, and the fee is now covered.
@@ -1477,6 +1601,7 @@ describe('HotKeyRotationGate', () => {
       expect(mockInitiate).not.toHaveBeenCalled();
 
       mockTable = [
+        earlierRotation(),
         fundingRow('claim-1', { status: ITransactionStatus.Failed }),
         fundingRow('claim-2', { status: ITransactionStatus.Failed, initiatedAt: 300 })
       ];
@@ -1538,7 +1663,7 @@ describe('HotKeyRotationGate', () => {
       mockLocation = { pathname: '/' };
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      await screen.findByTestId('choose-device-role');
     });
 
     it('renders the gate on the consent screen when the side panel is unavailable', async () => {
@@ -1546,7 +1671,7 @@ describe('HotKeyRotationGate', () => {
       mockHandoffAvailable = false;
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      await screen.findByTestId('choose-device-role');
     });
 
     it('renders the gate on the handoff screen inside the side-panel window itself', async () => {
@@ -1554,7 +1679,7 @@ describe('HotKeyRotationGate', () => {
       mockAppEnv = { fullPage: false };
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      await screen.findByTestId('choose-device-role');
     });
 
     // The mark is module-global, so each test releases its own after unmounting the gate, and no rotation starts
@@ -1572,7 +1697,7 @@ describe('HotKeyRotationGate', () => {
 
         act(() => mark.release());
         expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+        await screen.findByTestId('choose-device-role');
       } finally {
         cleanup();
         mark.release();
@@ -1596,7 +1721,7 @@ describe('HotKeyRotationGate', () => {
           jest.advanceTimersByTime(1);
         });
         expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+        await screen.findByTestId('choose-device-role');
       } finally {
         cleanup();
         mark.release();
@@ -1612,7 +1737,7 @@ describe('HotKeyRotationGate', () => {
         mockHandoffAvailable = false;
         render(<HotKeyRotationGate />);
         expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+        await screen.findByTestId('choose-device-role');
       } finally {
         cleanup();
         mark.release();
@@ -1651,6 +1776,8 @@ describe('HotKeyRotationGate', () => {
       mockTable = [];
       mockInitiate.mockRejectedValueOnce(new Error('private enqueue amount 42'));
       render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      fireEvent.click(screen.getByTestId('device-role-add'));
       await settleTelemetry();
       expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
         'Visible hotKeyRotationFailedGeneric'
@@ -1710,6 +1837,8 @@ describe('HotKeyRotationGate', () => {
       mockTable = [];
       mockInitiate.mockRejectedValueOnce(new Error('private enqueue details'));
       const view = render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      fireEvent.click(screen.getByTestId('device-role-add'));
       await settleTelemetry();
       expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
         'Visible hotKeyRotationFailedGeneric'
@@ -1787,6 +1916,9 @@ describe('HotKeyRotationGate', () => {
       };
       storeState = { currentAccount: { publicKey: 'account-other', requiresHotKeyRotation: true } };
       view.rerender(<HotKeyRotationGate />);
+      await settleTelemetry();
+      // The other account has no rotation to adopt, so its overlay asks the role first.
+      fireEvent.click(screen.getByTestId('device-role-add'));
       await settleTelemetry();
       expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('Stored switched row');
       await act(async () => {

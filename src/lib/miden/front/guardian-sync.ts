@@ -6,7 +6,7 @@ import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back
 import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
-  getSignerDetailsFromAccount,
+  getSignerCommitmentsFromAccount,
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from 'lib/miden/guardian/account';
@@ -1235,6 +1235,21 @@ async function adoptFromPreviousGuardian(
   return adoptedGuardian;
 }
 
+/** A signer commitment without its 0x prefix, the form `0x${...}` callers expect. */
+const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);
+
+/** Which side of the hot-signer check this device could not read, for the refusal log. */
+function unreadSideOf(chainUnread: boolean, deviceUnread: boolean): string {
+  switch (true) {
+    case chainUnread && deviceUnread:
+      return 'either side';
+    case chainUnread:
+      return 'chain';
+    default:
+      return 'this device';
+  }
+}
+
 /**
  * Push a registration to an operator that reports no record of the account.
  *
@@ -1276,7 +1291,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // guards, and (via `finalizeDirectGuardianSwitch`, which re-syncs and re-reads
   // for the bytes it actually pushes) the write itself.
   // Both reads happen INSIDE the one hold, and only plain strings come out.
-  // `getGuardianCommitmentFromAccount` and `getSignerDetailsFromAccount` reach
+  // `getGuardianCommitmentFromAccount` and `getSignerCommitmentsFromAccount` reach
   // into the WASM account handle, so performing them after the hold released
   // raced any queued client operation for the single-threaded client — the
   // `recursive use of an object` failure. `resolveGuardianDrift` already reads
@@ -1293,13 +1308,12 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       assertWasmHoldCurrent(hold, 'guardian missing-registration snapshot, after the account read');
       return {
         guardian: getGuardianCommitmentFromAccount(sdkAccount),
-        // Its own failure is still a distinct outcome from "no account": the
-        // hot-signer guard below refuses on an unread commitment, so it must be
-        // able to tell an absent value from an unreached one.
-        hot: await getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
-          console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
-          return undefined;
-        })
+        // The FULL signer set, not one slot: the set can hold more than one hot key,
+        // and a membership change moves the slots. An empty set is an unread set,
+        // which is still a distinct outcome from "no account": the hot-signer guard
+        // below refuses on it, so it must be able to tell an absent value from an
+        // unreached one.
+        signers: getSignerCommitmentsFromAccount(sdkAccount)
       };
     }, GUARDIAN_READ_LOCK_OPTIONS);
 
@@ -1365,8 +1379,8 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     return false;
   }
 
-  // STOP unless this device is PROVABLY still the account's on-chain hot signer
-  // — same arbiter, same reasoning as the cold re-register self-heal:
+  // STOP unless this device is PROVABLY still one of the account's on-chain hot
+  // signers — same arbiter, same reasoning as the cold re-register self-heal:
   // `/configure` is account-wide, so a device that was rotated out would revoke
   // the device that now owns the account.
   //
@@ -1379,13 +1393,15 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   //
   // Weaker here than in the 401 path, unavoidably: that path adopts the
   // guardian's own copy of the state before reading the signer set, and this
-  // operator has no copy to adopt. So this reads whatever slot 0 says in THIS
-  // device's account, which cannot show a hot-key rotation performed elsewhere.
+  // operator has no copy to adopt. So this reads whatever signer set THIS
+  // device's account names, which cannot show a hot-key rotation performed
+  // elsewhere. The check is membership: the device is rotated out only when no
+  // slot holds its hot key.
   // The residual risk is bounded by the guardian-key guard below — a copy
   // predating the guardian rotation is refused outright — leaving only the narrow
   // window where a copy is current for the guardian rotation yet stale for a
   // later hot-key rotation.
-  const onChainHot = snapshot.hot;
+  const onChainSigners = snapshot.signers;
   // A record with no hot key never reaches this function — the sync loop filters
   // those accounts out — so the ternary is here for the type, and it refuses on
   // that path too rather than reading an absent key as "no objection".
@@ -1395,18 +1411,20 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
         return undefined;
       })
     : undefined;
-  if (!onChainHot || !localHot) {
+  const chainUnread = onChainSigners.length === 0;
+  if (chainUnread || !localHot) {
     console.warn(
       `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: could not read the hot-signer ` +
-        `commitment on ${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so ` +
+        `commitment on ${unreadSideOf(chainUnread, !localHot)}, so ` +
         `this device cannot show it is still the account's signer.`
     );
     return false;
   }
-  if (!sameCommitment(localHot, onChainHot.commitment)) {
+  const ownHot = onChainSigners.find(signer => sameCommitment(signer, localHot));
+  if (ownHot === undefined) {
     console.warn(
-      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: this device's hot key is no longer ` +
-        `the account's on-chain signer (it was rotated to another device).`
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: no on-chain signer holds this ` +
+        `device's hot key any more (it was rotated out by another device).`
     );
     return false;
   }
@@ -1446,7 +1464,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   if (endpointHoldsGuardianKey === 'mismatch') {
     let adoptedGuardian: string | undefined;
     try {
-      adoptedGuardian = await adoptFromPreviousGuardian(account, endpoint, onChainHot.commitment);
+      adoptedGuardian = await adoptFromPreviousGuardian(account, endpoint, stripHexPrefix(ownHot));
     } catch (adoptError) {
       if (!isWasmClientPoisonedError(adoptError)) throw adoptError;
       // Booked on the adopt's own fuse where it was caught. Nothing was pushed, so the attempt is
@@ -1601,14 +1619,22 @@ const GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS = {
   label: 'guardian-self-heal-register'
 };
 
-/** This device's own Failed rotation whose new key is the one the chain's slot 0 names (#1233). */
+/** This device's own Failed rotation whose new key a slot of the chain's signer set holds (#1233). */
 type OwnRotation = FailedHotKeyRotation & { commitment: string };
 
-/** Rejects when the rows cannot be read; a key whose commitment cannot be derived is skipped. */
-async function findOwnRotation(accountPublicKey: string, onChainCommitment: string): Promise<OwnRotation | undefined> {
+/**
+ * Find this device's own Failed rotation whose new key is a member of the on-chain signer set, in
+ * any slot. Rejects when the rows cannot be read; a key whose commitment cannot be derived is skipped.
+ */
+async function findOwnRotation(
+  accountPublicKey: string,
+  onChainSigners: readonly string[]
+): Promise<OwnRotation | undefined> {
   for (const row of await findFailedHotKeyRotations(accountPublicKey)) {
     const commitment = await commitmentFromPublicKeyHex(row.newHotPublicKey).catch(() => undefined);
-    if (commitment !== undefined && sameCommitment(commitment, onChainCommitment)) return { ...row, commitment };
+    if (commitment !== undefined && onChainSigners.some(signer => sameCommitment(signer, commitment))) {
+      return { ...row, commitment };
+    }
   }
   return undefined;
 }
@@ -1822,10 +1848,11 @@ async function attemptColdReRegisterSelfHeal(
     // `selfHealLedger`, so SELF_HEAL_MAX_ATTEMPTS never accumulates and the
     // livelock is unbounded).
     //
-    // The on-chain signer set is the arbiter: signer slot 0 is the hot key by
-    // convention ([hot, cold] — see guardian/account.ts). If it no longer matches
-    // this device's key, this device did not lose authorization to a stale
-    // allowlist — it was rotated out, and there is nothing here to repair.
+    // The on-chain signer set is the arbiter, by MEMBERSHIP: the set can hold
+    // more than one hot key, and a membership change moves the slots, so no slot
+    // is this device's by position. If no slot holds this device's key, this
+    // device did not lose authorization to a stale allowlist — it was rotated
+    // out, and there is nothing here to repair.
     // Fails CLOSED on an unread commitment, exactly like the missing-registration
     // guard: a guard over write authority cannot treat "I could not tell" as
     // permission. This path is the more dangerous of the two by its own comment
@@ -1843,19 +1870,17 @@ async function attemptColdReRegisterSelfHeal(
     // the heal quietly refused. Same shape, and same fix, as the
     // missing-registration snapshot. Bounded and labelled for the same reason as
     // every other hold this ~3 s loop takes.
-    const onChainHot = await withWasmClientLock(async hold => {
+    const onChainSigners = await withWasmClientLock(async hold => {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      if (!sdkAccount) return undefined;
+      if (!sdkAccount) return [];
       assertWasmHoldCurrent(hold, 'guardian cold re-register, after the account read');
-      return getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
-        console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
-        return undefined;
-      });
+      // The full set; an empty one is an unread one.
+      return getSignerCommitmentsFromAccount(sdkAccount);
     }, GUARDIAN_READ_LOCK_OPTIONS);
     // TRANSIENT on either unreadable commitment: this device failing to look is not a finding about
     // the account. Spending an attempt on it would let three read failures exhaust a budget that can
     // only be reset by a successful sync, which the stale allowlist is precisely what prevents.
-    if (!onChainHot) {
+    if (onChainSigners.length === 0) {
       console.warn(
         `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
           `chain, so this device cannot show it is still the account's signer.`
@@ -1879,12 +1904,16 @@ async function attemptColdReRegisterSelfHeal(
         return 'refused-transiently';
       }
     }
-    if (!localHot || !sameCommitment(localHot, onChainHot.commitment)) {
-      // Slot 0 may name this device's own rotation, one that landed after its row failed. It is finished
+    // This device is rotated out only when NO slot holds its hot key.
+    const ownLocalHot = localHot;
+    const localIsMember =
+      ownLocalHot !== undefined && onChainSigners.some(signer => sameCommitment(signer, ownLocalHot));
+    if (!localIsMember) {
+      // The set may hold this device's own rotation, one that landed after its row failed. It is finished
       // only on the signer set the re-register reads from the account it verified against the chain,
       // never on this match alone (#1233).
       try {
-        rotation = await findOwnRotation(account.publicKey, onChainHot.commitment);
+        rotation = await findOwnRotation(account.publicKey, onChainSigners);
       } catch (readError) {
         console.warn(`[Guardian Sync] not self-healing ${account.publicKey}: could not read its rotations:`, readError);
         return 'refused-transiently';
@@ -1898,9 +1927,9 @@ async function attemptColdReRegisterSelfHeal(
       }
       if (!rotation) {
         console.warn(
-          `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
-            `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
-            `the device that now owns the account.`
+          `[Guardian Sync] not self-healing ${account.publicKey}: no on-chain signer holds this device's hot ` +
+            `key any more (it was rotated out by another device). Re-registering would revoke ` +
+            `the devices that now hold the account.`
         );
         // The verdict is persisted so the wallet can SAY so: without it this device
         // looks healthy between ticks (reads never touch the guardian) and every
@@ -1911,10 +1940,11 @@ async function attemptColdReRegisterSelfHeal(
         // turn a permanent verdict into a failed attempt that re-asks the guardian next cooldown.
         if (account.hotPublicKey) {
           try {
+            // Evidence only: the first signer the chain names, since no slot holds this device's key.
             await zustandProvider.markHotKeyRotatedOut?.(
               account.publicKey,
               account.hotPublicKey,
-              onChainHot.commitment
+              stripHexPrefix(onChainSigners[0] ?? '')
             );
           } catch (markError) {
             console.warn(`[Guardian Sync] could not record that ${account.publicKey} was rotated out:`, markError);
@@ -1926,7 +1956,7 @@ async function attemptColdReRegisterSelfHeal(
         return 'refused-permanently';
       }
       console.warn(
-        `[Guardian Sync] ${account.publicKey}'s on-chain hot signer is this device's own rotation; ` +
+        `[Guardian Sync] ${account.publicKey}'s on-chain signer set holds this device's own rotation; ` +
           `re-registering the chain's state to finish it`
       );
     }

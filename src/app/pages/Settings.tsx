@@ -11,6 +11,7 @@ import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-se
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
+import DeviceSettings from 'app/templates/DeviceSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
@@ -217,6 +218,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'spendingLimits',
         Component: SpendingLimits,
         testID: SettingsSelectors.SpendingLimitsButton
+      },
+      {
+        slug: 'devices',
+        titleI18nKey: 'walletDevices',
+        Component: DeviceSettings,
+        testID: SettingsSelectors.DevicesButton,
+        guardianOnly: true
       },
       {
         slug: 'guardian-settings',

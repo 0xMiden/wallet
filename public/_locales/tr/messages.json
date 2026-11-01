@@ -1,4 +1,73 @@
 {
+  "deviceRevokedBody": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Kurtarma ifadesini kullanarak bu cihazı tekrar ana cihaz yapın veya cüzdanı bu cihazdan kaldırın.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Cüzdanı bu cihazdan kaldırın. Kurtarma ifadesini kullanarak erişimi geri yükleyebilirsiniz.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Bu cihazı iptal etmek için kimlik doğrulaması yapın.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "İptal edilen imza sahibi taahhüdü",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Cihazlar",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Bu cihaz",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Cihazı iptal et",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Bu cihaz artık işlemleri imzalayamayacaktır. Kurtarma ifadesi varsa erişimi geri kazanabilir.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Bu hesap için imza vermek üzere kayıtlı cihazlar. Kurtarma anahtarı gösterilmez.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Bu cihazda saklanan kurtarma ifadesi, iptal işlemini onaylayacaktır.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "İptali onaylamak için kurtarma ifadesini girin. Bu ifade bu cihaza kaydedilmeyecektir.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Cihaz listesi okunamıyor. Cüzdan senkronize olduktan sonra tekrar deneyin.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Cihaz $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Cihaz iptal edildi",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Bu cihazın yetkisi iptal edildi",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "İptal işlemi",
+    "englishSource": "Revocation transaction"
+  },
   "seedBackupRequiredTitle": {
     "message": "Tohum ifadenizi yedekleyin",
     "englishSource": "Back up your recovery phrase"
@@ -227,6 +296,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Cihaz anahtarı değiştirildi",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Cihaz eklendi",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Hesap güvence altında",
@@ -3709,6 +3782,14 @@
     "message": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılmış bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Bu cihazın eklenmesi",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Bu cihaz, senkronizasyon yapabilmek ve işlem gerçekleştirebilmek için kendine ait bir günlük anahtar alıyor.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Günlük anahtar rotasyonu başarısız oldu",
     "englishSource": "Everyday key rotation failed"
@@ -3756,6 +3837,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Cüzdanı bu cihazdan kaldırın",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Bu cihaz cüzdanınıza nasıl eklenmelidir?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Bu cihaz, her gün kendine ait bir anahtar alır. Hesaptan küçük bir ağ ücreti ödenir.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Bu cüzdanla zaten $count$ adet cihazınız var",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Bu cüzdanla zaten 1 cihazınız var",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Bu cihazı ekleyin",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Bu cihazı ana cihaz olarak ayarlayın",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Bu cüzdandan diğer tüm cihazlar kaldırılır",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Kurtarma ifadesini bu cihazda saklayacak mısınız?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Bu cihazda günlük işlemler kurtarma ifadesi olmadan da gerçekleştirilebilir. Guardian'da değişiklik yapıldığında ve günlük anahtar değiştirme işlemlerinde bu ifadenin girilmesi istenir. Cihazı kaldırmadan önce bu ifadeyi bir yere not edin.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Kurtarma ifadesini kaldırın",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bu cihazda saklayın",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
