@@ -1,10 +1,9 @@
 # Changelog
 
-## 1.17.10 (TBD)
+## 1.17.11 (TBD)
 
 - [FIX][all] Recover a Guardian transaction whose proof went stale before its submit, keep a refused transaction in review until the chain rules, and show the Guardian hold before Retry in local time with a countdown.
 
-## 1.17.9 (TBD)
 ## 1.17.10 (2026-11-01)
 
 - [FIX][all] Mainnet balances and accounts appear again after updating to 1.17.9: a wallet set up before 1.17.9 reopens the local store it was created in, which the move to the mainnet hosts had left behind (#2086).
