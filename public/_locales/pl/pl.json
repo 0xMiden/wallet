@@ -1285,6 +1285,7 @@
   "crossChain": "Międzyłańcuchowe",
   "evmWalletConnected": "Podłączono portfel EVM",
   "evmChainNotApproved": "Podłączony portfel nie zatwierdził $network$. Podłącz ponownie portfel, aby to zatwierdzić.",
+  "evmWalletSmartTransactionsFailed": "Funkcja „MetaMask Smart Transactions” nie mogła wysłać tej transakcji. Wyłącz funkcję „Smart Transactions” w ustawieniach MetaMask i spróbuj ponownie.",
   "connectedWallet": "Portfel połączony z internetem",
   "switchWallet": "Zmień portfel",
   "current": "Obecny",

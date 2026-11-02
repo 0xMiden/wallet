@@ -5799,6 +5799,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "As Transações Inteligentes do MetaMask não conseguiram enviar esta transação. Desative as Transações Inteligentes nas configurações do MetaMask e tente novamente.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "Carteira conectada",
     "englishSource": "Connected wallet"

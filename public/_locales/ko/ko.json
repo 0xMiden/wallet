@@ -1287,6 +1287,7 @@
   "crossChain": "크로스체인",
   "evmWalletConnected": "EVM 지갑 연결됨",
   "evmChainNotApproved": "연결된 지갑이 $network$를 승인하지 않았습니다. 지갑을 다시 연결하여 승인하십시오.",
+  "evmWalletSmartTransactionsFailed": "MetaMask 스마트 트랜잭션이 이 트랜잭션을 전송할 수 없습니다. MetaMask 설정에서 스마트 트랜잭션을 비활성화한 후 다시 시도해 주세요.",
   "connectedWallet": "연동 지갑",
   "switchWallet": "지갑 변경",
   "current": "현재",
