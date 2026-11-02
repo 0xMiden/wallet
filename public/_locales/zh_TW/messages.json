@@ -5794,6 +5794,10 @@
       }
     }
   },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMask 智慧交易無法發送此筆交易。請在 MetaMask 設定中關閉「智慧交易」功能，然後重試。",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
+  },
   "connectedWallet": {
     "message": "連網錢包",
     "englishSource": "Connected wallet"

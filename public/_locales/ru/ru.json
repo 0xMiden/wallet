@@ -1283,6 +1283,7 @@
   "crossChain": "Межсетевой",
   "evmWalletConnected": "Кошелек EVM подключен",
   "evmChainNotApproved": "Подключенный кошелек не одобрил $network$. Подключите кошелек заново, чтобы одобрить его.",
+  "evmWalletSmartTransactionsFailed": "Функция «Smart Transactions» в MetaMask не смогла отправить эту транзакцию. Отключите «Smart Transactions» в настройках MetaMask и попробуйте ещё раз.",
   "connectedWallet": "Подключенный кошелек",
   "switchWallet": "Сменить кошелек",
   "current": "Текущий",

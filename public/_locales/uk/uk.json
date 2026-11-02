@@ -1285,6 +1285,7 @@
   "crossChain": "Міжланцюговий",
   "evmWalletConnected": "Підключено гаманець EVM",
   "evmChainNotApproved": "Підключений гаманець не затвердив $network$. Підключіть гаманець знову, щоб затвердити це.",
+  "evmWalletSmartTransactionsFailed": "Функція «Розумні транзакції» MetaMask не змогла відправити цю транзакцію. Вимкніть «Розумні транзакції» у налаштуваннях MetaMask і спробуйте ще раз.",
   "connectedWallet": "Підключений гаманець",
   "switchWallet": "Перейти до гаманця",
   "current": "Поточний",

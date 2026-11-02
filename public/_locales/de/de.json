@@ -1279,6 +1279,7 @@
   "crossChain": "Kettenübergreifend",
   "evmWalletConnected": "EVM-Wallet verbunden",
   "evmChainNotApproved": "Die verbundene Wallet hat $network$ nicht genehmigt. Verbinden Sie die Wallet erneut, um dies zu genehmigen.",
+  "evmWalletSmartTransactionsFailed": "MetaMask Smart Transactions konnte diese Transaktion nicht senden. Deaktivieren Sie Smart Transactions in Ihren MetaMask-Einstellungen und versuchen Sie es erneut.",
   "connectedWallet": "Vernetzte Geldbörse",
   "switchWallet": "Wallet wechseln",
   "current": "Aktuell",

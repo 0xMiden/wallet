@@ -1287,6 +1287,7 @@
   "crossChain": "クロスチェーン",
   "evmWalletConnected": "EVMウォレットが接続されました",
   "evmChainNotApproved": "接続されたウォレットが$network$を承認しませんでした。ウォレットを再接続して承認してください。",
+  "evmWalletSmartTransactionsFailed": "MetaMaskのスマートトランザクションでは、このトランザクションを送信できませんでした。MetaMaskの設定でスマートトランザクションをオフにして、もう一度お試しください。",
   "connectedWallet": "コネクテッド・ウォレット",
   "switchWallet": "ウォレットを切り替える",
   "current": "現在",
