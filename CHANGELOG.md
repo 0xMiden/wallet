@@ -2,6 +2,7 @@
 
 ## 1.17.11 (TBD)
 
+- [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
