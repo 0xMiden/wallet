@@ -117,11 +117,15 @@ private enum ReownCryptoError: Error {
     case publicKeyRecoveryUnsupported
 }
 
+// The first four origins fail a call before the relay publishes its request. The last two
+// fail a published request: the JS decoder reads them as published, with the same wire names as Android.
 private enum ReownCallFailureOrigin: String {
     case unconfigured
     case argumentValidation = "argument_validation"
     case requestConstructionError = "request_construction_error"
     case requestCallError = "request_call_error"
+    case requestExpired = "request_expired"
+    case sessionDeleted = "session_deleted"
 }
 
 private func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
@@ -191,7 +195,8 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var configured = false
     private var subscriptions = Set<AnyCancellable>()
-    private var pendingRequests: [PendingReownRequest] = []
+    // Pending calls, keyed by the WalletConnect request id. Read and write this map on the main actor only.
+    private var pendingRequests: [RPCID: PendingReownRequest] = [:]
     private var socketStatus: String?
     // Proposal namespaces built in configure(); reused by connectUri() (E2E) to
     // create a pairing directly and hand the wc: URI to JS, bypassing the modal.
@@ -447,6 +452,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await Sign.instance.disconnect(topic: topic)
                     await MainActor.run {
+                        self.rejectPendingRequests(topic: topic, message: "WalletConnect session was disconnected", origin: .sessionDeleted)
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -472,6 +478,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await AppKit.instance.cleanup()
                     await MainActor.run {
+                        self.rejectPendingRequests(topic: nil, message: "WalletConnect session was disconnected", origin: .sessionDeleted)
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -522,8 +529,19 @@ private extension ReownPlugin {
 
         Sign.instance.sessionDeletePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] topic, _ in
+                self?.rejectPendingRequests(topic: topic, message: "WalletConnect session was deleted", origin: .sessionDeleted)
                 self?.notifyStateChanged()
+            }
+            .store(in: &subscriptions)
+
+        Sign.instance.requestExpirationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] id in
+                guard let pending = self?.pendingRequests.removeValue(forKey: id) else {
+                    return
+                }
+                rejectReownCall(pending.call, message: "Request expired", origin: .requestExpired)
             }
             .store(in: &subscriptions)
 
@@ -568,30 +586,42 @@ private extension ReownPlugin {
         }
 
         Task {
+            // Record the call before the send, so that a fast response finds it.
+            await MainActor.run {
+                self.pendingRequests[request.id] = PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash)
+            }
             do {
                 try await Sign.instance.request(params: request)
                 await MainActor.run {
-                    self.pendingRequests.append(PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash))
+                    guard self.pendingRequests[request.id] != nil else {
+                        return
+                    }
                     self.openWallet(for: request)
                 }
             } catch {
                 await MainActor.run {
+                    // Reject the call only if no response settled it during the send.
+                    guard self.pendingRequests.removeValue(forKey: request.id) != nil else {
+                        return
+                    }
                     rejectReownCall(call, message: error.localizedDescription, origin: .requestCallError)
                 }
             }
         }
     }
 
+    /// Match each response to its pending call by the request id and the session topic.
+    /// Drop a response that has no pending call with the same id and topic
+    /// (lost, duplicate, late or out-of-order relay responses). Do not give it to a different call.
     func handle(response: Response) {
         notifyListeners("sessionResponse", data: [
             "result": String(describing: response.result)
         ])
 
-        guard !pendingRequests.isEmpty else {
+        guard let pending = pendingRequests[response.id], pending.request.topic == response.topic else {
             return
         }
-
-        let pending = pendingRequests.removeFirst()
+        pendingRequests.removeValue(forKey: response.id)
 
         switch response.result {
         case .response(let result):
@@ -603,6 +633,20 @@ private extension ReownPlugin {
             }
         case .error(let error):
             pending.call.reject(error.message)
+        }
+    }
+
+    /// Reject the pending calls of one session topic, or of all sessions when the topic is nil.
+    /// Each call is removed before it is rejected, so that a later response cannot settle it again.
+    func rejectPendingRequests(topic: String?, message: String, origin: ReownCallFailureOrigin) {
+        let ids = pendingRequests.compactMap { id, pending in
+            topic == nil || pending.request.topic == topic ? id : nil
+        }
+        for id in ids {
+            guard let pending = pendingRequests.removeValue(forKey: id) else {
+                continue
+            }
+            rejectReownCall(pending.call, message: message, origin: origin)
         }
     }
 
