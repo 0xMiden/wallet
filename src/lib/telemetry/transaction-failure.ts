@@ -16,7 +16,7 @@ import {
 } from 'lib/miden/transaction/queue-admission-diagnostics';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
-import { isReownIOSCallFailure } from 'lib/walletconnect/native-request-failure';
+import { isReownIOSFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
   type BridgeReceiveFailure,
@@ -1142,7 +1142,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
         : undefined;
     const native =
-      platform === 'ios' && candidate !== undefined && !isReownIOSCallFailure(candidate) ? undefined : candidate;
+      platform === 'ios' && candidate !== undefined && !isReownIOSFailure(candidate) ? undefined : candidate;
     if (native !== undefined) {
       annotateCrash(report, {
         reownNativeOrigin: native.nativeOrigin,

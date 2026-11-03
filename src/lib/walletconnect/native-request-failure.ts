@@ -52,12 +52,15 @@ export type ReownNativeFailure = Readonly<
   )
 >;
 
+// A call origin fails a call before the relay publishes its request. A published origin ends a request the
+// relay did publish: the iOS plugin reports only the origin, so the age stays unknown. Both carry no wallet response.
 const IOS_CALL_ORIGINS = [
   'unconfigured',
   'argument_validation',
   'request_construction_error',
   'request_call_error'
 ] as const;
+const IOS_PUBLISHED_ORIGINS = ['request_expired', 'session_deleted'] as const;
 const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
   'argument_validation',
   'unconfigured',
@@ -68,20 +71,32 @@ const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
   'other'
 ]);
 
-export function isReownIOSCallFailure(failure: ReownNativeFailure): boolean {
-  return (
-    IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin) &&
-    failure.requestAge === 'unknown' &&
-    failure.published === 'unobserved' &&
-    failure.backgrounded === undefined &&
-    failure.walletResponseCode === undefined
-  );
+/** True for a failure in the shape the iOS plugin reports: one of its origins, with the observations its code decodes to. */
+export function isReownIOSFailure(failure: ReownNativeFailure): boolean {
+  if (
+    failure.requestAge !== 'unknown' ||
+    failure.backgrounded !== undefined ||
+    failure.walletResponseCode !== undefined
+  ) {
+    return false;
+  }
+  switch (failure.published) {
+    case 'unobserved':
+      return IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin);
+    case 'confirmed':
+      return IOS_PUBLISHED_ORIGINS.some(origin => origin === failure.nativeOrigin);
+  }
 }
 
 export function decodeReownIOSFailureCode(code: unknown): ReownNativeFailure | undefined {
   if (typeof code !== 'string') return undefined;
-  const nativeOrigin = IOS_CALL_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
-  return nativeOrigin === undefined ? undefined : { nativeOrigin, requestAge: 'unknown', published: 'unobserved' };
+  const callOrigin = IOS_CALL_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
+  if (callOrigin !== undefined) return { nativeOrigin: callOrigin, requestAge: 'unknown', published: 'unobserved' };
+  const publishedOrigin = IOS_PUBLISHED_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
+  if (publishedOrigin !== undefined) {
+    return { nativeOrigin: publishedOrigin, requestAge: 'unknown', published: 'confirmed' };
+  }
+  return undefined;
 }
 
 // Keyed by identity, so a frozen rejection can be marked and no field of the rejection ever carries the mark.

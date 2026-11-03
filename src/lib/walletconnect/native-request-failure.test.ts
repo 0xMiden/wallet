@@ -399,6 +399,45 @@ it.each(['request_construction_error', 'request_call_error'])(
   }
 );
 
+it('decodes the iOS code of each origin with the observations of its kind and nothing else', () => {
+  const { decodeReownIOSFailureCode, isReownIOSFailure } =
+    jest.requireActual<typeof import('./native-request-failure')>('./native-request-failure');
+  const callOrigins = [
+    'unconfigured',
+    'argument_validation',
+    'request_construction_error',
+    'request_call_error'
+  ] as const;
+  for (const origin of callOrigins) {
+    const failure = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`);
+    expect(failure).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' });
+    expect(failure !== undefined && isReownIOSFailure(failure)).toBe(true);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'confirmed' })).toBe(false);
+  }
+  const publishedOrigins = ['request_expired', 'session_deleted'] as const;
+  for (const origin of publishedOrigins) {
+    const failure = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`);
+    expect(failure).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'confirmed' });
+    expect(failure !== undefined && isReownIOSFailure(failure)).toBe(true);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })).toBe(false);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'under_30s', published: 'confirmed' })).toBe(false);
+  }
+  for (const origin of ['publish_error', 'wallet_error', 'other', '', 'request_expired ']) {
+    expect(decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`)).toBeUndefined();
+  }
+  expect(
+    isReownIOSFailure({
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: 'other',
+      requestAge: 'unknown',
+      published: 'confirmed'
+    })
+  ).toBe(false);
+  expect(isReownIOSFailure({ nativeOrigin: 'publish_error', requestAge: 'unknown', published: 'unobserved' })).toBe(
+    false
+  );
+});
+
 it.each([
   'provider_unauthorized',
   'method_unsupported',
