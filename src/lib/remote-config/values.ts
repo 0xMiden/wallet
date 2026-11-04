@@ -66,6 +66,13 @@ export function selectEpochChain(s: BridgeConfigSnapshot, chainId?: number): Sup
   return chains.find(chain => chain.bridges.epoch && (chainId === undefined || chain.chainId === chainId)) ?? null;
 }
 
+/** The id of every chain with an Epoch route, in document order, whether or not the route takes deposits. */
+export function selectEpochChainIds(s: BridgeConfigSnapshot): number[] {
+  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain =>
+    chain.bridges.epoch ? [chain.chainId] : []
+  );
+}
+
 export function selectAgglayerChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
   const chains = Object.values(s.config?.supportedEvmChains ?? {});
   return chains.find(chain => chain.bridges.agglayer && (chainId === undefined || chain.chainId === chainId)) ?? null;

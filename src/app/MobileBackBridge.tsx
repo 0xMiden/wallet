@@ -3,8 +3,19 @@ import { FC } from 'react';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
+import { RECOVER_FUNDS_PATH } from './pages/recover-funds-paths';
+
 // Tab pages that should go to home on back (when no history)
 const TAB_PAGES = ['/history', '/browser'];
+
+/**
+ * Where back goes from a cold-opened Settings or Me page: the page that the header chevron falls back to. A lock of
+ * the recovery page goes to the recovery page, every other Settings page to the Settings list.
+ */
+function coldBackPath(pathname: string, isSettingsSubpage: boolean): string {
+  if (!isSettingsSubpage) return '/me';
+  return pathname.startsWith(`${RECOVER_FUNDS_PATH}/`) ? RECOVER_FUNDS_PATH : '/settings';
+}
 
 /**
  * Bridges hardware back button/gesture with Woozie navigation.
@@ -44,7 +55,7 @@ export const MobileBackBridge: FC = () => {
       if (historyPosition > 0) {
         goBack();
       } else {
-        navigate(isSettingsSubpage ? '/settings' : '/me', HistoryAction.Replace);
+        navigate(coldBackPath(pathname, isSettingsSubpage), HistoryAction.Replace);
       }
       return true;
     }

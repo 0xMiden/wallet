@@ -29,6 +29,11 @@ export function epochChain(chainId: number = sepolia.id): Chain {
   return chain;
 }
 
+/** The chain `chainId` with the RPC that the Epoch reads use: the E2E node under MIDEN_E2E_TEST, else the wallet's. */
+export function epochRpcChain(chainId: number): Chain {
+  return withE2eRpc(epochChain(chainId));
+}
+
 export interface EvmConnection {
   address?: string;
   chainId?: number;

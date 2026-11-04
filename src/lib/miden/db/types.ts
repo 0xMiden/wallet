@@ -248,6 +248,11 @@ export interface IEpochLockedDeposit {
   /** Unix seconds from which The Compact lets the sponsor withdraw. */
   withdrawableAt?: number;
   withdrawTxHash?: string;
+  /**
+   * Base units that the withdrawal sent back: the whole balance of the lock. This can be more than `amount`, because
+   * the lock holds every deposit of the sponsor in this token on this chain.
+   */
+  withdrawnAmount?: string;
   /** Unix seconds at which the deposit went back to the sponsor. Final. */
   withdrawnAt?: number;
   /** Unix seconds at which a retry registered the deposit again. The row then continues as a normal bridge-in. */

@@ -49,6 +49,8 @@ import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import { RECOVER_FUNDS_PATH } from './pages/recover-funds-paths';
+import RecoverLockedFundsLock from './pages/RecoverLockedFundsLock';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -226,6 +228,17 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
+  // One lock of the "Recover locked bridge funds" settings page (the `recover-funds` tab), with its sponsor in the
+  // `address` query. Three segments, so the generic `/settings/:tabSlug?` route below cannot match it. It slides over
+  // the list, which stays mounted beneath it and scans again after an action here.
+  [
+    `${RECOVER_FUNDS_PATH}/:chainId/:lockId`,
+    onlyReady(({ chainId, lockId }) => (
+      <FullScreenPage key={`recover-funds-${chainId ?? ''}-${lockId ?? ''}`} entrance="slide">
+        <RecoverLockedFundsLock chainId={chainId} lockId={lockId} />
       </FullScreenPage>
     ))
   ],
