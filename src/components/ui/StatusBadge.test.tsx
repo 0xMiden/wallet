@@ -29,6 +29,8 @@ describe('StatusBadge', () => {
     ['burnConfirmed', 'usdcxBurnConfirmed', 'positive'],
     ['burnDiscarded', 'usdcxBurnDiscarded', 'negative'],
     ['payoutDelayed', 'usdcxPayoutDelayed', 'pending'],
+    ['depositLocked', 'epochDepositLocked', 'negative'],
+    ['depositWithdrawn', 'epochDepositWithdrawn', 'neutral'],
     ['failed', 'failed', 'negative'],
     ['cancelled', 'cancelled', 'neutral'],
     ['unconfirmed', 'notConfirmed', 'pending'],
@@ -61,7 +63,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(32);
+    expect(STATUSES).toHaveLength(34);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {
