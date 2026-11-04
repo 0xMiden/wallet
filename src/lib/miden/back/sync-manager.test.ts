@@ -317,13 +317,15 @@ function fakeNote({
   faucetId = 'faucet-1',
   amount = '100',
   senderId = 'sender-1',
-  noteType = 0
+  noteType = 0,
+  standardPayment = true
 }: {
   id?: string | null;
   faucetId?: string;
   amount?: string;
   senderId?: string | undefined;
   noteType?: number | undefined;
+  standardPayment?: boolean;
 } = {}): any {
   return {
     noteId: id,
@@ -332,7 +334,8 @@ function fakeNote({
     senderAccountId: senderId,
     state: 2,
     assets: [{ faucetId, amount }],
-    swapAttachment: null
+    swapAttachment: null,
+    standardPayment
   };
 }
 
@@ -1752,6 +1755,20 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[1]![1] as { id: string }[]).toHaveLength(8);
     const queued = mockInitiateConsumeBatch.mock.calls.flatMap(call => (call[1] as { id: string }[]).map(n => n.id));
     expect(new Set(queued).size).toBe(16);
+  });
+
+  it("claims only standard payments, never another trader's PSWAP order (#2118)", async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 7;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'payment', faucetId: 'native-faucet', amount: '1000000' }),
+      fakeNote({ id: 'pswap-order', faucetId: 'native-faucet', amount: '1000000', standardPayment: false }),
+      { ...fakeNote({ id: 'unflagged', faucetId: 'native-faucet', amount: '1000000' }), standardPayment: undefined }
+    ]);
+    await doSync();
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'payment' })]);
   });
 
   it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {

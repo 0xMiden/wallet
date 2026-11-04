@@ -683,7 +683,11 @@ async function runSync(force: boolean): Promise<void> {
             // account, as this pass does above.
             const nativeNotes = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
             heldNativeNoteIds = nativeNotes.filter(n => notesBeingClaimed.has(n.id)).map(n => n.id);
-            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id));
+            // Only a standard payment (P2ID or P2IDE) is claimed unattended. The consumable
+            // list also holds other traders' public PSWAP orders on a pair tag the account
+            // still tracks, and consuming one fills that order from this account's balance
+            // (#2118). A note with no flag is not claimed.
+            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id) && n.standardPayment === true);
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
             // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
