@@ -41,6 +41,7 @@ import { WalletType } from 'screens/onboarding/types';
 import AdvancedSettings from './AdvancedSettings';
 import ExportAccountFile from './ExportAccountFile';
 import NetworksSettings from './Networks';
+import RecoverLockedFunds from './RecoverLockedFunds';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
 import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
@@ -353,6 +354,13 @@ const HIDDEN_TABS: Tab[] = [
     slug: 'export-account-file',
     titleI18nKey: 'exportAccountFile',
     Component: ExportAccountFile
+  },
+  // Opened from Advanced settings and from a Deposit locked row in Activity. One lock of it is the explicit route
+  // `/settings/recover-funds/:chainId/:lockId` in PageRouter.
+  {
+    slug: 'recover-funds',
+    titleI18nKey: 'recoverLockedFunds',
+    Component: RecoverLockedFunds
   },
   {
     slug: 'networks',

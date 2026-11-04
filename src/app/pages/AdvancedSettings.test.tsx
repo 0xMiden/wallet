@@ -222,6 +222,14 @@ describe('AdvancedSettings (page)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings/edit-miden-faucet-id');
   });
 
+  it('navigates to the locked bridge funds recovery when its row is pressed', async () => {
+    await renderWithResolvedKey();
+
+    fireEvent.click(screen.getByTestId('advanced-recover-locked-funds'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds');
+  });
+
   it('navigates to the guarded account-file export when its row is pressed', async () => {
     await renderWithResolvedKey();
 

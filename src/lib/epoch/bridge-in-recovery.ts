@@ -17,8 +17,17 @@ import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { epochLockedDepositState, nowSec, readCompactLockBalance } from './bridge-in-lock';
+import { compactLockToken } from './bridge-in-lock-scan';
 import { buildEpochWalletClient, epochChain, getEvmConnection, switchWebWalletChain } from './client';
+import {
+  clearForcedWithdrawalRecord,
+  type CompactLockRef,
+  readForcedWithdrawalRecord,
+  writeForcedWithdrawalRecord
+} from './forced-withdrawal-record';
 import { getEpochSdk } from './sdk';
+
+export type { CompactLockRef } from './forced-withdrawal-record';
 
 /** Why a recovery action refused to run. The screen shows a sentence for each reason. */
 export type LockedDepositErrorReason =
@@ -64,18 +73,39 @@ async function readLockedDeposit(txId: string): Promise<LockedDepositRow> {
   return { inputs, lock, sponsor: lock.sponsorAddress };
 }
 
+/** Why the connected EVM wallet cannot sign for `sponsor`, or undefined when it is the sponsor. */
+export function sponsorWalletRefusal(
+  connectedAddress: string | undefined,
+  sponsor: string
+): Extract<LockedDepositErrorReason, 'walletDisconnected' | 'wrongAccount'> | undefined {
+  if (!connectedAddress) return 'walletDisconnected';
+  if (connectedAddress.toLowerCase() !== sponsor.toLowerCase()) return 'wrongAccount';
+  return undefined;
+}
+
+/** Refuse when the connected EVM wallet is not `sponsor`. */
+function assertSponsorWallet(connectedAddress: string | undefined, sponsor: string): void {
+  switch (sponsorWalletRefusal(connectedAddress, sponsor)) {
+    case 'walletDisconnected':
+      throw new LockedDepositError('walletDisconnected', 'Connect the EVM wallet that made this deposit.');
+    case 'wrongAccount':
+      throw new LockedDepositError('wrongAccount', 'The connected EVM wallet did not make this deposit.');
+    case undefined:
+    default:
+      return;
+  }
+}
+
 /**
  * The SDK on the connected EVM wallet. Refuse when no wallet is connected or when it is not the sponsor: only the
  * sponsor can register or withdraw the deposit. Move a web wallet to the deposit chain first.
  */
-async function connectSponsorSdk(lock: IEpochLockedDeposit, allocatorUrl: string): Promise<EpochIntentSDK> {
+export async function connectSponsorSdk(
+  lock: Pick<CompactLockRef, 'sponsorAddress' | 'chainId'>,
+  allocatorUrl: string
+): Promise<EpochIntentSDK> {
   let connection = await getEvmConnection();
-  if (!connection.address) {
-    throw new LockedDepositError('walletDisconnected', 'Connect the EVM wallet that made this deposit.');
-  }
-  if (connection.address.toLowerCase() !== lock.sponsorAddress.toLowerCase()) {
-    throw new LockedDepositError('wrongAccount', 'The connected EVM wallet did not make this deposit.');
-  }
+  assertSponsorWallet(connection.address, lock.sponsorAddress);
   if (!connection.isNative && connection.chainId !== lock.chainId) {
     await switchWebWalletChain(lock.chainId);
     connection = await getEvmConnection();
@@ -101,24 +131,176 @@ export function withdrawableAtOf(result: GetForcedWithdrawalStatusResult): numbe
 }
 
 type LockedDepositPatch = Partial<
-  Pick<IEpochLockedDeposit, 'withdrawEnabledAt' | 'withdrawableAt' | 'withdrawTxHash' | 'withdrawnAt'>
+  Pick<
+    IEpochLockedDeposit,
+    'withdrawEnabledAt' | 'withdrawableAt' | 'withdrawTxHash' | 'withdrawnAmount' | 'withdrawnAt'
+  >
 >;
 
+/** Whether `lock` is in the lock of `ref`: the same chain, lock id and sponsor. */
+const isOnLock = (lock: IEpochLockedDeposit, ref: CompactLockRef): boolean =>
+  lock.chainId === ref.chainId &&
+  lock.lockId === ref.lockId &&
+  lock.sponsorAddress.toLowerCase() === ref.sponsorAddress.toLowerCase();
+
+/** The locked deposit of a history row when the row is a locked deposit in the lock of `ref`, else undefined. */
+function lockedDepositOn(
+  row: { type: string; restoredFromBackup?: boolean; extraInputs?: IBridgedReceiveExtraInputs },
+  ref: CompactLockRef
+): IEpochLockedDeposit | undefined {
+  const inputs = row.type === 'bridged-receive' ? row.extraInputs : undefined;
+  const lock = inputs?.epochLockedDeposit;
+  if (inputs === undefined || lock === undefined || !isOnLock(lock, ref)) return undefined;
+  if (epochLockedDepositState(lock, inputs.phase, row.restoredFromBackup === true) !== 'locked') return undefined;
+  return lock;
+}
+
 /**
- * Merge withdrawal progress into the locked deposit of row `id`. Write nothing when the row is not a locked deposit
- * (a retry or a withdrawal finished it, or it was restored). Return whether the row changed.
+ * Merge withdrawal progress into every locked deposit in the lock of `ref`. The Compact keeps one balance and one
+ * forced withdrawal per sponsor, token and chain, so a withdrawal applies to all deposits in the lock. Write nothing
+ * to a row that is not a locked deposit (a retry or a withdrawal finished it, or it was restored). Return the number
+ * of rows that changed.
  */
-export async function patchEpochLockedDeposit(id: string, patch: LockedDepositPatch): Promise<boolean> {
-  let written = false;
-  await Repo.transactions.where({ id }).modify(tx => {
-    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-    const lock = inputs?.epochLockedDeposit;
-    if (tx.type !== 'bridged-receive' || inputs === undefined || lock === undefined) return;
-    if (epochLockedDepositState(lock, inputs.phase, tx.restoredFromBackup === true) !== 'locked') return;
-    tx.extraInputs = { ...inputs, epochLockedDeposit: { ...lock, ...patch } };
-    written = true;
-  });
+export async function patchLockedDepositsOnLock(
+  ref: CompactLockRef,
+  patch: (lock: IEpochLockedDeposit) => LockedDepositPatch
+): Promise<number> {
+  let written = 0;
+  await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .modify(tx => {
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+      const lock = lockedDepositOn(tx, ref);
+      if (inputs === undefined || lock === undefined) return;
+      tx.extraInputs = { ...inputs, epochLockedDeposit: { ...lock, ...patch(lock) } };
+      written += 1;
+    });
   return written;
+}
+
+/** The locked deposits in the lock of `ref`, each with its row id. */
+export async function lockedDepositsOnLock(ref: CompactLockRef): Promise<{ id: string; lock: IEpochLockedDeposit }[]> {
+  const rows = await Repo.transactions.where('type').equals('bridged-receive').toArray();
+  return rows.flatMap(row => {
+    const lock = lockedDepositOn(row, ref);
+    return lock === undefined ? [] : [{ id: row.id, lock }];
+  });
+}
+
+/**
+ * The row that Retry bridge can register again for the lock of `ref`: a locked deposit that still holds the refused
+ * intent. Undefined when no row has one.
+ */
+export async function findRetryableLockedDeposit(ref: CompactLockRef): Promise<string | undefined> {
+  const deposits = await lockedDepositsOnLock(ref);
+  return deposits.find(({ lock }) => lock.taskTypeString !== '' && Object.keys(lock.intentData).length > 0)?.id;
+}
+
+/**
+ * Record that a forced withdrawal is on for the lock of `ref`: on its locked rows when it has some, else in the
+ * storage record of the lock. Keep the first enable time.
+ */
+async function recordWithdrawalStarted(ref: CompactLockRef, withdrawableAt: number | undefined): Promise<void> {
+  const written = await patchLockedDepositsOnLock(ref, lock => ({
+    withdrawEnabledAt: lock.withdrawEnabledAt ?? nowSec(),
+    withdrawableAt
+  }));
+  if (written > 0) return;
+  const stored = await readForcedWithdrawalRecord(ref);
+  await writeForcedWithdrawalRecord(ref, { enabledAt: stored?.enabledAt ?? nowSec(), withdrawableAt });
+}
+
+/** Record that no forced withdrawal is on for the lock of `ref`. */
+async function recordWithdrawalStopped(ref: CompactLockRef): Promise<void> {
+  await patchLockedDepositsOnLock(ref, () => ({ withdrawEnabledAt: undefined, withdrawableAt: undefined }));
+  await clearForcedWithdrawalRecord(ref);
+}
+
+function sponsorOf(ref: CompactLockRef): Address {
+  if (!isAddress(ref.sponsorAddress)) {
+    throw new LockedDepositError('notRecoverable', 'This deposit cannot be recovered from this wallet.');
+  }
+  return ref.sponsorAddress;
+}
+
+/** Enable the forced withdrawal of the lock unless it is on already. Return when it is due, in unix seconds. */
+async function enableForcedWithdrawal(
+  sdk: EpochIntentSDK,
+  sponsor: Address,
+  ref: CompactLockRef
+): Promise<number | undefined> {
+  let status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
+  if (status.status === 'Disabled') {
+    await sdk.initateDepositWithdrawal(ref.lockId);
+    status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
+  }
+  const withdrawableAt = withdrawableAtOf(status);
+  await recordWithdrawalStarted(ref, withdrawableAt);
+  return withdrawableAt;
+}
+
+/**
+ * Withdraw the whole balance of the lock to the sponsor once its forced withdrawal is due, and mark every locked row
+ * in the lock withdrawn with the amount sent. Return the withdrawal transaction hash.
+ */
+async function withdrawWholeLock(
+  sdk: EpochIntentSDK,
+  sponsor: Address,
+  ref: CompactLockRef,
+  tokenAddress: string
+): Promise<string> {
+  const status = await sdk.getForcedWithdrawalStatus(sponsor, ref.lockId);
+  switch (status.status) {
+    case 'Disabled':
+      throw new LockedDepositError('withdrawalNotStarted', 'Start the withdrawal first.');
+    case 'Pending':
+      await recordWithdrawalStarted(ref, withdrawableAtOf(status));
+      throw new LockedDepositError('withdrawalNotDue', 'The withdrawal is not due yet.');
+    case 'Enabled':
+    default:
+      break;
+  }
+  const balance = await readCompactLockBalance(sdk, sponsor, tokenAddress);
+  if (balance === undefined || balance.lockId !== ref.lockId || balance.balance <= 0n) {
+    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
+  }
+  const result = await sdk.withdrawToken(ref.lockId, sponsor, balance.balance.toString());
+  await patchLockedDepositsOnLock(ref, () => ({
+    withdrawTxHash: result.transactionHash,
+    withdrawnAmount: balance.balance.toString(),
+    withdrawnAt: nowSec()
+  }));
+  await clearForcedWithdrawalRecord(ref);
+  return result.transactionHash;
+}
+
+/**
+ * Start the forced withdrawal of a lock from the sponsor's wallet (the Settings recovery page). Return when it is due,
+ * in unix seconds, or undefined when the chain does not report it yet.
+ */
+export async function startLockWithdrawal(ref: CompactLockRef): Promise<number | undefined> {
+  const sponsor = sponsorOf(ref);
+  const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
+  return enableForcedWithdrawal(sdk, sponsor, ref);
+}
+
+/** Withdraw the whole balance of a lock to the sponsor once due (the Settings recovery page). Return the hash. */
+export async function finishLockWithdrawal(ref: CompactLockRef): Promise<string> {
+  const sponsor = sponsorOf(ref);
+  const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
+  return withdrawWholeLock(sdk, sponsor, ref, compactLockToken(ref.lockId));
+}
+
+/**
+ * Stop the forced withdrawal of a lock from the sponsor's wallet. While a forced withdrawal is on, the allocator
+ * refuses new Fast bridge-ins of the lock's token from that address.
+ */
+export async function cancelLockWithdrawal(ref: CompactLockRef): Promise<void> {
+  sponsorOf(ref);
+  const sdk = await connectSponsorSdk(ref, getEpochAllocatorUrl());
+  await sdk.disableForcedWithdrawal(ref.lockId);
+  await recordWithdrawalStopped(ref);
 }
 
 /**
@@ -161,43 +343,18 @@ export async function markEpochLockedDepositReallocated(
 export async function startLockedDepositWithdrawal(txId: string): Promise<number | undefined> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
   const sdk = await connectSponsorSdk(lock, inputs.epochAllocatorUrl ?? getEpochAllocatorUrl());
-  let status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
-  if (status.status === 'Disabled') {
-    await sdk.initateDepositWithdrawal(lock.lockId);
-    status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
-  }
-  const withdrawableAt = withdrawableAtOf(status);
-  await patchEpochLockedDeposit(txId, { withdrawEnabledAt: lock.withdrawEnabledAt ?? nowSec(), withdrawableAt });
-  return withdrawableAt;
+  return enableForcedWithdrawal(sdk, sponsor, lock);
 }
 
 /**
- * Withdraw a locked deposit to the sponsor once its forced withdrawal is due. Withdraw at most what the lock still
- * holds. Return the withdrawal transaction hash.
+ * Withdraw a locked deposit to the sponsor once its forced withdrawal is due. Withdraw the whole balance of the lock:
+ * a forced withdrawal applies to the lock, and the lock can also hold other deposits of the sponsor in this token.
+ * Record the amount sent on the row. Return the withdrawal transaction hash.
  */
 export async function finishLockedDepositWithdrawal(txId: string): Promise<string> {
   const { inputs, lock, sponsor } = await readLockedDeposit(txId);
   const sdk = await connectSponsorSdk(lock, inputs.epochAllocatorUrl ?? getEpochAllocatorUrl());
-  const status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
-  switch (status.status) {
-    case 'Disabled':
-      throw new LockedDepositError('withdrawalNotStarted', 'Start the withdrawal first.');
-    case 'Pending':
-      await patchEpochLockedDeposit(txId, { withdrawableAt: withdrawableAtOf(status) });
-      throw new LockedDepositError('withdrawalNotDue', 'The withdrawal is not due yet.');
-    case 'Enabled':
-    default:
-      break;
-  }
-  const balance = await readCompactLockBalance(sdk, sponsor, lock.tokenAddress);
-  if (balance === undefined || balance.lockId !== lock.lockId || balance.balance <= 0n) {
-    throw new LockedDepositError('depositMissing', 'The Compact no longer holds this deposit.');
-  }
-  const deposited = BigInt(lock.amount);
-  const amount = balance.balance < deposited ? balance.balance : deposited;
-  const result = await sdk.withdrawToken(lock.lockId, sponsor, amount.toString());
-  await patchEpochLockedDeposit(txId, { withdrawTxHash: result.transactionHash, withdrawnAt: nowSec() });
-  return result.transactionHash;
+  return withdrawWholeLock(sdk, sponsor, lock, lock.tokenAddress);
 }
 
 interface RegisteredCompact {
@@ -294,7 +451,7 @@ export async function retryLockedDeposit(txId: string): Promise<string> {
   const status = await sdk.getForcedWithdrawalStatus(sponsor, lock.lockId);
   if (status.status !== 'Disabled') {
     await sdk.disableForcedWithdrawal(lock.lockId);
-    await patchEpochLockedDeposit(txId, { withdrawEnabledAt: undefined, withdrawableAt: undefined });
+    await recordWithdrawalStopped(lock);
   }
   const balance = await readCompactLockBalance(sdk, sponsor, lock.tokenAddress);
   if (balance === undefined || balance.lockId !== lock.lockId || balance.balance < BigInt(lock.amount)) {

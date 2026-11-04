@@ -108,6 +108,13 @@ describe('MobileBackBridge', () => {
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
+  it('on a cold-opened lock of the recovery page: replaces to the recovery page, like the header chevron', () => {
+    const { handler } = renderAt('/settings/recover-funds/11155111/42', 0);
+
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/settings/recover-funds', HistoryAction.Replace);
+  });
+
   it('on a tab page matched exactly (/history): replaces to home and consumes', () => {
     const { handler } = renderAt('/history', 4);
 

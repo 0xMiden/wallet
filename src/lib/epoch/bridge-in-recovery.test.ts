@@ -3,13 +3,18 @@ import type { CompactRequest } from '@epoch-protocol/epoch-intents-sdk';
 import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit } from 'lib/miden/db/types';
 
 import {
+  cancelLockWithdrawal,
+  findRetryableLockedDeposit,
   finishLockedDepositWithdrawal,
+  finishLockWithdrawal,
   LockedDepositError,
   markEpochLockedDepositReallocated,
-  patchEpochLockedDeposit,
+  patchLockedDepositsOnLock,
   readCompactData,
   retryLockedDeposit,
+  sponsorWalletRefusal,
   startLockedDepositWithdrawal,
+  startLockWithdrawal,
   submitWhenRegistered
 } from './bridge-in-recovery';
 
@@ -26,12 +31,34 @@ const rows = new Map<string, Row>();
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     get: async (id: string) => rows.get(id),
-    where: ({ id }: { id: string }) => ({
-      modify: async (change: (row: Row) => void) => {
-        const row = rows.get(id);
-        if (row) change(row);
+    where: (key: string | { id: string }) => {
+      // `where('type').equals(type)`: every row of that type. `where({ id })`: the one row.
+      if (typeof key === 'string') {
+        return {
+          equals: (type: string) => {
+            const ofType = () => [...rows.values()].filter(row => row.type === type);
+            return {
+              toArray: async () => ofType(),
+              modify: async (change: (row: Row) => void) => ofType().forEach(change)
+            };
+          }
+        };
       }
-    })
+      return {
+        modify: async (change: (row: Row) => void) => {
+          const row = rows.get(key.id);
+          if (row) change(row);
+        }
+      };
+    }
+  }
+}));
+
+const storage = new Map<string, unknown>();
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: async (key: string) => storage.get(key) ?? null,
+  putToStorage: async (key: string, value: unknown) => {
+    storage.set(key, value);
   }
 }));
 
@@ -124,6 +151,7 @@ const lockBalance = (balance: string) =>
 
 beforeEach(() => {
   rows.clear();
+  storage.clear();
   seedRow();
   jest.clearAllMocks();
   mockConnection.mockResolvedValue({ address: SPONSOR, isNative: true });
@@ -141,12 +169,20 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('row writers', () => {
-  it('merge withdrawal progress only into a locked deposit', async () => {
-    await expect(patchEpochLockedDeposit('row-1', { withdrawableAt: 5 })).resolves.toBe(true);
+  it('merge withdrawal progress only into a locked deposit of the same lock', async () => {
+    await expect(patchLockedDepositsOnLock(LOCK, () => ({ withdrawableAt: 5 }))).resolves.toBe(1);
+    expect(lockOf()?.withdrawableAt).toBe(5);
+
+    // Another lock id, another chain or another sponsor is another lock.
+    await expect(patchLockedDepositsOnLock({ ...LOCK, lockId: '43' }, () => ({ withdrawableAt: 7 }))).resolves.toBe(0);
+    await expect(patchLockedDepositsOnLock({ ...LOCK, chainId: 1 }, () => ({ withdrawableAt: 7 }))).resolves.toBe(0);
+    await expect(
+      patchLockedDepositsOnLock({ ...LOCK, sponsorAddress: TOKEN }, () => ({ withdrawableAt: 7 }))
+    ).resolves.toBe(0);
     expect(lockOf()?.withdrawableAt).toBe(5);
 
     seedRow({}, { restoredFromBackup: true });
-    await expect(patchEpochLockedDeposit('row-1', { withdrawableAt: 6 })).resolves.toBe(false);
+    await expect(patchLockedDepositsOnLock(LOCK, () => ({ withdrawableAt: 6 }))).resolves.toBe(0);
     expect(lockOf()?.withdrawableAt).toBeUndefined();
   });
 
@@ -288,17 +324,145 @@ describe('withdrawal', () => {
     expect(sdk.withdrawToken).not.toHaveBeenCalled();
   });
 
-  it('withdraws the deposit to the sponsor once due, at most what the lock holds', async () => {
+  it('withdraws the whole lock balance to the sponsor once due, and records the amount sent', async () => {
+    seedRow({ withdrawEnabledAt: 900, withdrawableAt: 990 });
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+    // The lock holds more than this deposit: an earlier deposit of the same sponsor and token is in it too.
+    lockBalance('2500000');
+
+    await expect(finishLockedDepositWithdrawal('row-1')).resolves.toBe('0xwithdraw');
+
+    expect(sdk.withdrawToken).toHaveBeenCalledWith('42', SPONSOR, '2500000');
+    expect(lockOf()).toMatchObject({ withdrawTxHash: '0xwithdraw', withdrawnAmount: '2500000', withdrawnAt: 1000 });
+    // A withdrawn deposit is no longer recoverable.
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'notRecoverable' });
+  });
+
+  it('withdraws less than the deposit when that is all the lock holds', async () => {
     seedRow({ withdrawEnabledAt: 900, withdrawableAt: 990 });
     sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
     lockBalance('400000');
 
-    await expect(finishLockedDepositWithdrawal('row-1')).resolves.toBe('0xwithdraw');
+    await finishLockedDepositWithdrawal('row-1');
 
     expect(sdk.withdrawToken).toHaveBeenCalledWith('42', SPONSOR, '400000');
-    expect(lockOf()).toMatchObject({ withdrawTxHash: '0xwithdraw', withdrawnAt: 1000 });
-    // A withdrawn deposit is no longer recoverable.
-    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'notRecoverable' });
+    expect(lockOf()?.withdrawnAmount).toBe('400000');
+  });
+
+  it('marks every locked row of the lock withdrawn, since the lock is empty after it', async () => {
+    seedRow({ withdrawEnabledAt: 900 });
+    const first = rows.get('row-1');
+    if (first) {
+      rows.set('row-2', {
+        ...first,
+        id: 'row-2',
+        extraInputs: { ...first.extraInputs, epochLockedDeposit: { ...LOCK, withdrawEnabledAt: 900 } }
+      });
+    }
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+
+    await finishLockedDepositWithdrawal('row-1');
+
+    expect(rows.get('row-2')?.extraInputs.epochLockedDeposit).toMatchObject({ withdrawnAt: 1000 });
+  });
+});
+
+describe('sponsorWalletRefusal', () => {
+  it('names why the connected wallet cannot sign for the sponsor', () => {
+    expect(sponsorWalletRefusal(undefined, SPONSOR)).toBe('walletDisconnected');
+    expect(sponsorWalletRefusal(TOKEN, SPONSOR)).toBe('wrongAccount');
+    expect(sponsorWalletRefusal(SPONSOR.toUpperCase().replace('0X', '0x'), SPONSOR)).toBeUndefined();
+  });
+});
+
+describe('lock actions (Settings recovery page)', () => {
+  // A lock with no history row: the Settings scan found it on chain. Its token is the low 160 bits of the id.
+  const LOCK_ID = ((7n << 160n) | 0x2n).toString();
+  const REF = { sponsorAddress: SPONSOR, chainId: 11155111, lockId: LOCK_ID };
+  const storedRecord = () => storage.get(`epoch_forced_withdrawal_v1:11155111:${LOCK_ID}:${SPONSOR}`);
+
+  beforeEach(() => {
+    rows.clear();
+    sdk.getDepositedBalances.mockResolvedValue([
+      { depositId: LOCK_ID, symbol: '', balance: '3000000', decimals: 0, withdrawStatus: 'Enabled' }
+    ]);
+  });
+
+  it('starts the forced withdrawal and keeps its time in the storage record when no row holds the lock', async () => {
+    sdk.getForcedWithdrawalStatus
+      .mockResolvedValueOnce({ status: 'Disabled', enabledAt: 0n })
+      .mockResolvedValueOnce({ status: 'Pending', enabledAt: 4900n });
+
+    await expect(startLockWithdrawal(REF)).resolves.toBe(4900);
+
+    expect(sdk.initateDepositWithdrawal).toHaveBeenCalledWith(LOCK_ID);
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
+    expect(storedRecord()).toEqual({ enabledAt: 1000, withdrawableAt: 4900 });
+  });
+
+  it('writes the enable time on the matching history row instead of the storage record', async () => {
+    seedRow({ lockId: LOCK_ID });
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Pending', enabledAt: 4900n });
+
+    await startLockWithdrawal(REF);
+
+    expect(lockOf()).toMatchObject({ withdrawEnabledAt: 1000, withdrawableAt: 4900 });
+    expect(storedRecord()).toBeUndefined();
+  });
+
+  it('withdraws the whole balance to the sponsor once due and clears the record', async () => {
+    storage.set(`epoch_forced_withdrawal_v1:11155111:${LOCK_ID}:${SPONSOR}`, { enabledAt: 900 });
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Enabled', enabledAt: 990n });
+
+    await expect(finishLockWithdrawal(REF)).resolves.toBe('0xwithdraw');
+
+    expect(sdk.getDepositedBalances).toHaveBeenCalledWith(SPONSOR, [
+      { address: '0x0000000000000000000000000000000000000002', symbol: '', decimals: 0 }
+    ]);
+    expect(sdk.withdrawToken).toHaveBeenCalledWith(LOCK_ID, SPONSOR, '3000000');
+    expect(storedRecord()).toBeNull();
+  });
+
+  it('refuses to withdraw before the withdrawal is due', async () => {
+    sdk.getForcedWithdrawalStatus.mockResolvedValue({ status: 'Pending', enabledAt: 4900n });
+
+    await expect(finishLockWithdrawal(REF)).rejects.toMatchObject({ reason: 'withdrawalNotDue' });
+    expect(sdk.withdrawToken).not.toHaveBeenCalled();
+  });
+
+  it('cancels the withdrawal and clears the recorded times', async () => {
+    seedRow({ lockId: LOCK_ID, withdrawEnabledAt: 900, withdrawableAt: 4900 });
+    storage.set(`epoch_forced_withdrawal_v1:11155111:${LOCK_ID}:${SPONSOR}`, { enabledAt: 900 });
+
+    await cancelLockWithdrawal(REF);
+
+    expect(sdk.disableForcedWithdrawal).toHaveBeenCalledWith(LOCK_ID);
+    expect(lockOf()).toMatchObject({ withdrawEnabledAt: undefined, withdrawableAt: undefined });
+    expect(storedRecord()).toBeNull();
+  });
+
+  it('refuses without the sponsor wallet, and for an address that is not one', async () => {
+    mockConnection.mockResolvedValue({ address: TOKEN, isNative: true });
+    await expect(startLockWithdrawal(REF)).rejects.toMatchObject({ reason: 'wrongAccount' });
+    mockConnection.mockResolvedValue({ isNative: true });
+    await expect(cancelLockWithdrawal(REF)).rejects.toMatchObject({ reason: 'walletDisconnected' });
+    await expect(finishLockWithdrawal({ ...REF, sponsorAddress: 'nope' })).rejects.toMatchObject({
+      reason: 'notRecoverable'
+    });
+    expect(sdk.disableForcedWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it('offers Retry bridge only for a locked row that still holds the refused intent', async () => {
+    await expect(findRetryableLockedDeposit(REF)).resolves.toBeUndefined();
+
+    seedRow({ lockId: LOCK_ID });
+    await expect(findRetryableLockedDeposit(REF)).resolves.toBe('row-1');
+
+    seedRow({ lockId: LOCK_ID, intentData: {} });
+    await expect(findRetryableLockedDeposit(REF)).resolves.toBeUndefined();
+
+    seedRow({ lockId: LOCK_ID }, { restoredFromBackup: true });
+    await expect(findRetryableLockedDeposit(REF)).resolves.toBeUndefined();
   });
 });
 
