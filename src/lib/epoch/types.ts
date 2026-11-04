@@ -93,4 +93,16 @@ export interface IntentResult {
   depositChainId?: number;
   /** Solved compact expiry (`intentRequestData.compact.expires`), when the solve included one. */
   compactExpires?: string;
+  /**
+   * EVM→Miden: the solve failed after its deposit landed in The Compact, for example when the allocator refused the
+   * allocation (#2120). The funds are in the sponsor's resource lock and the row can recover them.
+   */
+  strandedDeposit?: StrandedCompactDeposit;
+}
+
+/** A Compact deposit that has no allocation. `amount` is in base units, `lockId` is a decimal string. */
+export interface StrandedCompactDeposit {
+  lockId: string;
+  amount: string;
+  tokenAddress: string;
 }

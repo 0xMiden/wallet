@@ -12,6 +12,7 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
+import { readCompactLockBalance, strandedDepositAmount } from './bridge-in-lock';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
@@ -254,7 +255,7 @@ function solvedCompactExpires(solveResult: unknown): string | undefined {
 }
 
 export async function buildEVMToMidenIntent(
-  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'>,
+  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> & Partial<Pick<EpochIntentSDK, 'getDepositedBalances'>>,
   params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
 ): Promise<IntentResult> {
   let taskTypeString: string;
@@ -267,6 +268,11 @@ export async function buildEVMToMidenIntent(
     const taskDataParams = buildEVMToMidenTaskDataParams(params);
     ({ taskTypeString, intentData } = await sdk.getTaskData(taskDataParams));
   }
+
+  // The SDK deposits into The Compact before it asks the allocator for the allocation, and a refused allocation
+  // only gives an error message. The lock balance before and after the solve tells if a deposit landed (#2120).
+  const lockToken = params.isNative === true ? ZERO_ADDRESS : params.evmTokenAddress;
+  const lockBefore = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
 
   try {
     const solveResult = await sdk.solveIntent({
@@ -287,10 +293,15 @@ export async function buildEVMToMidenIntent(
     };
   } catch (err) {
     console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
+    const lockAfter = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
+    const stranded = strandedDepositAmount(lockBefore, lockAfter, quoteResult?.tokenIn);
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent'
+      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent',
+      ...(stranded !== undefined && lockAfter !== undefined
+        ? { strandedDeposit: { lockId: lockAfter.lockId, amount: stranded.toString(), tokenAddress: lockToken } }
+        : {})
     };
   }
 }

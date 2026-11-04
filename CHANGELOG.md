@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.11 (TBD)
+
+- [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the deposit back after the lock's reset period (#2120).
+
 ## 1.17.10 (2026-11-01)
 
 - [FIX][all] Mainnet balances and accounts appear again after updating to 1.17.9: a wallet set up before 1.17.9 reopens the local store it was created in, which the move to the mainnet hosts had left behind (#2086).
