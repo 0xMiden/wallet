@@ -28,6 +28,8 @@ export interface ChoiceCardItem<T extends string = string> {
   leading?: ReactNode;
   /** After the title: a `Pill` ("Current") or a `StatusBadge` ("Offline"). */
   badge?: ReactNode;
+  /** On the card's top edge at the right, half outside it: a tag that has to stand apart from the title ("Fastest"). */
+  edgeBadge?: ReactNode;
   /** Cannot be chosen: out of the tab order, reported unavailable, its leading visual and title dimmed. */
   disabled?: boolean;
   /** The option's name when the title is not text (a wordmark) or the badge carries meaning. */
@@ -128,7 +130,13 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
   const detailsId = `${id}-details`;
   // Named by the title alone; the badge and the subtitle describe it, so a reader hears
   // "Gateway, radio, checked" before the meta line rather than one run-on name.
-  const describedBy = [item.badge ? badgeId : null, item.subtitle ? subtitleId : null, item.details ? detailsId : null]
+  const edgeBadgeId = `${id}-edge-badge`;
+  const describedBy = [
+    item.edgeBadge ? edgeBadgeId : null,
+    item.badge ? badgeId : null,
+    item.subtitle ? subtitleId : null,
+    item.details ? detailsId : null
+  ]
     .filter(Boolean)
     .join(' ');
 
@@ -152,7 +160,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
           )}
         </span>
         {item.subtitle && (
-          <span id={subtitleId} className="text-caption text-muted">
+          <span id={subtitleId} className="text-caption text-muted face-heading">
             {item.subtitle}
           </span>
         )}
@@ -165,7 +173,11 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
         onAnimationComplete={pop.onAnimationComplete}
         className="flex shrink-0"
       >
-        {selected && accent ? <SelectionCheck accent={accent} /> : <CheckboxIndicator checked={selected} />}
+        {selected && accent ? (
+          <SelectionCheck accent={accent} />
+        ) : (
+          <CheckboxIndicator checked={selected} className={selected ? undefined : 'ring-muted/50'} />
+        )}
       </motion.span>
     </>
   );
@@ -190,9 +202,19 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
       {...(item.disabled ? {} : motionTokens.press)}
       className={cn(
         card({ selected, surface, layout: item.details ? 'detail' : 'row' }),
-        selected && accent && FLOW_RING[accent]
+        selected && accent && FLOW_RING[accent],
+        // The edge badge hangs half outside the card; the list leaves room for it above.
+        item.edgeBadge && 'relative'
       )}
     >
+      {item.edgeBadge && (
+        <span
+          id={edgeBadgeId}
+          className="pointer-events-none absolute -top-3 right-4 flex rounded-full shadow-[0_0_0_3px_var(--ds-page)]"
+        >
+          {item.edgeBadge}
+        </span>
+      )}
       {item.details ? (
         <>
           <span className="flex w-full items-center gap-3">{content}</span>
