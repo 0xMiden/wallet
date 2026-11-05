@@ -365,7 +365,7 @@ export function useEarnPositions(): {
         const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
         // The read asks only for the lenders the wallet knows. A background unfiltered read finds any other, and a
         // market it finds makes the next read due at once, which asks for it too.
-        discoverEarnPositionMarkets(owners).then(found => {
+        discoverEarnPositionMarkets(owners, account.publicKey).then(found => {
           if (found) requestRead(reads);
         }, ignoreRejection);
         failed = next.errors.length > 0;

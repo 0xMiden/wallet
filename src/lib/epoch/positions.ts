@@ -305,7 +305,7 @@ export interface FetchEarnPositionsArgs {
   accountId?: string;
   /** Override the owner addresses to query (defaults to those from activity). */
   owners?: string[];
-  /** Chains to query (defaults to every Epoch route the document names). */
+  /** Chains to query at most (defaults to every Epoch route); a request goes only to the chains of known markets. */
   chains?: number[];
   /**
    * The markets to read for every owner. Omitted, an owner's markets are the ones it deposited into, the vaults the
@@ -318,8 +318,8 @@ const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
 
 /**
  * The requests that read `owner`'s positions in `markets`: one per lender, on only the chains where that lender has
- * one of the markets. A market on no route, or with a malformed lender key, is not read. With no market left, one
- * unfiltered request on `chains`, so an owner the wallet knows no market of still has its positions read.
+ * one of the markets. A market on no route, on none of `chains` or with a malformed lender key, is not read. With no
+ * market left, no request: the wallet reads no chain it knows no Earn market on.
  */
 function queriesFor(owner: string, markets: Iterable<string>, routes: readonly EpochRoute[], chains: number[]) {
   const lenders = new Map<string, Set<number>>();
@@ -330,14 +330,26 @@ function queriesFor(owner: string, markets: Iterable<string>, routes: readonly E
     if (!key || !LENDER_KEY_RE.test(key) || !chains.includes(chain) || !isRouteMarket(marketUid, routes)) continue;
     lenders.set(key, (lenders.get(key) ?? new Set<number>()).add(chain));
   }
-  if (lenders.size === 0) return [{ owner, chains }];
   return [...lenders].map(([lender, on]): PositionsQuery => ({ owner, lender, chains: chains.filter(c => on.has(c)) }));
+}
+
+/**
+ * The chains an Earn position of `markets` can be on: the chains of those markets that are Epoch routes, in route
+ * order. Every chain with Epoch USDC is a bridge route, not an Earn chain, so the route list alone is never read.
+ */
+function earnChainsOf(markets: Iterable<string>, routes: readonly EpochRoute[]): number[] {
+  const named = new Set<number>();
+  for (const marketUid of markets) {
+    if (isRouteMarket(marketUid, routes)) named.add(Number(marketUid.split(':')[1]));
+  }
+  return routes.map(route => route.chainId).filter(chain => named.has(chain));
 }
 
 /**
  * Fetch every open lending position for the wallet. Collects the distinct EVM owner addresses from `earn-deposit`
  * activity and queries the positions service for each of them, all at once: one request per owner and lender, on only
- * the chains of that lender's known markets (see `queriesFor`). With no owner, it makes no request. Per-address
+ * the chains of that lender's known markets (see `queriesFor`). With no owner, or no known market, it makes no
+ * request. Per-address
  * failures are isolated (see `fetchPositions`) and surfaced in `errors`, and so is a payload that cannot be read or
  * has a copied field of the wrong type: an owner with any failed request has none of its positions kept.
  *
@@ -446,10 +458,12 @@ function fundedMarketsOf(items: PositionsApiChainItem[]): string[] {
  * `fetchEarnPositions` also asks for a lender the wallet knows no market of (a position the allocator put in another
  * market, or a deposit from another device). Nothing waits on it: one attempt per owner and positions host succeeds
  * once per realm, a failed one is tried again after 10 minutes at the earliest, and an attempt the request budget has
- * no room for is skipped until the next call. Resolves true when it found a market it did not know, so the caller
+ * no room for is skipped until the next call. It asks every lender, but only on the Earn chains of the owner: the
+ * chains of the vaults the document lists and of the owner's deposits (`accountId`'s rows), never every chain with
+ * Epoch USDC; an owner with none gets no request. Resolves true when it found a market it did not know, so the caller
  * can read again; never rejects.
  */
-export async function discoverEarnPositionMarkets(owners: readonly string[]): Promise<boolean> {
+export async function discoverEarnPositionMarkets(owners: readonly string[], accountId?: string): Promise<boolean> {
   let positionsUrl: string;
   let routes: EpochRoute[];
   try {
@@ -458,12 +472,14 @@ export async function discoverEarnPositionMarkets(owners: readonly string[]): Pr
     return false;
   }
   if (routes.length === 0) return false;
-  const chains = routes.map(route => route.chainId);
+  const listed = getEarnVaults().map(vault => vault.marketUid);
+  const deposited = await getEarnDepositMarkets(accountId).catch(() => new Map<string, Set<string>>());
+  const chainsOf = (owner: string) => earnChainsOf([...listed, ...(deposited.get(owner) ?? [])], routes);
   const now = Date.now();
   const due = [...new Set(owners.map(owner => owner.toLowerCase()))].filter(owner => {
     const key = `${positionsUrl} ${owner}`;
     const started = discoveryStarts.get(key);
-    if (discoveredOwners.has(key) || discoveriesInFlight.has(key)) return false;
+    if (discoveredOwners.has(key) || discoveriesInFlight.has(key) || chainsOf(owner).length === 0) return false;
     return started === undefined || now - started >= DISCOVERY_RETRY_MS;
   });
   let found = false;
@@ -474,7 +490,7 @@ export async function discoverEarnPositionMarkets(owners: readonly string[]): Pr
       discoveriesInFlight.add(key);
       discoveryStarts.set(key, now);
       try {
-        const result = await fetchPositions(positionsUrl, { owner, chains }, DISCOVERY_TIMEOUT_MS);
+        const result = await fetchPositions(positionsUrl, { owner, chains: chainsOf(owner) }, DISCOVERY_TIMEOUT_MS);
         if (result.error) return;
         const markets = discoveredMarkets.get(owner) ?? new Set<string>();
         for (const marketUid of fundedMarketsOf(result.items)) {

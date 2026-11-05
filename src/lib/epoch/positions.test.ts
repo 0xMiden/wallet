@@ -294,29 +294,14 @@ describe('fetchEarnPositions', () => {
     expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID, unlisted]);
   });
 
-  it('asks an owner the wallet knows no market of on every Epoch route, and keeps each route in its USDC', async () => {
-    const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-    const baseUid = `AAVE_V3:8453:${BASE_USDC.toLowerCase()}`;
+  it('asks nothing for an owner the wallet knows no Earn market of, not even every Epoch route', async () => {
     jest.mocked(getEarnVaults).mockReturnValue([]);
-    jest.mocked(getEpochRoutes).mockReturnValue([
-      { chainId: 11155111, usdc: SEPOLIA_USDC },
-      { chainId: 8453, usdc: BASE_USDC }
-    ]);
-    const fetchMock = serve(() =>
-      positionsAnswer([
-        apiItem('12.5', 12.5),
-        { ...apiItem('3', 3, 'AAVE_V3', baseUid), chainId: '8453' },
-        { ...apiItem('4', 4, 'AAVE_V3', `AAVE_V3:8453:${SEPOLIA_USDC.toLowerCase()}`), chainId: '8453' }
-      ])
-    );
+    const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111,8453`, {
-      signal: expect.any(AbortSignal)
-    });
-    expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, baseUid]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [OWNER], errors: [] });
   });
 
   describe('one request per lender', () => {
@@ -396,8 +381,12 @@ describe('fetchEarnPositions', () => {
       expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request failed (503)', stage: 'request' }]);
     });
 
-    it('asks for a lender an unfiltered discovery found, once per owner', async () => {
+    it("discovers every lender only on the vaults' chains and the owner's deposit chains, then asks for it", async () => {
       jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
+      // An old deposit on Ethereum, where the document lists no vault any more; Arbitrum is a route with no market.
+      withRows([
+        { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: aaveMainnet } }
+      ]);
       const morphoMainnet = `MORPHO_BLUE_D752:1:${MAINNET_USDC}`;
       const fetchMock = jest.fn();
       fetchMock.mockImplementation(async (url: string) =>
@@ -412,8 +401,9 @@ describe('fetchEarnPositions', () => {
 
       expect(await discoverEarnPositionMarkets([OWNER, OWNER.toUpperCase()])).toBe(true);
       expect(await discoverEarnPositionMarkets([OWNER])).toBe(false);
+      // Base for the vault, Ethereum for the old deposit; never Arbitrum, which only bridges USDC.
       expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453,42161,1`
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453,1`
       ]);
 
       fetchMock.mockClear();
@@ -422,11 +412,21 @@ describe('fetchEarnPositions', () => {
       // The unfunded Moonwell market adds nothing.
       expect(requestedUrls(fetchMock)).toEqual([
         `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=1&lenders=MORPHO_BLUE_D752`,
-        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453&lenders=AAVE_V3`
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453,1&lenders=AAVE_V3`
       ]);
     });
 
+    it('discovers nothing for an owner with no Earn chain', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([]);
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock;
+
+      expect(await discoverEarnPositionMarkets([OWNER])).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('tries a failed discovery again only after 10 minutes', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
       jest.useFakeTimers();
       try {
         const fetchMock = jest.fn();
