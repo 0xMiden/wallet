@@ -5,6 +5,7 @@ import { useSWRConfig } from 'swr';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   carryForward,
+  discoverEarnPositionMarkets,
   type EarnPositionsResult,
   fetchEarnPositions,
   getEarnDepositEvmAddresses,
@@ -268,6 +269,9 @@ export function useEarnPositions(): {
       reads.at = startedAt;
       reads.rearms.forEach(rearm => rearm());
       const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
+      // The read asks only for the lenders the wallet knows. A background unfiltered read finds any other, and the next
+      // 10 s read asks for it too.
+      discoverEarnPositionMarkets(owners).catch(ignoreFailedWrite);
       // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
       // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the
       // render that started this read.

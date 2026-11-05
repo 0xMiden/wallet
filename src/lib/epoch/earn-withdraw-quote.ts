@@ -152,14 +152,20 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   assertWithdrawalReviewContext(quote);
   if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId))
     throw new Error('earnWithdrawRefresh');
-  const fresh = await fetchEarnPositions({ accountId: quote.accountId, owners: [quote.position.owner] });
+  // Only the reviewed market: an unfiltered read can outlast the request limit, and a read that fails says nothing
+  // about the balance (#2116).
+  const fresh = await fetchEarnPositions({
+    accountId: quote.accountId,
+    owners: [quote.position.owner],
+    markets: [quote.position.marketUid]
+  });
+  if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
   const position = fresh.positions.find(
     p =>
       p.owner.toLowerCase() === quote.position.owner.toLowerCase() &&
       p.marketUid.toLowerCase() === quote.position.marketUid.toLowerCase()
   );
   if (
-    fresh.errors.length ||
     !position ||
     position.decimals !== quote.position.decimals ||
     position.underlyingAddress.toLowerCase() !== quote.position.underlyingAddress.toLowerCase() ||

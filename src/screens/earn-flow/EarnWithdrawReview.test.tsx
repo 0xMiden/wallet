@@ -345,6 +345,21 @@ describe('EarnWithdrawReview', () => {
     await confirmEnabled();
   });
 
+  it('keeps the quote when the balance check could not reach Epoch, so Withdraw can retry (#2116)', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('earnPositionsUnavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByTestId('earn-withdraw-review-error')).toHaveTextContent('earnPositionsUnavailable');
+    expect(screen.queryByText('earnWithdrawRefresh')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'earnWithdrawRefreshQuote' })).not.toBeInTheDocument();
+    await confirmEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(2));
+  });
+
   it('reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {
     jest.useFakeTimers();
     jest.mocked(reportUserVisibleError).mockClear();

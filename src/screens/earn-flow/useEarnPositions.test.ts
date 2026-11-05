@@ -63,6 +63,7 @@ jest.mock('lib/epoch', () => {
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
+    discoverEarnPositionMarkets: jest.fn(async () => false),
     fetchEarnPositions: jest.fn(),
     getEarnDepositEvmAddresses: jest.fn()
   };

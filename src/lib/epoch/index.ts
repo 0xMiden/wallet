@@ -32,6 +32,7 @@ export {
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
 export {
   carryForward,
+  discoverEarnPositionMarkets,
   fetchEarnPositions,
   getEarnDepositEvmAddresses,
   positionsBudgetDelayMs,

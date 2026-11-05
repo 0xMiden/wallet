@@ -1055,7 +1055,8 @@ describe('resubmitEarnWithdrawal', () => {
       expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
       expect(fetchEarnPositions).toHaveBeenCalledWith({
         accountId: row.accountId,
-        owners: [EVM_OWNER]
+        owners: [EVM_OWNER],
+        markets: [row.extraInputs.marketUid]
       });
       expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
       expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');

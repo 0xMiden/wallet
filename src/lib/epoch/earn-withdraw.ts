@@ -72,6 +72,7 @@ const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup - this withdrawal
 /** The review screen translates these refusal keys; a saved row error and an Activity retry show the sentence. */
 const REFUSAL_SENTENCES = new Map([
   ['earnWithdrawRefresh', 'The balance or quote changed - start a new withdrawal to review it again.'],
+  ['earnPositionsUnavailable', "Couldn't check your balance with Epoch - try again."],
   ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
   ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
   ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
@@ -890,12 +891,17 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
     // Source retries get fresh availability and a fresh quote for the saved selected amount.
     // Retain the original floor; a worse route requires the user to start another review.
     if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
-    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner] });
+    const fresh = await fetchEarnPositions({
+      accountId: row.accountId,
+      owners: [ei.evmOwner],
+      markets: [ei.marketUid]
+    });
+    if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
     const position = fresh.positions.find(
       p =>
         p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()
     );
-    if (fresh.errors.length || !position) throw new Error('earnWithdrawRefresh');
+    if (!position) throw new Error('earnWithdrawRefresh');
     review = await quoteEarnWithdrawal({ position, amount: ei.sourceAmount, accountId: row.accountId });
     if (BigInt(review.minimumAtomic) < BigInt(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
   }

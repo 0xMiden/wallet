@@ -180,6 +180,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             : 'raw_earn_withdraw_submit_failed'
           : 'earnGaslessWithdrawalFailed'
       );
+      // A balance check that could not reach Epoch proves nothing about the quote: it stays, so Withdraw can retry.
+      if (e instanceof Error && e.message === 'earnPositionsUnavailable') return;
       setQuote(undefined);
       setQuoteError('earnWithdrawRefresh');
       setSubmitInvalidatedQuote(true);

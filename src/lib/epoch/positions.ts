@@ -1,7 +1,7 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { type EpochRoute, getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
@@ -149,9 +149,17 @@ const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
  * lowercased form). Pass `accountId` to scope to a single Miden account.
  */
 export async function getEarnDepositEvmAddresses(accountId?: string): Promise<string[]> {
+  return [...(await getEarnDepositMarkets(accountId)).keys()];
+}
+
+/**
+ * The markets each EVM owner has deposited into, read from `earn-deposit` activity rows: the owner (lowercased, as
+ * `getEarnDepositEvmAddresses` gives it) to the lowercased `marketUid`s of its deposits.
+ */
+async function getEarnDepositMarkets(accountId?: string): Promise<Map<string, Set<string>>> {
   try {
     const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
-    const seen = new Set<string>();
+    const markets = new Map<string, Set<string>>();
     for (const tx of rows) {
       if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;
       // These addresses are queried against Epoch's positions service and whatever
@@ -162,10 +170,13 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
       const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
       const recipient = extra?.evmRecipient?.trim().toLowerCase();
       if (recipient && EVM_ADDRESS_RE.test(recipient)) {
-        seen.add(recipient);
+        const owned = markets.get(recipient) ?? new Set<string>();
+        const marketUid = extra?.marketUid?.trim().toLowerCase();
+        if (marketUid) owned.add(marketUid);
+        markets.set(recipient, owned);
       }
     }
-    return [...seen];
+    return markets;
   } catch (error) {
     annotateUiProducer(error, 'earnPositionsLoadError', 'notice', {
       kind: 'earn_positions_load',
@@ -180,21 +191,33 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
 const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * Fetch lending positions for ONE EVM owner address. Never rejects: on any
- * failure, a request or body read past 15 s included, it resolves to an empty
+ * One positions request: `owner`'s positions on `chains`, in one `lender` when it is set. An unfiltered request makes
+ * the service read every lender on every chain, which took 25 to 47 s on mainnet in November 2026; one lender on its
+ * chains took 1 to 4 s (#2116).
+ */
+interface PositionsQuery {
+  owner: string;
+  chains: number[];
+  /** Upper-case lender key; the service refuses a lower-case one. One key per request: a list is not honoured. */
+  lender?: string;
+}
+
+/**
+ * Fetch lending positions for ONE query. Never rejects: on any failure, a
+ * request or body read past `timeoutMs` included, it resolves to an empty
  * `items` array plus an `error` string, so the `Promise.all` in
  * `fetchEarnPositions` can't be torn down by a single bad address or transient
  * network error.
  */
-async function fetchPositionsForOwner(
+async function fetchPositions(
   positionsUrl: string,
-  owner: string,
-  chains: number[]
+  { owner, chains, lender }: PositionsQuery,
+  timeoutMs = POSITIONS_REQUEST_TIMEOUT_MS
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string; stage?: EarnPositionsLoadStage }> {
-  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
+  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}${lender ? `&lenders=${lender}` : ''}`;
   let stage: EarnPositionsLoadStage = 'request';
   try {
-    return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
+    return await withRequestTimeout(timeoutMs, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
         return { owner, items: [], error: `positions request failed (${res.status})`, stage };
@@ -284,19 +307,45 @@ export interface FetchEarnPositionsArgs {
   owners?: string[];
   /** Chains to query (defaults to every Epoch route the document names). */
   chains?: number[];
+  /**
+   * The markets to read for every owner. Omitted, an owner's markets are the ones it deposited into, the vaults the
+   * document lists, and the ones `discoverEarnPositionMarkets` found for it.
+   */
+  markets?: string[];
+}
+
+const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
+
+/**
+ * The requests that read `owner`'s positions in `markets`: one per lender, on only the chains where that lender has
+ * one of the markets. A market on no route, or with a malformed lender key, is not read. With no market left, one
+ * unfiltered request on `chains`, so an owner the wallet knows no market of still has its positions read.
+ */
+function queriesFor(owner: string, markets: Iterable<string>, routes: readonly EpochRoute[], chains: number[]) {
+  const lenders = new Map<string, Set<number>>();
+  for (const marketUid of markets) {
+    const [lender, chainId] = marketUid.split(':');
+    const chain = Number(chainId);
+    const key = lender?.toUpperCase();
+    if (!key || !LENDER_KEY_RE.test(key) || !chains.includes(chain) || !isRouteMarket(marketUid, routes)) continue;
+    lenders.set(key, (lenders.get(key) ?? new Set<number>()).add(chain));
+  }
+  if (lenders.size === 0) return [{ owner, chains }];
+  return [...lenders].map(([lender, on]): PositionsQuery => ({ owner, lender, chains: chains.filter(c => on.has(c)) }));
 }
 
 /**
  * Fetch every open lending position for the wallet. Collects the distinct EVM owner addresses from `earn-deposit`
- * activity and queries the positions service once for each of them, all at once. With no owner, it makes no
- * request. Per-address failures are isolated (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a
- * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept.
+ * activity and queries the positions service for each of them, all at once: one request per owner and lender, on only
+ * the chains of that lender's known markets (see `queriesFor`). With no owner, it makes no request. Per-address
+ * failures are isolated (see `fetchPositions`) and surfaced in `errors`, and so is a payload that cannot be read or
+ * has a copied field of the wrong type: an owner with any failed request has none of its positions kept.
  *
- * Positions are asked for on every Epoch route the document names at once (`chains=8453,42161,1`), and a position is
- * kept when its uid names a market on one of those routes in that route's USDC, whether or not the document lists the
- * market: the vault list gates deposits only, and a position in an unlisted market must stay withdrawable. The vault
- * catalogue is not read here (`selectEarnVaultCatalog`). It rejects only when the owner lookup fails or the bridge
- * config names no positions host or no Epoch route, before any request.
+ * A position is kept when its uid names a market on one of the Epoch routes in that route's USDC, whether or not the
+ * document lists the market: the vault list gates deposits only, and a position in an unlisted market must stay
+ * withdrawable. A lender the wallet knows no market of is read only once `discoverEarnPositionMarkets` has found it.
+ * The vault catalogue is not read here (`selectEarnVaultCatalog`). It rejects only when the owner lookup fails or the
+ * bridge config names no positions host or no Epoch route, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
   let positionsUrl: string;
@@ -313,43 +362,132 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     throw error;
   }
   const chains = args.chains ?? routes.map(route => route.chainId);
-  const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
+  const deposited = args.markets ? new Map<string, Set<string>>() : await getEarnDepositMarkets(args.accountId);
+  const owners = args.owners ?? [...deposited.keys()];
+  const listed = args.markets ? [] : getEarnVaults().map(vault => vault.marketUid);
+  const queries = owners.flatMap(owner => {
+    const key = owner.toLowerCase();
+    const markets = args.markets ?? [...(deposited.get(key) ?? []), ...listed, ...(discoveredMarkets.get(key) ?? [])];
+    return queriesFor(owner, markets, routes, chains);
+  });
 
-  const pending: ReturnType<typeof fetchPositionsForOwner>[] = [];
-  for (let offset = 0; offset < owners.length; ) {
-    const count = Math.min(owners.length - offset, POSITIONS_LIMIT);
+  const pending: ReturnType<typeof fetchPositions>[] = [];
+  for (let offset = 0; offset < queries.length; ) {
+    const count = Math.min(queries.length - offset, POSITIONS_LIMIT);
     let admitted = count;
     while (admitted > 0 && !notePositionsRequests(admitted)) admitted -= 1;
     if (admitted === 0) {
       await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
       continue;
     }
-    pending.push(
-      ...owners.slice(offset, offset + admitted).map(owner => fetchPositionsForOwner(positionsUrl, owner, chains))
-    );
+    pending.push(...queries.slice(offset, offset + admitted).map(query => fetchPositions(positionsUrl, query)));
     offset += admitted;
   }
   const results = await Promise.all(pending);
 
   const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 
-  const positions: EarnPosition[] = [];
-  const errors: { owner: string; error: string; stage?: EarnPositionsLoadStage }[] = [];
+  const loaded: EarnPosition[] = [];
+  const failed = new Map<string, { error: string; stage?: EarnPositionsLoadStage }>();
   for (const result of results) {
+    if (failed.has(result.owner)) continue;
     if (result.error) {
-      errors.push({ owner: result.owner, error: result.error, stage: result.stage });
+      failed.set(result.owner, { error: result.error, stage: result.stage });
       continue;
     }
     // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
     // funded position copies), so the read does not reject after its requests are spent.
     try {
-      positions.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, keeps)));
+      loaded.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, keeps)));
     } catch (err) {
       console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
-      errors.push({ owner: result.owner, error: 'positions response unreadable', stage: 'position_decode' });
+      failed.set(result.owner, { error: 'positions response unreadable', stage: 'position_decode' });
     }
   }
 
+  // An owner with one failed request keeps none of its other requests' positions: `carryForward` brings back what it
+  // loaded before, owner by owner.
+  const positions = loaded.filter(position => !failed.has(position.owner));
+  const errors = [...failed].map(([owner, failure]) => ({ owner, ...failure }));
   const totalDepositsUSD = positions.reduce((sum, p) => sum + p.depositsUSD, 0);
   return { positions, totalDepositsUSD, owners, errors };
+}
+
+// An unfiltered read is slow (see `PositionsQuery`) and nothing waits for it, so it gets a longer limit and runs rarely.
+const DISCOVERY_TIMEOUT_MS = 60_000;
+const DISCOVERY_RETRY_MS = 10 * 60_000;
+
+/** Funded markets an unfiltered read found, per lowercased owner, for this realm's lifetime. */
+const discoveredMarkets = new Map<string, Set<string>>();
+/** `<positions host> <owner>` keys whose discovery succeeded, is in flight, or last started at the time given. */
+const discoveredOwners = new Set<string>();
+const discoveriesInFlight = new Set<string>();
+const discoveryStarts = new Map<string, number>();
+
+/** The funded positions' `marketUid`s of an unfiltered answer, lowercased; a malformed item adds nothing. */
+function fundedMarketsOf(items: PositionsApiChainItem[]): string[] {
+  const markets: string[] = [];
+  for (const item of items) {
+    if (!Array.isArray(item?.data)) continue;
+    for (const group of item.data) {
+      if (!Array.isArray(group?.positions)) continue;
+      for (const pos of group.positions) {
+        if (typeof pos?.marketUid !== 'string') continue;
+        if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
+        markets.push(pos.marketUid.toLowerCase());
+      }
+    }
+  }
+  return markets;
+}
+
+/**
+ * Read each owner's positions once unfiltered, in the background, and remember the funded markets found, so that
+ * `fetchEarnPositions` also asks for a lender the wallet knows no market of (a position the allocator put in another
+ * market, or a deposit from another device). Nothing waits on it: one attempt per owner and positions host succeeds
+ * once per realm, a failed one is tried again after 10 minutes at the earliest, and an attempt the request budget has
+ * no room for is skipped until the next call. Resolves true when it found a market it did not know, so the caller
+ * can read again; never rejects.
+ */
+export async function discoverEarnPositionMarkets(owners: readonly string[]): Promise<boolean> {
+  let positionsUrl: string;
+  let routes: EpochRoute[];
+  try {
+    [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
+  } catch {
+    return false;
+  }
+  if (routes.length === 0) return false;
+  const chains = routes.map(route => route.chainId);
+  const now = Date.now();
+  const due = [...new Set(owners.map(owner => owner.toLowerCase()))].filter(owner => {
+    const key = `${positionsUrl} ${owner}`;
+    const started = discoveryStarts.get(key);
+    if (discoveredOwners.has(key) || discoveriesInFlight.has(key)) return false;
+    return started === undefined || now - started >= DISCOVERY_RETRY_MS;
+  });
+  let found = false;
+  await Promise.all(
+    due.map(async owner => {
+      const key = `${positionsUrl} ${owner}`;
+      if (!notePositionsRequests(1)) return;
+      discoveriesInFlight.add(key);
+      discoveryStarts.set(key, now);
+      try {
+        const result = await fetchPositions(positionsUrl, { owner, chains }, DISCOVERY_TIMEOUT_MS);
+        if (result.error) return;
+        const markets = discoveredMarkets.get(owner) ?? new Set<string>();
+        for (const marketUid of fundedMarketsOf(result.items)) {
+          if (markets.has(marketUid) || !isRouteMarket(marketUid, routes)) continue;
+          markets.add(marketUid);
+          found = true;
+        }
+        discoveredMarkets.set(owner, markets);
+        discoveredOwners.add(key);
+      } finally {
+        discoveriesInFlight.delete(key);
+      }
+    })
+  );
+  return found;
 }

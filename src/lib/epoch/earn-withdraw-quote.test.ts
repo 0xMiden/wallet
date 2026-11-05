@@ -123,24 +123,31 @@ it('requires refresh once availability falls below the reviewed amount', async (
   withWithdrawable('1');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
 });
-it('requires refresh on expiry, a malformed reviewed amount, payout identity or failed position read', async () => {
+it('requires refresh on expiry, a malformed reviewed amount or payout identity', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await expect(assertWithdrawalReviewCurrent({ ...q, expiresAt: 0 })).rejects.toThrow('earnWithdrawRefresh');
   await expect(assertWithdrawalReviewCurrent({ ...q, amountAtomic: '1e18' })).rejects.toThrow('earnWithdrawRefresh');
   jest.mocked(getNativeAssetId).mockResolvedValueOnce('different');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('reports a failed position read as unavailable, never as a changed balance (#2116)', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
   jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
     positions: [],
     owners: [token],
     totalDepositsUSD: 0,
-    errors: [{ owner: token, error: 'offline' }]
+    errors: [{ owner: token, error: 'Request timed out after 15000 ms' }]
   });
-  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnPositionsUnavailable');
 });
-it("reads the fresh position of the quote's owner alone", async () => {
+it("reads only the reviewed market of the quote's owner", async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await assertWithdrawalReviewCurrent(q);
-  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token] });
+  expect(fetchEarnPositions).toHaveBeenCalledWith({
+    accountId: 'miden',
+    owners: [token],
+    markets: [q.position.marketUid]
+  });
 });
 it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
   // A market of another lender than the default market, on the default market's chain.
