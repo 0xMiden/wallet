@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Kurtarma ifadeniz anahtarlarınızı ve Guardian'ınızın yedeği ile birlikte hesabınızı geri yükler. Bu ifadeyi güvenli bir yerde saklayın.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Parolanız ve Guardian'ınızın yedeği, hesabınızı geri yükler. Parolanızı güvenli bir yerde saklayın.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Paralarınız size ait kalır",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardians hakkında daha fazla bilgi",
-    "englishSource": "More about Guardians"
+    "message": "Guardian hakkında daha fazla bilgi edinin",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ ile devam edin",

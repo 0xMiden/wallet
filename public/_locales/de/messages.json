@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Ihre Wiederherstellungsphrase stellt Ihre Schlüssel und – mit der Sicherung Ihres „Guardians“ – Ihr Konto wieder her. Bewahren Sie die Phrase sicher auf.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Ihre Phrase und das Backup Ihres „Guardian“ stellen Ihr Konto wieder her. Bewahren Sie die Phrase sicher auf.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ihr Guthaben bleibt Ihr Eigentum",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Mehr über Guardians",
-    "englishSource": "More about Guardians"
+    "message": "Erfahren Sie mehr über den „Guardian“",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Weiter mit $name$",

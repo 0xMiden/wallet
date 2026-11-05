@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Ваша фраза восстановления восстанавливает ваши ключи и, при наличии резервной копии вашего «Guardian», — ваш аккаунт. Храните эту фразу в надежном месте.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Ваша фраза и резервная копия вашего «Guardian» восстанавливают ваш аккаунт. Храните фразу в надежном месте.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ваши средства остаются вашими",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Подробнее о «Guardians»",
-    "englishSource": "More about Guardians"
+    "message": "Узнайте больше о «Guardian»",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Продолжить с $name$",

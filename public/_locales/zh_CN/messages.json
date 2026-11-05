@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "您的恢复短语可恢复您的密钥，并结合您的Guardian备份，恢复您的账户。请妥善保管该短语。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "您的助记词和您的Guardian备份可恢复您的账户。请妥善保管助记词。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的资金始终归您所有",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "关于Guardians的更多信息",
-    "englishSource": "More about Guardians"
+    "message": "了解有关Guardian的更多信息",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "继续处理 $name$",

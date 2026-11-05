@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "복구 문구를 통해 키를 복원할 수 있으며, ‘Guardian’의 백업과 함께 계정도 복원할 수 있습니다. 이 문구를 안전하게 보관하십시오.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "귀하의 문구와 귀하의 ‘Guardian’ 백업으로 계정을 복구할 수 있습니다. 문구를 안전하게 보관하십시오.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "자금은 여전히 귀하의 소유입니다",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardians에 대한 추가 정보",
-    "englishSource": "More about Guardians"
+    "message": "Guardian에 대해 더 알아보기",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$로 계속 진행하세요",

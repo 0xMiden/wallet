@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "あなたのフレーズとGuardianのバックアップによって、アカウントが復元されます。フレーズは安全に保管してください。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "お客様の資金は、常にお客様自身のものです",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardiansに関する詳細",
-    "englishSource": "More about Guardians"
+    "message": "Guardianの詳細はこちら",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ へ進む",

@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Sua frase de recuperação restaura suas chaves e, com o backup do seu “Guardian”, sua conta. Mantenha a frase em segurança.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Sua frase secreta e o backup do seu “Guardian” restauram sua conta. Mantenha a frase secreta em segurança.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Seus fundos continuam sendo seus",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Mais sobre os Guardians",
-    "englishSource": "More about Guardians"
+    "message": "Saiba mais sobre o “Guardian”",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continue com $name$",
