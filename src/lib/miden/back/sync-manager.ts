@@ -24,6 +24,7 @@ import {
 } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { isOwnClaimableNote } from '../claimable-note-ownership';
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { showBackgroundNotification } from './background-notification';
@@ -546,7 +547,10 @@ async function runSync(force: boolean): Promise<void> {
                 swapOrder: swapOrders.get(noteId)
               };
             })
-            .filter((note): note is SerializedConsumableNote => note !== null);
+            // Only this account's notes reach the claim list, the notifications and the
+            // auto-consume pass below: another trader's PSWAP order on a tracked pair tag
+            // is consumable by anyone, and is not a payment to this account (#2118).
+            .filter((note): note is SerializedConsumableNote => note !== null && isOwnClaimableNote(note));
 
           // Read vault assets
           const finishSnapshot = beginBalanceSnapshot();
@@ -710,7 +714,9 @@ async function runSync(force: boolean): Promise<void> {
                   carriesMoreAssets: n.carriesMoreAssets,
                   isBeingClaimed: false,
                   type,
-                  swapOrder: undefined
+                  swapOrder: undefined,
+                  // The queue refuses an auto-consume of a note that is not this account's.
+                  standardPayment: n.standardPayment
                 };
               });
             }

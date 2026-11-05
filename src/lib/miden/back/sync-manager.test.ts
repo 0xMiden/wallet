@@ -299,7 +299,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
-import { SyncData, WalletMessageType } from 'lib/shared/types';
+import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 import { startTransactionProcessing } from './transaction-processor';
@@ -1175,10 +1175,12 @@ describe('doSync — note metadata branches', () => {
     ]);
     await doSync();
     const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
-    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([
-      ['standard', true],
-      ['custom', false]
-    ]);
+    // A custom-script note that is no swap order of this wallet is not this account's
+    // to claim (#2118), so the list holds only the standard payment.
+    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([['standard', true]]);
+    expect(
+      mockStorageSet.mock.calls.at(-1)?.[0]?.miden_cached_consumable_notes.map((n: SerializedConsumableNote) => n.id)
+    ).toEqual(['standard']);
   });
 
   it('worker single-asset notes preserve explicit asset knowledge', async () => {
