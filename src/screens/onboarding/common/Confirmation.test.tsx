@@ -138,16 +138,15 @@ describe('ConfirmationScreen', () => {
 
     it('renders the hero illustration, decorative and capped at 280px', () => {
       const { container } = renderComponent();
-      const svg = container.querySelector('svg');
-      expect(svg).toHaveClass('max-w-[280px]');
-      expect(svg).toHaveAttribute('aria-hidden', 'true');
+      const img = container.querySelector('img');
+      expect(img).toHaveClass('max-w-[280px]');
+      expect(img).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('renders the translated ready heading and reminder copy', () => {
       renderComponent();
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
-      expect(screen.getByText('recoveryPhraseDailyReminder')).toBeInTheDocument();
     });
 
     it('tells an import that opening the wallet finishes the restore, with no create reminder', () => {
@@ -162,7 +161,7 @@ describe('ConfirmationScreen', () => {
       renderComponent({ onboardingType: OnboardingType.Create });
 
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-confirmation-reminder')).toBeInTheDocument();
+      expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
     });
 
     it('renders a single primary submit button titled "openWallet"', () => {
@@ -210,13 +209,10 @@ describe('ConfirmationScreen', () => {
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
       // The page title's size: the hero is the screen's only heading.
-      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-value', 'font-extrabold');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
-      // The daily reminder is one quiet caption line under the subtitle, not a Notice panel.
-      const reminder = screen.getByTestId('onboarding-confirmation-reminder');
-      expect(reminder).toHaveTextContent('recoveryPhraseDailyReminder');
-      expect(reminder).toHaveClass('text-explainer', 'font-semibold', 'text-muted');
-      expect(reminder.closest('[role="note"]')).toBeNull();
+      // The daily reminder line is gone; the seven-day subtitle is the only reminder.
+      expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toHaveClass('text-balance');
       expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
     });
