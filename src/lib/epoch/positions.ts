@@ -187,7 +187,7 @@ async function getEarnDepositMarkets(accountId?: string): Promise<Map<string, Se
   }
 }
 
-// A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
+// A stalled request would hold its whole read open, and with it every automatic read and Retry that waits on it.
 const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
 
 /**

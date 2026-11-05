@@ -5,7 +5,12 @@ import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { fetchEarnPositions, getEarnDepositEvmAddresses, positionsBudgetDelayMs } from 'lib/epoch';
+import {
+  discoverEarnPositionMarkets,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses,
+  positionsBudgetDelayMs
+} from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -23,11 +28,18 @@ const mockAccount: { publicKey: string; evmAddress?: string } = {
 };
 const mockUseRetryableSWR = jest.fn();
 const mockEarnDepositRows: Array<{
+  id?: string;
   type: string;
   accountId: string;
   initiatedAt: number;
   restoredFromBackup?: boolean;
-  extraInputs: { protocol?: string; evmRecipient?: string; marketUid?: string };
+  extraInputs: {
+    protocol?: string;
+    evmRecipient?: string;
+    marketUid?: string;
+    epochStatus?: string;
+    phase?: string;
+  };
 }> = [];
 
 jest.mock('lib/miden/repo', () => ({
@@ -35,6 +47,27 @@ jest.mock('lib/miden/repo', () => ({
     filter: () => ({ toArray: async () => mockEarnDepositRows })
   }
 }));
+
+// A live query that runs once on subscribe and again on each `emitDbChange`, as Dexie runs one again after a write.
+const mockLiveQueries = new Set<() => Promise<void>>();
+jest.mock('lib/dexie-live-query', () => ({
+  subscribeToLiveQuery: <T>(query: () => T | Promise<T>, observer: { next: (value: T) => void }) => {
+    let active = true;
+    const run = async () => {
+      const value = await query();
+      if (active) observer.next(value);
+    };
+    mockLiveQueries.add(run);
+    run();
+    return () => {
+      active = false;
+      mockLiveQueries.delete(run);
+    };
+  }
+}));
+const emitDbChange = async () => {
+  await Promise.all([...mockLiveQueries].map(run => run()));
+};
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
@@ -1070,10 +1103,14 @@ describe('useEarnPositions', () => {
       // Moves the clock, and SWR's timers and the hook's with it, settling every read that starts on the way.
       const advance = (ms: number) => act(() => jest.advanceTimersByTimeAsync(ms));
 
+      // A read with no failure: neither the request nor any owner.
+      const okResult = { ...liveResult, errors: [] };
+
       beforeEach(() => {
         jest.useFakeTimers();
         jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
-        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        jest.mocked(discoverEarnPositionMarkets).mockResolvedValue(false);
+        jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
       });
 
       afterEach(() => {
@@ -1081,18 +1118,52 @@ describe('useEarnPositions', () => {
         jest.useRealTimers();
       });
 
-      it('polls 10 s after the last read began, not sooner', async () => {
+      it('reads nothing 10 s after a successful read, and refreshes 3 minutes after it began', async () => {
         renderOnPage();
         await advance(0);
         expect(reads()).toBe(1);
 
-        await advance(9_900);
+        await advance(10_100);
+        expect(reads()).toBe(1);
+        await advance(169_800);
         expect(reads()).toBe(1);
         await advance(200);
         expect(reads()).toBe(2);
       });
 
-      it('keeps two-owner polling and a page return inside ten requests per minute', async () => {
+      it('retries a failed read 10 s, 30 s, then every 60 s after it began, and starts over after a success', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(1);
+
+        // Reads at 10 s, 40 s, 100 s and 160 s.
+        for (const wait of [10_000, 30_000, 60_000, 60_000]) {
+          const before = reads();
+          await advance(wait - 100);
+          expect(reads()).toBe(before);
+          await advance(100);
+          expect(reads()).toBe(before + 1);
+        }
+
+        // A read with no failure at 220 s ends the backoff: the next waits 3 minutes.
+        jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
+        await advance(60_000);
+        expect(reads()).toBe(6);
+        await advance(179_900);
+        expect(reads()).toBe(6);
+
+        // A failure after it is retried 10 s after it again.
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        await advance(100);
+        expect(reads()).toBe(7);
+        await advance(9_900);
+        expect(reads()).toBe(7);
+        await advance(100);
+        expect(reads()).toBe(8);
+      });
+
+      it('keeps failure retries and a page return inside ten requests per minute', async () => {
         const starts: number[] = [];
         let budget!: typeof import('lib/epoch/positions');
         await jest.isolateModulesAsync(async () => {
@@ -1121,17 +1192,17 @@ describe('useEarnPositions', () => {
         if (inWindow > 10) throw new Error(`positions budget exceeded: ${inWindow} owner requests in 60000ms`);
       });
 
-      it('a Retry moves the next poll to 10 s after it', async () => {
+      it('a Retry moves the next refresh to 3 minutes after it', async () => {
         const { result } = renderOnPage();
         await advance(0);
-        expect(result.current.error).toBe('owner unavailable');
+        expect(reads()).toBe(1);
 
         await advance(6_000);
         act(() => result.current.refetch());
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(9_900);
+        await advance(179_900);
         expect(reads()).toBe(2);
         await advance(200);
         expect(reads()).toBe(3);
@@ -1151,7 +1222,9 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
       });
 
+      // A failed first read, so a retry falls due at 10 s and waits for the document and the network.
       it('no automatic read while the document is hidden', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
         const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
         renderOnPage();
         await advance(0);
@@ -1165,6 +1238,7 @@ describe('useEarnPositions', () => {
       });
 
       it('no automatic read while the device is offline', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
         const online = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
         renderOnPage();
         await advance(0);
@@ -1189,10 +1263,11 @@ describe('useEarnPositions', () => {
         // And no timer left waiting to start one.
         expect(jest.getTimerCount()).toBe(0);
 
-        // Back on screen a read begins and re-arms every hook registered for the key; covered again, none is left.
+        // Back on screen SWR reads on the next frame, which re-arms every hook registered for the key; covered again,
+        // none is left.
         onScreen = true;
         rerender();
-        await advance(0);
+        await advance(100);
         expect(reads()).toBe(2);
 
         onScreen = false;
@@ -1221,9 +1296,10 @@ describe('useEarnPositions', () => {
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(3_400);
+        // The next refresh waits 3 minutes after the Retry.
+        await advance(179_900);
         expect(reads()).toBe(2);
-        await advance(6_700);
+        await advance(200);
         expect(reads()).toBe(3);
 
         // The remaining page leaves too, after reads that re-armed every hook registered for the key: none is left.
@@ -1244,10 +1320,134 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
         expect(getEarnDepositEvmAddresses).toHaveBeenLastCalledWith('another-account');
 
-        await advance(9_900);
+        await advance(179_900);
         expect(reads()).toBe(2);
         await advance(200);
         expect(reads()).toBe(3);
+      });
+
+      // An Earn row of the fixtures' account, in flight until a test settles it.
+      const pushRow = (type: 'earn-deposit' | 'earn-withdraw', inputs: { epochStatus?: string; phase?: string }) => {
+        const row = { id: `${type}-1`, type, accountId: 'miden-account', initiatedAt: 1, extraInputs: inputs };
+        mockEarnDepositRows.push(row);
+        return row;
+      };
+
+      it.each([
+        ['a deposit is confirmed', 'earn-deposit', { epochStatus: 'pending' }, { epochStatus: 'confirmed' }],
+        ['a deposit fails', 'earn-deposit', { epochStatus: 'pending' }, { epochStatus: 'failed' }],
+        ['a withdrawal is redeemed', 'earn-withdraw', { phase: 'redeeming' }, { phase: 'delivering' }],
+        ['a withdrawal is received', 'earn-withdraw', { phase: 'delivering' }, { phase: 'received' }],
+        ['a withdrawal fails', 'earn-withdraw', { phase: 'redeeming' }, { phase: 'failed' }]
+      ] as const)('reads once at once when %s', async (_name, type, inFlight, settled) => {
+        const row = pushRow(type, inFlight);
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        row.extraInputs = settled;
+        await act(emitDbChange);
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        // The same settlement seen again asks for nothing.
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('reads nothing for a new Earn row that is still in flight', async () => {
+        renderOnPage();
+        await advance(5_000);
+
+        pushRow('earn-withdraw', { phase: 'redeeming' });
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+      });
+
+      it("reads nothing when another account's Earn row settles", async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        row.accountId = 'another-account';
+        renderOnPage();
+        await advance(5_000);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+      });
+
+      it('reads once when the page comes back after a row settled while it was covered', async () => {
+        const row = pushRow('earn-withdraw', { phase: 'delivering' });
+        const { rerender } = renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        onScreen = false;
+        rerender();
+        row.extraInputs = { phase: 'received' };
+        await act(emitDbChange);
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        onScreen = true;
+        rerender();
+        await advance(5_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('two pages of the account read once for one settlement', async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        const cache = new Map();
+        render(
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            page(true, () => undefined),
+            page(true, () => undefined)
+          )
+        );
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(5_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('a settlement while a read is out reads once more after it settles', async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        let finish: (result: EarnPositionsResult) => void = () => undefined;
+        jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(resolve => (finish = resolve)));
+        await advance(175_000);
+        expect(reads()).toBe(2);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(1_000);
+        expect(reads()).toBe(2);
+
+        await act(async () => finish(okResult));
+        await advance(0);
+        expect(reads()).toBe(3);
+        await advance(60_000);
+        expect(reads()).toBe(3);
+      });
+
+      it('reads once at once when discovery finds a market the read did not ask for', async () => {
+        jest.mocked(discoverEarnPositionMarkets).mockResolvedValueOnce(true);
+        renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        await advance(60_000);
+        expect(reads()).toBe(2);
       });
     });
   });

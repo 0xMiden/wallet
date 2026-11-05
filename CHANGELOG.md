@@ -5,7 +5,7 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
-- [FIX][all] Earn withdrawals no longer fail with "The balance or quote changed" when Epoch's positions service is slow: each positions read asks only for the lenders and chains of known markets, and a balance check that cannot reach Epoch says so and keeps the review (#2116). The first withdrawal on a network waits for Epoch's one-time account setup to land on chain, and quotes again (never below the reviewed floor) when the setup outlasts the review (#2117).
+- [FIX][all] Earn withdrawals no longer fail with "The balance or quote changed" when Epoch's positions service is slow: each positions read asks only for the lenders and chains of known markets, and a balance check that cannot reach Epoch says so and keeps the review (#2116). The first withdrawal on a network waits for Epoch's one-time account setup to land on chain, and quotes again (never below the reviewed floor) when the setup outlasts the review (#2117). Earn positions no longer refresh every 10 s: they refresh when a deposit or withdrawal settles, retry a failed read with a backoff, and otherwise refresh every 3 minutes.
 
 ## 1.17.10 (2026-11-01)
 

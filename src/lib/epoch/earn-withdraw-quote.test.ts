@@ -135,7 +135,8 @@ describe('extendWithdrawalReview (#2117)', () => {
   it('keeps a review with 30 s or more left as it is, without quoting again', async () => {
     const q = await quoteEarnWithdrawal(args, sdk);
     getIntentQuote.mockClear();
-    expect(await extendWithdrawalReview({ ...q, expiresAt: Date.now() + 30_000 }, sdk)).toEqual({
+    // A second of margin, so the milliseconds the call takes cannot bring it under 30 s.
+    expect(await extendWithdrawalReview({ ...q, expiresAt: Date.now() + 31_000 }, sdk)).toEqual({
       ...q,
       expiresAt: expect.any(Number)
     });
