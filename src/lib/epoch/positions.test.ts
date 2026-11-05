@@ -1,6 +1,6 @@
 import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 
-import { carryForward, type EarnPosition, type EarnPositionsResult, getEarnDepositEvmAddresses } from './positions';
+import { carryForward, type EarnPosition, type EarnPositionsResult } from './positions';
 import { TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
 import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
 
@@ -22,7 +22,7 @@ const AAVE_LISTING = listingFor(
   'aave-v3-sepolia-usdc',
   'Aave V3 USDC'
 );
-/** The wallet's activity: the `earn-deposit` rows the owner and market lookups read. */
+/** The wallet's activity: the `earn-deposit` rows the market lookup reads. */
 const withRows = (rows: unknown[]) => {
   const Repo = jest.requireMock('lib/miden/repo');
   (Repo.transactions.filter as jest.Mock).mockImplementation((predicate: (r: unknown) => boolean) => ({
@@ -134,6 +134,55 @@ describe('fetchEarnPositions', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
+  });
+
+  it('takes no owner from the activity rows: with no owner given, it makes no request', async () => {
+    withRows([
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } }
+    ]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ accountId: 'acct-1' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
+  });
+
+  it("reads only the given owner, never another owner of the account's deposit rows", async () => {
+    jest.mocked(getEarnVaults).mockReturnValue([]);
+    // A legacy row of the account that names another owner, in a market the document does not list.
+    withRows([
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } },
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OTHER_OWNER, marketUid: AAVE_UID } }
+    ]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ accountId: 'acct-1', owners: [OWNER] });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111&lenders=DUMMY_LENDING`
+    ]);
+    expect(result.owners).toEqual([OWNER]);
+  });
+
+  it('takes no market from a deposit row restored from a backup', async () => {
+    jest.mocked(getEarnVaults).mockReturnValue([]);
+    withRows([
+      {
+        type: 'earn-deposit',
+        accountId: 'acct-1',
+        restoredFromBackup: true,
+        extraInputs: { evmRecipient: OWNER, marketUid: AAVE_UID }
+      },
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } }
+    ]);
+    const fetchMock = serve();
+
+    await fetchEarnPositions({ accountId: 'acct-1', owners: [OWNER] });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111&lenders=DUMMY_LENDING`
+    ]);
   });
 
   it('finishes an oversized owner read across rolling request windows', async () => {
@@ -416,6 +465,15 @@ describe('fetchEarnPositions', () => {
       ]);
     });
 
+    it('discovers nothing with no owner', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock;
+
+      expect(await discoverEarnPositionMarkets([])).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('discovers nothing for an owner with no Earn chain', async () => {
       jest.mocked(getEarnVaults).mockReturnValue([]);
       const fetchMock = jest.fn();
@@ -580,31 +638,6 @@ describe('carryForward', () => {
   });
 });
 
-// Whatever comes back for these addresses is rendered as the user's OWN position
-// and folded into their total deposits, so only a genuine deposit's recipient
-// belongs in this list.
-describe('getEarnDepositEvmAddresses', () => {
-  const row = (over: Record<string, unknown> = {}) => ({
-    type: 'earn-deposit',
-    accountId: 'acct-1',
-    extraInputs: { evmRecipient: OWNER },
-    ...over
-  });
-
-  it('collects the recipient of a genuine deposit', async () => {
-    withRows([row()]);
-
-    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
-  });
-
-  it('excludes a deposit restored from a backup', async () => {
-    const attacker = '0x2222222222222222222222222222222222222222';
-    withRows([row({ restoredFromBackup: true, extraInputs: { evmRecipient: attacker } }), row()]);
-
-    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
-  });
-});
-
 describe('source-owned Earn load diagnostics', () => {
   const canary = 'private-owner 0xabcdef1234567890 amount 1234.56';
   it.each([
@@ -668,7 +701,7 @@ describe('source-owned Earn load diagnostics', () => {
     ).toBeUndefined();
   });
 
-  it('keeps an activity owner lookup failure on its exact root', async () => {
+  it('keeps a failure of the activity market lookup on its exact root', async () => {
     const failure = new Error(canary);
     const Repo = jest.requireMock('lib/miden/repo');
     Repo.transactions.filter.mockReturnValueOnce({
@@ -676,7 +709,7 @@ describe('source-owned Earn load diagnostics', () => {
         throw failure;
       }
     });
-    await expect(fetchEarnPositions()).rejects.toBe(failure);
+    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toBe(failure);
     expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
       earnPositionsLoadStage: 'owner_lookup',
       earnPositionsLoadOutcome: 'complete_failure'

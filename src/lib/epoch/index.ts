@@ -34,7 +34,6 @@ export {
   carryForward,
   discoverEarnPositionMarkets,
   fetchEarnPositions,
-  getEarnDepositEvmAddresses,
   positionsBudgetDelayMs,
   notePositionsRequests
 } from './positions';

@@ -9,7 +9,6 @@ import {
   discoverEarnPositionMarkets,
   type EarnPositionsResult,
   fetchEarnPositions,
-  getEarnDepositEvmAddresses,
   positionsBudgetDelayMs
 } from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
@@ -40,7 +39,7 @@ import {
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
-// Each read sends one request for each owner and lender, inside the Epoch positions service's 10 requests per minute,
+// Each read sends one request for each lender of the one owner, inside the Epoch positions service's 10 requests per minute,
 // which the withdraw review's balance check also spends. So the hook reads on its own only when something changed:
 // an Earn row settled, or discovery found a market. Yield accrues every block, so a slow refresh follows each read.
 const YIELD_REFRESH_MS = 180_000;
@@ -214,9 +213,9 @@ export function earnItemLoadState(
 
 /**
  * Live earn positions for the current account, mapped to the earn-flow display
- * shapes. Owners are the union of past earn-deposit rows (survives address
- * changes) and the wallet-derived `evmAddress` (survives reinstall/restore
- * before any local activity exists). First load yields an empty list + a
+ * shapes. The read has one owner: the derived `evmAddress` of the account. Each deposit goes to that address, and
+ * the withdraw review takes only a position of that address. The `evmRecipient` of an earn-deposit row is never an
+ * owner. An account with no `evmAddress` sends no request and shows no positions. First load yields an empty list + a
  * summary with no figures yet. A failed refresh keeps the last data this key loaded (SWR
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
@@ -263,7 +262,7 @@ export function useEarnPositions(): {
   error?: string;
   errorDiagnostics?: UiEvidenceInput;
   /**
-   * The failure of the request itself (the owner lookup, or a document that names no Earn). What the vault surfaces
+   * The failure of the request itself (the market lookup, or a document that names no Earn). What the vault surfaces
    * report. A failed owner does not set it, and neither does the vault catalogue, which the config derivation reads.
    */
   loadError?: string;
@@ -351,12 +350,12 @@ export function useEarnPositions(): {
       reads.rearms.forEach(rearm => rearm());
       let failed = true;
       try {
-        const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
+        // The one owner is the derived EVM address of the account. An account with no derived address (a private-key
+        // import) has no owner, so the read sends no request and does not wait for the request budget.
         const walletAddress = account.evmAddress?.toLowerCase();
-        const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
-        const count = owners.length > 10 ? 1 : owners.length;
-        while (count > 0) {
-          const delay = positionsBudgetDelayMs(count);
+        const owners = walletAddress ? [walletAddress] : [];
+        while (owners.length > 0) {
+          const delay = positionsBudgetDelayMs(owners.length);
           if (delay === 0) break;
           await new Promise<void>(resolve => setTimeout(resolve, delay));
         }
@@ -582,7 +581,7 @@ export function useEarnPositions(): {
       isLoading,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
       // of a misleading empty "$0 / no positions". Prefer the positions service's
-      // own per-owner error; fall back to an SWR-level throw (e.g. the owner
+      // own per-owner error; fall back to an SWR-level throw (e.g. the market
       // lookup failed) so no failure mode reads as "you have nothing".
       error,
       errorDiagnostics,
