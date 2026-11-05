@@ -11,7 +11,8 @@ import {
   quoteEarnWithdrawal,
   assertWithdrawalReviewCurrent,
   assertWithdrawalDelivery,
-  assertWithdrawalAllocations
+  assertWithdrawalAllocations,
+  extendWithdrawalReview
 } from './earn-withdraw-quote';
 import { fetchEarnPositions } from './positions';
 
@@ -129,6 +130,49 @@ it('requires refresh on expiry, a malformed reviewed amount or payout identity',
   await expect(assertWithdrawalReviewCurrent({ ...q, amountAtomic: '1e18' })).rejects.toThrow('earnWithdrawRefresh');
   jest.mocked(getNativeAssetId).mockResolvedValueOnce('different');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+describe('extendWithdrawalReview (#2117)', () => {
+  it('keeps a review with 30 s or more left as it is, without quoting again', async () => {
+    const q = await quoteEarnWithdrawal(args, sdk);
+    getIntentQuote.mockClear();
+    expect(await extendWithdrawalReview({ ...q, expiresAt: Date.now() + 30_000 }, sdk)).toEqual({
+      ...q,
+      expiresAt: expect.any(Number)
+    });
+    expect(getIntentQuote).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['as good', '991822'],
+    ['better', '995000']
+  ])(
+    'gives a review the setup outlasted a new minute when the new route is %s, keeping the reviewed floor',
+    async (_c, out) => {
+      const q = await quoteEarnWithdrawal(args, sdk);
+      getIntentQuote.mockResolvedValue({ success: true, tokenOut: out, transactions: [], resourceLockRequired: true });
+      const expired = { ...q, expiresAt: Date.now() - 1 };
+
+      const extended = await extendWithdrawalReview(expired, sdk);
+
+      expect(extended).toEqual({ ...expired, expiresAt: expect.any(Number) });
+      expect(extended.expiresAt).toBeGreaterThan(Date.now() + 59_000);
+      expect(extended.minimumAtomic).toBe(q.minimumAtomic);
+    }
+  );
+
+  it('refuses to extend a review when the new route pays less than the reviewed floor', async () => {
+    const q = await quoteEarnWithdrawal(args, sdk);
+    getIntentQuote.mockResolvedValue({
+      success: true,
+      tokenOut: '980000',
+      transactions: [],
+      resourceLockRequired: true
+    });
+
+    await expect(extendWithdrawalReview({ ...q, expiresAt: Date.now() + 10_000 }, sdk)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+  });
 });
 it('reports a failed position read as unavailable, never as a changed balance (#2116)', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);

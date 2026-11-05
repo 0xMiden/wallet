@@ -44,6 +44,7 @@ import {
 import {
   assertWithdrawalReviewCurrent,
   assertWithdrawalReviewContext,
+  extendWithdrawalReview,
   assertWithdrawalAllocations,
   quoteEarnWithdrawal,
   type EarnWithdrawalQuote
@@ -118,6 +119,7 @@ interface GaslessEarnWithdrawalDeps {
   markNotSent?: typeof markEarnWithdrawNotSent;
   markAccepted?: typeof markEarnWithdrawAccepted;
   ensureSmartAccount?: typeof ensureEpochSmartAccount;
+  extendReview?: typeof extendWithdrawalReview;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   initiateRow?: typeof initiateEarnWithdrawTransaction;
   updatePhase?: typeof updateEarnWithdrawPhase;
@@ -265,9 +267,12 @@ async function submitEarnWithdrawal(
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
+  // The review signing is checked against: `args.review`, until the smart-account setup outlasts it and a fresh quote
+  // with at least the reviewed floor extends it (`extendWithdrawalReview`).
+  let currentReview = args.review;
   const assertReviewedContext = () => {
-    if (!args.review) return;
-    assertWithdrawalReviewContext(args.review);
+    if (!currentReview) return;
+    assertWithdrawalReviewContext(currentReview);
     // Persisted recovery remains bound to its saved owner, independently of the currently viewed account.
     if (verifyMarket) assertVaultEvmAccountCurrent(args.midenAccountPublicKey, sponsorAddress);
   };
@@ -363,6 +368,8 @@ async function submitEarnWithdrawal(
       const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
       const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
       await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk, executionChain.id);
+      assertCurrent();
+      if (currentReview) currentReview = await (deps.extendReview ?? extendWithdrawalReview)(currentReview);
       assertBeforeSigning();
       const status = await sdk.getWalletGaslessStatus(executionChain.id);
       assertBeforeSigning();
@@ -398,13 +405,14 @@ async function submitEarnWithdrawal(
           };
           const selected = selectEarnWithdrawPreparedExecution(execution, identity);
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
-          if (args.review) {
-            await assertWithdrawalReviewCurrent(args.review);
+          const review = currentReview;
+          if (review) {
+            await assertWithdrawalReviewCurrent(review);
             assertBeforeSigning();
             const validated = validateEarnWithdrawPreparedExecution(selected, identity);
             if (!validated) throw new Error('earnWithdrawRefresh');
             assertWithdrawalAllocations(
-              args.review,
+              review,
               validated.allocationRequests.map(request => request.compact.mandate),
               selected.delivery.allocationIndex
             );

@@ -2122,6 +2122,37 @@ describe('reviewed withdrawals', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('signs against the review extended after a smart-account setup that outlasted it (#2117)', async () => {
+    const review = reviewed();
+    const extended = { ...review, expiresAt: review.expiresAt + 60_000 };
+    const execute = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
+    const extendReview = jest.fn().mockResolvedValue(extended);
+    const deps = baseDeps({ sdk: fakeSdk(execute), extendReview });
+
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review }, deps)).resolves.toMatchObject({
+      txId: 'TX1'
+    });
+
+    expect(extendReview).toHaveBeenCalledWith(review);
+    expect(jest.mocked(deps.ensureSmartAccount).mock.invocationCallOrder[0]).toBeLessThan(
+      extendReview.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(assertWithdrawalReviewCurrent).toHaveBeenLastCalledWith(extended);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('signs nothing when the route got worse while the smart-account setup ran', async () => {
+    const execute = jest.fn();
+    const extendReview = jest.fn().mockRejectedValue(new Error('earnWithdrawRefresh'));
+    const deps = baseDeps({ sdk: fakeSdk(execute), extendReview });
+
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(deps.prepareExecution).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   // The status page, the Activity failure card and the History row show the saved error as written.
   it.each(['availability', 'expiry'])(
     'saves a sentence, not the review key, when the %s check refuses after the row exists',
