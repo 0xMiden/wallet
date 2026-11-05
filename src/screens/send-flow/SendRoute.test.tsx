@@ -16,6 +16,9 @@ const DOWN: FeatureAvailability = {
 };
 let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
 jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_BRIDGE_CONFIG_SNAPSHOT,
   useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
 }));
 
@@ -54,6 +57,8 @@ jest.mock('./Route', () => ({
       data-fast-fee={String(props.fastFeeUsd)}
       data-fast-loading={String(props.fastQuoteLoading)}
       data-slow-status={props.slowStatus}
+      data-show-fast={String(props.showFastRoute)}
+      data-show-slow={String(props.showSlowRoute)}
       data-fast-state={props.fastAvailability.state}
       data-slow-state={props.slowAvailability.state}
     />
@@ -166,4 +171,15 @@ describe('SendRoute', () => {
     fireEvent.click(screen.getByTestId('bridge-route-confirm'));
     expect(props.onConfirm).toHaveBeenCalledTimes(1);
   });
+});
+
+it('hides AggLayer on an Epoch-only chain', () => {
+  renderRoute({ destinationChainId: 11155111 });
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-fast', 'true');
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-slow', 'false');
+});
+
+it('blocks an Epoch send for a faucet that the destination does not support', () => {
+  renderRoute({ destinationChainId: 11155111, faucetId: 'unlisted' });
+  expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
 });

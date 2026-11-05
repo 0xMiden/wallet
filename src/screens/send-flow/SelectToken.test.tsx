@@ -559,3 +559,47 @@ it('does not report the pending token availability warning as a user-visible err
     jest.useRealTimers();
   }
 });
+
+it('filters assets by destination and updates the list when the destination changes', () => {
+  const { config, derived } = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const reads = derived?.chains[11155111];
+  if (!config || !derived || !reads) throw new Error('The test config is missing.');
+  mockBridgeSnapshot = {
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    network: 'mainnet',
+    config: {
+      ...config,
+      supportedEvmChains: {
+        robinhood: {
+          chainId: 4663,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: '0x0000000000000000000000000000000000000000', outputs: [] } }
+            }
+          }
+        }
+      }
+    },
+    derived: {
+      ...derived,
+      chains: {
+        4663: {
+          ...reads,
+          epoch: {
+            tokens: { ETH: { state: 'ok', value: { symbol: 'ETH', decimals: 18, midenFaucetId: ETH.tokenId } } }
+          }
+        }
+      }
+    }
+  };
+  setBalances([ETH, BTC, XYZ]);
+  const { onSelect, onOpenChange, rerender } = renderDrawer({ destinationChainId: 4663 });
+  expect(screen.getByTestId('send-token-ETH')).toBeEnabled();
+  expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('send-token-XYZ')).not.toBeInTheDocument();
+
+  rerender(<SelectTokenDrawer open onSelect={onSelect} onOpenChange={onOpenChange} />);
+  expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+});
