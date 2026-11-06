@@ -1001,8 +1001,30 @@ describe('resubmitEarnWithdrawal', () => {
     }
   );
 
+  it('refuses a reviewed retry when the balance read fails', async () => {
+    const row = failedRow({ sourceAmount: '1', reviewedMinimumReceivedAtomic: '5', sourceDecimals: 6 });
+    mockRow(row);
+    jest.mocked(fetchEarnPositions).mockResolvedValue({
+      positions: [retryPosition],
+      owners: [EVM_OWNER],
+      totalDepositsUSD: 20,
+      errors: [{ owner: EVM_OWNER, error: 'Request timed out after 15000 ms' }]
+    });
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+
+    await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow(
+      new Error("Couldn't check your balance with Epoch - try again.", { cause: new Error('earnPositionsUnavailable') })
+    );
+    expect(quoteEarnWithdrawal).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(row.extraInputs.phase).toBe('failed');
+  });
+
   // The Activity retry shows the thrown message as written, so a quote refusal reaches it as a sentence.
   it.each([
+    ['earnPositionsUnavailable', "Couldn't check your balance with Epoch - try again."],
     ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
     ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
     ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
@@ -1093,18 +1115,6 @@ describe('resubmitEarnWithdrawal', () => {
     expect(executeActions).not.toHaveBeenCalled();
   });
 
-  it('retries at the decimals the row recorded for its own token', async () => {
-    const row = failedRow({ sourceDecimals: 6 });
-    mockRow(row);
-    const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
-
-    await resubmitEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }));
-
-    expect(executeActions).toHaveBeenCalledWith(
-      expect.objectContaining({ underlying: TEST_EVM_USDC.address, amount: '10000000' })
-    );
-  });
-
   it('refuses a row that recorded no decimals, before any read', async () => {
     const row = failedRow({ sourceDecimals: undefined, reviewedMinimumReceivedAtomic: '1' });
     mockRow(row);
@@ -1118,7 +1128,7 @@ describe('resubmitEarnWithdrawal', () => {
     expect(row.extraInputs.phase).toBe('failed');
   });
 
-  it('retries at the decimals the row recorded, whatever the chain reads', async () => {
+  it('retries at the decimals the row recorded', async () => {
     const row = failedRow({ sourceDecimals: 8 });
     mockRow(row);
     const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
@@ -2010,11 +2020,22 @@ describe('reviewed withdrawals', () => {
     const extended = { ...review, expiresAt: review.expiresAt + 60_000 };
     const execute = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
     const extendReview = jest.fn().mockResolvedValue(extended);
-    const deps = baseDeps({ sdk: fakeSdk(execute), extendReview });
-
-    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review }, deps)).resolves.toMatchObject({
-      txId: 'TX1'
+    const now = jest.spyOn(Date, 'now');
+    const deps = baseDeps({
+      sdk: fakeSdk(execute),
+      extendReview,
+      ensureSmartAccount: jest.fn(async () => {
+        now.mockReturnValue(review.expiresAt);
+      })
     });
+
+    try {
+      await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review }, deps)).resolves.toMatchObject({
+        txId: 'TX1'
+      });
+    } finally {
+      now.mockRestore();
+    }
 
     expect(extendReview).toHaveBeenCalledWith(review);
     expect(jest.mocked(deps.ensureSmartAccount).mock.invocationCallOrder[0]).toBeLessThan(
