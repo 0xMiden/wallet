@@ -4182,6 +4182,71 @@
     "message": "不同的网络",
     "englishSource": "Different network"
   },
+  "confirmTxRequestFrom": {
+    "message": "请求来自",
+    "englishSource": "Request from"
+  },
+  "confirmTxNoteType": {
+    "message": "Note类型",
+    "englishSource": "Note type"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "代币faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "回溯区块",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "接收",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "来自 faucet 的 Note Note Note Note Note Note Note Note Note Note Note Note Note Note ",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "你",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "你明白",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "从您的账户中移出",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "到账至您的账户",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "自定义交易",
+    "englishSource": "Custom transaction"
+  },
+  "confirmTxFailedTitle": {
+    "message": "无法确认",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未经验证",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "交易已完成",
     "englishSource": "Transaction Completed"

@@ -4182,6 +4182,71 @@
     "message": "Другая сеть",
     "englishSource": "Different network"
   },
+  "confirmTxRequestFrom": {
+    "message": "Запрос от",
+    "englishSource": "Request from"
+  },
+  "confirmTxNoteType": {
+    "message": "Тип Note",
+    "englishSource": "Note type"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet токенов",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Блоки отзыва",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Получение",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note от faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "вы",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Вы платите",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Вы получаете",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Выходит из вашего счёта",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Поступает на ваш счет",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Пользовательская транзакция",
+    "englishSource": "Custom transaction"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Не удалось подтвердить",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Не проверено",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Сделка завершена",
     "englishSource": "Transaction Completed"

@@ -4182,6 +4182,71 @@
     "message": "Інша мережа",
     "englishSource": "Different network"
   },
+  "confirmTxRequestFrom": {
+    "message": "Запит від",
+    "englishSource": "Request from"
+  },
+  "confirmTxNoteType": {
+    "message": "Тип Note",
+    "englishSource": "Note type"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet токенів",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Блоки відкликання",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Отримання",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note від faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "ви",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ви платите",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Ви отримуєте",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Виходить з вашого рахунку",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Надходить на ваш рахунок",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Індивідуальна транзакція",
+    "englishSource": "Custom transaction"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Не вдалося підтвердити",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Не підтверджено",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Транзакція завершена",
     "englishSource": "Transaction Completed"

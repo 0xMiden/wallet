@@ -4182,6 +4182,71 @@
     "message": "Farklı ağ",
     "englishSource": "Different network"
   },
+  "confirmTxRequestFrom": {
+    "message": "Talep kaynağı",
+    "englishSource": "Request from"
+  },
+  "confirmTxNoteType": {
+    "message": "Note türü",
+    "englishSource": "Note type"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "Token faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Blokları geri çağırma",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Alma",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucet'ten Note notu",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "siz",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ödeme yaparsınız",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Anladınız mı?",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Hesabınızdan çıkar",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Hesabınıza gelir",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Özel işlem",
+    "englishSource": "Custom transaction"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Doğrulayamadım",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Doğrulanmadı",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "İşlem Tamamlandı",
     "englishSource": "Transaction Completed"

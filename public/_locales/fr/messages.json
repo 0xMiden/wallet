@@ -4182,6 +4182,71 @@
     "message": "Réseau différent",
     "englishSource": "Different network"
   },
+  "confirmTxRequestFrom": {
+    "message": "Demande de",
+    "englishSource": "Request from"
+  },
+  "confirmTxNoteType": {
+    "message": "Type de Note",
+    "englishSource": "Note type"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet de jetons",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Rappel des blocs",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Réception",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note de faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "vous",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Vous payez",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Vous obtenez",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Quitte votre compte",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Arrive sur votre compte",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Transaction personnalisée",
+    "englishSource": "Custom transaction"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Impossible de confirmer",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Non vérifié",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Transaction terminée",
     "englishSource": "Transaction Completed"
