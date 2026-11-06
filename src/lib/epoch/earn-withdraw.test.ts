@@ -1130,6 +1130,19 @@ describe('resubmitEarnWithdrawal', () => {
     expect(row.extraInputs.phase).toBe('failed');
   });
 
+  it('retries a withdrawal in another token under the symbol the row recorded', async () => {
+    const row = failedRow({ sourceSymbol: 'WETH' });
+    mockRow(row);
+    const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+    await expect(retryEarnWithdrawal('TX1', deps)).resolves.toBeUndefined();
+
+    expect(deps.startDeliveryPoll).toHaveBeenCalledWith(
+      expect.objectContaining({ bridgeInfo: expect.objectContaining({ sourceSymbol: 'WETH' }) })
+    );
+  });
+
   it('retries at the decimals the row recorded', async () => {
     const row = failedRow({ sourceDecimals: 8 });
     mockRow(row);
