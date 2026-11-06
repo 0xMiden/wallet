@@ -27,8 +27,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
-  // The document names one Epoch route, Sepolia; a position on any other chain is off route.
-  getEpochRoutes: () => [{ chainId: 11155111, usdc: '0x1111111111111111111111111111111111111111' }]
+  // The document names one EVM chain, Sepolia; a position on any other chain is not a known market.
+  getSupportedEvmChainIds: () => [11155111]
 }));
 const token = '0x1111111111111111111111111111111111111111';
 const position = {
@@ -194,7 +194,7 @@ it("reads only the reviewed market of the quote's owner", async () => {
     markets: [q.position.marketUid]
   });
 });
-it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
+it('accepts a position in any market on a chain the document lists, and refuses one on another chain', async () => {
   // A market of another lender than the default market, on the default market's chain.
   const otherMarket = { ...position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:11155111:${token}` };
   jest.mocked(fetchEarnPositions).mockResolvedValue({
@@ -218,8 +218,8 @@ it("accepts a position in any market on the route's chain, and refuses one on an
   const q = await quoteEarnWithdrawal({ ...args, position: otherMarket }, sdk);
   await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
 
-  const offRoute = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
-  await expect(assertWithdrawalReviewCurrent(offRoute)).rejects.toThrow('earnWithdrawRefresh');
+  const offChain = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
+  await expect(assertWithdrawalReviewCurrent(offChain)).rejects.toThrow('earnWithdrawRefresh');
 });
 it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);

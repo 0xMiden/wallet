@@ -9,7 +9,7 @@ import { notePositionsRequests, positionsBudgetDelayMs } from './positions-budge
 
 /**
  * The raw reader of the Earn vault catalogue. The catalogue is the `/pools` route of Epoch's positions service:
- * every market of the route's USDC on one chain. The bridge-config document's `earn.vaults` list decides which of
+ * every market of one token on one chain. The bridge-config document's `earn.vaults` list decides which of
  * them the wallet offers, in which order and under which name: a market no entry names is not offered.
  *
  * This module has no wallet state. The caller gives the fetch, the timeout and the document's list, so the
@@ -94,7 +94,7 @@ export function earnMarketForVault(vault: EarnVaultInfo): EarnMarket {
 export interface EarnVaultRoute {
   positionsUrl: string;
   chainId: number;
-  /** The route's USDC contract on `chainId`, in any case. */
+  /** The market's underlying token contract on `chainId`, in any case. */
   underlying: string;
   /** The document's `earn.vaults`. The read keeps only the markets of this route that it names. */
   listed: readonly EarnVaultConfig[];

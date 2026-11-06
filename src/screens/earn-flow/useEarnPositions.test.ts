@@ -5,7 +5,7 @@ import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { discoverEarnPositionMarkets, fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
+import { fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -91,7 +91,6 @@ jest.mock('lib/epoch', () => {
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
-    discoverEarnPositionMarkets: jest.fn(async () => false),
     fetchEarnPositions: jest.fn()
   };
 });
@@ -250,7 +249,7 @@ const liveResult = {
 };
 
 // The SWR key of the fixtures' account on READY, and the storage key of its stored copy.
-const KEY = ['earn-positions', 'miden-account', '0xABCDEF', 'testnet', POSITIONS_URL, '11155111'];
+const KEY = ['earn-positions', 'miden-account', '0xABCDEF', 'testnet', POSITIONS_URL, LISTING.marketUid];
 const STORAGE_KEY = EARN_POSITIONS_STORAGE_PREFIX + JSON.stringify(KEY);
 const readStored = () => fetchFromStorage<{ at: number; result: EarnPositionsResult }>(STORAGE_KEY);
 
@@ -684,7 +683,6 @@ describe('useEarnPositions', () => {
       accountId: 'miden-account',
       owners: ['0xabcdef']
     });
-    expect(discoverEarnPositionMarkets).toHaveBeenCalledWith(['0xabcdef'], 'miden-account');
 
     // A covered page holds a null key, not a paused one.
     renderHook(() => useEarnPositions(), {
@@ -755,12 +753,7 @@ describe('useEarnPositions', () => {
         'The bridge config has no usable epoch.positionsUrl.'
       ],
       [
-        'names the positions host but no Epoch route',
-        { ...READY_CONFIG, supportedEvmChains: {} },
-        'The bridge config has no usable Epoch route.'
-      ],
-      [
-        'names an Epoch route but lists no Earn vault',
+        'names the positions host but lists no Earn vault',
         { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined },
         'The bridge config has no usable Earn vault.'
       ]
@@ -792,7 +785,8 @@ describe('useEarnPositions', () => {
         },
         true
       ],
-      ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, true],
+      // The Epoch bridge routes do not configure Earn: a document with none still offers its listed vaults.
+      ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, false],
       [
         'a document that lists no Earn vault',
         { ...READY, config: { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined } },
@@ -1103,7 +1097,6 @@ describe('useEarnPositions', () => {
       beforeEach(() => {
         jest.useFakeTimers();
         jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
-        jest.mocked(discoverEarnPositionMarkets).mockResolvedValue(false);
         jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
       });
 
@@ -1432,16 +1425,6 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(3);
         await advance(60_000);
         expect(reads()).toBe(3);
-      });
-
-      it('reads once at once when discovery finds a market the read did not ask for', async () => {
-        jest.mocked(discoverEarnPositionMarkets).mockResolvedValueOnce(true);
-        renderOnPage();
-        await advance(0);
-        expect(reads()).toBe(2);
-
-        await advance(60_000);
-        expect(reads()).toBe(2);
       });
     });
   });

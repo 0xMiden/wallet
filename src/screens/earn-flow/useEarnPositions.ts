@@ -4,13 +4,7 @@ import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import {
-  carryForward,
-  discoverEarnPositionMarkets,
-  type EarnPositionsResult,
-  fetchEarnPositions,
-  positionsBudgetDelayMs
-} from 'lib/epoch';
+import { carryForward, type EarnPositionsResult, fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
@@ -23,8 +17,7 @@ import {
   BridgeConfigUnavailableError,
   selectEarnVaultCatalog,
   selectEarnVaultLogoUrl,
-  selectEarnVaults,
-  selectEpochRoutes
+  selectEarnVaults
 } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -41,7 +34,7 @@ import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
 // Each read sends one request for each lender of the one owner, inside the Epoch positions service's 10 requests per minute,
 // which the withdraw review's balance check also spends. So the hook reads on its own only when something changed:
-// an Earn row settled, or discovery found a market. Yield accrues every block, so a slow refresh follows each read.
+// an Earn row settled. Yield accrues every block, so a slow refresh follows each read.
 const YIELD_REFRESH_MS = 180_000;
 
 // The retries of a read that failed (the request, or any owner): 10 s, 30 s, then 60 s after the failed read began.
@@ -74,7 +67,7 @@ interface KeyReads {
   inFlight: number;
   /** The failed reads in a row; 0 after a read with no failure. It sets the delay of the next automatic read. */
   failures: number;
-  /** An Earn row settled or discovery found a market after the last read began: the next read is due at once. */
+  /** An Earn row settled after the last read began: the next read is due at once. */
   refreshDue: boolean;
   /** Each on-screen hook's re-arm, called as a read begins and settles and when a read falls due. */
   rearms: Set<() => void>;
@@ -92,15 +85,11 @@ const NO_STORED_READ: Promise<StoredEarnPositions | undefined> = Promise.resolve
 const ignoreFailedWrite = () => {};
 const ignoreRejection = () => {};
 
-// The failure a read would report for a document that names no positions host, no Epoch route or no Earn vault, as
-// the getters phrase it, named from the snapshot the hook keys on: the getters read the realm's, which can differ.
-function unconfiguredError(
-  positionsUrl: string | undefined,
-  chainIds: string,
-  listedCount: number
-): string | undefined {
+// The failure a read would report for a document that names no positions host or no Earn vault, as the getters
+// phrase it. The hook names it from the snapshot that it keys on. The getters read the realm's snapshot, which can
+// differ.
+function unconfiguredError(positionsUrl: string | undefined, listedCount: number): string | undefined {
   if (!positionsUrl) return new BridgeConfigUnavailableError('epoch.positionsUrl').message;
-  if (chainIds === '') return new BridgeConfigUnavailableError('Epoch route').message;
   if (listedCount === 0) return new BridgeConfigUnavailableError('Earn vault').message;
   return undefined;
 }
@@ -223,15 +212,15 @@ export function earnItemLoadState(
  * withdraw review's balance check needs some of them. A page that comes into view, or mounts, reads at once whatever
  * the age of the last read, since the Earn pages stay mounted behind other tabs. After that the hook, not SWR, starts
  * a read on its own: at once when an Earn row of the account reaches a terminal state (a deposit confirmed or failed,
- * a withdrawal redeemed, received or failed, seen in the transactions table, whichever realm wrote it) or when discovery finds a
- * market; 10 s, 30 s, then every 60 s after a failed read (the request, or any owner) began; else 3 minutes after the
+ * a withdrawal redeemed, received or failed, seen in the transactions table, whichever realm wrote it);
+ * 10 s, 30 s, then every 60 s after a failed read (the request, or any owner) began; else 3 minutes after the
  * last read began, for the yield. Each delay counts from when the key's last read began, whoever started it, and no
  * automatic read starts while one is out. Nothing is read on a timer while the page is off screen (another tab, a page
  * above it, or another Home page), the document is hidden or the device is offline, and reconnect and focus never
  * read. A Retry is the one read outside that, and the next automatic read counts from it too.
  *
- * The key needs only the document: the account, the positions host and the Epoch routes it names, never a derived
- * value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
+ * The key needs only the document: the account, the positions host and the markets of the vaults it lists, never a
+ * derived value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
  * key, so a mount in a fresh realm (every extension popup open) shows the last read at once, every position stale,
  * while its own read runs. The stored copy is shown only until this hook sees a live read of the key, and the copy of
  * a key the hook leaves (another account, network or document) is removed. The vaults are the derivation's catalogue
@@ -267,8 +256,7 @@ export function useEarnPositions(): {
    */
   loadError?: string;
   /**
-   * The network configures no Earn at all: its document (mainnet's) names no positions host, no Epoch route or no
-   * Earn vault. `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not
+   * The network configures no Earn at all: its document (mainnet's) names no positions host or no Earn vault. `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not
    * on this network. It reads the document only, never the derivation; a snapshot with no accepted document says
    * nothing about the network and keeps its load error and Retry.
    */
@@ -284,22 +272,21 @@ export function useEarnPositions(): {
   const { cache } = useSWRConfig();
   const config = useBridgeConfigSnapshot();
   const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
-  const chainIds = selectEpochRoutes(config)
-    .map(route => route.chainId)
-    .join(',');
   const listed = selectEarnVaults(config);
+  // The listed markets decide which lenders and chains the read asks for, so the key names them.
+  const listedMarkets = listed.map(listing => listing.marketUid).join(',');
   const catalog = selectEarnVaultCatalog(config);
-  const configured = Boolean(positionsUrl) && chainIds !== '' && listed.length > 0;
+  const configured = Boolean(positionsUrl) && listed.length > 0;
   // Only a loading snapshot is a wait: a loaded one that names none settles at once, as the read would have failed.
-  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, chainIds, listed.length) : undefined;
+  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, listed.length) : undefined;
   const notOnNetwork = config.status === 'ready' && config.config !== null && unconfigured !== undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. The Earn pages stay mounted behind other tabs, so the key coming back
   // is the page coming into view, and it reads again then whatever the age of its last read. The read goes to the
-  // configured host and routes of the network, so the key names them: none reads nothing, and a document that moves
-  // them reads anew.
-  const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, chainIds];
+  // configured host of the network, for the markets of the listed vaults, so the key names them: none reads nothing,
+  // and a document that changes them reads anew.
+  const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, listedMarkets];
   const id = JSON.stringify(key);
   const storageKey = EARN_POSITIONS_STORAGE_PREFIX + id;
 
@@ -362,11 +349,6 @@ export function useEarnPositions(): {
         const startedAt = Date.now();
         reads.at = startedAt;
         const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
-        // The read asks only for the lenders the wallet knows. A background unfiltered read finds any other, and a
-        // market it finds makes the next read due at once, which asks for it too.
-        discoverEarnPositionMarkets(owners, account.publicKey).then(found => {
-          if (found) requestRead(reads);
-        }, ignoreRejection);
         failed = next.errors.length > 0;
         // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
         // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the

@@ -104,22 +104,6 @@ export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
 }
 
 /** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
-/** One Epoch route the document names: a chain and its USDC contract, checksummed, as the positions service keys markets. */
-export interface EpochRoute {
-  chainId: number;
-  usdc: `0x${string}`;
-}
-
-/**
- * Every Epoch route the document names (`supportedEvmChains.<chain>.bridges.epoch` with a USDC token), in document
- * order. Positions live on any of them, whatever the default market, so a positions read asks for all of them.
- */
-export function selectEpochRoutes(s: BridgeConfigSnapshot): EpochRoute[] {
-  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain => {
-    const address = chain.bridges.epoch?.tokens.USDC?.contractAddress;
-    return address ? [{ chainId: chain.chainId, usdc: getAddress(address) }] : [];
-  });
-}
 
 export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
   return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
@@ -376,9 +360,9 @@ export function findEvmUsdc(chainId?: number): EvmUsdc | null {
   return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
 }
 
-/** Every Epoch route the accepted document names (`selectEpochRoutes`); empty with no document. Never throws. */
-export function getEpochRoutes(): EpochRoute[] {
-  return selectEpochRoutes(getBridgeConfigSnapshot());
+/** The chain ids of the accepted document's `supportedEvmChains`, in document order. Empty with no document. */
+export function getSupportedEvmChainIds(): number[] {
+  return Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).map(chain => chain.chainId);
 }
 
 /** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */

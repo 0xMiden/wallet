@@ -6,7 +6,7 @@ import {
   getNativeAssetId,
   getNativeAssetMetadata
 } from 'lib/miden-chain/native-asset';
-import { getEpochAllocatorUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { buildEpochReadOnlyWalletClient } from './client';
@@ -130,8 +130,10 @@ export async function quoteEarnWithdrawal(
 }
 
 /**
- * Synchronous guard used immediately before every vault signing request. The position can be in any catalogue vault,
- * so the guard checks only that its market uid names the Earn route's chain (the default market's chain).
+ * Synchronous guard used immediately before every vault signing request. The position can be in any known market:
+ * a listed vault, or a market of one of the account's deposits. The deposit rows need an async read, so this guard
+ * does not read them. It checks only that the market's chain is still a chain of the document's
+ * `supportedEvmChains`. The Epoch bridge routes do not limit the market.
  */
 export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void {
   const currentNative = captureNativeAssetSnapshot();
@@ -140,9 +142,7 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    // The position's chain must still be an Epoch route the document names; the default market's chain says
-    // nothing about a position on another route.
-    !getEpochRoutes().some(route => String(route.chainId) === quote.position.marketUid.split(':')[1])
+    !getSupportedEvmChainIds().some(chainId => String(chainId) === quote.position.marketUid.split(':')[1])
   )
     throw new Error('earnWithdrawRefresh');
 }
