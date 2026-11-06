@@ -402,6 +402,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   }, [token, amount]);
 
   const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id, destinationChainId);
+  // Set while the effect below, not the user, moved the route off Epoch, so it can move back once Epoch recovers.
+  const routeMovedOffEpochRef = useRef(false);
   useEffect(() => {
     if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
     if (!usdcxAvailable && bridgeRoute === 'usdcx' && destinationChainId === undefined) {
@@ -410,8 +412,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (!usdcxAvailable && token && destinationChainId !== undefined) {
       const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
       const selected = bridgeRoute ?? 'epoch';
+      if (routeMovedOffEpochRef.current && selected === 'agglayer' && routes.epoch) {
+        routeMovedOffEpochRef.current = false;
+        setValue('bridgeRoute', 'epoch');
+        return;
+      }
       const nextRoute = routes.epoch ? 'epoch' : 'agglayer';
-      if (routes[nextRoute] && !routes[selected]) setValue('bridgeRoute', nextRoute);
+      if (routes[nextRoute] && !routes[selected]) {
+        routeMovedOffEpochRef.current = nextRoute === 'agglayer';
+        setValue('bridgeRoute', nextRoute);
+      }
     }
   }, [usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig]);
 
@@ -504,7 +514,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
   const previousTokenScopeRef = useRef(tokenScope);
   const automaticTokenIdRef = useRef<string | null>(null);
-  const defaultCandidates = useMemo(() => {
+  // The held tokens a send could spend, before the destination's routes are applied.
+  const sendableHoldings = useMemo(() => {
     if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
     if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
     return balanceData.filter(row => {
@@ -514,7 +525,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
         isNewTransferTokenHeld(bridgeConfig, row.tokenId, nativeFaucetId)
       )
         return false;
-      if (!canSendTokenToChain(bridgeConfig, row.tokenId, destinationChainId)) return false;
       const available =
         row.tokenId === nativeFaucetId
           ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
@@ -530,9 +540,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     verificationBaseFee,
     isHidden,
-    destinationChainId,
     bridgeConfig
   ]);
+  const defaultCandidates = useMemo(
+    () => sendableHoldings.filter(row => canSendTokenToChain(bridgeConfig, row.tokenId, destinationChainId)),
+    [sendableHoldings, bridgeConfig, destinationChainId]
+  );
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
@@ -577,7 +590,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !isLoading &&
       !balancesLoading &&
       hiddenTokensLoaded &&
-      !defaultCandidates.some(row => row.tokenId === current?.id)
+      // Holdings, not route-filtered candidates: a route the destination loses clears the token only through the
+      // destination check below, so a config refresh alone keeps it.
+      !sendableHoldings.some(row => row.tokenId === current?.id)
     ) {
       automaticTokenIdRef.current = null;
       setValue('token', undefined);
@@ -619,6 +634,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isLoading,
     hiddenTokensLoaded,
     defaultCandidates,
+    sendableHoldings,
     balanceData,
     balancesLoading,
     tokenPrices,
@@ -861,6 +877,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const onRouteChange = useCallback(
     (route: BridgeRoute) => {
+      routeMovedOffEpochRef.current = false;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
     },
     [onAction]

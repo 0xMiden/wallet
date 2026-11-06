@@ -314,15 +314,20 @@ jest.mock('./bridge-networks', () => {
 
 // Route support is tested with real config reads in send-token-routes.test.ts.
 const mockUnsupportedSendTokens = new Set<string>();
+// Set by a test that needs both bridge routes; unset, the token routes follow the rules below.
+let mockTokenRoutes: { epoch: boolean; agglayer: boolean } | undefined;
 jest.mock('./send-token-routes', () => ({
   canSendTokenToChain: (_snapshot: object, faucetId: string, chainId?: number) => {
     if (chainId === undefined) return true;
+    if (mockTokenRoutes) return mockTokenRoutes.epoch || mockTokenRoutes.agglayer;
     if (mockUnsupportedSendTokens.has(faucetId)) return false;
     return chainId === 11155111 || chainId === 137 || faucetId === mockUsdcxTokenId;
   },
   sendTokenRoutes: (_snapshot: object, faucetId: string, chainId: number) => ({
-    epoch: (chainId === 11155111 || chainId === 137) && !mockUnsupportedSendTokens.has(faucetId),
-    agglayer: false,
+    epoch: mockTokenRoutes
+      ? mockTokenRoutes.epoch
+      : (chainId === 11155111 || chainId === 137) && !mockUnsupportedSendTokens.has(faucetId),
+    agglayer: mockTokenRoutes?.agglayer ?? false,
     usdcx: faucetId === mockUsdcxTokenId && chainId !== 137
   })
 }));
@@ -468,6 +473,7 @@ beforeEach(() => {
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
+  mockTokenRoutes = undefined;
   mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
@@ -1867,6 +1873,24 @@ describe('single sendable token default', () => {
     expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
   });
 
+  it('keeps an automatic token and its amount when only the bridge config changes', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    // A failed read in a new derivation, with the destination unchanged.
+    mockUnsupportedSendTokens.add(native.tokenId);
+    mockSendNetwork = 'testnet';
+    try {
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+      expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+    } finally {
+      mockSendNetwork = 'devnet';
+    }
+  });
+
   it('resets token and amount on an account change and waits for its balances', () => {
     useAllBalancesMock.mockReturnValue({ data: [native] });
     const { rerender } = renderFlow();
@@ -2741,6 +2765,28 @@ it('keeps the asset and its amount when only the bridge config changes', () => {
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token')).not.toHaveTextContent('no-token');
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
+it('returns to Epoch once a failed Epoch read recovers', () => {
+  mockCardStack = [{ name: SendFlowStep.Route }];
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
+  expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+  try {
+    // The Epoch read fails in a new derivation: the route moves to AggLayer.
+    mockTokenRoutes = { epoch: false, agglayer: true };
+    mockSendNetwork = 'testnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+    // The read recovers: the automatic move is undone.
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    mockSendNetwork = 'devnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
   } finally {
     mockSendNetwork = 'devnet';
   }
