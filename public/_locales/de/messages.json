@@ -4133,6 +4133,55 @@
     "message": "Bei jeder Abfrage von Kontodaten ist eine Bestätigung erforderlich.",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "Diese Website wird in der Lage sein,",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Sehen Sie sich Ihren Kontostand und Ihre Transaktionshistorie an",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Private Daten ohne Nachfrage lesen",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "Der Zugriff auf $scopes$ wird gewährt",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Fragen Sie nach, bevor Sie private Daten einsehen",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Transaktionsanfragen senden",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Sie stimmen jedem einzelnen zu",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Führen Sie niemals eigenmächtig Geldtransfers durch",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Geldmittel werden nur dann freigegeben, wenn Sie dies genehmigen",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "Verbindung konnte nicht hergestellt werden",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Anderes Netzwerk",
+    "englishSource": "Different network"
+  },
   "transactionCompleted": {
     "message": "Transaktion abgeschlossen",
     "englishSource": "Transaction Completed"

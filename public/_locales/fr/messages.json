@@ -4133,6 +4133,55 @@
     "message": "Une confirmation est requise à chaque fois que des données de compte sont demandées",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "Ce site permettra de",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Consultez votre solde et votre historique",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Lire des données privées sans autorisation",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "L'accès à $scopes$ sera accordé",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Demandez l’autorisation avant de consulter des données privées",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Envoyer vos demandes de transaction",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Vous approuvez chacun d’entre eux",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Ne transférez jamais de fonds de votre propre initiative",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Les fonds ne sont transférés que lorsque vous donnez votre accord",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "Impossible de se connecter",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Réseau différent",
+    "englishSource": "Different network"
+  },
   "transactionCompleted": {
     "message": "Transaction terminée",
     "englishSource": "Transaction Completed"

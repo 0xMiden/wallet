@@ -4133,6 +4133,55 @@
     "message": "Hesap verileri her talep edildiğinde onaylanması gerekmektedir",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "Bu site şunları yapabilecektir:",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Bakiyenizi ve geçmişinizi görüntüleyin",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "İzin almadan özel verileri okumak",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$'a erişim izni verilecektir",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Özel verileri okumadan önce izin isteyin",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "İşlem taleplerinizi gönderin",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Her birini onaylıyorsunuz",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Asla kendi başına fon aktarmayın",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Para, yalnızca siz onayladığınızda çekilir",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "Bağlanılamadı",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Farklı ağ",
+    "englishSource": "Different network"
+  },
   "transactionCompleted": {
     "message": "İşlem Tamamlandı",
     "englishSource": "Transaction Completed"
