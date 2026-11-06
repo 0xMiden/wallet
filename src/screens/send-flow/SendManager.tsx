@@ -637,8 +637,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
     !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
 
-  // Clear a token that the selected destination cannot receive.
+  // Clear a token that the selected destination cannot receive. Only a new destination or a new token clears it: a
+  // config refresh whose read failed for a moment keeps the user's token and amount, and Continue stays blocked.
+  const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
   useEffect(() => {
+    const checked = checkedSelectionRef.current;
+    if (checked.chainId === destinationChainId && checked.tokenId === token?.id) return;
+    checkedSelectionRef.current = { chainId: destinationChainId, tokenId: token?.id };
     if (token && !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)) {
       setValue('token', undefined);
       setValue('amount', '');

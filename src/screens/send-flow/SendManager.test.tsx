@@ -2726,6 +2726,26 @@ it('uses Epoch for USDCx on Polygon and passes Polygon to the asset picker', () 
   }
 });
 
+it('keeps the asset and its amount when only the bridge config changes', () => {
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+  pickToken(token);
+  mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  rerender(<SendFlow isLoading={false} />);
+  fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+  // A failed read in a new derivation, with the destination unchanged.
+  mockUnsupportedSendTokens.add(token.id);
+  mockSendNetwork = 'testnet';
+  try {
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).not.toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
 it('clears an unsupported asset and its amount after the destination changes', () => {
   const { rerender } = renderFlow();
   const unsupported = { id: 'unlisted-usdt', name: 'USDT', decimals: 6, balance: 10, fiatPrice: 1 };
