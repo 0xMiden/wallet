@@ -282,6 +282,7 @@ async function pastFailure() {
     evmAddress: PREPARED_OWNER,
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
+    underlyingSymbol: mockPosition.asset,
     amount: '10',
     underlyingDecimals: 6,
     protocol: 'dummy-lending',

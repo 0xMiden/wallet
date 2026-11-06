@@ -156,6 +156,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         protocol: position.epochProtocol,
         chainId: Number(position.marketUid.split(':')[1]),
         underlyingAddress: position.underlyingAddress,
+        underlyingSymbol: position.asset,
         amount,
         review: quote,
         underlyingDecimals: position.decimals,

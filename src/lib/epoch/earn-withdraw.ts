@@ -80,6 +80,7 @@ export interface GaslessEarnWithdrawalArgs {
   evmAddress: string;
   marketUid: string;
   underlyingAddress: string;
+  underlyingSymbol: string;
   /** Human-decimal withdrawable amount returned by the positions API. */
   amount: string;
   underlyingDecimals: number;
@@ -294,7 +295,7 @@ async function submitEarnWithdrawal(
       args.marketUid,
       destinationFaucetId,
       args.amount,
-      'USDC',
+      args.underlyingSymbol,
       attemptId,
       attemptStartedAt,
       args.underlyingDecimals,
@@ -319,7 +320,7 @@ async function submitEarnWithdrawal(
     const bridgeInfo = (nonce: string): IBridgeInInfo => ({
       provider: 'epoch',
       sourceAmount: args.amount,
-      sourceSymbol: 'USDC',
+      sourceSymbol: args.underlyingSymbol,
       intentOwner: sponsorAddress,
       intentNonce: nonce,
       earnWithdrawTxId: txId,
@@ -893,6 +894,7 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
       underlyingAddress,
+      underlyingSymbol: ei.sourceSymbol,
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
       underlyingDecimals,

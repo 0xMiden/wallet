@@ -138,6 +138,7 @@ const validArgs = (): GaslessEarnWithdrawalArgs => ({
   evmAddress: EVM_OWNER,
   marketUid: MARKET_UID,
   underlyingAddress: UNDERLYING,
+  underlyingSymbol: 'USDC',
   amount: '10',
   underlyingDecimals: 6,
   protocol: 'dummy-lending'
@@ -375,7 +376,14 @@ describe('gaslessEarnWithdrawalToMiden', () => {
 
     await expect(
       gaslessEarnWithdrawalToMiden(
-        { ...validArgs(), marketUid, underlyingAddress: foreign, underlyingDecimals: 18, amount: '1' },
+        {
+          ...validArgs(),
+          marketUid,
+          underlyingAddress: foreign,
+          underlyingSymbol: 'WETH',
+          underlyingDecimals: 18,
+          amount: '1'
+        },
         deps
       )
     ).resolves.toMatchObject({ txId: 'TX1' });
@@ -386,12 +394,17 @@ describe('gaslessEarnWithdrawalToMiden', () => {
       marketUid,
       PREPARED_FAUCET,
       '1',
-      'USDC',
+      'WETH',
       expect.any(String),
       expect.any(Number),
       18,
       'dummy-lending',
       11155111
+    );
+    expect(deps.startDeliveryPoll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bridgeInfo: expect.objectContaining({ sourceSymbol: 'WETH' })
+      })
     );
   });
 

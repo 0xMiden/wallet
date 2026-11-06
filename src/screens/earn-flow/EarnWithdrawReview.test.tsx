@@ -284,6 +284,7 @@ describe('EarnWithdrawReview', () => {
       protocol: 'dummy-lending',
       chainId: 11155111,
       underlyingAddress: position.underlyingAddress,
+      underlyingSymbol: position.asset,
       amount: '42.25',
       review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),
       underlyingDecimals: 6,
