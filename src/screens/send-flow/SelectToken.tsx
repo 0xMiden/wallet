@@ -22,12 +22,14 @@ import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
+import { canSendTokenToChain } from './send-token-routes';
 import { UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 
 export interface SelectTokenDrawerProps {
   open: boolean;
   usdcxOnly?: boolean;
+  destinationChainId?: number;
   onOpenChange: (open: boolean) => void;
   onSelect: (token: UIToken) => void;
 }
@@ -46,7 +48,8 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   open,
   onOpenChange,
   onSelect,
-  usdcxOnly = false
+  usdcxOnly = false,
+  destinationChainId
 }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
@@ -61,7 +64,10 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   const filteredBalances = useMemo(() => {
     // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
     const visible = balanceData.filter(
-      b => !isHidden(b.tokenId) && !isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId)
+      b =>
+        !isHidden(b.tokenId) &&
+        !isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId) &&
+        canSendTokenToChain(bridgeConfig, b.tokenId, destinationChainId)
     );
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
@@ -71,7 +77,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
         b.metadata.name?.toLowerCase().includes(query) ||
         midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery]);
+  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery, destinationChainId]);
   // A row held until the document arrives is left out with a reason; a retired one is left out silently.
   const holdsPendingToken = balanceData.some(
     b =>
