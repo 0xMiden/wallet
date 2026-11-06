@@ -2792,6 +2792,30 @@ it('returns to Epoch once a failed Epoch read recovers', () => {
   }
 });
 
+it('keeps a confirmed AggLayer route after the Epoch read recovers', () => {
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
+  mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  rerender(<SendFlow isLoading={false} />);
+  fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+  mockCardStack = [{ name: SendFlowStep.Route }];
+  try {
+    mockTokenRoutes = { epoch: false, agglayer: true };
+    mockSendNetwork = 'testnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+    // The user confirms the AggLayer route: it is now theirs.
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    mockSendNetwork = 'devnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
 it('clears an unsupported asset and its amount after the destination changes', () => {
   const { rerender } = renderFlow();
   const unsupported = { id: 'unlisted-usdt', name: 'USDT', decimals: 6, balance: 10, fiatPrice: 1 };

@@ -38,8 +38,10 @@ export const SendRoute: React.FC<SendRouteProps> = ({
   const routes = destinationChainId === undefined ? undefined : sendTokenRoutes(snapshot, faucetId, destinationChainId);
   const slowStatus = useAgglayerEligibility(faucetId, destinationChainId);
   const fastFeatureAvailability = useFeatureAvailability('fastBridgeOut', { chainId: destinationChainId });
+  // Only a route that works but not for this faucet reads as not configured; loading, service-down and off keep their
+  // own state.
   const fastAvailability: FeatureAvailability =
-    routes?.epoch === false
+    routes?.epoch === false && fastFeatureAvailability.state === 'available'
       ? {
           state: 'unavailable',
           reason: 'not-configured',
@@ -48,7 +50,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({
       : fastFeatureAvailability;
   const slowFeatureAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
   const slowAvailability: FeatureAvailability =
-    routes?.agglayer === false
+    routes?.agglayer === false && slowFeatureAvailability.state === 'available'
       ? { state: 'unavailable', reason: 'not-configured', detail: 'No AggLayer withdrawal on the selected chain' }
       : slowFeatureAvailability;
   // The Circle route has its own availability check.

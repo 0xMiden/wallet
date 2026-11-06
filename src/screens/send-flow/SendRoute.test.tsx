@@ -60,7 +60,9 @@ jest.mock('./Route', () => ({
       data-show-fast={String(props.showFastRoute)}
       data-show-slow={String(props.showSlowRoute)}
       data-fast-state={props.fastAvailability.state}
+      data-fast-reason={props.fastAvailability.state === 'unavailable' ? props.fastAvailability.reason : ''}
       data-slow-state={props.slowAvailability.state}
+      data-slow-reason={props.slowAvailability.state === 'unavailable' ? props.slowAvailability.reason : ''}
     />
   )
 }));
@@ -178,6 +180,24 @@ it('hides AggLayer on an Epoch-only chain', () => {
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-fast', 'true');
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-slow', 'false');
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-slow-state', 'unavailable');
+});
+
+it('keeps the Fast route loading while its availability loads', () => {
+  mockAvailability = { fastBridgeOut: { state: 'loading' } };
+  renderRoute({ destinationChainId: 11155111, faucetId: 'unlisted' });
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-fast-state', 'loading');
+});
+
+it('keeps the Fast route service-down reason while its service is down', () => {
+  mockAvailability = { fastBridgeOut: DOWN };
+  renderRoute({ destinationChainId: 11155111, faucetId: 'unlisted' });
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-fast-reason', 'service-down');
+});
+
+it('keeps the Slow route service-down reason while its service is down', () => {
+  mockAvailability = { bridgeOut: DOWN };
+  renderRoute({ destinationChainId: 11155111 });
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-slow-reason', 'service-down');
 });
 
 it('blocks an Epoch send for a faucet that the destination does not support', () => {

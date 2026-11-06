@@ -835,6 +835,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return;
     }
     reviewHandoffRef.current = true;
+    // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
+    routeMovedOffEpochRef.current = false;
     setSendDraft({
       amount,
       recipientAddress,
