@@ -923,7 +923,6 @@
   "connectFailedTitle": "Bağlanılamadı",
   "dappNetworkMismatchTitle": "Farklı ağ",
   "confirmTxRequestFrom": "Talep kaynağı",
-  "confirmTxNoteType": "Note türü",
   "confirmTxTokenFaucet": "Token faucet",
   "confirmTxRecallBlocks": "Blokları geri çağırma",
   "confirmTxReceiving": "Alma",

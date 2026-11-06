@@ -4186,10 +4186,6 @@
     "message": "請求來自",
     "englishSource": "Request from"
   },
-  "confirmTxNoteType": {
-    "message": "Note類型",
-    "englishSource": "Note type"
-  },
   "confirmTxTokenFaucet": {
     "message": "代幣faucet",
     "englishSource": "Token faucet"

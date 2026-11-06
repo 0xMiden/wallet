@@ -4186,10 +4186,6 @@
     "message": "Talep kaynağı",
     "englishSource": "Request from"
   },
-  "confirmTxNoteType": {
-    "message": "Note türü",
-    "englishSource": "Note type"
-  },
   "confirmTxTokenFaucet": {
     "message": "Token faucet",
     "englishSource": "Token faucet"

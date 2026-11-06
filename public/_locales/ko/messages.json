@@ -4186,10 +4186,6 @@
     "message": "요청자:",
     "englishSource": "Request from"
   },
-  "confirmTxNoteType": {
-    "message": "Note 유형",
-    "englishSource": "Note type"
-  },
   "confirmTxTokenFaucet": {
     "message": "토큰 faucet",
     "englishSource": "Token faucet"

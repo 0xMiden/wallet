@@ -923,7 +923,6 @@
   "connectFailedTitle": "Не удалось установить соединение",
   "dappNetworkMismatchTitle": "Другая сеть",
   "confirmTxRequestFrom": "Запрос от",
-  "confirmTxNoteType": "Тип Note",
   "confirmTxTokenFaucet": "faucet токенов",
   "confirmTxRecallBlocks": "Блоки отзыва",
   "confirmTxReceiving": "Получение",

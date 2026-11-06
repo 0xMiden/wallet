@@ -923,7 +923,6 @@
   "connectFailedTitle": "연결할 수 없음",
   "dappNetworkMismatchTitle": "다른 네트워크",
   "confirmTxRequestFrom": "요청자:",
-  "confirmTxNoteType": "Note 유형",
   "confirmTxTokenFaucet": "토큰 faucet",
   "confirmTxRecallBlocks": "블록 회상",
   "confirmTxReceiving": "수신",

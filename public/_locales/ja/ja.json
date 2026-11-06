@@ -923,7 +923,6 @@
   "connectFailedTitle": "接続できませんでした",
   "dappNetworkMismatchTitle": "異なるネットワーク",
   "confirmTxRequestFrom": "リクエスト元：",
-  "confirmTxNoteType": "Noteタイプ",
   "confirmTxTokenFaucet": "トークンfaucet",
   "confirmTxRecallBlocks": "ブロックの呼び出し",
   "confirmTxReceiving": "受信",

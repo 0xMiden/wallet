@@ -4186,10 +4186,6 @@
     "message": "Demande de",
     "englishSource": "Request from"
   },
-  "confirmTxNoteType": {
-    "message": "Type de Note",
-    "englishSource": "Note type"
-  },
   "confirmTxTokenFaucet": {
     "message": "faucet de jetons",
     "englishSource": "Token faucet"

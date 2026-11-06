@@ -923,7 +923,6 @@
   "connectFailedTitle": "Не вдалося підключитися",
   "dappNetworkMismatchTitle": "Інша мережа",
   "confirmTxRequestFrom": "Запит від",
-  "confirmTxNoteType": "Тип Note",
   "confirmTxTokenFaucet": "faucet токенів",
   "confirmTxRecallBlocks": "Блоки відкликання",
   "confirmTxReceiving": "Отримання",
