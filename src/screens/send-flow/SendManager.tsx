@@ -658,8 +658,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
   useEffect(() => {
     const checked = checkedSelectionRef.current;
-    if (checked.chainId === destinationChainId && checked.tokenId === token?.id) return;
-    checkedSelectionRef.current = { chainId: destinationChainId, tokenId: token?.id };
+    // A destination the config stops offering for a moment reads as no destination; it is not a new one, so its return
+    // is not a change either.
+    const chainId = destinationChainId ?? checked.chainId;
+    if (checked.chainId === chainId && checked.tokenId === token?.id) return;
+    checkedSelectionRef.current = { chainId, tokenId: token?.id };
     if (token && !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)) {
       setValue('token', undefined);
       setValue('amount', '');

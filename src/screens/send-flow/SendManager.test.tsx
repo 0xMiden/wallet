@@ -2816,6 +2816,30 @@ it('keeps a confirmed AggLayer route after the Epoch read recovers', () => {
   }
 });
 
+it('keeps the asset and its amount when the destination drops out of the offered networks and returns', () => {
+  mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+  try {
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+    pickToken(token);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    // Every read fails: the chain is not offered for a moment.
+    mockOfferedNetworks = [];
+    rerender(<SendFlow isLoading={false} />);
+    // Another token recovers: the same chain is offered again, while this token's own read still fails.
+    mockUnsupportedSendTokens.add(token.id);
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).not.toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  } finally {
+    mockOfferedNetworks = undefined;
+  }
+});
+
 it('clears an unsupported asset and its amount after the destination changes', () => {
   const { rerender } = renderFlow();
   const unsupported = { id: 'unlisted-usdt', name: 'USDT', decimals: 6, balance: 10, fiatPrice: 1 };
