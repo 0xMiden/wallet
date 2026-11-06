@@ -84,10 +84,12 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/epoch', () => {
   const positions = jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions');
+  const budget = jest.requireActual<typeof import('lib/epoch/positions-budget')>('lib/epoch/positions-budget');
   const pools = jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read');
   return {
     carryForward: positions.carryForward,
-    positionsBudgetDelayMs: jest.fn(() => 0),
+    positionsBudgetDelayMs: jest.fn((_count: number, _limit?: number) => 0),
+    POSITIONS_PAGE_LIMIT: budget.POSITIONS_PAGE_LIMIT,
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
@@ -1096,7 +1098,7 @@ describe('useEarnPositions', () => {
 
       beforeEach(() => {
         jest.useFakeTimers();
-        jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
+        jest.mocked(positionsBudgetDelayMs).mockImplementation((_count, _limit) => 0);
         jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
       });
 
@@ -1152,13 +1154,15 @@ describe('useEarnPositions', () => {
 
       it('keeps failure retries and a page return inside ten requests per minute', async () => {
         const starts: number[] = [];
-        let budget!: typeof import('lib/epoch/positions');
+        let budget!: typeof import('lib/epoch/positions-budget');
         await jest.isolateModulesAsync(async () => {
-          budget = await import('lib/epoch/positions');
+          budget = await import('lib/epoch/positions-budget');
         });
-        jest.mocked(positionsBudgetDelayMs).mockImplementation(budget.positionsBudgetDelayMs);
+        jest
+          .mocked(positionsBudgetDelayMs)
+          .mockImplementation((count, limit) => budget.positionsBudgetDelayMs(count, limit));
         jest.mocked(fetchEarnPositions).mockImplementation(async args => {
-          budget.notePositionsRequests(args?.owners?.length ?? 1);
+          budget.notePositionsRequests(args?.owners?.length ?? 1, budget.POSITIONS_PAGE_LIMIT);
           starts.push(...(args?.owners ?? []).map(() => Date.now()));
           return liveResult;
         });

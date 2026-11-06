@@ -4,7 +4,13 @@ import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { carryForward, type EarnPositionsResult, fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
+import {
+  carryForward,
+  type EarnPositionsResult,
+  fetchEarnPositions,
+  positionsBudgetDelayMs,
+  POSITIONS_PAGE_LIMIT
+} from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
@@ -342,7 +348,7 @@ export function useEarnPositions(): {
         const walletAddress = account.evmAddress?.toLowerCase();
         const owners = walletAddress ? [walletAddress] : [];
         while (owners.length > 0) {
-          const delay = positionsBudgetDelayMs(owners.length);
+          const delay = positionsBudgetDelayMs(1, POSITIONS_PAGE_LIMIT);
           if (delay === 0) break;
           await new Promise<void>(resolve => setTimeout(resolve, delay));
         }

@@ -196,7 +196,7 @@ describe('fetchEarnPositions', () => {
       });
       await jest.advanceTimersByTimeAsync(0);
 
-      expect(fetchMock).toHaveBeenCalledTimes(10);
+      expect(fetchMock).toHaveBeenCalledTimes(8);
       expect(settled).toBe(false);
 
       await jest.advanceTimersByTimeAsync(60_000);
@@ -213,7 +213,7 @@ describe('fetchEarnPositions', () => {
       jest.useFakeTimers();
       try {
         const fetchMock = serve(undefined, 404);
-        const owners = Array.from({ length: 10 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
+        const owners = Array.from({ length: 8 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
         const readCatalog = () =>
           readEarnVaults(
             fetchMock,
@@ -234,11 +234,11 @@ describe('fetchEarnPositions', () => {
         });
         await jest.advanceTimersByTimeAsync(0);
 
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(10);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(8);
         expect(settled).toBe(false);
         await jest.advanceTimersByTimeAsync(60_000);
         await second;
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(11);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(9);
       } finally {
         jest.useRealTimers();
       }
@@ -414,6 +414,33 @@ describe('fetchEarnPositions', () => {
       expect(requestedUrls(fetchMock)).toEqual([
         `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=1&lenders=AAVE_V3`
       ]);
+    });
+
+    it('a review-scoped read is admitted while page reads have spent their allowance', async () => {
+      jest.useFakeTimers();
+      const fetchMock = serve();
+      try {
+        for (let i = 0; i < 8; i += 1) await fetchEarnPositions({ owners: [OWNER] });
+        fetchMock.mockClear();
+
+        const pageRead = fetchEarnPositions({ owners: [OWNER] });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        const reviewRead = fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        await jest.advanceTimersByTimeAsync(59_999);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        await jest.advanceTimersByTimeAsync(1);
+        await Promise.all([pageRead, reviewRead]);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('keeps none of the positions of an owner whose other lender request failed, and reports it once', async () => {

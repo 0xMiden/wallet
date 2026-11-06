@@ -6,7 +6,12 @@ import { withRequestTimeout } from 'lib/remote-json';
 import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
 import type { EarnVaultInfo } from './pools-read';
-import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_LIMIT } from './positions-budget';
+import {
+  notePositionsRequests,
+  positionsBudgetDelayMs,
+  POSITIONS_LIMIT,
+  POSITIONS_PAGE_LIMIT
+} from './positions-budget';
 
 export { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
 
@@ -371,12 +376,13 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   });
 
   const pending: ReturnType<typeof fetchPositions>[] = [];
+  const limit = args.markets ? POSITIONS_LIMIT : POSITIONS_PAGE_LIMIT;
   for (let offset = 0; offset < queries.length; ) {
-    const count = Math.min(queries.length - offset, POSITIONS_LIMIT);
+    const count = Math.min(queries.length - offset, limit);
     let admitted = count;
-    while (admitted > 0 && !notePositionsRequests(admitted)) admitted -= 1;
+    while (admitted > 0 && !notePositionsRequests(admitted, limit)) admitted -= 1;
     if (admitted === 0) {
-      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1, limit)));
       continue;
     }
     pending.push(...queries.slice(offset, offset + admitted).map(query => fetchPositions(positionsUrl, query)));
