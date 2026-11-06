@@ -7,6 +7,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
 import { fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { Probe } from 'lib/remote-config/derive';
@@ -39,7 +40,17 @@ const mockEarnDepositRows: Array<{
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: () => ({ toArray: async () => mockEarnDepositRows })
+    where: jest.fn((_index: string) => ({
+      anyOf: (...types: string[]) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => types.includes(row.type))
+      }),
+      equals: (type: string) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => row.type === type)
+      })
+    })),
+    filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
+      toArray: async () => mockEarnDepositRows.filter(predicate)
+    })
   }
 }));
 
@@ -1355,6 +1366,24 @@ describe('useEarnPositions', () => {
         await act(emitDbChange);
         await advance(60_000);
         expect(reads()).toBe(1);
+      });
+
+      it('a settled send row triggers no read', async () => {
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        mockEarnDepositRows.push({
+          id: 'send-1',
+          type: 'send',
+          accountId: 'miden-account',
+          initiatedAt: 1,
+          extraInputs: { epochStatus: 'confirmed', phase: 'received' }
+        });
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+        expect(Repo.transactions.where).toHaveBeenCalledWith('type');
       });
 
       it("reads nothing when another account's Earn row settles", async () => {

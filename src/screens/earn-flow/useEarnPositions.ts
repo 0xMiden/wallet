@@ -162,9 +162,7 @@ function settlementOf(tx: ITransaction): string | undefined {
  * about a live position.
  */
 async function readSettledEarnRows(accountId: string): Promise<Set<string>> {
-  const rows = await Repo.transactions
-    .filter(tx => tx.type === 'earn-deposit' || tx.type === 'earn-withdraw')
-    .toArray();
+  const rows = await Repo.transactions.where('type').anyOf('earn-deposit', 'earn-withdraw').toArray();
   const settled = new Set<string>();
   for (const tx of rows) {
     if (tx.restoredFromBackup || !compareAccountIds(tx.accountId, accountId)) continue;

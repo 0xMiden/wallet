@@ -160,7 +160,7 @@ const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
  */
 async function getEarnDepositMarkets(accountId?: string): Promise<Map<string, Set<string>>> {
   try {
-    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+    const rows = await Repo.transactions.where('type').equals('earn-deposit').toArray();
     const markets = new Map<string, Set<string>>();
     for (const tx of rows) {
       if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;

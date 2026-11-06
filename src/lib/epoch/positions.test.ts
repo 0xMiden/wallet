@@ -12,7 +12,7 @@ jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
 );
 jest.mock('lib/miden/repo', () => ({
-  transactions: { filter: jest.fn() }
+  transactions: { where: jest.fn() }
 }));
 
 // The document lists the Aave V3 market of the test route first, then the dummy lender's.
@@ -24,8 +24,11 @@ const AAVE_LISTING = listingFor(
 /** The wallet's activity: the `earn-deposit` rows the market lookup reads. */
 const withRows = (rows: unknown[]) => {
   const Repo = jest.requireMock('lib/miden/repo');
-  (Repo.transactions.filter as jest.Mock).mockImplementation((predicate: (r: unknown) => boolean) => ({
-    toArray: async () => rows.filter(predicate)
+  Repo.transactions.where.mockImplementation(() => ({
+    equals: (type: string) => ({
+      toArray: async () =>
+        rows.filter(row => typeof row === 'object' && row !== null && Reflect.get(row, 'type') === type)
+    })
   }));
 };
 
@@ -663,10 +666,12 @@ describe('source-owned Earn load diagnostics', () => {
   it('keeps a failure of the activity market lookup on its exact root', async () => {
     const failure = new Error(canary);
     const Repo = jest.requireMock('lib/miden/repo');
-    Repo.transactions.filter.mockReturnValueOnce({
-      toArray: async () => {
-        throw failure;
-      }
+    Repo.transactions.where.mockReturnValueOnce({
+      equals: () => ({
+        toArray: async () => {
+          throw failure;
+        }
+      })
     });
     await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toBe(failure);
     expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
