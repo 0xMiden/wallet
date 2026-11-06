@@ -15,8 +15,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
-import { storyFromMessages } from 'components/tx-stage/tx-story';
-import { TxStory } from 'components/tx-stage/TxStory';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { HeaderRule } from 'components/ui/HeaderRule';
@@ -33,7 +31,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
 import { useLocation } from 'lib/woozie';
-import { truncateAddress, truncateHash } from 'utils/string';
+import { truncateAddress } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
@@ -41,6 +39,7 @@ import { ConnectRequest } from './confirm/ConnectRequest';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
+import { ConsumeRequest, CustomRequest, SendRequest, TransactionRequestError } from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { Icon, IconName } from './icons/v2';
@@ -152,22 +151,12 @@ const RequestOriginBanner: FC<{ children: React.ReactNode }> = ({ children }) =>
   </div>
 );
 
-/**
- * E2E hook for one `label, value` row of a transaction/consume approval screen.
- * The labels are raw dApp-preview keys ("Amount", "Recipient", "Note Type"), so
- * they're slugified rather than used verbatim.
- */
-const txRowValueTestId = (label: string | undefined) =>
-  `confirm-tx-value-${(label ?? '').trim().toLowerCase().replace(/\s+/g, '-')}`;
-
 interface PayloadContentProps {
   payload: MidenDAppPayload;
-  account?: WalletAccount;
-  viewKey?: string;
   error?: any;
 }
 
-const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account, viewKey }) => {
+const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
 
@@ -238,104 +227,6 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       );
       break;
     }
-
-    case 'transaction': {
-      if (payload.txKind === 'custom') {
-        content = <CustomTransactionContent payload={payload} id={viewKey ?? ''} />;
-        break;
-      }
-      content = (
-        <div>
-          <div className="tx-stage-rise text-sm" key={0}>
-            {payload.transactionMessages[0]} <br />
-            <span data-testid="confirm-tx-faucet">{payload.transactionMessages[1]}</span>
-          </div>
-          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 2 })} />
-          {account && (
-            <>
-              <hr className="h-px bg-border-light my-4" />
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('account')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{account.name}</span>
-                  <span>{truncateAddress(account.publicKey)}</span>
-                </div>
-              </div>
-            </>
-          )}
-          <hr className="h-px bg-border-light my-4" />
-          <div className="tx-stage-list">
-            {payload.transactionMessages.slice(2).map((message, i) => {
-              const [label, rawValue] = message.split(', ');
-              // Amount arrives already formatted from the faucet's real decimals
-              // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
-              // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
-              // token and lost precision above 2^53 via `Number()`.
-              let value = rawValue ?? '';
-              if (label === 'Recipient') {
-                value = truncateAddress(value);
-              }
-              return (
-                <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                  <span className="text-text-muted">{label}</span>
-                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-      break;
-    }
-
-    case 'consume':
-      content = (
-        <div>
-          <div className="tx-stage-rise text-sm" key={0}>
-            {payload.transactionMessages[0]}
-          </div>
-          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 1, incoming: true })} />
-          {account && (
-            <>
-              <hr className="h-px bg-border-light my-4" />
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('account')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{account.name}</span>
-                  <span>{truncateAddress(account.publicKey)}</span>
-                </div>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('noteId')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{truncateHash(payload.noteId)}</span>
-                </div>
-              </div>
-            </>
-          )}
-          <hr className="h-px bg-border-light my-4" />
-          <div className="tx-stage-list">
-            {payload.transactionMessages.slice(1).map((message, i) => {
-              const [label, rawValue] = message.split(', ');
-              let value = rawValue ?? '';
-              if (label === 'Recipient') {
-                value = truncateAddress(value);
-              }
-              return (
-                <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                  <span className="text-text-muted">{label}</span>
-                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-      break;
   }
 
   useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
@@ -410,7 +301,9 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
 const CustomTransactionContent: React.FC<{
   payload: Extract<MidenDAppPayload, { type: 'transaction' }>;
   id: string;
-}> = ({ payload, id }) => {
+  account: WalletAccount;
+  error?: TransactionRequestError;
+}> = ({ payload, id, account, error }) => {
   const { t } = useTranslation();
   const { simulateCustomTransaction } = useMidenContext();
 
@@ -478,35 +371,53 @@ const CustomTransactionContent: React.FC<{
     </AdvancedDetails>
   );
 
+  const shared = { origin: payload.origin, account, advanced, error };
   if (verifiedView) {
     return (
-      <>
-        <TransactionAssetView view={verifiedView} mode="verified" noteFlow={verifiedNoteFlow} />
-        {advanced}
-      </>
+      <CustomRequest
+        {...shared}
+        view={verifiedView}
+        mode="verified"
+        noteFlow={verifiedNoteFlow}
+        simulationFailed={false}
+      />
     );
   }
 
   if (declaredView) {
-    return (
-      <>
-        <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && (
-          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
-            {t('couldNotVerifyBySimulation')}
-          </div>
-        )}
-        {advanced}
-      </>
-    );
+    return <CustomRequest {...shared} view={declaredView} mode="declared" simulationFailed={simError} />;
   }
 
   return (
-    <div>
-      <div className="text-sm my-4">{t('couldNotDecodeTransaction')}</div>
+    <div className="flex w-full flex-col gap-4 face-heading">
+      <p className="text-body-sm font-semibold text-ink">{t('couldNotDecodeTransaction')}</p>
       {advanced}
     </div>
   );
+};
+
+/** Send, consume and custom-transaction requests: the amount, who it moves between, then the request's details. */
+const TransactionBody: React.FC<{
+  payload: Extract<MidenDAppPayload, { type: 'transaction' | 'consume' }>;
+  account: WalletAccount;
+  viewKey: string;
+  error?: TransactionRequestError;
+}> = ({ payload, account, viewKey, error }) => {
+  if (payload.type === 'consume') {
+    return (
+      <ConsumeRequest
+        origin={payload.origin}
+        account={account}
+        messages={payload.transactionMessages}
+        noteId={payload.noteId}
+        error={error}
+      />
+    );
+  }
+  if (payload.txKind === 'custom') {
+    return <CustomTransactionContent payload={payload} id={viewKey} account={account} error={error} />;
+  }
+  return <SendRequest origin={payload.origin} account={account} messages={payload.transactionMessages} error={error} />;
 };
 
 export default ConfirmPage;
@@ -699,6 +610,9 @@ const ConfirmDAppForm: FC = () => {
   }, [confirming, declining, setDeclining, confirm]);
 
   const handleErrorAlertClose = useCallback(() => setError(null), [setError]);
+  const transactionError: TransactionRequestError | undefined = error
+    ? { message: error?.message ?? t('smthWentWrong'), errorId }
+    : undefined;
 
   const content = useMemo(() => {
     switch (payload.type) {
@@ -860,6 +774,8 @@ const ConfirmDAppForm: FC = () => {
             onConsentChange={setIsPrivateDataChecked}
             error={error ? { message: error?.message ?? t('smthWentWrong'), errorId } : undefined}
           />
+        ) : (payload.type === 'transaction' || payload.type === 'consume') && !payloadError ? (
+          <TransactionBody payload={payload} account={account} viewKey={id} error={transactionError} />
         ) : (
           <>
             <div className="mb-4">
@@ -880,7 +796,7 @@ const ConfirmDAppForm: FC = () => {
                 autoFocus
               />
             ) : (
-              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+              <PayloadContent payload={payload} error={payloadError} />
             )}
           </>
         )}

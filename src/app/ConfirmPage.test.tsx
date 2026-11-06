@@ -182,6 +182,8 @@ jest.mock('lib/telemetry', () => {
 // Here we only need to assert ConfirmPage routes the sign->TransactionSummary
 // branch through it with the right mode/view/onDownload wiring.
 jest.mock('./confirm/TransactionAssetView', () => ({
+  // The asset helpers stay real: the custom-transaction view resolves its rows through them.
+  ...jest.requireActual('./confirm/TransactionAssetView'),
   TransactionAssetView: jest.fn(({ mode, view, onDownload }: any) => (
     <div data-testid="asset-view" data-mode={mode} data-account={view.account ?? ''}>
       {onDownload && (
@@ -784,12 +786,15 @@ describe('transaction payload', () => {
     sourcePublicKey: 'src_key',
     preview: {},
     transactionMessages: [
-      'Sending funds',
-      'to a recipient',
+      'Transfer note from faucet:',
+      'mtst1faucetfaucetfaucet',
       // The backend (`formatSendTransactionPreview` / `formatConsumeTransactionPreview`)
       // already applies the faucet's real decimals, so the amount arrives display-ready.
+      'From, mtst1senderaddress',
       'Amount, -1.5',
       'Recipient, mtst1abcdef_ghij',
+      'Note Type, Private',
+      // Lines the view does not lay out itself are still listed, as written.
       'Fee, 5',
       'NoComma'
     ]
@@ -799,19 +804,20 @@ describe('transaction payload', () => {
     setPayload(txPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('requestsATransaction')).toBeInTheDocument();
-    // account block
+    // The requesting site, by origin, in the request card.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', 'https://dapp.example.com');
+    // The sending account is the movement card's first party.
     expect(screen.getByText(ACCOUNT.name)).toBeInTheDocument();
     // Regression guard: ConfirmPage must NOT re-scale the amount. It used to divide
     // by a hardcoded 10 ** 6 (MIDEN's decimals), which mis-rendered every faucet with
     // different decimals and lost precision above 2^53 by routing through Number().
-    expect(screen.getAllByText('-1.5').length).toBeGreaterThan(0);
-    // Plain label passes value through untouched.
+    expect(screen.getByTestId('confirm-tx-value-amount')).toHaveTextContent(/^-1\.5$/);
+    expect(screen.getByTestId('confirm-tx-value-recipient')).toHaveTextContent('mtst1a');
+    expect(screen.getByTestId('confirm-tx-value-note-type')).toHaveTextContent('Private');
+    expect(screen.getByTestId('confirm-tx-faucet')).toHaveTextContent('mtst1faucetfaucetfaucet');
+    // Unrecognised lines pass through untouched.
     expect(screen.getByText('Fee')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
-    // The 'Recipient' label row exists (value is truncated).
-    expect(screen.getByText('Recipient')).toBeInTheDocument();
-    // 'NoComma' message => label with empty value.
     expect(screen.getByText('NoComma')).toBeInTheDocument();
   });
 
@@ -905,7 +911,7 @@ describe('consume payload', () => {
     setPayload(consumePayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('requestsToConsumeNote')).toBeInTheDocument();
+    expect(screen.getByText('confirmTxNoteFromFaucet')).toBeInTheDocument();
     expect(screen.getByText('noteId')).toBeInTheDocument();
     expect(screen.getByText('Recipient')).toBeInTheDocument();
     expect(screen.getByText('Extra')).toBeInTheDocument();
@@ -1447,8 +1453,8 @@ describe('ConfirmPage custom transaction', () => {
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
   });
 
@@ -1462,8 +1468,8 @@ describe('ConfirmPage custom transaction', () => {
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-account', 'mtst1executed');
     expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
   });
 
@@ -1477,7 +1483,7 @@ describe('ConfirmPage custom transaction', () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
     expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 
   it('shows could-not-decode when requestBytes is absent', async () => {
@@ -1515,7 +1521,7 @@ describe('ConfirmPage custom transaction', () => {
     await waitFor(() =>
       expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
     );
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
     // A decode failure on an otherwise-successful simulation now surfaces the
     // same "could not verify" caveat as any other simulation failure mode.
     expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument();
@@ -1527,7 +1533,7 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 
   it('marks the could-not-simulate line for E2E', async () => {
