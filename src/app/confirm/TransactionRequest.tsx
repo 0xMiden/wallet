@@ -277,7 +277,9 @@ export const SendRequest: FC<{
               <span className="truncate">{recipientShort}</span>
             </SummaryPill>
           }
-        />
+        >
+          {noteType && <NoteTypeBadge value={noteType} />}
+        </AmountHeader>
         {error && <FailureNotice message={error.message} errorId={error.errorId} />}
         <MovementCard
           rows={[
@@ -300,11 +302,6 @@ export const SendRequest: FC<{
         />
         <DetailCard surface="outline" face="heading">
           <RequestRows origin={origin} />
-          {noteType && (
-            <DetailRow label={t('confirmTxNoteType')}>
-              <NoteTypeBadge value={noteType} />
-            </DetailRow>
-          )}
           {recallBlocks && <DetailRow label={t('confirmTxRecallBlocks')}>{recallBlocks}</DetailRow>}
           <OtherLines rows={rows} known={SEND_LINES} />
           <DetailRow label={t('confirmTxTokenFaucet')}>
@@ -361,7 +358,9 @@ export const ConsumeRequest: FC<{
               <span className="truncate">{account.name}</span>
             </SummaryPill>
           }
-        />
+        >
+          {noteType && <NoteTypeBadge value={noteType} />}
+        </AmountHeader>
         {error && <FailureNotice message={error.message} errorId={error.errorId} />}
         <MovementCard
           rows={[
@@ -384,11 +383,6 @@ export const ConsumeRequest: FC<{
         />
         <DetailCard surface="outline" face="heading">
           <RequestRows origin={origin} />
-          {noteType && (
-            <DetailRow label={t('confirmTxNoteType')}>
-              <NoteTypeBadge value={noteType} />
-            </DetailRow>
-          )}
           {receiving.map((nft, i) => (
             <DetailRow key={i} label={t('confirmTxReceiving')}>
               {nft}
