@@ -177,6 +177,7 @@ it('hides AggLayer on an Epoch-only chain', () => {
   renderRoute({ destinationChainId: 11155111 });
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-fast', 'true');
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-slow', 'false');
+  expect(screen.getByTestId('route-options')).toHaveAttribute('data-slow-state', 'unavailable');
 });
 
 it('blocks an Epoch send for a faucet that the destination does not support', () => {

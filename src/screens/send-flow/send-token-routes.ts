@@ -1,6 +1,6 @@
-import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { selectEpochTokens } from 'lib/remote-config/values';
+import { selectEpochOutputToken } from 'lib/remote-config/values';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 /** The routes that can send this faucet to the selected chain. */
@@ -8,22 +8,14 @@ export function sendTokenRoutes(snapshot: BridgeConfigSnapshot, faucetId: string
   const bridges = Object.values(snapshot.config?.supportedEvmChains ?? {}).find(
     chain => chain.chainId === chainId
   )?.bridges;
-  const reads = snapshot.derived?.chains[chainId]?.agglayer;
-  const registry = reads?.tokens;
-  const network = reads?.evmNetworkId;
   return {
+    // The quote's own output rule, so the picker offers exactly the assets the Epoch quote can serve.
     epoch:
       bridges?.epoch?.withdrawalEnabled === true &&
-      selectEpochTokens(snapshot, chainId).some(
-        token => token.midenFaucetId !== undefined && sameWalletAccountId(faucetId, token.midenFaucetId)
-      ),
-    agglayer:
-      bridges?.agglayer?.withdrawalEnabled === true &&
-      registry?.state === 'ok' &&
-      network?.state === 'ok' &&
-      registry.value.some(
-        token => token.originNetwork === network.value && sameWalletAccountId(faucetId, token.midenFaucetId)
-      ),
+      selectEpochOutputToken(snapshot, chainId, canonicalWalletAccountId(faucetId)) !== null,
+    // The route only. Whether the bridge takes this faucet is the live registry check (useAgglayerEligibility) that
+    // the Route step and the review apply, so the two can never disagree.
+    agglayer: bridges?.agglayer?.withdrawalEnabled === true,
     usdcx: isUsdcxWithdrawalAvailable(faucetId, chainId)
   };
 }

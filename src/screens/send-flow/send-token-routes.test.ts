@@ -71,6 +71,20 @@ it('does not offer a token while its Epoch read is missing or failed', () => {
   expect(canSendTokenToChain(snapshot, USDG, 4663)).toBe(true);
 });
 
+it('uses the legacy USDC output when no token of the route resolved a faucet', () => {
+  const snapshot = robinhoodSnapshot();
+  const chain = snapshot.config?.supportedEvmChains.robinhood;
+  const reads = snapshot.derived?.chains[4663];
+  if (!chain?.bridges.epoch || !reads) throw new Error('The test chain is missing.');
+  chain.bridges.epoch.tokens = {
+    USDC: { contractAddress: '0x0000000000000000000000000000000000000003', outputs: [] }
+  };
+  reads.epoch = { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } };
+  expect(sendTokenRoutes(snapshot, USDT, 4663).epoch).toBe(true);
+  chain.bridges.epoch.withdrawalEnabled = false;
+  expect(sendTokenRoutes(snapshot, USDT, 4663).epoch).toBe(false);
+});
+
 it('checks Circle support on the selected chain', () => {
   const snapshot = robinhoodSnapshot();
   jest.mocked(isUsdcxWithdrawalAvailable).mockImplementation((_faucet, chainId) => chainId === 5042);
@@ -79,11 +93,10 @@ it('checks Circle support on the selected chain', () => {
   expect(isUsdcxWithdrawalAvailable).toHaveBeenCalledWith(USDT, 4663);
 });
 
-it('keeps registered AggLayer assets available on their origin network', () => {
+it('offers any asset on a chain with AggLayer withdrawals and leaves the faucet to the live registry check', () => {
   const snapshot = robinhoodSnapshot();
   const chain = snapshot.config?.supportedEvmChains.robinhood;
-  const reads = snapshot.derived?.chains[4663];
-  if (!chain || !reads) throw new Error('The test chain is missing.');
+  if (!chain) throw new Error('The test chain is missing.');
   chain.bridges.agglayer = {
     depositEnabled: true,
     withdrawalEnabled: true,
@@ -91,20 +104,8 @@ it('keeps registered AggLayer assets available on their origin network', () => {
     midenBridgeId: ETH,
     tokens: {}
   };
-  reads.agglayer = {
-    ...reads.agglayer,
-    tokens: {
-      state: 'ok',
-      value: [
-        { midenFaucetId: USDT, originToken: '0x0000000000000000000000000000000000000002', originNetwork: 0, scale: 0 }
-      ]
-    },
-    evmNetworkId: { state: 'ok', value: 0 }
-  };
+  // A runtime faucet the derived registry does not list, as the AggLayer bridge-out E2E bridges.
   expect(sendTokenRoutes(snapshot, USDT, 4663)).toEqual({ epoch: false, agglayer: true, usdcx: false });
-  reads.agglayer.evmNetworkId = { state: 'ok', value: 1 };
-  expect(canSendTokenToChain(snapshot, USDT, 4663)).toBe(false);
   chain.bridges.agglayer.withdrawalEnabled = false;
-  reads.agglayer.evmNetworkId = { state: 'ok', value: 0 };
   expect(canSendTokenToChain(snapshot, USDT, 4663)).toBe(false);
 });

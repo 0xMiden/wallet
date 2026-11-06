@@ -46,7 +46,11 @@ export const SendRoute: React.FC<SendRouteProps> = ({
           detail: 'No Epoch output for this faucet on the selected chain'
         }
       : fastFeatureAvailability;
-  const slowAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
+  const slowFeatureAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
+  const slowAvailability: FeatureAvailability =
+    routes?.agglayer === false
+      ? { state: 'unavailable', reason: 'not-configured', detail: 'No AggLayer withdrawal on the selected chain' }
+      : slowFeatureAvailability;
   // The Circle route has its own availability check.
   const confirmBlocked = (() => {
     switch (options.route) {
