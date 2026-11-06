@@ -408,6 +408,30 @@ describe('fetchEarnPositions', () => {
       ]);
     });
 
+    it('reads no market whose chain segment is not a plain decimal id', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
+      // `Number('1e3')` is 1000 and `Number('0x10')` is 16: chains these uids do not name.
+      withRows([
+        {
+          type: 'earn-deposit',
+          accountId: 'acct-1',
+          extraInputs: { evmRecipient: OWNER, marketUid: `aave_v3:1e3:${MAINNET_USDC}` }
+        },
+        {
+          type: 'earn-deposit',
+          accountId: 'acct-1',
+          extraInputs: { evmRecipient: OWNER, marketUid: `euler_v2:0x10:${BASE_USDC}` }
+        }
+      ]);
+      const fetchMock = serve();
+
+      await fetchEarnPositions({ owners: [OWNER] });
+
+      expect(requestedUrls(fetchMock)).toEqual([
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453&lenders=AAVE_V3`
+      ]);
+    });
+
     it('reads only the given market for a check of one position', async () => {
       jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
       const fetchMock = serve();

@@ -5,6 +5,7 @@ import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
+import { marketUidChainId } from './market-uid';
 import type { EarnVaultInfo } from './pools-read';
 import {
   notePositionsRequests,
@@ -306,12 +307,15 @@ export interface FetchEarnPositionsArgs {
 
 const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
 
-/** The lender key and the chain id of `marketUid`, or undefined when the uid does not have this shape. */
+/**
+ * The lender key and the chain id of `marketUid`, or undefined when the uid does not have this shape. The chain is
+ * read by `marketUidChainId`, the one parser of that segment: `Number('1e3')` or `Number('0x10')` would name a chain
+ * the uid does not.
+ */
 function lenderAndChainOf(marketUid: string): { lender: string; chain: number } | undefined {
-  const [lenderPart, chainPart] = marketUid.split(':');
-  const lender = lenderPart?.toUpperCase();
-  const chain = Number(chainPart);
-  if (!lender || !LENDER_KEY_RE.test(lender) || !Number.isSafeInteger(chain) || chain <= 0) return undefined;
+  const lender = marketUid.split(':')[0]?.toUpperCase();
+  const chain = marketUidChainId(marketUid);
+  if (!lender || !LENDER_KEY_RE.test(lender) || chain === undefined) return undefined;
   return { lender, chain };
 }
 
