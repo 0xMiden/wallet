@@ -338,36 +338,14 @@ export function getMidenUsdc(): MidenUsdc {
   return getValue('Earn collateral faucet', selectMidenUsdc);
 }
 
-export function getEvmUsdc(chainId?: number): EvmUsdc {
-  return getValue('EVM USDC', s => selectEvmUsdc(s, chainId));
-}
-
 /** The token a Fast send of `midenFaucetId` (lowercase hex) arrives as on `chainId` (`selectEpochOutputToken`). */
 export function getEpochOutputToken(chainId: number, midenFaucetId: string): EpochToken {
   return getValue('Epoch output token', s => selectEpochOutputToken(s, chainId, midenFaucetId));
 }
 
-/** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */
-export function getEvmUsdcAddress(): `0x${string}` {
-  return getValue('epoch.evmUsdc', s => {
-    const address = selectEpochChain(s)?.bridges.epoch?.tokens.USDC?.contractAddress;
-    return address ? getAddress(address) : null;
-  });
-}
-
-/** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
-export function findEvmUsdc(chainId?: number): EvmUsdc | null {
-  return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
-}
-
 /** The chain ids of the accepted document's `supportedEvmChains`, in document order. Empty with no document. */
 export function getSupportedEvmChainIds(): number[] {
   return Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).map(chain => chain.chainId);
-}
-
-/** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
-export function findEpochUsdcAddress(chainId: number): string | null {
-  return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
 }
 
 export function getEarnMarket(): EarnMarket {
