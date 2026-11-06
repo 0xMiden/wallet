@@ -5,6 +5,8 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][all] Auto-consume claims only standard payments (P2ID, P2IDE) addressed to the account, never another trader's public swap order on a tracked pair tag, which it tried to fill from the account's balance (#2118).
+- [FIX][all] The claim list and its notifications show only payments to the account and notes of its own swap orders, and a claim of any other note is refused, so another trader's swap order can no longer be claimed by hand (#2118).
 
 ## 1.17.10 (2026-11-01)
 

@@ -333,7 +333,8 @@ const makeNote = (id: string, faucetId: string, isBeingClaimed = false, swapOrde
   id,
   faucetId,
   isBeingClaimed,
-  swapOrder
+  swapOrder,
+  standardPayment: true
 });
 
 // Render + flush the auto-consume effect's chained promises (initiate ->
