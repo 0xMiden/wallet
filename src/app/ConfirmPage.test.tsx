@@ -33,7 +33,8 @@ jest.mock('lib/telemetry/user-visible-error', () => ({
 
 // ESM wallet-adapter package: only the `PrivateDataPermission` enum is read.
 jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
-  PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' }
+  PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
+  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
 // The `/lazy` SDK subpath is mapped to wasmMock, which lacks the members this
@@ -248,27 +249,14 @@ jest.mock('./atoms/Alert', () => {
 });
 jest.mock('./icons/v2', () => ({
   Icon: ({ name }: any) => <span data-testid="icon" data-name={name} />,
-  IconName: { Globe: 'Globe', WarningFill: 'WarningFill', Download: 'Download' }
-}));
-jest.mock('./templates/AccountBanner', () => ({
-  __esModule: true,
-  default: ({ networkRpc }: any) => <div data-testid="account-banner" data-rpc={networkRpc} />
-}));
-jest.mock('./templates/ConnectBanner', () => ({
-  __esModule: true,
-  default: ({ origin }: any) => <div data-testid="connect-banner" data-origin={origin} />
-}));
-jest.mock('./templates/PrivateDataPermissionBanner', () => ({
-  __esModule: true,
-  default: ({ isPublicAccount }: any) => <div data-testid="pdp-banner" data-public={String(isPublicAccount)} />
-}));
-jest.mock('./templates/PrivateDataPermissionCheckbox', () => ({
-  __esModule: true,
-  default: ({ setChecked }: any) => (
-    <button type="button" data-testid="pdp-checkbox" onClick={() => setChecked(true)}>
-      check
-    </button>
-  )
+  IconName: {
+    Globe: 'Globe',
+    WarningFill: 'WarningFill',
+    Download: 'Download',
+    FactCheck: 'FactCheck',
+    FactAlert: 'FactAlert',
+    FactCross: 'FactCross'
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -448,16 +436,20 @@ describe('connect payload', () => {
     ...overrides
   });
 
-  it('renders the connect banner, permission banner and account banner (UponRequest)', () => {
+  it('renders the site, the connecting account and what the site will be able to do (UponRequest)', () => {
     setPayload(connectPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByTestId('connect-banner')).toHaveAttribute('data-origin', 'https://dapp.example.com');
-    expect(screen.getByTestId('pdp-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('account-banner')).toHaveAttribute('data-rpc', 'https://rpc.testnet.miden.io');
+    expect(screen.getByTestId('connect-origin')).toHaveAttribute('title', 'https://dapp.example.com');
+    expect(screen.getByTestId('connect-account')).toHaveTextContent(ACCOUNT.name);
+    expect(screen.getByText('connectFactsTitle')).toBeInTheDocument();
+    // A public account: what it can see, what it asks for, what it can never do.
+    expect(screen.getByTestId('connect-fact-balance')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-fact-transactions')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-fact-funds')).toBeInTheDocument();
     expect(screen.getByText('connectToWebsite')).toBeInTheDocument();
     // UponRequest + public account => no private-data checkbox.
-    expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connect-private-data-consent')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
     const declineButton = screen.getByText('deny').closest('button')!;
@@ -493,7 +485,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ network }));
       render(<ConfirmPage />);
 
-      expect(screen.getByTestId('account-banner')).toBeInTheDocument();
+      expect(screen.getByTestId('connect-account')).toBeInTheDocument();
       expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
     });
   });
@@ -578,7 +570,7 @@ describe('connect payload', () => {
       await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
       expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
 
-      fireEvent.click(screen.getByTestId('pdp-checkbox'));
+      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
       await act(async () => {
         fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
       });
@@ -594,7 +586,16 @@ describe('connect payload', () => {
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
-    expect(screen.getByTestId('pdp-checkbox')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-private-data-consent')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('says a private account will be asked before each private-data read under Upon Request', () => {
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    setPayload(connectPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-ask')).toHaveTextContent('confirmationRequired');
+    expect(screen.queryByTestId('connect-fact-balance')).not.toBeInTheDocument();
   });
 
   it('confirms the connection via onConfirm when the confirm button is clicked', async () => {
@@ -622,8 +623,9 @@ describe('connect payload', () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    // Error alert appears and the confirm button flips to the retry variant.
-    await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
+    // The error notice appears above the facts, which stay, and the confirm button flips to the retry variant.
+    await waitFor(() => expect(screen.getByTestId('connect-error')).toBeInTheDocument());
+    expect(screen.getByTestId('connect-facts')).toBeInTheDocument();
     expect(screen.getByText('confirmError')).toBeInTheDocument();
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton)).toHaveTextContent('retry');
     // The permission was never actually confirmed.
@@ -636,7 +638,7 @@ describe('connect payload', () => {
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
-    fireEvent.click(screen.getByTestId('pdp-checkbox'));
+    fireEvent.click(screen.getByTestId('connect-private-data-consent'));
     await act(async () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
@@ -644,18 +646,26 @@ describe('connect payload', () => {
     await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
   });
 
-  it('closes the error alert when its close button is clicked', async () => {
+  it('clears the connect error once the box is ticked and Retry succeeds', async () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
-    setPayload(connectPayload({ privateDataPermission: AUTO }));
-    render(<ConfirmPage />);
+    ctx.confirmDAppPermission.mockResolvedValue(undefined);
+    try {
+      setPayload(connectPayload({ privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
-    });
-    await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await waitFor(() => expect(screen.getByTestId('connect-error')).toHaveTextContent('connectFailedTitle'));
 
-    fireEvent.click(within(screen.getByTestId('alert')).getByRole('button'));
-    await waitFor(() => expect(screen.queryByTestId('alert')).not.toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      await waitFor(() => expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument());
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
   });
 
   it('declines the connection and ignores concurrent clicks while a confirm is pending', async () => {
@@ -702,7 +712,7 @@ describe('connect payload', () => {
     );
   });
 
-  it('surfaces an error thrown by onConfirm through the error alert', async () => {
+  it('surfaces an error thrown by onConfirm through the error notice', async () => {
     ctx.confirmDAppPermission.mockRejectedValue(new Error('network boom'));
     setPayload(connectPayload());
     render(<ConfirmPage />);
@@ -715,10 +725,10 @@ describe('connect payload', () => {
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'inline');
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'notice');
   });
 
-  it('keeps one inline report for the real approval error Alert across parent rerenders', async () => {
+  it('keeps one report for the real approval error notice across parent rerenders', async () => {
     jest.useFakeTimers();
     ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('private approval detail'));
     setPayload(connectPayload());
@@ -731,19 +741,19 @@ describe('connect payload', () => {
       await act(async () => {
         jest.advanceTimersByTime(300);
       });
-      expect(within(screen.getByTestId('alert')).getByText('private approval detail')).toBeInTheDocument();
-      expect(screen.getByTestId('alert')).toHaveAttribute('role', 'alert');
+      expect(within(screen.getByTestId('connect-error')).getByText('private approval detail')).toBeInTheDocument();
+      expect(screen.getByTestId('connect-error')).toHaveAttribute('role', 'alert');
       act(() => jest.advanceTimersByTime(999));
       expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
       act(() => jest.advanceTimersByTime(1));
       expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'inline']
+        ['raw_confirm_approval_failed', 'notice']
       ]);
 
       rerender(<ConfirmPage />);
       act(() => jest.advanceTimersByTime(5000));
       expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'inline']
+        ['raw_confirm_approval_failed', 'notice']
       ]);
     } finally {
       jest.useRealTimers();

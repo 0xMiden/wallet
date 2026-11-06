@@ -12,7 +12,6 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
-import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
@@ -20,6 +19,7 @@ import { storyFromMessages } from 'components/tx-stage/tx-story';
 import { TxStory } from 'components/tx-stage/TxStory';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
@@ -37,16 +37,13 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
+import { ConnectRequest } from './confirm/ConnectRequest';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { Icon, IconName } from './icons/v2';
-import AccountBanner from './templates/AccountBanner';
-import ConnectBanner from './templates/ConnectBanner';
-import PrivateDataPermissionBanner from './templates/PrivateDataPermissionBanner';
-import PrivateDataPermissionCheckbox from './templates/PrivateDataPermissionCheckbox';
 
 const ConfirmPage: FC = () => {
   const { t } = useTranslation();
@@ -714,13 +711,8 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTestID: error
             ? ConfirmPageSelectors.ConnectAction_RetryButton
             : ConfirmPageSelectors.ConnectAction_ConnectButton,
-          want: (
-            <PrivateDataPermissionBanner
-              privateDataPermission={privateDataPermission}
-              allowedPrivateData={payload.allowedPrivateData}
-              isPublicAccount={isPublicAccount}
-            />
-          )
+          // ConnectRequest draws the connect window's whole body, its access sentence included.
+          want: null
         };
       case 'transaction':
         return {
@@ -829,7 +821,7 @@ const ConfirmDAppForm: FC = () => {
       case 'unlock':
         return null;
     }
-  }, [error, payload, privateDataPermission, isPublicAccount, t]);
+  }, [error, payload, t]);
 
   if (content === null) {
     return (
@@ -841,66 +833,57 @@ const ConfirmDAppForm: FC = () => {
 
   return (
     <div
-      className={classNames(
-        'tx-stage-popup relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto',
-        'flex flex-col'
-      )}
+      className={classNames('relative bg-page text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
       style={{
         width: 440,
         minHeight: 694
       }}
     >
       <div className="flex flex-col items-left px-4">
-        <div className="flex items-center gap-3 pt-6 pb-3">
+        {/* The pushed-page header: the `text-title-tab` title left, the 4px rule under it. */}
+        <div className="flex min-h-[60px] items-center gap-3">
           <BreadLogo className="shrink-0" style={{ width: 28, height: 'auto' }} aria-label={t('appName')} />
-          <h2 className="flex min-w-0 text-ink text-lg font-semibold">{content.title}</h2>
+          <h2 className="flex min-w-0 text-title-tab text-ink">{content.title}</h2>
         </div>
-        <div className="tx-stage-rule mb-4" aria-hidden="true" />
+        <HeaderRule className="mb-4" />
 
-        {payload.type !== 'connect' && (
-          <div className="mb-4">
-            <OriginatorChip origin={payload.origin} testId="confirm-request-origin" />
-          </div>
-        )}
-
-        {payload.type === 'connect' && (
-          <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
-        )}
-
-        {content.want}
-
-        {error ? (
-          <Alert
-            closable
-            onClose={handleErrorAlertClose}
-            type="error"
-            errorId={errorId}
-            title={t('error')}
-            description={error?.message ?? t('smthWentWrong')}
-            className="my-4"
-            autoFocus
+        {payload.type === 'connect' ? (
+          <ConnectRequest
+            origin={payload.origin}
+            account={account}
+            isPublicAccount={isPublicAccount}
+            privateDataPermission={privateDataPermission}
+            allowedPrivateData={payload.allowedPrivateData}
+            claimedNetwork={payload.network}
+            requireConsent={requirePrivateDataCheckbox}
+            consentChecked={isPrivateDataChecked}
+            onConsentChange={setIsPrivateDataChecked}
+            error={error ? { message: error?.message ?? t('smthWentWrong'), errorId } : undefined}
           />
         ) : (
           <>
-            {payload.type === 'connect' ? (
-              <>
-                {account && (
-                  <AccountBanner
-                    account={account}
-                    networkRpc={payload.networkRpc}
-                    labelIndent="sm"
-                    className="w-full my-2"
-                  />
-                )}
-                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
-              </>
+            <div className="mb-4">
+              <OriginatorChip origin={payload.origin} testId="confirm-request-origin" />
+            </div>
+
+            {content.want}
+
+            {error ? (
+              <Alert
+                closable
+                onClose={handleErrorAlertClose}
+                type="error"
+                errorId={errorId}
+                title={t('error')}
+                description={error?.message ?? t('smthWentWrong')}
+                className="my-4"
+                autoFocus
+              />
             ) : (
               <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
             )}
           </>
         )}
-
-        {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
       </div>
 
       <div className="flex-1" />
