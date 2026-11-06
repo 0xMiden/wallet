@@ -1004,6 +1004,8 @@ describe('resubmitEarnWithdrawal', () => {
   it('refuses a reviewed retry when the balance read fails', async () => {
     const row = failedRow({ sourceAmount: '1', reviewedMinimumReceivedAtomic: '5', sourceDecimals: 6 });
     mockRow(row);
+    // An earlier case can leave a one-shot answer queued on the read; this read must be the failed one.
+    jest.mocked(fetchEarnPositions).mockReset();
     jest.mocked(fetchEarnPositions).mockResolvedValue({
       positions: [retryPosition],
       owners: [EVM_OWNER],
@@ -2016,16 +2018,19 @@ describe('reviewed withdrawals', () => {
   });
 
   it('signs against the review extended after a smart-account setup that outlasted it (#2117)', async () => {
+    // The smart-account setup outlasts the original review: once it returns, the clock stands at that review's
+    // expiry, so a sign guard still reading `args.review` refuses with earnWithdrawRefresh and only the extended
+    // review signs.
+    jest.useFakeTimers();
     const review = reviewed();
     const extended = { ...review, expiresAt: review.expiresAt + 60_000 };
     const execute = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
     const extendReview = jest.fn().mockResolvedValue(extended);
-    const now = jest.spyOn(Date, 'now');
     const deps = baseDeps({
       sdk: fakeSdk(execute),
       extendReview,
       ensureSmartAccount: jest.fn(async () => {
-        now.mockReturnValue(review.expiresAt);
+        jest.setSystemTime(review.expiresAt);
       })
     });
 
@@ -2034,7 +2039,7 @@ describe('reviewed withdrawals', () => {
         txId: 'TX1'
       });
     } finally {
-      now.mockRestore();
+      jest.useRealTimers();
     }
 
     expect(extendReview).toHaveBeenCalledWith(review);

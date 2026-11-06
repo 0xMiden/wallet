@@ -5,7 +5,7 @@ import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { fetchEarnPositions, positionsBudgetDelayMs } from 'lib/epoch';
+import { fetchEarnPositions, POSITIONS_PAGE_LIMIT, positionsBudgetDelayMs } from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
@@ -1131,46 +1131,35 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(8);
       });
 
-      it('waits for a page budget slot before a two-lender read on return', async () => {
-        const starts: number[] = [];
-        const positions = [
-          position,
-          { ...position, lenderKey: 'AAVE_V3', lenderName: 'Aave V3', marketUid: 'AAVE_V3:11155111:0xasset' }
-        ];
-        let budget!: typeof import('lib/epoch/positions-budget');
-        await jest.isolateModulesAsync(async () => {
-          budget = await import('lib/epoch/positions-budget');
+      it('waits for a page budget slot before the read of a page return', async () => {
+        // The budget answers in page slots (`POSITIONS_PAGE_LIMIT`, never the review reserve): the mount read gets
+        // one at once, the read of the page return finds the page allowance spent for 54.9 s. The arithmetic of the
+        // rolling window is the budget module's own test (positions.test.ts); this pins that the hook asks for a
+        // page slot and starts no read before the budget frees one.
+        const asked: Array<[number, number | undefined]> = [];
+        jest.mocked(positionsBudgetDelayMs).mockImplementation((count, limit) => {
+          asked.push([count, limit]);
+          return asked.length === 2 && limit === POSITIONS_PAGE_LIMIT ? 54_900 : 0;
         });
-        jest
-          .mocked(positionsBudgetDelayMs)
-          .mockImplementation((count, limit) => budget.positionsBudgetDelayMs(count, limit));
-        jest.mocked(fetchEarnPositions).mockImplementation(async () => {
-          new Set(positions.map(p => p.lenderKey)).forEach(() => {
-            expect(budget.notePositionsRequests(1, budget.POSITIONS_PAGE_LIMIT)).toBe(true);
-            starts.push(Date.now());
-          });
-          return { ...liveResult, positions };
-        });
-        const beganAt = Date.now();
-        // Other page reads spent all but the two requests this fixture's lenders need.
-        expect(budget.notePositionsRequests(budget.POSITIONS_PAGE_LIMIT - 2, budget.POSITIONS_PAGE_LIMIT)).toBe(true);
         const { rerender } = renderOnPage();
         await advance(5_000);
+        expect(reads()).toBe(1);
         onScreen = false;
         rerender();
         await advance(100);
         onScreen = true;
         rerender();
         await advance(100);
+        expect(asked).toEqual([
+          [1, POSITIONS_PAGE_LIMIT],
+          [1, POSITIONS_PAGE_LIMIT]
+        ]);
         expect(reads()).toBe(1);
-        expect(starts).toEqual([beganAt, beganAt]);
-        expect(positionsBudgetDelayMs).toHaveBeenLastCalledWith(1, budget.POSITIONS_PAGE_LIMIT);
 
         await advance(54_799);
         expect(reads()).toBe(1);
-        await advance(1);
+        await advance(101);
         expect(reads()).toBe(2);
-        expect(starts).toEqual([beganAt, beganAt, beganAt + 60_000, beganAt + 60_000]);
       });
 
       it('a Retry moves the next refresh to 3 minutes after it', async () => {
