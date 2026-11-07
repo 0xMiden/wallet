@@ -5,6 +5,7 @@
 - [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
 - [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, and the app's page header on every confirm window.
 - [CHANGE][extension] Redesign the dApp transaction windows (send, consume, custom): the amount with a summary pill up top, who the money moves between with the network fee, then the request's site, network, note type and note details.
+- [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a caution notice and the raw value shown open with copy, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.

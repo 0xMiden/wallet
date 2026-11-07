@@ -15,7 +15,6 @@ import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
-import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
@@ -148,7 +147,7 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+  Button: ({ children, title, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
     <button
       type={type ?? 'button'}
       onClick={onClick}
@@ -158,7 +157,7 @@ jest.mock('components/Button', () => ({
       className={className}
       data-testid={dataTestId}
     >
-      {children}
+      {children ?? title}
     </button>
   )
 }));
@@ -176,24 +175,6 @@ jest.mock('lib/telemetry', () => {
     }
   };
 });
-
-// `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
-// counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
-// Here we only need to assert ConfirmPage routes the sign->TransactionSummary
-// branch through it with the right mode/view/onDownload wiring.
-jest.mock('./confirm/TransactionAssetView', () => ({
-  // The asset helpers stay real: the custom-transaction view resolves its rows through them.
-  ...jest.requireActual('./confirm/TransactionAssetView'),
-  TransactionAssetView: jest.fn(({ mode, view, onDownload }: any) => (
-    <div data-testid="asset-view" data-mode={mode} data-account={view.account ?? ''}>
-      {onDownload && (
-        <button type="button" onClick={onDownload}>
-          downloadFullSummary
-        </button>
-      )}
-    </div>
-  ))
-}));
 
 jest.mock('./confirm/note-flow', () => ({
   ...jest.requireActual('./confirm/note-flow'),
@@ -274,7 +255,6 @@ const mockGetNetworkId = getNetworkId as jest.Mock;
 const mockWord = Word as unknown as { deserialize: jest.Mock };
 const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
 const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
-const mockTransactionAssetView = TransactionAssetView as unknown as jest.Mock;
 const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
 const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
@@ -996,19 +976,18 @@ describe('sign payload — word', () => {
     preview: {}
   });
 
-  it('renders an opaque-signature warning and the deserialized word hex under advanced details', () => {
+  it('renders an opaque-signature warning and the deserialized word hex, open and copyable', () => {
     mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
     setPayload(wordPayload());
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
-    expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
-    expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('0xdeadbeefcafe');
+    expect(screen.getByTestId('confirm-sign-raw-value-copy')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', async () => {
+  it('logs and shows the invalid-payload copy, with nothing to copy, when deserialization throws', async () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
@@ -1018,14 +997,8 @@ describe('sign payload — word', () => {
     // Still renders the opaque-signature warning; the raw value is the invalid fallback.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
-
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
-    });
-    expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
-    expect(screen.getByText('invalidPayload')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('invalidPayload');
+    expect(screen.queryByTestId('confirm-sign-raw-value-copy')).not.toBeInTheDocument();
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
@@ -1115,21 +1088,12 @@ describe('sign payload — signingInputs', () => {
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'inline');
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'notice');
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
-  // Pixel-level rendering (asset rows, amount/symbol formatting, storage
-  // warning) is owned by `TransactionAssetView` and covered in
-  // `TransactionAssetView.test.tsx`. `TransactionAssetView` is stubbed here
-  // (see the `jest.mock` above) so these tests assert only that the
-  // sign->TransactionSummary branch routes through it with the correct
-  // mode/view/onDownload wiring — i.e. that ConfirmPage computes the right
-  // `TxAssetView` via `summaryToView` and hands it off.
-  it('renders a TransactionSummary via the verified TransactionAssetView', () => {
-    // Input-aware so each faucet id resolves to its own bech32 — proving the
-    // view maps assets by the bech32 faucet address (getBech32AddressFromAccountId),
-    // not AccountId.toString() (hex), which is what makes non-Miden metadata resolve.
+  // `summaryToView`'s mapping is covered in decode.test.ts; these check the window lays it out.
+  it('renders a TransactionSummary: the account, note counts, storage and the note flow', () => {
     mockAddress.fromAccountId.mockImplementation((id: any) => ({
       toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
     }));
@@ -1138,40 +1102,20 @@ describe('sign payload — signingInputs', () => {
       transactionSummary({
         vaultEmpty: false,
         storageEmpty: false,
-        removed: [makeAsset('rem1', 100), makeAsset('rem-null', 200)],
-        added: [makeAsset('add1', 300), makeAsset('add-null', 400)]
+        removed: [makeAsset('rem1', 100)],
+        added: [makeAsset('add1', 300)]
       })
     );
     render(<ConfirmPage />);
 
-    const assetView = screen.getByTestId('asset-view');
-    expect(assetView).toHaveAttribute('data-mode', 'verified');
-    expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
-
-    // The view handed to TransactionAssetView is the ground-truth mapping of
-    // the executed TransactionSummary (summaryToView), not a re-derivation.
-    // Faucet ids are resolved to bech32 (metadata cache key), not hex.
-    expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
-    const { view, noteFlow } = mockTransactionAssetView.mock.calls[0][0];
-    expect(noteFlow).toMatchObject({ inputCount: 2, outputs: expect.any(Array) });
-    expect(noteFlow.outputs).toHaveLength(3);
-    expect(view).toEqual({
-      account: 'bech32:acc-id',
-      outgoing: [
-        { faucetId: 'bech32:rem1', amount: 100 },
-        { faucetId: 'bech32:rem-null', amount: 200 }
-      ],
-      incoming: [
-        { faucetId: 'bech32:add1', amount: 300 },
-        { faucetId: 'bech32:add-null', amount: 400 }
-      ],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 2,
-      outputNotesCreated: 3,
-      storageChanged: true
-    });
+    const view = screen.getByTestId('tx-asset-view');
+    expect(view).toHaveAttribute('data-mode', 'verified');
+    expect(view).toHaveAttribute('data-account', 'bech32:acc-id');
+    expect(screen.getByText('confirmSignTransactionSummary')).toBeInTheDocument();
+    expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('3');
+    expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'true');
+    // The note flow decoded, so the "details unavailable" line is not drawn.
+    expect(screen.queryByTestId('tx-note-flow-unavailable')).not.toBeInTheDocument();
   });
 
   it('renders a TransactionSummary with an empty vault and empty storage', () => {
@@ -1180,13 +1124,8 @@ describe('sign payload — signingInputs', () => {
     mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ vaultEmpty: true, storageEmpty: true }));
     render(<ConfirmPage />);
 
-    const assetView = screen.getByTestId('asset-view');
-    expect(assetView).toHaveAttribute('data-mode', 'verified');
-
-    const { view } = mockTransactionAssetView.mock.calls[0][0];
-    expect(view.outgoing).toEqual([]);
-    expect(view.incoming).toEqual([]);
-    expect(view.storageChanged).toBe(false);
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
   });
 
   it('downloads the full summary binary when the download button is clicked', async () => {
@@ -1204,24 +1143,22 @@ describe('sign payload — signingInputs', () => {
     await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
   });
 
-  it('renders an opaque-signature warning and the arbitrary-payload copy under advanced details for the Arbitrary variant', () => {
+  it('renders an opaque-signature warning and the arbitrary-payload copy for the Arbitrary variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Arbitrary });
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
-    expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('signArbitraryPayload');
   });
 
-  it('renders an opaque-signature warning and the blind-commitment copy under advanced details for the Blind variant', () => {
+  it('renders an opaque-signature warning and the blind-commitment copy for the Blind variant', () => {
     setPayload(siPayload());
     mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Blind });
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
-    expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('signBlindCommitment');
   });
 });
 

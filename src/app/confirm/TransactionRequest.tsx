@@ -72,12 +72,12 @@ interface HeaderLine {
 }
 
 /** The signed amount(s) as the window's figure, then the summary pill under them. */
-const AmountHeader: FC<{ lines: HeaderLine[]; pill: React.ReactNode; dim?: boolean; children?: React.ReactNode }> = ({
-  lines,
-  pill,
-  dim = false,
-  children
-}) => (
+export const AmountHeader: FC<{
+  lines: HeaderLine[];
+  pill: React.ReactNode;
+  dim?: boolean;
+  children?: React.ReactNode;
+}> = ({ lines, pill, dim = false, children }) => (
   <div className="flex flex-col items-center gap-2 text-center">
     {lines.length > 0 && (
       <div className="flex flex-col gap-1">
@@ -101,7 +101,7 @@ const AmountHeader: FC<{ lines: HeaderLine[]; pill: React.ReactNode; dim?: boole
 );
 
 /** `amount  [glyph]  counterparty`, like the in-progress transaction screen's summary badge. */
-const SummaryPill: FC<{ children: React.ReactNode }> = ({ children }) => (
+export const SummaryPill: FC<{ children: React.ReactNode }> = ({ children }) => (
   <Pill size="lg" haptic={false} className="max-w-full">
     <span className="flex min-w-0 items-center gap-2.5 font-semibold">{children}</span>
   </Pill>
@@ -179,7 +179,7 @@ const NoteTypeBadge: FC<{ value: string }> = ({ value }) => {
 };
 
 /** The request card's first two rows: which site asked, on which network. */
-const RequestRows: FC<{ origin: string }> = ({ origin }) => {
+export const RequestRows: FC<{ origin: string }> = ({ origin }) => {
   const { t } = useTranslation();
   return (
     <>
@@ -204,7 +204,7 @@ const GlyphAvatar: FC<{ icon: IconName; color?: string; tone?: 'neutral' }> = ({
   />
 );
 
-const FailureNotice: FC<{ message: string; errorId: UserErrorId | null }> = ({ message, errorId }) => {
+export const FailureNotice: FC<{ message: string; errorId: UserErrorId | null }> = ({ message, errorId }) => {
   const { t } = useTranslation();
   return (
     <Notice

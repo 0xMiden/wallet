@@ -2,7 +2,6 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -15,15 +14,12 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
-import { CopyButton } from 'components/ui/CopyButton';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
@@ -36,9 +32,9 @@ import { truncateAddress } from 'utils/string';
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { ConnectRequest } from './confirm/ConnectRequest';
-import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
-import { TransactionAssetView } from './confirm/TransactionAssetView';
+import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
+import { SignatureRequest } from './confirm/SignatureRequest';
 import { ConsumeRequest, CustomRequest, SendRequest, TransactionRequestError } from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
@@ -98,45 +94,6 @@ function downloadData(filename: string, data: string) {
   document.body.removeChild(link);
 }
 
-function downloadBytes(filename: string, data: Uint8Array, mimeType = 'application/octet-stream') {
-  const blob = data instanceof Blob ? data : new Blob([data as BlobPart], { type: mimeType });
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-
-  try {
-    a.click();
-  } finally {
-    a.remove();
-    // Give the browser a microtask to start the download before revoking
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-}
-
-const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
-  useUserVisibleError(errorId, 'inline');
-  return <>{value}</>;
-};
-
-const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
-  rawValue,
-  errorId
-}) => {
-  const { t } = useTranslation();
-  return (
-    <>
-      <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      <AdvancedDetails label={t('rawValue')}>
-        <SignatureRawValue value={rawValue} errorId={errorId} />
-      </AdvancedDetails>
-    </>
-  );
-};
-
 /** The sentence under the originator chip: what this site is asking for. */
 const RequestOriginBanner: FC<{ children: React.ReactNode }> = ({ children }) => (
   <div
@@ -161,49 +118,6 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
   let content: string | React.ReactNode = t('noPreview');
 
   switch (payload.type) {
-    case 'sign': {
-      const bytes = b64ToU8(payload.payload);
-
-      switch (payload.kind) {
-        case 'word': {
-          let wordHex = t('invalidPayload');
-          let wordErrorId: UserErrorId | null = null;
-          try {
-            const word = Word.deserialize(bytes);
-            wordHex = word.toHex();
-          } catch (e) {
-            wordErrorId = 'invalidPayload';
-            console.error('Failed to deserialize payload for sign:', e);
-          }
-          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
-          break;
-        }
-
-        case 'signingInputs': {
-          console.log('Signing inputs payload', bytes);
-          content = <SigningInputsPayloadContent bytes={bytes} />;
-          break;
-        }
-      }
-
-      break;
-    }
-
-    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
-    case 'loginSign':
-      content = (
-        <>
-          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
-          <DetailCard className="my-2">
-            <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
-              <span className="min-w-0 font-sans font-semibold">{payload.accountId}</span>
-              <CopyButton text={payload.accountId} data-testid="confirm-login-account-copy" />
-            </DetailRow>
-          </DetailCard>
-        </>
-      );
-      break;
-
     case 'privateNotes': {
       content = (
         <>
@@ -233,8 +147,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
 
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
-      {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
-      {payload.type !== 'loginSign' && t('payload') && (
+      {t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
           <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
@@ -244,58 +157,6 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
       <div className="text-sm text-ink">{error ? error : content}</div>
     </div>
   );
-};
-
-const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
-  const { t } = useTranslation();
-
-  const signingInputs = useMemo(() => {
-    try {
-      return SigningInputs.deserialize(bytes);
-    } catch (e) {
-      console.error('Failed to deserialize payload for sign:', e);
-      return null;
-    }
-  }, [bytes]);
-
-  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
-
-  if (!signingInputs) {
-    return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
-  }
-
-  switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary: {
-      const summary = signingInputs.transactionSummaryPayload();
-      let noteFlow: NoteFlow | undefined;
-      try {
-        noteFlow = noteFlowFromTransaction(summary);
-      } catch (noteError) {
-        console.error('Signing summary note details unavailable:', noteError);
-      }
-      return (
-        <TransactionAssetView
-          view={summaryToView(summary)}
-          noteFlow={noteFlow}
-          mode="verified"
-          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
-        />
-      );
-    }
-    case SigningInputsType.Arbitrary:
-    case SigningInputsType.Blind:
-      return (
-        <OpaqueSignatureWarning
-          rawValue={
-            signingInputs.variantType === SigningInputsType.Arbitrary
-              ? t('signArbitraryPayload')
-              : t('signBlindCommitment')
-          }
-        />
-      );
-    default:
-      return <div className="text-md text-center my-6">{t('noPreview')}</div>;
-  }
 };
 
 const CustomTransactionContent: React.FC<{
@@ -674,11 +535,8 @@ const ConfirmDAppForm: FC = () => {
           declineActionTestID: ConfirmPageSelectors.SignData_RejectButton,
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.SignData_AcceptButton,
-          want: (
-            <RequestOriginBanner>
-              <span className="text-text-muted">{t('requestsYourSignature')}</span>
-            </RequestOriginBanner>
-          )
+          // SignatureRequest draws the signature window's whole body.
+          want: null
         };
       case 'loginSign':
         return {
@@ -687,11 +545,8 @@ const ConfirmDAppForm: FC = () => {
           declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
-          want: (
-            <RequestOriginBanner>
-              <span className="text-muted">{t('requestsYourSignature')}</span>
-            </RequestOriginBanner>
-          )
+          // SignatureRequest draws the signature window's whole body.
+          want: null
         };
       case 'assets':
         return {
@@ -757,7 +612,13 @@ const ConfirmDAppForm: FC = () => {
         {/* The pushed-page header: the `text-title-tab` title left, the 4px rule under it. */}
         <div className="flex min-h-[60px] items-center gap-3">
           <BreadLogo className="shrink-0" style={{ width: 28, height: 'auto' }} aria-label={t('appName')} />
-          <h2 className="flex min-w-0 text-title-tab text-ink">{content.title}</h2>
+          {/* A long title ("Sign in to app.darwin.market") steps down to 24px so it stays on one line. */}
+          <h2
+            className="flex min-w-0 text-title-tab text-ink"
+            style={content.title.length > 22 ? { fontSize: 24, lineHeight: '30px' } : undefined}
+          >
+            {content.title}
+          </h2>
         </div>
         <HeaderRule className="mb-4" />
 
@@ -774,6 +635,8 @@ const ConfirmDAppForm: FC = () => {
             onConsentChange={setIsPrivateDataChecked}
             error={error ? { message: error?.message ?? t('smthWentWrong'), errorId } : undefined}
           />
+        ) : payload.type === 'sign' || payload.type === 'loginSign' ? (
+          <SignatureRequest payload={payload} payloadError={payloadError} error={transactionError} />
         ) : (payload.type === 'transaction' || payload.type === 'consume') && !payloadError ? (
           <TransactionBody payload={payload} account={account} viewKey={id} error={transactionError} />
         ) : (
