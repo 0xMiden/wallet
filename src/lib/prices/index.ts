@@ -6,11 +6,12 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
+import { loadTokenPriceAssets, peekTokenPriceAssets, peekTokenPriceUrls } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
 import type { Timeframe } from './binance';
-import { fetchKlineData, fetchTokenPrices } from './feed';
+import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import { fetchIssuerPrices, issuerPriceSources } from './issuer';
 import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
@@ -58,7 +59,13 @@ export function PriceProvider() {
     isLoading: pricesLoading
   } = useRetryableSWR(
     enabled ? ['token-prices', network, assetKey] : null,
-    async () => ({ network, assetKey, prices: await fetchTokenPrices(symbols) }),
+    async () => {
+      const prices = await fetchTokenPrices(symbols);
+      // After the feed, which is what rules a market out: an issuer price never stands in for an exchange's.
+      const sources = issuerPriceSources(peekTokenPriceUrls(network), assets, hasNoUsdMarket);
+      const issuerPrices = sources.length > 0 ? await fetchIssuerPrices(sources) : {};
+      return { network, assetKey, prices, issuerPrices };
+    },
     { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
   );
 
@@ -72,9 +79,10 @@ export function PriceProvider() {
 
   useEffect(() => {
     if (enabled && prices?.network === network && prices.assetKey === assetKey) {
-      setTokenPrices(prices.prices);
+      setTokenPrices({ ...prices.issuerPrices, ...prices.prices });
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
+      // Exchange quotes only: an issuer's price is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
   }, [enabled, network, assetKey, prices, setTokenPrices]);

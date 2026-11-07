@@ -42,6 +42,7 @@ import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
+import { isIssuerQuote } from 'lib/prices/issuer';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -232,10 +233,11 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          {/* The nominal rate and an issuer's price are dollar figures with no market behind them: no price, move or
+              line to chart. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
+          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && !isIssuerQuote(quote) && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
               <SectionDivider />

@@ -4,7 +4,8 @@ import {
   loadTokenPriceAssets,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
-  peekTokenPriceAssets
+  peekTokenPriceAssets,
+  peekTokenPriceUrls
 } from './runtime';
 
 const doc = (ids: string[], network = 'testnet') => ({
@@ -185,4 +186,17 @@ it('adopts a fetched price override for a network with no bundled list', async (
   await expect(loadTokenPriceAssets('devnet')).resolves.toBeNull();
   await flush();
   await expect(loadTokenPriceAssets('devnet')).resolves.toEqual(new Map([['coin', 'ETH']]));
+});
+
+it('loads the issuer price URLs with the price assets', async () => {
+  const body = doc(['coin'], 'devnet');
+  const priceUrl = 'https://issuer.example/api/price/T';
+  fetchMock.mockResolvedValue(response({ ...body, tokens: body.tokens.map(token => ({ ...token, priceUrl })) }));
+  expect(peekTokenPriceUrls('devnet')).toBeUndefined();
+  await loadTokenPriceAssets('devnet');
+  expect(peekTokenPriceUrls('devnet')).toBeNull();
+  await flush();
+  await loadTokenPriceAssets('devnet');
+  expect(peekTokenPriceUrls('devnet')).toEqual(new Map([['coin', priceUrl]]));
+  expect(peekTokenPriceUrls('localnet')).toBeNull();
 });

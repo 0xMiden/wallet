@@ -11,6 +11,8 @@ export interface TokenPriceInfo {
   price: number;
   change24h: number;
   percentageChange24h: number;
+  /** `issuer`: the token's issuer priced it (`./issuer`), so there is no market move or history behind it. */
+  source?: 'issuer';
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;

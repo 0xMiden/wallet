@@ -24,6 +24,7 @@ interface LoadedList {
   logos: Map<string, string> | null;
   priceAssets: Map<string, string> | null;
   faucetsBySymbol: Map<string, string> | null;
+  priceUrls: Map<string, string> | null;
 }
 
 const defaults = (): Dependencies => ({
@@ -85,7 +86,8 @@ async function readList(network: string): Promise<LoadedList> {
     ids: bundled?.ids ?? null,
     logos: bundled?.logos ?? null,
     priceAssets: bundled?.priceAssets ?? null,
-    faucetsBySymbol: bundled?.faucetsBySymbol ?? null
+    faucetsBySymbol: bundled?.faucetsBySymbol ?? null,
+    priceUrls: bundled?.priceUrls ?? null
   };
 }
 
@@ -181,4 +183,13 @@ export async function loadTokenFaucetsBySymbol(network: string): Promise<Map<str
 export function peekTokenPriceAssets(network: string): Map<string, string> | null | undefined {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return settled.get(network)?.priceAssets;
+}
+
+/**
+ * The issuer price URL (`priceUrl`) of each faucet in the last loaded list, by faucet id as the list spells it, or
+ * undefined before the first load completes. Loaded with the price assets.
+ */
+export function peekTokenPriceUrls(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.priceUrls;
 }
