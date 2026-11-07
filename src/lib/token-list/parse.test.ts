@@ -119,3 +119,35 @@ it.each(['', 'eth', ' ETH', 'ETH ', 'ETH/USDT', 'A'.repeat(21), 42, null])(
 it.each(['', 'eth', 'ETH/USDT', 42, null, undefined])('drops invalid symbol %p', symbol => {
   expect(parseTokenList(list([token({ symbol })]), 'testnet')?.priceAssets.size).toBe(0);
 });
+
+const PRICE_URL = 'https://issuer.example/api/price/AAA';
+
+it('keeps the issuer price URL of a token that has a price asset', () => {
+  const doc = list([
+    token({ priceUrl: PRICE_URL }),
+    token({ faucetId: 'mtst1bbb', symbol: 'BBB' }),
+    token({ network: 'devnet', faucetId: 'mdev1ccc', priceUrl: PRICE_URL })
+  ]);
+  expect(parseTokenList(doc, 'testnet')?.priceUrls).toEqual(new Map([['mtst1aaa', PRICE_URL]]));
+});
+
+it('drops the price URL of a token without a price asset', () => {
+  expect(parseTokenList(list([token({ symbol: 'aaa', priceUrl: PRICE_URL })]), 'testnet')?.priceUrls.size).toBe(0);
+});
+
+it.each([
+  ['plain http', PRICE_URL.replace('https:', 'http:')],
+  ['another scheme', 'ftp://issuer.example/price'],
+  ['credentials', 'https://user:pass@issuer.example/api/price/AAA'],
+  ['a fragment', `${PRICE_URL}#x`],
+  ['a spelling the URL parser rewrites', 'https://ISSUER.example/api/price/AAA'],
+  ['no URL', 'issuer.example/api/price/AAA'],
+  ['an overlong URL', `${PRICE_URL}?${'x'.repeat(512)}`],
+  ['a non-string', 42],
+  ['null', null]
+])('drops a priceUrl with %s and keeps the token verified and its price asset', (_case, priceUrl) => {
+  const parsed = parseTokenList(list([token({ priceUrl })]), 'testnet');
+  expect(parsed?.priceUrls.size).toBe(0);
+  expect(parsed?.priceAssets).toEqual(new Map([['mtst1aaa', 'AAA']]));
+  expect(parsed?.ids).toEqual(new Set(['mtst1aaa']));
+});

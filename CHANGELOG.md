@@ -5,6 +5,7 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [CHANGE][all] Value a verified token that no exchange lists at its issuer's price when the token list gives it a `priceUrl` (display only: no 24h move or chart, and spending limits are unchanged).
 
 ## 1.17.10 (2026-11-01)
 

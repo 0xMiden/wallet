@@ -2,8 +2,10 @@ import React from 'react';
 
 import { act, render, renderHook } from '@testing-library/react';
 
-import { fetchTokenPrices } from './feed';
+import { fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { PriceProvider, useTokenSparkline } from './index';
+import { fetchIssuerPrices } from './issuer';
+import { writeUsdPriceCache } from './usd';
 
 let mockNetwork = 'testnet';
 let mockAssets = new Map([
@@ -14,10 +16,12 @@ let mockSnapshot = 0;
 const mockListeners = new Set<() => void>();
 const mockListListeners = new Set<(network: string) => void>();
 let mockLoadedAssets: Map<string, string> | null = null;
+let mockPriceUrls: Map<string, string> | null = null;
 let mockResolveList: ((value: Map<string, string> | null) => void) | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
 jest.mock('lib/token-list/runtime', () => ({
   peekTokenPriceAssets: () => mockLoadedAssets,
+  peekTokenPriceUrls: () => mockPriceUrls,
   loadTokenPriceAssets: () =>
     new Promise<Map<string, string> | null>(resolve => {
       mockResolveList = resolve;
@@ -39,9 +43,18 @@ jest.mock('lib/remote-config/runtime', () => ({
   },
   getBridgeConfigSnapshot: () => mockSnapshot
 }));
-jest.mock('lib/miden/swap/tokens', () => ({ getPriceAssets: () => mockAssets }));
+jest.mock('lib/miden/swap/tokens', () => ({
+  getPriceAssets: () => mockAssets,
+  normalizedFaucetId: (id: string) => id
+}));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
-jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn(async () => ({})), fetchKlineData: jest.fn() }));
+jest.mock('./feed', () => ({
+  fetchTokenPrices: jest.fn(async () => ({})),
+  fetchKlineData: jest.fn(),
+  hasNoUsdMarket: jest.fn(() => false)
+}));
+jest.mock('./issuer', () => ({ ...jest.requireActual('./issuer'), fetchIssuerPrices: jest.fn(async () => ({})) }));
+jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -63,6 +76,10 @@ beforeEach(() => {
     ['bridge', 'ETH']
   ]);
   mockLoadedAssets = null;
+  mockPriceUrls = null;
+  jest.mocked(hasNoUsdMarket).mockReturnValue(false);
+  jest.mocked(fetchIssuerPrices).mockClear();
+  jest.mocked(writeUsdPriceCache).mockClear();
   mockWallet.locked = false;
   mockWallet.ready = true;
   setTokenPrices.mockClear();
@@ -117,7 +134,7 @@ describe('PriceProvider', () => {
         ['verified', 'ARB']
       ])
     ]);
-    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {} });
+    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {}, issuerPrices: {} });
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
   });
 
@@ -217,6 +234,47 @@ describe('PriceProvider', () => {
     render(<PriceProvider />);
     expect(setTokenPrices).toHaveBeenCalledTimes(1);
     expect(setTokenPrices).toHaveBeenCalledWith({});
+  });
+
+  it("asks a token's issuer only once the feed has ruled out its market", async () => {
+    mockPriceUrls = new Map([['verified', 'https://issuer.example/api/price/ARB']]);
+    render(<PriceProvider />);
+    await mockUseRetryableSWR.mock.lastCall?.[1]();
+    expect(fetchIssuerPrices).not.toHaveBeenCalled();
+
+    jest.mocked(hasNoUsdMarket).mockImplementation(symbol => symbol === 'ARB');
+    const issuerPrices = {
+      ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, observedAt: 1, source: 'issuer' as const }
+    };
+    jest.mocked(fetchIssuerPrices).mockResolvedValueOnce(issuerPrices);
+    await expect(mockUseRetryableSWR.mock.lastCall?.[1]()).resolves.toMatchObject({ issuerPrices });
+    expect(fetchIssuerPrices).toHaveBeenCalledWith([
+      { faucetId: 'verified', priceSymbol: 'ARB', url: 'https://issuer.example/api/price/ARB' }
+    ]);
+  });
+
+  it('shows issuer quotes under exchange quotes and never writes them to the spending-limit cache', () => {
+    const exchange = { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } };
+    mockUseRetryableSWR.mockReturnValue({
+      data: {
+        network: 'testnet',
+        assetKey: JSON.stringify([
+          ['bridge', 'ETH'],
+          ['verified', 'ARB']
+        ]),
+        prices: exchange,
+        issuerPrices: {
+          ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, source: 'issuer' },
+          ETH: { price: 1, change24h: 0, percentageChange24h: 0, source: 'issuer' }
+        }
+      }
+    });
+    render(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenLastCalledWith({
+      ...exchange,
+      ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, source: 'issuer' }
+    });
+    expect(writeUsdPriceCache).toHaveBeenLastCalledWith(exchange);
   });
 
   it('renders nothing (returns null)', () => {
