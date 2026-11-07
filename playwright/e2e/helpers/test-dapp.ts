@@ -172,20 +172,20 @@ export interface PromptPlan {
   whileOpen?: (popup: Page) => Promise<void>;
 }
 
-// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect banner's
-// (ConnectBanner.tsx:35-39) and every other request's (ConfirmPage.tsx:142).
+// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect window's
+// (confirm/ConnectRequest.tsx) and every other request's originator chip (ConfirmPage.tsx).
 async function popupOrigin(popup: Page, kind: ConfirmKind): Promise<string | null> {
   return popup
     .getByTestId(kind === 'connect' ? 'connect-origin' : 'confirm-request-origin')
     .getAttribute('title', { timeout: 30_000 });
 }
 
-// The input is sr-only (src/app/atoms/Checkbox.tsx): a click aimed at it, even a forced one, lands on whatever covers its
-// 1px box and changes nothing. A user clicks the row's label, so the tick goes there and the state is read back.
+// The consent tick is a `role="checkbox"` button (CheckboxConsent in components/ui/Checkbox.tsx), so the click goes
+// to it and the state is read back from `aria-checked`.
 async function tickPrivateData(popup: Page): Promise<void> {
-  const input = popup.locator('input[name="confirmPrivateDataPermission"]');
-  await popup.locator('label').filter({ has: input }).click();
-  await expect(input, 'private-data checkbox ticked').toBeChecked();
+  const consent = popup.getByTestId('connect-private-data-consent');
+  await consent.click();
+  await expect(consent, 'private-data checkbox ticked').toHaveAttribute('aria-checked', 'true');
 }
 
 /**

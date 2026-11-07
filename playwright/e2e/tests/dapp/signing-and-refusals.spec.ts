@@ -62,7 +62,7 @@ import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
 const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
-// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
+// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignature in confirm/SignatureRequest.tsx for Arbitrary and Blind
 // inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
 // en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no

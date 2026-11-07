@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "您的恢復短語可恢復您的金鑰，並透過您的「Guardian」備份來恢復您的帳戶。請妥善保管此短語。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "您的助記詞與您的「Guardian」備份可恢復您的帳戶。請妥善保管助記詞。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的資金始終屬於您",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "關於「Guardians」的更多資訊",
-    "englishSource": "More about Guardians"
+    "message": "進一步了解 Guardian",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "繼續處理 $name$",
@@ -4132,6 +4132,120 @@
   "confirmationRequired": {
     "message": "每次查詢帳戶資料時，均須進行確認",
     "englishSource": "Confirmation is required every time account data is requested"
+  },
+  "connectFactsTitle": {
+    "message": "本網站將能夠",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "查看您的餘額與交易紀錄",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "未經許可讀取私人資料",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "將授予對 $scopes$ 的存取權限",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "在查閱私人資料前請先徵詢許可",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "向您發送交易請求",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "您需逐一核准",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "切勿自行轉移資金",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "資金僅在您批准後才會流出",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "無法連線",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "不同的網路",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "請求來自",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "代幣faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "回溯區塊",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "接收",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "來自 faucet 的 Note 註解",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "你",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "您會",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "從您的帳戶中移出",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "已存入您的帳戶",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "自訂交易",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "交易摘要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxFailedTitle": {
+    "message": "無法確認",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未經核實",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "transactionCompleted": {
     "message": "交易已完成",

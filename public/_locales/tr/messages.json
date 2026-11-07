@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Kurtarma ifadeniz anahtarlarınızı ve Guardian'ınızın yedeği ile birlikte hesabınızı geri yükler. Bu ifadeyi güvenli bir yerde saklayın.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Parolanız ve Guardian'ınızın yedeği, hesabınızı geri yükler. Parolanızı güvenli bir yerde saklayın.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Paralarınız size ait kalır",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardians hakkında daha fazla bilgi",
-    "englishSource": "More about Guardians"
+    "message": "Guardian hakkında daha fazla bilgi edinin",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ ile devam edin",
@@ -4132,6 +4132,120 @@
   "confirmationRequired": {
     "message": "Hesap verileri her talep edildiğinde onaylanması gerekmektedir",
     "englishSource": "Confirmation is required every time account data is requested"
+  },
+  "connectFactsTitle": {
+    "message": "Bu site şunları yapabilecektir:",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Bakiyenizi ve geçmişinizi görüntüleyin",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "İzin almadan özel verileri okumak",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$'a erişim izni verilecektir",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Özel verileri okumadan önce izin isteyin",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "İşlem taleplerinizi gönderin",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Her birini onaylıyorsunuz",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Asla kendi başına fon aktarmayın",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Para, yalnızca siz onayladığınızda çekilir",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "Bağlanılamadı",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Farklı ağ",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Talep kaynağı",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "Token faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Blokları geri çağırma",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Alma",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucet'ten Note notu",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "siz",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ödeme yaparsınız",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Anladınız mı?",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Hesabınızdan çıkar",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Hesabınıza gelir",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Özel işlem",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "İşlem özeti",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Doğrulayamadım",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Doğrulanmadı",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "transactionCompleted": {
     "message": "İşlem Tamamlandı",

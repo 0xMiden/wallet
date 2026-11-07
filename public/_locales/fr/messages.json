@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Votre phrase de récupération permet de restaurer vos clés et, grâce à la sauvegarde de votre « Guardian », votre compte. Conservez cette phrase en lieu sûr.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Votre phrase secrète et la sauvegarde de votre « Guardian » permettent de restaurer votre compte. Conservez cette phrase en lieu sûr.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Vos fonds restent les vôtres",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "En savoir plus sur les « Guardians »",
-    "englishSource": "More about Guardians"
+    "message": "En savoir plus sur le « Guardian »",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continuer avec $name$",
@@ -4132,6 +4132,120 @@
   "confirmationRequired": {
     "message": "Une confirmation est requise à chaque fois que des données de compte sont demandées",
     "englishSource": "Confirmation is required every time account data is requested"
+  },
+  "connectFactsTitle": {
+    "message": "Ce site permettra de",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Consultez votre solde et votre historique",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Lire des données privées sans autorisation",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "L'accès à $scopes$ sera accordé",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Demandez l’autorisation avant de consulter des données privées",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Envoyer vos demandes de transaction",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Vous approuvez chacun d’entre eux",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Ne transférez jamais de fonds de votre propre initiative",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Les fonds ne sont transférés que lorsque vous donnez votre accord",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "Impossible de se connecter",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Réseau différent",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Demande de",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet de jetons",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Rappel des blocs",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Réception",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note de faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "vous",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Vous payez",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Vous obtenez",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Quitte votre compte",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Arrive sur votre compte",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Transaction personnalisée",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Résumé de la transaction",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxFailedTitle": {
+    "message": "Impossible de confirmer",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Non vérifié",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "transactionCompleted": {
     "message": "Transaction terminée",

@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "您的恢复短语可恢复您的密钥，并结合您的Guardian备份，恢复您的账户。请妥善保管该短语。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "您的助记词和您的Guardian备份可恢复您的账户。请妥善保管助记词。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的资金始终归您所有",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "关于Guardians的更多信息",
-    "englishSource": "More about Guardians"
+    "message": "了解有关Guardian的更多信息",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "继续处理 $name$",
@@ -4132,6 +4132,120 @@
   "confirmationRequired": {
     "message": "每次查询账户数据时都需要进行确认",
     "englishSource": "Confirmation is required every time account data is requested"
+  },
+  "connectFactsTitle": {
+    "message": "本网站将能够",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "查看您的余额和交易记录",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "未经许可读取私人数据",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "将授予对$scopes$的访问权限",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "在读取私人数据前请先征得同意",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "向您发送交易请求",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "您需逐一批准",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "切勿自行转移资金",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "资金仅在您批准后才会流出",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "无法连接",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "不同的网络",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "请求来自",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "代币faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "回溯区块",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "接收",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "来自 faucet 的 Note Note Note Note Note Note Note Note Note Note Note Note Note Note ",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "你",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "你明白",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "从您的账户中移出",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "到账至您的账户",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "自定义交易",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "交易摘要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxFailedTitle": {
+    "message": "无法确认",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未经验证",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "transactionCompleted": {
     "message": "交易已完成",

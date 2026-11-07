@@ -3049,8 +3049,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "あなたのフレーズとGuardianのバックアップによって、アカウントが復元されます。フレーズは安全に保管してください。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "お客様の資金は、常にお客様自身のものです",
@@ -3069,8 +3069,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardiansに関する詳細",
-    "englishSource": "More about Guardians"
+    "message": "Guardianの詳細はこちら",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ へ進む",
@@ -4132,6 +4132,120 @@
   "confirmationRequired": {
     "message": "アカウントデータの照会を行うたびに確認が必要となります",
     "englishSource": "Confirmation is required every time account data is requested"
+  },
+  "connectFactsTitle": {
+    "message": "このサイトでは、",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "残高と取引履歴を確認する",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "許可なく個人データを読み取る",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$へのアクセス権が付与されます",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "個人データを閲覧する前に確認してください",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "取引リクエストを送信する",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "これらを一つひとつ承認してください",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "決して独自に資金を移動させてはならない",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "資金が移動するのは、あなたが承認した場合のみです",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectFailedTitle": {
+    "message": "接続できませんでした",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "異なるネットワーク",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "リクエスト元：",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "トークンfaucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "ブロックの呼び出し",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "受信",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Noteからの注記（faucet）",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "あなた",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "お支払いください",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "つまり、",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "アカウントから",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "アカウントに反映されます",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "カスタム取引",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "取引概要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxFailedTitle": {
+    "message": "確認できませんでした",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未確認",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "transactionCompleted": {
     "message": "取引完了",

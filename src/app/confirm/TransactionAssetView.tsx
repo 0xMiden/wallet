@@ -24,7 +24,7 @@ export interface TransactionAssetViewProps {
   noteFlow?: NoteFlow;
 }
 
-interface ResolvedAsset {
+export interface ResolvedAsset {
   faucetId: string;
   amount: bigint;
   // Undefined when the metadata lookup failed (see Fix D: guarded against
@@ -43,7 +43,7 @@ interface ResolvedAsset {
   scaleIsKnown: boolean;
 }
 
-function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
+export function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
   const [resolved, setResolved] = useState<ResolvedAsset[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +79,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
  * A question mark rather than a translated phrase: the row already names the
  * asset, this slot is a number, and it sits inline with a +/- sign.
  */
-const quantityOf = (asset: ResolvedAsset): string =>
+export const quantityOf = (asset: ResolvedAsset): string =>
   asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
 
 /**
