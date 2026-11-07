@@ -923,7 +923,6 @@
   "connectFailedTitle": "Não foi possível conectar",
   "dappNetworkMismatchTitle": "Rede diferente",
   "confirmTxRequestFrom": "Solicitação de",
-  "confirmTxNoteType": "Tipo de Note",
   "confirmTxTokenFaucet": "faucet de tokens",
   "confirmTxRecallBlocks": "Recall de blocos",
   "confirmTxReceiving": "Recebimento",

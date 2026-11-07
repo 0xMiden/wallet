@@ -923,7 +923,6 @@
   "connectFailedTitle": "無法連線",
   "dappNetworkMismatchTitle": "不同的網路",
   "confirmTxRequestFrom": "請求來自",
-  "confirmTxNoteType": "Note類型",
   "confirmTxTokenFaucet": "代幣faucet",
   "confirmTxRecallBlocks": "回溯區塊",
   "confirmTxReceiving": "接收",
