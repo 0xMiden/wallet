@@ -1269,6 +1269,28 @@ describe('the Earn vault catalogue over several routes', () => {
     ]);
   });
 
+  it('reads only listed vaults on supported chains when another chain would fail', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING, DUMMY_VAULT] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith(BASE_POOLS_PREFIX))).toEqual([]);
+    expect(fetch.mock.calls.filter(([url]) => new URL(url).searchParams.get('chains') === '8453')).toEqual([]);
+  });
+
+  it('skips both Earn probes when every listed vault is on a chain this build skips', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect([epoch.vaults, epoch.market]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
+    expect(fetch.mock.calls.filter(([url]) => ['/pools', '/positions'].includes(new URL(url).pathname))).toEqual([]);
+  });
+
   it.each([
     ['fails', { evm: () => sepoliaReads({ erc20: jest.fn(async () => Promise.reject(new Error('offline'))) }) }],
     ['has no RPC', { evm: () => null }]

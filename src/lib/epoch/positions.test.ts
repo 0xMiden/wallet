@@ -1,4 +1,4 @@
-import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 
 import { carryForward, type EarnPosition, type EarnPositionsResult } from './positions';
 import { TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
@@ -40,6 +40,7 @@ beforeEach(async () => {
     ({ readEarnVaults } = await import('./pools-read'));
   });
   jest.mocked(getEarnVaults).mockReturnValue([AAVE_LISTING, TEST_EARN_VAULT]);
+  jest.mocked(getSupportedEvmChainIds).mockReturnValue([11155111]);
 });
 
 const OWNER = '0x1111111111111111111111111111111111111111';
@@ -136,6 +137,16 @@ describe('fetchEarnPositions', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
+  });
+
+  it('makes no positions request for a listed vault on a chain this build skips', async () => {
+    jest.mocked(getSupportedEvmChainIds).mockReturnValue([]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [OWNER], errors: [] });
   });
 
   it('takes no owner from the activity rows: with no owner given, it makes no request', async () => {
@@ -361,6 +372,10 @@ describe('fetchEarnPositions', () => {
     const aaveBase = `aave_v3:8453:${BASE_USDC}`;
     const aaveMainnet = `aave_v3:1:${MAINNET_USDC}`;
     const requestedUrls = (fetchMock: jest.Mock) => fetchMock.mock.calls.map(([url]) => String(url)).sort();
+
+    beforeEach(() => {
+      jest.mocked(getSupportedEvmChainIds).mockReturnValue([11155111, 8453, 1]);
+    });
 
     it("asks each lender only on the chains of its known markets, upper-casing the lender's key", async () => {
       jest.mocked(getEarnVaults).mockReturnValue([

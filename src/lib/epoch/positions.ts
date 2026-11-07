@@ -1,7 +1,7 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { annotateUiProducer, type EarnPositionsLoadStage } from 'lib/telemetry/ui-producer-diagnostics';
 
@@ -371,7 +371,12 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   // With no owner, or with the markets given, the activity rows give nothing to read.
   const deposited =
     args.markets || owners.length === 0 ? new Map<string, Set<string>>() : await getEarnDepositMarkets(args.accountId);
-  const listed = args.markets ? [] : getEarnVaults().map(vault => vault.marketUid);
+  const supportedChainIds = new Set(getSupportedEvmChainIds());
+  const listed = args.markets
+    ? []
+    : getEarnVaults()
+        .filter(vault => supportedChainIds.has(Number(vault.marketUid.split(':')[1])))
+        .map(vault => vault.marketUid);
   const knownByOwner = new Map<string, Set<string>>();
   const queries = owners.flatMap(owner => {
     const markets = distinctMarkets(args.markets ?? [...listed, ...(deposited.get(owner.toLowerCase()) ?? [])]);

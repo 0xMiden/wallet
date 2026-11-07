@@ -695,7 +695,10 @@ async function discoverEarnVaults(
   readUnderlying: UnderlyingRead
 ): Promise<{ vaults: Probe<EarnVaultInfo[]>; market: Probe<EarnMarket> }> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
-  const listed = config.earn?.vaults ?? [];
+  const supportedChainIds = new Set(Object.values(config.supportedEvmChains).map(chain => chain.chainId));
+  const listed = (config.earn?.vaults ?? []).filter(vault =>
+    supportedChainIds.has(Number(vault.marketUid.split(':')[1]))
+  );
   if (!positionsUrl || listed.length === 0) return { vaults: { state: 'skipped' }, market: { state: 'skipped' } };
   const pairs = listedMarketPairs(listed);
   const vaults = await attempt(async () => {
