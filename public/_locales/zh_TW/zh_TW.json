@@ -155,6 +155,7 @@
   "earnPositionsTitle": "我的持倉",
   "earnPositionsRegionLabel": "持倉",
   "earnPositionsLoadError": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
+  "earnPositionsUnavailable": "無法透過 Epoch 查詢您的餘額。請重試。",
   "earnUnavailableOnNetwork": "此網路不提供「賺取」功能",
   "earnVaultLoadError": "無法載入此金庫。請檢查您的連線並重試。",
   "earnPositionsApy": "$apy$ APY",

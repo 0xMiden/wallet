@@ -965,7 +965,7 @@ describe('the Earn market', () => {
     });
   });
 
-  it('takes the market only on a chain with an Epoch route, whatever the service lists first', async () => {
+  it('takes the market only on a chain a listed vault names, whatever the service lists first', async () => {
     const fetch = servingPositions([
       item(84532, [usdcPosition(BASE_USDC, `DUMMY_LENDING:84532:${BASE_USDC.toLowerCase()}`)]),
       item(11155111)
@@ -978,7 +978,7 @@ describe('the Earn market', () => {
   it.each([
     ['a lender the document does not list', [item(11155111, [], 'EULER_V2')]],
     ['the protocol name in place of its lender key', [item(11155111, [], 'dummy-lending')]],
-    ['a lender only on a chain no Epoch route names', [item(84532)]],
+    ['a lender only on a chain no listed vault names', [item(84532)]],
     ['no item', []]
   ])('reads a catalog with %s as no market', async (_label, items) => {
     const fetch = servingPositions(items);
@@ -1003,7 +1003,7 @@ describe('the Earn market', () => {
     });
   });
 
-  it('skips the market, with no request, while the document lists no vault on an Epoch route', async () => {
+  it('skips the market, with no request, while the document lists no vault', async () => {
     const fetch = servingPositions([item(11155111)]);
     const { earn: _earn, ...unlisted } = TESTNET;
     expect((await deriveBridgeConfig(unlisted, deps({ fetch }))).epoch.market).toEqual({ state: 'skipped' });
@@ -1132,10 +1132,28 @@ describe('the Earn market from /pools', () => {
     expect(fetch.mock.calls.some(([requested]) => requested.includes('/positions?'))).toBe(false);
   });
 
-  it('skips the market when no chain has an Epoch USDC route', async () => {
-    const noRoute: BridgeConfig = { ...TESTNET, supportedEvmChains: { base: { chainId: BASE_CHAIN_ID, bridges: {} } } };
+  it('reads the listed vaults of a chain with no Epoch USDC route', async () => {
+    const noRoute: BridgeConfig = { ...onBase, supportedEvmChains: { base: { chainId: BASE_CHAIN_ID, bridges: {} } } };
     const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC])));
     const { epoch } = await deriveBridgeConfig(noRoute, deps({ fetch }));
+    expect(epoch.market).toMatchObject({
+      state: 'ok',
+      value: { marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` }
+    });
+    expect(epoch.vaults.state === 'ok' && epoch.vaults.value.map(vault => vault.listing.id)).toEqual([
+      'aave-v3-base-usdc'
+    ]);
+    expect(fetch.mock.calls.filter(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toHaveLength(1);
+  });
+
+  it('skips the market, with no request, while the document names no positions host', async () => {
+    const { positionsUrl: _positionsUrl, ...epochWithNoHost } = onBase['bridge-providers'].epoch;
+    const noHost: BridgeConfig = {
+      ...onBase,
+      'bridge-providers': { ...onBase['bridge-providers'], epoch: epochWithNoHost }
+    };
+    const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC])));
+    const { epoch } = await deriveBridgeConfig(noHost, deps({ fetch }));
     expect([epoch.market, epoch.vaults]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
     expect(fetch.mock.calls.some(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toBe(false);
   });
@@ -1251,6 +1269,28 @@ describe('the Earn vault catalogue over several routes', () => {
     ]);
   });
 
+  it('reads only listed vaults on supported chains when another chain would fail', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING, DUMMY_VAULT] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith(BASE_POOLS_PREFIX))).toEqual([]);
+    expect(fetch.mock.calls.filter(([url]) => new URL(url).searchParams.get('chains') === '8453')).toEqual([]);
+  });
+
+  it('skips both Earn probes when every listed vault is on a chain this build skips', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect([epoch.vaults, epoch.market]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
+    expect(fetch.mock.calls.filter(([url]) => ['/pools', '/positions'].includes(new URL(url).pathname))).toEqual([]);
+  });
+
   it.each([
     ['fails', { evm: () => sepoliaReads({ erc20: jest.fn(async () => Promise.reject(new Error('offline'))) }) }],
     ['has no RPC', { evm: () => null }]
@@ -1260,6 +1300,62 @@ describe('the Earn vault catalogue over several routes', () => {
       state: 'ok',
       value: [{ ...DUMMY_VAULT_INFO, underlying: { ...DUMMY_VAULT_INFO.underlying, decimals: 6 } }]
     });
+  });
+
+  it("reads a listed market in a token that is not the route's USDC, with that token's own ERC-20 read", async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const wethVault = listingFor(
+      { marketUid: `DUMMY_LENDING:11155111:${WETH}` },
+      'dummy-lending-sepolia-weth',
+      'WETH',
+      {
+        protocol: 'dummy-lending'
+      }
+    );
+    const withWeth: BridgeConfig = { ...TESTNET, earn: { vaults: [DUMMY_VAULT, wethVault] } };
+    const erc20 = jest.fn(async (token: string) =>
+      token.toLowerCase() === WETH ? { symbol: 'WETH', decimals: 18 } : { symbol: 'USDC', decimals: 18 }
+    );
+    const { epoch } = await deriveBridgeConfig(withWeth, deps({ evm: () => sepoliaReads({ erc20 }) }));
+    expect(epoch.vaults).toEqual({
+      state: 'ok',
+      value: [
+        DUMMY_VAULT_INFO,
+        {
+          ...DUMMY_VAULT_INFO,
+          marketUid: `DUMMY_LENDING:11155111:${WETH}`,
+          underlying: { address: getAddress(WETH), symbol: 'WETH', decimals: 18 },
+          listing: wethVault
+        }
+      ]
+    });
+    // The route's USDC read serves the USDC market; the WETH market gets one read of its own.
+    expect(erc20.mock.calls.map(([token]) => token.toLowerCase())).toEqual([
+      '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      WETH
+    ]);
+  });
+
+  it('drops a listed WETH vault from the positions fallback when its ERC-20 read fails', async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const wethVault = listingFor(
+      { marketUid: `DUMMY_LENDING:11155111:${WETH}` },
+      'dummy-lending-sepolia-weth',
+      'WETH',
+      { protocol: 'dummy-lending' }
+    );
+    const withWeth: BridgeConfig = { ...TESTNET, earn: { vaults: [wethVault, DUMMY_VAULT] } };
+    const erc20 = jest.fn(async (token: string) => {
+      if (token.toLowerCase() === WETH) throw new Error('offline');
+      return { symbol: 'USDC', decimals: 18 };
+    });
+    const fetch = healthFetch();
+
+    const { epoch } = await deriveBridgeConfig(withWeth, deps({ fetch, evm: () => sepoliaReads({ erc20 }) }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch).toHaveBeenCalledWith(SEPOLIA_CATALOG_URL, expect.any(Object));
   });
 });
 

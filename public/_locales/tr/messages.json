@@ -856,6 +856,10 @@
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "Epoch ile bakiyenizi kontrol edemedik. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Bu ağda \"Earn\" özelliği mevcut değildir",
     "englishSource": "Earn is not available on this network"
