@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "Opuszcza Twoje konto",
   "confirmTxArrivesAccount": "Pojawia się na Twoim koncie",
   "confirmTxCustomTransaction": "Transakcja niestandardowa",
+  "confirmSignTransactionSummary": "Podsumowanie transakcji",
   "confirmTxFailedTitle": "Nie udało się potwierdzić",
   "confirmTxNotVerifiedTitle": "Niezweryfikowane",
   "midenNetworkName": "Miden $network$",

@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "계정에서 나갑니다",
   "confirmTxArrivesAccount": "귀하의 계좌에 입금됩니다",
   "confirmTxCustomTransaction": "사용자 지정 거래",
+  "confirmSignTransactionSummary": "거래 요약",
   "confirmTxFailedTitle": "확인할 수 없음",
   "confirmTxNotVerifiedTitle": "미확인",
   "midenNetworkName": "Miden $network$",

@@ -4226,6 +4226,10 @@
     "message": "カスタム取引",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "取引概要",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "確認できませんでした",
     "englishSource": "Couldn't confirm"

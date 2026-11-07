@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "從您的帳戶中移出",
   "confirmTxArrivesAccount": "已存入您的帳戶",
   "confirmTxCustomTransaction": "自訂交易",
+  "confirmSignTransactionSummary": "交易摘要",
   "confirmTxFailedTitle": "無法確認",
   "confirmTxNotVerifiedTitle": "未經核實",
   "midenNetworkName": "Miden $network$",

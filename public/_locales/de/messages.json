@@ -4226,6 +4226,10 @@
     "message": "Benutzerdefinierte Transaktion",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "Transaktionsübersicht",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "Konnte nicht bestätigt werden",
     "englishSource": "Couldn't confirm"

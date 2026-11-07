@@ -4226,6 +4226,10 @@
     "message": "Пользовательская транзакция",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "Сводка транзакций",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "Не удалось подтвердить",
     "englishSource": "Couldn't confirm"

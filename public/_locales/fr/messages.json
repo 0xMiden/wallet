@@ -4226,6 +4226,10 @@
     "message": "Transaction personnalisée",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "Résumé de la transaction",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "Impossible de confirmer",
     "englishSource": "Couldn't confirm"

@@ -4226,6 +4226,10 @@
     "message": "사용자 지정 거래",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "거래 요약",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "확인할 수 없음",
     "englishSource": "Couldn't confirm"

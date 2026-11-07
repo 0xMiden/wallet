@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "Виходить з вашого рахунку",
   "confirmTxArrivesAccount": "Надходить на ваш рахунок",
   "confirmTxCustomTransaction": "Індивідуальна транзакція",
+  "confirmSignTransactionSummary": "Звіт про транзакції",
   "confirmTxFailedTitle": "Не вдалося підтвердити",
   "confirmTxNotVerifiedTitle": "Не підтверджено",
   "midenNetworkName": "Miden $network$",

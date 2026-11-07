@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "Hesabınızdan çıkar",
   "confirmTxArrivesAccount": "Hesabınıza gelir",
   "confirmTxCustomTransaction": "Özel işlem",
+  "confirmSignTransactionSummary": "İşlem özeti",
   "confirmTxFailedTitle": "Doğrulayamadım",
   "confirmTxNotVerifiedTitle": "Doğrulanmadı",
   "midenNetworkName": "Miden $network$",

@@ -4226,6 +4226,10 @@
     "message": "自定义交易",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "交易摘要",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "无法确认",
     "englishSource": "Couldn't confirm"

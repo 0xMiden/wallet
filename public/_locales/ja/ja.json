@@ -933,6 +933,7 @@
   "confirmTxLeavesAccount": "アカウントから",
   "confirmTxArrivesAccount": "アカウントに反映されます",
   "confirmTxCustomTransaction": "カスタム取引",
+  "confirmSignTransactionSummary": "取引概要",
   "confirmTxFailedTitle": "確認できませんでした",
   "confirmTxNotVerifiedTitle": "未確認",
   "midenNetworkName": "Miden $network$",

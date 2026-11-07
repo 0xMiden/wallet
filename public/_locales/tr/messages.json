@@ -4226,6 +4226,10 @@
     "message": "Özel işlem",
     "englishSource": "Custom transaction"
   },
+  "confirmSignTransactionSummary": {
+    "message": "İşlem özeti",
+    "englishSource": "Transaction summary"
+  },
   "confirmTxFailedTitle": {
     "message": "Doğrulayamadım",
     "englishSource": "Couldn't confirm"
