@@ -1,7 +1,9 @@
 const positionsStarts: number[] = [];
 const POSITIONS_WINDOW_MS = 60_000;
 export const POSITIONS_LIMIT = 10;
-export const POSITIONS_REVIEW_RESERVE = 2;
+// The most market-scoped reads one withdrawal makes: a reviewed source retry reads its balance, then the review's
+// check reads it before the smart-account setup and again before execution. Page reads never take these slots.
+export const POSITIONS_REVIEW_RESERVE = 3;
 export const POSITIONS_PAGE_LIMIT = POSITIONS_LIMIT - POSITIONS_REVIEW_RESERVE;
 
 export function positionsBudgetDelayMs(count: number, limit = POSITIONS_LIMIT): number {

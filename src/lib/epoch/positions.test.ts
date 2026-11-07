@@ -199,7 +199,7 @@ describe('fetchEarnPositions', () => {
       });
       await jest.advanceTimersByTimeAsync(0);
 
-      expect(fetchMock).toHaveBeenCalledTimes(8);
+      expect(fetchMock).toHaveBeenCalledTimes(7);
       expect(settled).toBe(false);
 
       await jest.advanceTimersByTimeAsync(60_000);
@@ -216,7 +216,7 @@ describe('fetchEarnPositions', () => {
       jest.useFakeTimers();
       try {
         const fetchMock = serve(undefined, 404);
-        const owners = Array.from({ length: 8 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
+        const owners = Array.from({ length: 7 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
         const readCatalog = () =>
           readEarnVaults(
             fetchMock,
@@ -237,11 +237,11 @@ describe('fetchEarnPositions', () => {
         });
         await jest.advanceTimersByTimeAsync(0);
 
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(8);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(7);
         expect(settled).toBe(false);
         await jest.advanceTimersByTimeAsync(60_000);
         await second;
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(9);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(8);
       } finally {
         jest.useRealTimers();
       }
@@ -447,24 +447,27 @@ describe('fetchEarnPositions', () => {
       jest.useFakeTimers();
       const fetchMock = serve();
       try {
-        for (let i = 0; i < 8; i += 1) await fetchEarnPositions({ owners: [OWNER] });
+        for (let i = 0; i < 7; i += 1) await fetchEarnPositions({ owners: [OWNER] });
         fetchMock.mockClear();
 
         const pageRead = fetchEarnPositions({ owners: [OWNER] });
         await jest.advanceTimersByTimeAsync(0);
         expect(fetchMock).not.toHaveBeenCalled();
 
+        // A reviewed source retry reads three times: its own balance read, then the review's check before the
+        // smart-account setup and again before execution. All three go out at once.
         await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
         await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
 
         const reviewRead = fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
         await jest.advanceTimersByTimeAsync(59_999);
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
 
         await jest.advanceTimersByTimeAsync(1);
         await Promise.all([pageRead, reviewRead]);
-        expect(fetchMock).toHaveBeenCalledTimes(4);
+        expect(fetchMock).toHaveBeenCalledTimes(5);
       } finally {
         jest.useRealTimers();
       }
