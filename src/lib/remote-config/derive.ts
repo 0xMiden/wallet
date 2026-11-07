@@ -705,6 +705,8 @@ async function discoverEarnVaults(
     const reads = await Promise.allSettled(
       pairs.map(async ({ chainId, underlying }) => {
         const token = await readUnderlying(chainId, underlying);
+        const usdc = Object.values(config.supportedEvmChains).find(chain => chain.chainId === chainId)?.bridges.epoch
+          ?.tokens.USDC?.contractAddress;
         return readEarnVaults(
           io.fetch,
           {
@@ -714,7 +716,9 @@ async function discoverEarnVaults(
             listed,
             ...(token.state === 'ok'
               ? { fallbackUnderlying: { symbol: token.value.symbol, decimals: token.value.decimals } }
-              : {})
+              : usdc?.toLowerCase() === underlying.toLowerCase()
+                ? {}
+                : { fallbackUnderlying: null })
           },
           HEALTH_TIMEOUT_MS
         );

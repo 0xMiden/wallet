@@ -98,8 +98,8 @@ export interface EarnVaultRoute {
   underlying: string;
   /** The document's `earn.vaults`. The read keeps only the markets of this route that it names. */
   listed: readonly EarnVaultConfig[];
-  /** The symbol and decimals the positions fallback gives the underlying. The default is USDC with 6 decimals. */
-  fallbackUnderlying?: { symbol: string; decimals: number };
+  /** The positions fallback's token metadata: null drops the vault; undefined defaults to USDC with 6 decimals. */
+  fallbackUnderlying?: { symbol: string; decimals: number } | null;
 }
 
 export interface EarnVaultsRead {
@@ -280,6 +280,9 @@ function readPositionsCatalogItem(item: unknown, route: EarnVaultRoute, listing:
   const depositApr = field(field(item, 'aprData'), 'depositApr');
   if (typeof lenderName !== 'string' || !isFiniteNumber(depositApr)) {
     return { state: 'dropped', marketUid: listed.marketUid, reason: 'positions item has no name or APR' };
+  }
+  if (route.fallbackUnderlying === null) {
+    return { state: 'dropped', marketUid: listed.marketUid, reason: 'positions fallback has no token metadata' };
   }
   const { symbol, decimals } = route.fallbackUnderlying ?? DEFAULT_FALLBACK_UNDERLYING;
   const lenderFamily = earnLenderFamily(lenderKey);

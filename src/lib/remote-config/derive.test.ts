@@ -1335,6 +1335,28 @@ describe('the Earn vault catalogue over several routes', () => {
       WETH
     ]);
   });
+
+  it('drops a listed WETH vault from the positions fallback when its ERC-20 read fails', async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const wethVault = listingFor(
+      { marketUid: `DUMMY_LENDING:11155111:${WETH}` },
+      'dummy-lending-sepolia-weth',
+      'WETH',
+      { protocol: 'dummy-lending' }
+    );
+    const withWeth: BridgeConfig = { ...TESTNET, earn: { vaults: [wethVault, DUMMY_VAULT] } };
+    const erc20 = jest.fn(async (token: string) => {
+      if (token.toLowerCase() === WETH) throw new Error('offline');
+      return { symbol: 'USDC', decimals: 18 };
+    });
+    const fetch = healthFetch();
+
+    const { epoch } = await deriveBridgeConfig(withWeth, deps({ fetch, evm: () => sepoliaReads({ erc20 }) }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch).toHaveBeenCalledWith(SEPOLIA_CATALOG_URL, expect.any(Object));
+  });
 });
 
 describe('deriveBridgeConfig default I/O', () => {
