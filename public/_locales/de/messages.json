@@ -4174,6 +4174,10 @@
     "message": "Geldmittel werden nur dann freigegeben, wenn Sie dies genehmigen",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Ihre Anfrage ist noch vorhanden, Sie können es also erneut versuchen.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Verbindung konnte nicht hergestellt werden",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Transaktionsübersicht",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Ihre Anfrage ist noch vorhanden, Sie können es also erneut versuchen.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Konnte nicht bestätigt werden",

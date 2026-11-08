@@ -4174,6 +4174,10 @@
     "message": "Para, yalnızca siz onayladığınızda çekilir",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "İsteğiniz hâlâ burada, bu yüzden yeniden deneyebilirsiniz.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Bağlanılamadı",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "İşlem özeti",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "İsteğiniz hâlâ burada, bu yüzden tekrar deneyebilirsiniz.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Doğrulayamadım",

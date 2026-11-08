@@ -4174,6 +4174,10 @@
     "message": "资金仅在您批准后才会流出",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "您的请求仍保留在此，您可以重试。",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "无法连接",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "交易摘要",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "您的请求仍保留在此，您可以重试。",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "无法确认",

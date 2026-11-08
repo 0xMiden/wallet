@@ -4174,6 +4174,10 @@
     "message": "Кошти виходять з рахунку лише після вашого затвердження",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Не вдалося підключитися",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Звіт про транзакції",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Не вдалося підтвердити",

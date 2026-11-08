@@ -4174,6 +4174,10 @@
     "message": "자금은 귀하가 승인할 때만 출금됩니다.",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "요청 내용이 여전히 남아 있으므로 다시 시도할 수 있습니다.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "연결할 수 없음",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "거래 요약",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "요청 내용이 여전히 남아 있으므로 다시 시도해 보실 수 있습니다.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "확인할 수 없음",

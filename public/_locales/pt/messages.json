@@ -4174,6 +4174,10 @@
     "message": "Os fundos só saem quando você aprovar",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Sua solicitação ainda está aqui, então você pode tentar novamente.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Não foi possível conectar",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Resumo da transação",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Sua solicitação ainda está aqui, então você pode tentar novamente.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Não foi possível confirmar",

@@ -4174,6 +4174,10 @@
     "message": "Środki opuszczają konto wyłącznie po zatwierdzeniu przez użytkownika",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Twoje zgłoszenie nadal tu jest, więc możesz spróbować ponownie.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Nie udało się nawiązać połączenia",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Podsumowanie transakcji",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Twoje zgłoszenie nadal tu jest, więc możesz spróbować ponownie.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Nie udało się potwierdzić",

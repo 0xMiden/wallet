@@ -4174,6 +4174,10 @@
     "message": "Средства уходят только после вашего одобрения",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Ваш запрос по-прежнему находится здесь, поэтому вы можете повторить попытку.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Не удалось установить соединение",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Сводка транзакций",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Ваш запрос по-прежнему находится здесь, поэтому вы можете повторить попытку.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Не удалось подтвердить",

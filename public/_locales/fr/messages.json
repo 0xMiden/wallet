@@ -4174,6 +4174,10 @@
     "message": "Les fonds ne sont transférés que lorsque vous donnez votre accord",
     "englishSource": "Funds leave only when you approve"
   },
+  "connectRetryHint": {
+    "message": "Votre demande est toujours en attente, vous pouvez donc réessayer.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
   "connectFailedTitle": {
     "message": "Impossible de se connecter",
     "englishSource": "Couldn't connect"
@@ -4229,6 +4233,10 @@
   "confirmSignTransactionSummary": {
     "message": "Résumé de la transaction",
     "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Votre demande est toujours présente, vous pouvez donc réessayer.",
+    "englishSource": "Your request is still here, so you can try again."
   },
   "confirmTxFailedTitle": {
     "message": "Impossible de confirmer",
