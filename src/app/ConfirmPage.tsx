@@ -13,7 +13,7 @@ import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -34,10 +34,11 @@ import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { ConnectRequest } from './confirm/ConnectRequest';
 import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
+import { RequestTiles } from './confirm/RequestTiles';
 import { SignatureRequest } from './confirm/SignatureRequest';
 import { ConsumeRequest, CustomRequest, SendRequest, TransactionRequestError } from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
-import { Icon, IconName } from './icons/v2';
+import { IconName } from './icons/v2';
 
 const ConfirmPage: FC = () => {
   const { t } = useTranslation();
@@ -93,18 +94,9 @@ function downloadData(filename: string, data: string) {
   document.body.removeChild(link);
 }
 
-/** The sentence under the originator chip: what this site is asking for. */
+/** The line under the site on a data request: what this site is asking for. */
 const RequestOriginBanner: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
-    className={classNames(
-      'text-sm text-left text-ink',
-      'tx-stage-rise flex w-full gap-x-3 items-center p-4',
-      'border border-gray-100 rounded-2xl mb-4'
-    )}
-  >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
-    <div className="flex min-w-0 flex-col">{children}</div>
-  </div>
+  <p className="text-body-strong font-bold text-muted">{children}</p>
 );
 
 interface PayloadContentProps {
@@ -115,28 +107,27 @@ interface PayloadContentProps {
 const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
+  let action: React.ReactNode = null;
 
   switch (payload.type) {
     case 'privateNotes': {
       content = (
-        <>
-          <div className="text-md text-center my-6">
-            {t('sharePrivateNoteDataForAccount')}
-            <br />
-            {`${truncateAddress(payload.sourcePublicKey)}?`}
-          </div>
-          <div className="flex items-center justify-center">
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              size="sm"
-              className="w-3/5"
-              onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
-            >
-              {t('downloadPrivateNoteData')}
-            </Button>
-          </div>
-        </>
+        <div className="text-center">
+          {t('sharePrivateNoteDataForAccount')}
+          <br />
+          {`${truncateAddress(payload.sourcePublicKey)}?`}
+        </div>
+      );
+      action = (
+        <Button
+          type="button"
+          variant={ButtonVariant.Secondary}
+          size="sm"
+          className="h-[52px] w-full"
+          iconLeft={IconName.Download}
+          title={t('downloadPrivateNoteData')}
+          onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
+        />
       );
       break;
     }
@@ -145,16 +136,13 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
   useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
 
   return (
-    <div className={classNames('w-full', 'flex flex-col')}>
-      {t('payload') && (
-        <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
-          <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
-            {t('payload')}
-          </span>
-        </h2>
-      )}
-      <div className="text-sm text-ink">{error ? error : content}</div>
-    </div>
+    <>
+      <div className="w-full overflow-hidden rounded-2xl border border-hairline">
+        <h2 className="border-b border-hairline bg-fill/50 px-4 py-3 text-value text-ink">{t('payload')}</h2>
+        <div className="px-4 py-3 text-body-strong font-bold text-ink">{error ? error : content}</div>
+      </div>
+      {!error && action}
+    </>
   );
 };
 
@@ -642,12 +630,17 @@ const ConfirmDAppForm: FC = () => {
         ) : (payload.type === 'transaction' || payload.type === 'consume') && !payloadError ? (
           <TransactionBody payload={payload} account={account} viewKey={id} error={transactionError} />
         ) : (
-          <>
-            <div className="mb-4">
-              <OriginatorChip origin={payload.origin} testId="confirm-request-origin" />
+          <div className="flex w-full flex-col gap-5 face-heading">
+            {/* The connect window's top: Bread ··· the site, the site in large type, then what it asks for. */}
+            <div className="flex flex-col items-center gap-2 pt-1 text-center">
+              <RequestTiles className="mb-1" />
+              <DappOrigin
+                origin={payload.origin}
+                className="justify-center text-center text-hero-name text-ink"
+                data-testid="confirm-request-origin"
+              />
+              {content.want}
             </div>
-
-            {content.want}
 
             {error ? (
               <Alert
@@ -657,13 +650,12 @@ const ConfirmDAppForm: FC = () => {
                 errorId={errorId}
                 title={t('error')}
                 description={error?.message ?? t('smthWentWrong')}
-                className="my-4"
                 autoFocus
               />
             ) : (
               <PayloadContent payload={payload} error={payloadError} />
             )}
-          </>
+          </div>
         )}
       </div>
 
