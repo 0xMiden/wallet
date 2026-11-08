@@ -209,11 +209,29 @@ function createBalanceEvidence(branch: BridgeBalanceBranch) {
   };
 }
 
+/**
+ * One signal that aborts when `timeout` or `abort` does. `AbortSignal.any` is missing on iOS before 17.4, so the
+ * link is made by hand.
+ */
+function linkedSignal(timeout: AbortSignal, abort: AbortSignal | undefined): AbortSignal {
+  if (abort === undefined) return timeout;
+  const controller = new AbortController();
+  for (const source of [timeout, abort]) {
+    if (source.aborted) {
+      controller.abort(source.reason);
+      break;
+    }
+    source.addEventListener('abort', () => controller.abort(source.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 async function rpcRequest(
   method: string,
   params: unknown[],
   chainId = DEFAULT_CHAIN_ID,
-  observer?: BalanceStageObserver
+  observer?: BalanceStageObserver,
+  abort?: AbortSignal
 ): Promise<unknown> {
   recordBalanceStage(observer, 'configuration');
   const chain = getChain(chainId);
@@ -221,7 +239,7 @@ async function rpcRequest(
     throw walletRaised(new Error(`RPC is not configured for chain ${chainId}`));
   }
 
-  const payload = await withRequestTimeout(RPC_TIMEOUT_MS, async (signal): Promise<RpcResponse> => {
+  const payload = await withRequestTimeout(RPC_TIMEOUT_MS, async (timeout): Promise<RpcResponse> => {
     recordBalanceStage(observer, 'request_build');
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
     recordBalanceStage(observer, 'request');
@@ -229,7 +247,7 @@ async function rpcRequest(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal
+      signal: linkedSignal(timeout, abort)
     });
     recordBalanceStage(observer, 'response_decode');
     return response.json();
@@ -534,7 +552,8 @@ async function readErc20Balance(
   evmAddress: string,
   contract: `0x${string}`,
   chainId: number,
-  observer?: BalanceStageObserver
+  observer?: BalanceStageObserver,
+  abort?: AbortSignal
 ): Promise<bigint> {
   recordBalanceStage(observer, 'input_validation');
   if (!isAddress(evmAddress)) {
@@ -542,7 +561,7 @@ async function readErc20Balance(
   }
   recordBalanceStage(observer, 'request_build');
   const data = encodeFunctionData({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', args: [evmAddress] });
-  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer);
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId, observer, abort);
   recordBalanceStage(observer, 'value_decode');
   if (!isHex(result)) {
     throw new Error('ERC-20 balanceOf returned no data');
@@ -595,7 +614,11 @@ function routeForToken(token: DepositToken): BridgeRoute {
 async function readEthBalance(evmAddress: string, chainId: number, observer?: BalanceStageObserver): Promise<bigint> {
   const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest'], chainId, observer);
   recordBalanceStage(observer, 'value_decode');
-  return BigInt(result as string);
+  // A quantity that is not a hex word ("", " ", "0", a number) is a failed read, not a zero balance.
+  if (!isHex(result)) {
+    throw new Error('ETH getBalance returned no quantity');
+  }
+  return BigInt(result);
 }
 
 function isValidAmount(amount: string): boolean {
@@ -1197,6 +1220,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     const offered = offeredRef.current;
     if (chainId === undefined || offered.length === 0) return;
     let cancelled = false;
+    // Ends the reads in flight when the identity changes, so a stale answer never costs a request to settle.
+    const abort = new AbortController();
     const settle = (address: string, balance: BridgeBalance) => {
       if (cancelled) return;
       commitStampedBalanceMap(
@@ -1210,7 +1235,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     for (const { contractAddress, decimals } of offered) {
       const evidence = createBalanceEvidence('registered_erc20');
       void reads.add(() =>
-        readErc20Balance(evmAddress, contractAddress, chainId, evidence.observe)
+        readErc20Balance(evmAddress, contractAddress, chainId, evidence.observe, abort.signal)
           .then(value =>
             settle(contractAddress, { value, formatted: formatBalance(value, decimals), loading: false, error: null })
           )
@@ -1228,6 +1253,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
       reads.clear();
+      abort.abort();
     };
   }, [evmAddress, agglayerChainId, offeredKey]);
 
