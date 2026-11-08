@@ -1910,5 +1910,15 @@
   "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
   "autoLock": "자동 잠금",
   "autoLockDescription": "이 정도 시간 동안 백그라운드 상태로 있으면 지갑을 잠급니다.",
-  "autoLockMinutes": "$minutes$분"
+  "autoLockMinutes": "$minutes$분",
+  "epochAwaitingReturn": "반환 대기 중",
+  "epochReadyToClaim": "청구 준비 완료",
+  "epochReturningFunds": "자금 반환",
+  "epochFundsReturned": "환불된 자금",
+  "epochReturnWaiting": "귀하의 자금은 Miden에 그대로 남아 있습니다. 블록 $block$ 이후에 자금을 인출할 수 있습니다.",
+  "epochReturnReady": "자금을 청구하여 지갑으로 되돌리십시오.",
+  "epochReturnPending": "귀하의 자금이 지갑으로 반환되고 있습니다.",
+  "epochReturnDone": "자금이 지갑으로 반환되었습니다.",
+  "epochReturnPaid": "수취인에게 자금이 송금되었습니다.",
+  "epochReturnUnavailable": "자금 상태를 확인할 수 없습니다. 다시 시도해 주십시오."
 }

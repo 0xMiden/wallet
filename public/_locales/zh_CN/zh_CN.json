@@ -1910,5 +1910,15 @@
   "arcadePostingPolicy": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
   "autoLock": "自动锁定",
   "autoLockDescription": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
-  "autoLockMinutes": "$minutes$分钟"
+  "autoLockMinutes": "$minutes$分钟",
+  "epochAwaitingReturn": "等待返还",
+  "epochReadyToClaim": "准备申领",
+  "epochReturningFunds": "退还资金",
+  "epochFundsReturned": "资金退回",
+  "epochReturnWaiting": "您的资金仍保留在 Miden 上。您可以在区块 $block$ 之后提取这些资金。",
+  "epochReturnReady": "申领您的资金，将其退回您的钱包。",
+  "epochReturnPending": "您的资金正在返还至您的钱包。",
+  "epochReturnDone": "您的资金已返还至您的钱包。",
+  "epochReturnPaid": "资金已发送至您的目的地。",
+  "epochReturnUnavailable": "无法查询资金状态。请重试。"
 }

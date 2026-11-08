@@ -1903,5 +1903,15 @@
   "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
   "autoLock": "Bloqueo automático",
   "autoLockDescription": "Bloquea la cartera una vez que ha permanecido inactiva durante tanto tiempo.",
-  "autoLockMinutes": "$minutes$ min"
+  "autoLockMinutes": "$minutes$ min",
+  "epochAwaitingReturn": "A la espera de respuesta",
+  "epochReadyToClaim": "Listo para reclamar",
+  "epochReturningFunds": "Devolución de fondos",
+  "epochFundsReturned": "Fondos devueltos",
+  "epochReturnWaiting": "Tus fondos permanecen en Miden. Podrás reclamarlos tras el bloque $block$.",
+  "epochReturnReady": "Reclama tus fondos para devolverlos a tu monedero.",
+  "epochReturnPending": "Tus fondos se están devolviendo a tu monedero.",
+  "epochReturnDone": "Tus fondos han vuelto a tu monedero.",
+  "epochReturnPaid": "Fondos enviados a tu destino.",
+  "epochReturnUnavailable": "No se puede comprobar el estado de los fondos. Inténtalo de nuevo."
 }

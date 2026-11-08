@@ -8706,5 +8706,50 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "待返還",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "準備領取",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "退還資金",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "資金退還",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "您的資金仍存於 Miden。您可在區塊 $block$ 之後領取這些資金。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "請領取您的資金，將其退回您的錢包。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "您的資金正在退還至您的錢包。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "您的資金已返還至您的錢包。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "資金已發送至您的目的地。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnUnavailable": {
+    "message": "無法檢查資金狀態。請重試。",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

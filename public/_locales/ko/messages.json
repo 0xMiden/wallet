@@ -8706,5 +8706,50 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "반환 대기 중",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "청구 준비 완료",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "자금 반환",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "환불된 자금",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "귀하의 자금은 Miden에 그대로 남아 있습니다. 블록 $block$ 이후에 자금을 인출할 수 있습니다.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "자금을 청구하여 지갑으로 되돌리십시오.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "귀하의 자금이 지갑으로 반환되고 있습니다.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "자금이 지갑으로 반환되었습니다.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "수취인에게 자금이 송금되었습니다.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnUnavailable": {
+    "message": "자금 상태를 확인할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

@@ -8708,5 +8708,50 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Geri Dönüş Bekleniyor",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Talep Etmeye Hazır",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Fonların İadesi",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "İade Edilen Fonlar",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Paralarınız Miden'de kalır. $block$ blokundan sonra bu paraları talep edebilirsiniz.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Paralarınızı geri almak için talepte bulunun ve cüzdanınıza aktarın.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Paralarınız cüzdanınıza iade ediliyor.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Paralarınız cüzdanınıza geri döndü.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Hedef adresinize gönderilen fonlar.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnUnavailable": {
+    "message": "Para durumunu kontrol edilemiyor. Lütfen tekrar deneyin.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }

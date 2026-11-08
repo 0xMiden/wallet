@@ -8708,5 +8708,50 @@
         "content": "$1"
       }
     }
+  },
+  "epochAwaitingReturn": {
+    "message": "Oczekiwanie na zwrot",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Gotowy do odebrania",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Zwrot środków",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Zwrócone środki",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Twoje środki pozostają na platformie Miden. Możesz je odebrać po bloku $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Odbierz swoje środki, aby przywrócić je do swojego portfela.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Twoje środki są zwracane do Twojego portfela.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Twoje środki powróciły do Twojego portfela.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Środki wysłane do miejsca docelowego.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnUnavailable": {
+    "message": "Nie można sprawdzić stanu środków. Spróbuj ponownie.",
+    "englishSource": "Unable to check the funds status. Try again."
   }
 }
