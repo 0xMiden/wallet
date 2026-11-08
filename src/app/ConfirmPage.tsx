@@ -29,14 +29,19 @@ import useSafeState from 'lib/ui/useSafeState';
 import { useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
-import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { ConnectRequest } from './confirm/ConnectRequest';
 import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
 import { RequestTiles } from './confirm/RequestTiles';
 import { SignatureRequest } from './confirm/SignatureRequest';
-import { ConsumeRequest, CustomRequest, SendRequest, TransactionRequestError } from './confirm/TransactionRequest';
+import {
+  ConsumeRequest,
+  CustomRequest,
+  FailureNotice,
+  SendRequest,
+  TransactionRequestError
+} from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { IconName } from './icons/v2';
 
@@ -461,7 +466,6 @@ const ConfirmDAppForm: FC = () => {
     setDeclining(false);
   }, [confirming, declining, setDeclining, confirm]);
 
-  const handleErrorAlertClose = useCallback(() => setError(null), [setError]);
   const transactionError: TransactionRequestError | undefined = error
     ? { message: error?.message ?? t('smthWentWrong'), errorId }
     : undefined;
@@ -511,7 +515,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestPrivateNotes'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestPrivateNotes_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestPrivateNotes_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -544,7 +548,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestAssets'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestAssets_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestAssets_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -557,7 +561,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestImportPrivateNote'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -570,7 +574,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestConsumableNotes'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestConsumableNotes_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestConsumableNotes_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -643,15 +647,7 @@ const ConfirmDAppForm: FC = () => {
             </div>
 
             {error ? (
-              <Alert
-                closable
-                onClose={handleErrorAlertClose}
-                type="error"
-                errorId={errorId}
-                title={t('error')}
-                description={error?.message ?? t('smthWentWrong')}
-                autoFocus
-              />
+              <FailureNotice message={error?.message ?? t('smthWentWrong')} errorId={errorId} />
             ) : (
               <PayloadContent payload={payload} error={payloadError} />
             )}
