@@ -4733,6 +4733,10 @@
       }
     }
   },
+  "loginSignatureTitle": {
+    "message": "Esto solo sirve para iniciar sesión",
+    "englishSource": "This only signs you in"
+  },
   "loginSignatureNote": {
     "message": "Bread firma este mensaje de inicio de sesión con una clave creada exclusivamente para $domain$. No puede mover fondos ni modificar tu cuenta.",
     "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -6419,12 +6423,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Solicitud para firmar datos sin procesar",
-    "englishSource": "Opaque signature request"
+    "message": "Bread no puede previsualizar esto",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ te ha pedido que firmes un valor sin procesar. Bread no puede mostrar lo que autoriza, así que solo continúa si confías plenamente en este sitio.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Nota",

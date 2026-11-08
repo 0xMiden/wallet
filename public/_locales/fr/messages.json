@@ -4730,6 +4730,10 @@
       }
     }
   },
+  "loginSignatureTitle": {
+    "message": "Cela ne fait que vous connecter",
+    "englishSource": "This only signs you in"
+  },
   "loginSignatureNote": {
     "message": "Bread signe ce message de connexion à l’aide d’une clé créée exclusivement pour $domain$. Il ne peut ni transférer des fonds ni modifier votre compte.",
     "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -6416,12 +6420,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Demande de signature opaque",
-    "englishSource": "Opaque signature request"
+    "message": "Bread ne peut pas prévisualiser ceci",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "Ce site vous a demandé de signer une valeur brute. Le portefeuille ne peut pas afficher ce qu'il autorise. Ne continuez que si vous faites entièrement confiance à ce site.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ vous a demandé de signer une valeur brute. Bread ne peut pas afficher ce qu’il autorise ; ne continuez donc que si vous faites entièrement confiance à ce site.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

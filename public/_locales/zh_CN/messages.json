@@ -4727,6 +4727,10 @@
       }
     }
   },
+  "loginSignatureTitle": {
+    "message": "这仅用于登录",
+    "englishSource": "This only signs you in"
+  },
   "loginSignatureNote": {
     "message": "Bread 使用专为 $domain$ 生成的密钥对这条登录消息进行签名。该密钥无法转移资金或更改您的账户。",
     "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -6413,12 +6417,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "不透明签名请求",
-    "englishSource": "Opaque signature request"
+    "message": "Bread 无法预览此内容",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$要求您对原始值进行签名。Bread无法显示该操作的授权内容，因此请仅在您完全信任该网站的情况下继续操作。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

@@ -4728,6 +4728,10 @@
       }
     }
   },
+  "loginSignatureTitle": {
+    "message": "Bu sadece oturum açmanızı sağlar",
+    "englishSource": "This only signs you in"
+  },
   "loginSignatureNote": {
     "message": "Bread, bu oturum açma mesajını yalnızca $domain$ için oluşturulmuş bir anahtarla imzalar. Bu anahtar, fon transferi yapamaz veya hesabınızda değişiklik yapamaz.",
     "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -6414,12 +6418,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Gizli imza talebi",
-    "englishSource": "Opaque signature request"
+    "message": "Bread bunu önizleyemez",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ sizden ham bir değeri imzalamanızı istedi. Bread, neye yetki verdiğini gösteremez; bu nedenle, yalnızca bu siteye tamamen güveniyorsanız devam edin.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
