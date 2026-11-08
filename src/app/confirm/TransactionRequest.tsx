@@ -216,10 +216,14 @@ export const FailureNotice: FC<{ message: string; errorId: UserErrorId | null }>
       icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
       data-testid="confirm-tx-error"
     >
-      {message}
+      {withRetryHint(message, t('confirmTxRetryHint'))}
     </Notice>
   );
 };
+
+/** The failure's message, then the line saying the request is still there to try again. */
+export const withRetryHint = (message: string, hint: string) =>
+  `${/[.!?]$/.test(message.trim()) ? message.trim() : `${message.trim()}.`} ${hint}`;
 
 export interface TransactionRequestError {
   message: string;

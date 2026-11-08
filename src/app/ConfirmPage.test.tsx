@@ -147,10 +147,22 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, title, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+  Button: ({
+    children,
+    title,
+    onClick,
+    isLoading,
+    variant,
+    className,
+    type,
+    size,
+    disabled,
+    'data-testid': dataTestId
+  }: any) => (
     <button
       type={type ?? 'button'}
       onClick={onClick}
+      disabled={disabled}
       data-loading={String(!!isLoading)}
       data-variant={variant}
       data-size={size}
@@ -488,7 +500,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ existingPermission: true }));
       render(<ConfirmPage />);
 
-      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/^Account not found\./)).toBeInTheDocument());
       const retry = screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton);
       expect(retry).toHaveTextContent('retry');
       expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
@@ -515,7 +527,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ existingPermission: true, privateDataPermission: AUTO }));
       render(<ConfirmPage />);
 
-      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/^Account not found\./)).toBeInTheDocument());
       expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
 
       ctx.confirmDAppPermission.mockResolvedValue(undefined);
@@ -531,30 +543,26 @@ describe('connect payload', () => {
     }
   });
 
-  it('asks a new permission with Auto private data on a private account for the consent box, on Connect and on Retry', async () => {
+  it('holds Connect for a new permission with Auto private data on a private account until the consent box is ticked', async () => {
     // A forced connect, or one under another app name, reaches the page as a new permission (#1471).
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
     ctx.confirmDAppPermission.mockResolvedValue(undefined);
     try {
       setPayload(connectPayload({ existingPermission: false, privateDataPermission: AUTO }));
       render(<ConfirmPage />);
-      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
 
+      const connect = screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton);
+      expect(connect).toBeDisabled();
       await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+        fireEvent.click(connect);
       });
-      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
-      });
-      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
-      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
       expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('connect-private-data-consent'));
+      expect(connect).toBeEnabled();
       await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+        fireEvent.click(connect);
       });
       await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
       expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
@@ -596,20 +604,18 @@ describe('connect payload', () => {
     );
   });
 
-  it('blocks confirmation and surfaces an error when the private-data checkbox is unchecked', async () => {
+  it('keeps Connect disabled, with no error, while the private-data checkbox is unchecked', async () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
+    expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toBeDisabled();
     await act(async () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    // The error notice appears above the facts, which stay, and the confirm button flips to the retry variant.
-    await waitFor(() => expect(screen.getByTestId('connect-error')).toBeInTheDocument());
+    expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
     expect(screen.getByTestId('connect-facts')).toBeInTheDocument();
-    expect(screen.getByText('confirmError')).toBeInTheDocument();
-    expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton)).toHaveTextContent('retry');
     // The permission was never actually confirmed.
     expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
   });
@@ -628,19 +634,20 @@ describe('connect payload', () => {
     await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
   });
 
-  it('clears the connect error once the box is ticked and Retry succeeds', async () => {
+  it('clears the connect error once Retry succeeds after a failed connect', async () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
-    ctx.confirmDAppPermission.mockResolvedValue(undefined);
+    ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('network boom')).mockResolvedValue(undefined);
     try {
       setPayload(connectPayload({ privateDataPermission: AUTO }));
       render(<ConfirmPage />);
 
+      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
       await act(async () => {
         fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
       });
       await waitFor(() => expect(screen.getByTestId('connect-error')).toHaveTextContent('connectFailedTitle'));
+      expect(screen.getByTestId('connect-error')).toHaveTextContent('connectRetryHint');
 
-      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
       await act(async () => {
         fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
       });
@@ -703,7 +710,7 @@ describe('connect payload', () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    await waitFor(() => expect(screen.getByText('network boom')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^network boom\./)).toBeInTheDocument());
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
@@ -723,7 +730,7 @@ describe('connect payload', () => {
       await act(async () => {
         jest.advanceTimersByTime(300);
       });
-      expect(within(screen.getByTestId('connect-error')).getByText('private approval detail')).toBeInTheDocument();
+      expect(within(screen.getByTestId('connect-error')).getByText(/^private approval detail\./)).toBeInTheDocument();
       expect(screen.getByTestId('connect-error')).toHaveAttribute('role', 'alert');
       act(() => jest.advanceTimersByTime(999));
       expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
@@ -751,7 +758,7 @@ describe('connect payload', () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    await waitFor(() => expect(screen.getByText('smthWentWrong')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^smthWentWrong\./)).toBeInTheDocument());
   });
 });
 

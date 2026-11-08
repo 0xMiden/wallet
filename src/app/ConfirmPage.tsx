@@ -447,6 +447,10 @@ const ConfirmDAppForm: FC = () => {
     void confirm(true);
   }, [payload, confirm]);
 
+  // A new Auto permission on a private account needs the consent box: Connect waits for the tick
+  // instead of answering an unticked press with an error.
+  const consentMissing = requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved;
+
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
     if (spendingLimitAssessment !== undefined) {
@@ -493,7 +497,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.TransactionAction_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.TransactionAction_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -506,7 +510,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.ConsumeAction_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.ConsumeAction_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -532,7 +536,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmSignature'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.SignData_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.SignData_AcceptButton,
           // SignatureRequest draws the signature window's whole body.
           want: null
@@ -542,7 +546,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmLoginSignature', { domain: payload.domain }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
           // SignatureRequest draws the signature window's whole body.
           want: null
@@ -692,6 +696,7 @@ const ConfirmDAppForm: FC = () => {
             variant={ButtonVariant.Primary}
             className="w-full"
             isLoading={confirming}
+            disabled={consentMissing}
             onClick={handleConfirmClick}
             data-testid={content.confirmActionTestID}
           >

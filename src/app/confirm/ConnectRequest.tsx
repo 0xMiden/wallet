@@ -20,6 +20,7 @@ import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
 import { RequestTiles } from './RequestTiles';
+import { withRetryHint } from './TransactionRequest';
 
 /**
  * What a fact says about the site: something it can do (sage check), something that still needs the
@@ -121,7 +122,7 @@ export const ConnectRequest: FC<ConnectRequestProps> = ({
             icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
             data-testid="connect-error"
           >
-            {error.message}
+            {withRetryHint(error.message, t('connectRetryHint'))}
           </Notice>
         )}
 
