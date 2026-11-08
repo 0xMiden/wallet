@@ -37,7 +37,6 @@ import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
 import { SignatureRequest } from './confirm/SignatureRequest';
 import { ConsumeRequest, CustomRequest, SendRequest, TransactionRequestError } from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
-import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
 import { Icon, IconName } from './icons/v2';
 
 const ConfirmPage: FC = () => {
@@ -611,7 +610,6 @@ const ConfirmDAppForm: FC = () => {
       <div className="flex flex-col items-left px-4">
         {/* The pushed-page header: the `text-title-tab` title left, the 4px rule under it. */}
         <div className="flex min-h-[60px] items-center gap-3">
-          <BreadLogo className="shrink-0" style={{ width: 28, height: 'auto' }} aria-label={t('appName')} />
           {/* A long title ("Sign in to app.darwin.market") steps down to 24px so it stays on one line. */}
           <h2
             className="flex min-w-0 text-title-tab text-ink"

@@ -106,7 +106,7 @@ export const ConnectRequest: FC<ConnectRequestProps> = ({
               <span className="text-muted">{truncateAddress(account.publicKey)}</span>
             </span>
           </Pill>
-          <p className="text-body-sm font-semibold text-muted">
+          <p className="text-body-sm font-bold text-muted">
             {isPublicAccount ? t('publicAccountAccessRequest') : t('privateAccountAccessRequest')}
           </p>
         </div>

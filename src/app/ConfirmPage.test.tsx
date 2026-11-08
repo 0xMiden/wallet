@@ -976,7 +976,7 @@ describe('sign payload — word', () => {
     preview: {}
   });
 
-  it('renders an opaque-signature warning and the deserialized word hex, open and copyable', () => {
+  it('renders the opaque-signature headline and the deserialized word hex, open and not copyable', () => {
     mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
     setPayload(wordPayload());
     render(<ConfirmPage />);
@@ -984,10 +984,11 @@ describe('sign payload — word', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
     expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('0xdeadbeefcafe');
-    expect(screen.getByTestId('confirm-sign-raw-value-copy')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-opaque')).toHaveTextContent('opaqueSignatureTitle');
+    expect(screen.queryByTestId('confirm-sign-raw-value-copy')).not.toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy, with nothing to copy, when deserialization throws', async () => {
+  it('logs and shows the invalid-payload copy when deserialization throws', async () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });

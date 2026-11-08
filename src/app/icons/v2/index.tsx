@@ -57,6 +57,7 @@ import { ReactComponent as CrossChain } from './cross-chain.svg';
 import { ReactComponent as Download } from './download.svg';
 import { ReactComponent as Earn } from './earn.svg';
 import { ReactComponent as Edit } from './edit.svg';
+import { ReactComponent as Exclamation } from './exclamation.svg';
 import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
@@ -106,6 +107,7 @@ import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as ShieldCheck } from './shield-check.svg';
+import { ReactComponent as SignInKey } from './sign-in-key.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
 import { ReactComponent as SwitchArrows } from './switch-arrows.svg';
@@ -173,6 +175,7 @@ export enum IconName {
   CopyNew = 'copy-new',
   BridgeIn = 'bridge-in',
   BridgeOut = 'bridge-out',
+  Exclamation = 'exclamation',
   FactAlert = 'fact-alert',
   FactCheck = 'fact-check',
   FactCross = 'fact-cross',
@@ -202,6 +205,7 @@ export enum IconName {
   InformationFill = 'information-fill',
   Information = 'information',
   Key = 'key',
+  SignInKey = 'sign-in-key',
   LeoLogo = 'leo-logo',
   List = 'list',
   Loader = 'loader',
@@ -348,6 +352,10 @@ const IconSwitch = (props: IconProps) => {
       return <BridgeIn {...props} />;
     case IconName.BridgeOut:
       return <BridgeOut {...props} />;
+    case IconName.SignInKey:
+      return <SignInKey {...props} />;
+    case IconName.Exclamation:
+      return <Exclamation {...props} />;
     case IconName.FactAlert:
       return <FactAlert {...props} />;
     case IconName.FactCheck:

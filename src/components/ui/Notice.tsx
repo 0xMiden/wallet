@@ -178,6 +178,8 @@ export const Notice: React.FC<NoticeProps> = ({
         noticeVariants({ variant }),
         variant === 'block' && noticeSurfaceVariants({ tone }),
         variant === 'fact' && noticeFactSurfaceVariants({ tone }),
+        // A fact notice that is only its title is one line beside the circle: centre the two.
+        variant === 'fact' && children === undefined && 'items-center',
         className
       )}
     >
@@ -204,7 +206,9 @@ export const Notice: React.FC<NoticeProps> = ({
           <span
             data-slot="title"
             className={
-              variant === 'fact' ? 'text-action font-extrabold text-ink' : cn('text-label', noticeInkVariants({ tone }))
+              variant === 'fact'
+                ? cn(children === undefined ? 'text-row-title' : 'text-action', 'font-extrabold text-ink')
+                : cn('text-label', noticeInkVariants({ tone }))
             }
           >
             {title}

@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -39,25 +40,35 @@ const RequestCard: FC<{ origin: string; children?: React.ReactNode }> = ({ origi
 
 /** A sentence under the tiles: what the window asks, without a box around it. */
 const Lead: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="-mt-2 px-1 text-body-strong text-muted">{children}</p>
+  <p className="-mt-2 px-1 text-body-strong font-bold text-muted">{children}</p>
 );
 
-/** The value to be signed, shown open; a real digest can be copied. */
-const RawValue: FC<{ value: string; copyable: boolean; errorId?: UserErrorId | null }> = ({
-  value,
-  copyable,
-  errorId
-}) => {
+/** The body's heading: a toned glyph in its circle and a title, then the sentence that explains it. */
+const Headline: FC<{
+  icon: React.ReactNode;
+  tone: string;
+  title: string;
+  children: React.ReactNode;
+  'data-testid'?: string;
+}> = ({ icon, tone, title, children, 'data-testid': testId }) => (
+  <div className="flex flex-col gap-2 px-1" data-testid={testId}>
+    <div className="flex items-center gap-2.5">
+      <IconCircle className={tone}>{icon}</IconCircle>
+      <h3 className="text-title-page text-ink">{title}</h3>
+    </div>
+    <p className="text-body-strong font-bold text-muted">{children}</p>
+  </div>
+);
+
+/** The value to be signed, shown open. */
+const RawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
   const { t } = useTranslation();
   useUserVisibleError(errorId, 'inline');
   return (
     <div className="overflow-hidden rounded-2xl border border-hairline">
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <span className="text-value text-ink">{t('rawValue')}</span>
-        {copyable && <CopyButton text={value} icon="only" data-testid="confirm-sign-raw-value-copy" />}
-      </div>
+      <div className="px-4 py-3 text-value text-ink">{t('rawValue')}</div>
       <div
-        className="whitespace-pre-wrap break-all border-t border-hairline bg-fill/50 px-4 py-3 font-mono text-xs text-ink"
+        className="whitespace-pre-wrap break-all border-t border-hairline bg-fill/50 px-4 py-3 text-body-sm font-semibold text-ink"
         data-testid="confirm-sign-raw-value"
       >
         {value}
@@ -66,26 +77,36 @@ const RawValue: FC<{ value: string; copyable: boolean; errorId?: UserErrorId | n
   );
 };
 
-/** A word, an arbitrary payload or a blind commitment: nothing the wallet can read, so a caution first. */
-const OpaqueSignature: FC<{ origin: string; value: string; copyable: boolean; errorId?: UserErrorId | null }> = ({
+/** The site's host for the lead sentence; the origin itself if it does not parse. */
+const hostOf = (origin: string) => {
+  try {
+    return new URL(origin).host || origin;
+  } catch {
+    return origin;
+  }
+};
+
+/**
+ * A word, an arbitrary payload or a blind commitment: nothing the wallet can read. The caution is the
+ * body's heading, with a lead under it like the sign-in window's, then the value and the request.
+ */
+const OpaqueSignature: FC<{ origin: string; value: string; errorId?: UserErrorId | null }> = ({
   origin,
   value,
-  copyable,
   errorId
 }) => {
   const { t } = useTranslation();
   return (
     <>
-      <Notice
-        variant="fact"
-        tone="caution"
+      <Headline
+        icon={<Icon name={IconName.Exclamation} size="xs" fill="currentColor" />}
+        tone="bg-pending-tint-ink text-page"
         title={t('opaqueSignatureTitle')}
-        icon={<Icon name={IconName.FactAlert} size="xs" fill="currentColor" />}
         data-testid="confirm-sign-opaque"
       >
-        {t('opaqueSignatureWarning')}
-      </Notice>
-      <RawValue value={value} copyable={copyable} errorId={errorId} />
+        {t('opaqueSignatureWarning', { domain: hostOf(origin) })}
+      </Headline>
+      <RawValue value={value} errorId={errorId} />
       <RequestCard origin={origin} />
     </>
   );
@@ -105,7 +126,6 @@ const WordSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ origin, byte
     <OpaqueSignature
       origin={origin}
       value={hex ?? t('invalidPayload')}
-      copyable={hex !== null}
       errorId={hex === null ? 'invalidPayload' : null}
     />
   );
@@ -193,7 +213,7 @@ const SummarySignature: FC<{
       {noteFlow ? (
         <TransactionNoteFlow flow={noteFlow} account={view.account} />
       ) : (
-        <p className="px-1 text-center text-body-strong text-muted" data-testid="tx-note-flow-unavailable">
+        <p className="px-1 text-center text-body-strong font-bold text-muted" data-testid="tx-note-flow-unavailable">
           {t('verifiedNoteDetailsUnavailable')}
         </p>
       )}
@@ -202,7 +222,7 @@ const SummarySignature: FC<{
         type="button"
         variant={ButtonVariant.Ghost}
         size="sm"
-        className="w-full"
+        className="h-11 w-full"
         iconLeft={IconName.Download}
         title={t('downloadFullSummary')}
         onClick={() => downloadBytes('transaction_summary.bin', bytes)}
@@ -255,7 +275,6 @@ const SigningInputsSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ ori
     return (
       <OpaqueSignature
         origin={origin}
-        copyable={false}
         value={
           signingInputs.variantType === SigningInputsType.Arbitrary
             ? t('signArbitraryPayload')
@@ -295,7 +314,14 @@ const LoginBody: FC<{ payload: Extract<SignaturePayload, { type: 'loginSign' }> 
   const { t } = useTranslation();
   return (
     <>
-      <Lead>{t('loginSignatureNote', { domain: payload.domain })}</Lead>
+      <Headline
+        icon={<Icon name={IconName.SignInKey} size="xs" fill="currentColor" />}
+        tone="bg-positive-tint-ink text-page [&>svg]:h-5 [&>svg]:w-5"
+        title={t('loginSignatureTitle')}
+        data-testid="confirm-login-headline"
+      >
+        {t('loginSignatureNote', { domain: payload.domain })}
+      </Headline>
       <RequestCard origin={payload.origin}>
         <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
           <span className="min-w-0">{payload.accountId}</span>
