@@ -43,6 +43,7 @@ import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { ExternalLinkValue } from './TransactionStatus';
 import { bridgeBadgeStatusOf, BridgeStatus } from './transactionUtils';
+import { EpochReturnState } from './useEpochReturnState';
 
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
@@ -63,6 +64,7 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
+  epochReturn?: EpochReturnState;
   destinationTxHash?: string;
   /** The row's sent amount in base units, which the payout's Circle fee is measured against. */
   sentAmount?: bigint;
@@ -92,7 +94,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   entry,
   restoredFromBackup,
   destinationTxHash,
-  sentAmount
+  sentAmount,
+  epochReturn
 }) => {
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
@@ -336,7 +339,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
-    if (!canShowReclaim) return;
+    if (!canShowReclaim || epochReturn !== undefined) return;
     let cancelled = false;
     getCurrentMidenBlock()
       .then(block => {
@@ -346,7 +349,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [canShowReclaim]);
+  }, [canShowReclaim, epochReturn]);
 
   const handleReclaim = useCallback(async () => {
     if (!reclaimNoteId) return;
@@ -404,7 +407,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
           {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a
               deposit, a claim runs, or the Epoch fill poll reports, that state wins instead (#1250).
               A USDCx burn reads its own phase badge. */}
-          {isUsdcx ? (
+          {epochReturn?.status ? (
+            <StatusBadge status={epochReturn.status} live />
+          ) : isUsdcx ? (
             <StatusBadge status={bridgeBadgeStatusOf(entry)} live />
           ) : transactionFailed && !entry.isUnconfirmed ? (
             t('bridgeFailed')
@@ -503,39 +508,43 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
 
-      {/* Failed Epoch (Fast) bridge, a Completed one whose fill failed, or one whose
-          intent never went out: reclaim the recallable P2IDE note once its reclaim
-          window opens (funds return to the sender's Miden account). A Failed row or a
-          fill-failed Completed row counts down to it - both are definitive. Only a
-          Completed row whose intent was never recorded waits for the height with
-          nothing shown. */}
-      {canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && (
-        <div className="mt-3 flex flex-col gap-2">
-          {reclaimError && (
-            <p className="text-red-500 text-xs" role="alert">
-              {reclaimError}
-            </p>
-          )}
-          {reclaimReached ? (
-            <>
-              {maxNetworkFee && (
-                // Reclaiming consumes the recallable note -- a real transaction with a
-                // real fee, submitted on this tap with no review step in between.
-                <div className="text-center text-xs text-ink">
-                  {t('networkFeeMax')} · {maxNetworkFee}
-                </div>
-              )}
-              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
-                {reclaiming ? t('reclaiming') : t('reclaimFunds')}
-              </Button>
-            </>
-          ) : (
-            <p className="text-xs text-ink/60">
-              {t('reclaimableAfterBlock')} {reclaimHeight}
-            </p>
-          )}
-        </div>
+      {epochReturn?.messageKey && (
+        <p className="mt-3 text-sm text-muted" role="status">
+          {t(epochReturn.messageKey, { block: reclaimHeight })}
+        </p>
       )}
+      {canShowReclaim &&
+        (epochReturn
+          ? epochReturn.status === 'readyToClaim' || epochReturn.status === 'awaitingReturn'
+          : reclaimReached || transactionFailed || fillFailed) && (
+          <div className="mt-3 flex flex-col gap-2">
+            {reclaimError && (
+              <p className="text-red-500 text-xs" role="alert">
+                {reclaimError}
+              </p>
+            )}
+            {(epochReturn ? epochReturn.status === 'readyToClaim' : reclaimReached) ? (
+              <>
+                {maxNetworkFee && (
+                  // Reclaiming consumes the recallable note -- a real transaction with a
+                  // real fee, submitted on this tap with no review step in between.
+                  <div className="text-center text-xs text-ink">
+                    {t('networkFeeMax')} · {maxNetworkFee}
+                  </div>
+                )}
+                <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
+                  {reclaiming ? t('reclaiming') : t('reclaimFunds')}
+                </Button>
+              </>
+            ) : (
+              !epochReturn && (
+                <p className="text-xs text-ink/60">
+                  {t('reclaimableAfterBlock')} {reclaimHeight}
+                </p>
+              )
+            )}
+          </div>
+        )}
     </div>
   );
 };

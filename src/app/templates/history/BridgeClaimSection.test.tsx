@@ -1304,3 +1304,42 @@ describe('user-visible bridge action errors', () => {
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });
+
+describe('Epoch return details', () => {
+  it('shows a neutral status and guidance for an unspent note', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'awaitingReturn', messageKey: 'epochReturnWaiting' }}
+      />
+    );
+    expect(screen.getByText('t:epochAwaitingReturn')).toBeInTheDocument();
+    expect(screen.getByText('t:epochReturnWaiting')).toBeInTheDocument();
+    expect(screen.queryByText('t:bridgeFailed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
+  });
+
+  it('offers a verified ready note without a second chain-head read', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('does not offer a claim after funds were returned', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'fundsReturned', messageKey: 'epochReturnDone' }}
+      />
+    );
+    expect(screen.getByText('t:epochReturnDone')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
+  });
+});
