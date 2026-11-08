@@ -133,6 +133,7 @@ import { withGuardianProbe } from '../guardian/native-http';
 import {
   type ConsumeRestriction,
   EXPIRATION_DELTA_BLOCKS,
+  isAgglayerBridgeOutNote,
   isPrivateNoteType,
   mayConsume,
   noteConsumeRestriction,
@@ -1736,6 +1737,9 @@ export class MidenClientInterface {
       // The SDK lists a reclaim-disabled P2IDE as consumable now to its reclaimer, which can never consume it, so
       // auto-consume, the Accept cards, swap settlement and the dApp listing would each queue a claim that fails.
       const note = record.inputNoteRecord();
+      // The SDK lists this account's own AggLayer bridge-out note as consumable now: consuming it reclaims the funds
+      // and cancels the bridge-out, so it would read as an incoming transfer to accept until the bridge takes it.
+      if (isAgglayerBridgeOutNote(note)) return [];
       const target = reclaimDisabledP2ideTarget(note);
       return mayConsume(target, () => (queried ??= resolveAccountId(wasm, accountId))) ? [note] : [];
     });

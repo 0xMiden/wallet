@@ -5,6 +5,7 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][all] An Agglayer bridge-out no longer shows the sender an Accept card for its own bridge note, whose Accept would cancel the bridge-out (#2113).
 
 ## 1.17.10 (2026-11-01)
 

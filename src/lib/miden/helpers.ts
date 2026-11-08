@@ -1,9 +1,12 @@
 import {
-  type AccountId,
+  AccountId,
   Address,
+  EthAddress,
   type Felt,
+  FungibleAsset,
   InputNoteRecord,
-  type Note,
+  Note,
+  NoteAssets,
   NoteScript,
   NoteType
 } from '@miden-sdk/miden-sdk/lazy';
@@ -160,6 +163,7 @@ const FEE_SPONSORSHIP_STORAGE_ITEM_COUNT = 7;
 let p2idScriptRootHex: string | undefined;
 let p2ideScriptRootHex: string | undefined;
 let feeSponsorshipScriptRootHex: string | undefined;
+let b2aggScriptRootHex: string | undefined;
 let standardPaymentRoots: ReadonlySet<string> | undefined;
 
 /**
@@ -174,11 +178,13 @@ export function standardPaymentScriptRoots(): ReadonlySet<string> {
 /** A note read as a note, or as the stored record that holds one. */
 type NoteSource = Note | InputNoteRecord;
 
+const recipientOf = (note: NoteSource) => ('details' in note ? note.details().recipient() : note.recipient());
+
 // Bails rather than index blind when the layout is not the one the constants were
 // written for: a future protocol move that shifts the slots again must read as no
 // such note, never as a felt from an unrelated slot.
 function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
-  const recipient = 'details' in note ? note.details().recipient() : note.recipient();
+  const recipient = recipientOf(note);
   if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
   const items = recipient.storage().items();
   return items.length === count ? items : undefined;
@@ -187,6 +193,22 @@ function storageItems(note: NoteSource, scriptRootHex: () => string, count: numb
 const p2idRoot = () => (p2idScriptRootHex ??= NoteScript.p2id().root().toHex());
 const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
 const feeSponsorshipRoot = () => (feeSponsorshipScriptRootHex ??= NoteScript.feeSponsorship().root().toHex());
+
+// The SDK has no `NoteScript` for B2AGG, so its root is read off a B2AGG note the SDK builds. The root is the
+// script's alone: these placeholders (a fungible faucet id standing for every id, a zero address) only have to parse.
+const B2AGG_PLACEHOLDER_FAUCET = '0xe69e6ca6e39df1b10c1e5399399feb';
+const b2aggRoot = () =>
+  (b2aggScriptRootHex ??= Note.createB2AggNote(
+    AccountId.fromHex(B2AGG_PLACEHOLDER_FAUCET),
+    AccountId.fromHex(B2AGG_PLACEHOLDER_FAUCET),
+    new NoteAssets([new FungibleAsset(AccountId.fromHex(B2AGG_PLACEHOLDER_FAUCET), 1n)]),
+    0,
+    EthAddress.fromHex(`0x${'00'.repeat(20)}`)
+  )
+    .recipient()
+    .script()
+    .root()
+    .toHex());
 
 /**
  * Estimated wall-clock time (epoch ms) at which the sender of a P2IDE note
@@ -252,6 +274,16 @@ function p2idTarget(note: NoteSource): AccountFelts | undefined {
       suffix: items[P2ID_TARGET_SUFFIX_INDEX]!.asInt().toString()
     };
   });
+}
+
+/**
+ * Whether a note is an AggLayer bridge-out (B2AGG) note, which no wallet account consumes to its benefit: only the
+ * bridge account can take it out, and its sender may consume it only as a reclaim, which cancels the bridge-out
+ * (b2agg.masm, miden-agglayer 0.17.1). The client still stores the sender's own B2AGG output note as an input note,
+ * since the sender can consume it (#2113).
+ */
+export function isAgglayerBridgeOutNote(note: NoteSource): boolean {
+  return readNote(() => recipientOf(note).script().root().toHex() === b2aggRoot()) ?? false;
 }
 
 /**

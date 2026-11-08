@@ -9,6 +9,7 @@ import {
   assertValidRecallBlocks,
   getNoteRecallableAtMs,
   isAddressValid,
+  isAgglayerBridgeOutNote,
   isPrivateNoteType,
   mayConsume,
   noteConsumeRestriction,
@@ -22,6 +23,11 @@ const P2ID_ROOT = '0xp2id';
 const P2IDE_ROOT = '0xp2ide';
 const SPONSORSHIP_ROOT = '0xsponsorship';
 
+const B2AGG_ROOT = '0xb2agg';
+const mockB2aggBuild = jest.fn(() => ({
+  recipient: () => ({ script: () => ({ root: () => ({ toHex: () => B2AGG_ROOT }) }) })
+}));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // The REAL numeric values, not string stand-ins: `Private` is 0, so a stub
   // that made it truthy would hide the falsy-enum case `isPrivateNoteType` has
@@ -31,6 +37,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     p2id: () => ({ root: () => ({ toHex: () => '0xp2id' }) }),
     p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
     feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
+  },
+  // Read off a B2AGG note the SDK builds; `mockB2aggBuild` lets a test make that build fail.
+  AccountId: { fromHex: jest.fn() },
+  EthAddress: { fromHex: jest.fn() },
+  FungibleAsset: jest.fn(),
+  NoteAssets: jest.fn(),
+  Note: {
+    createB2AggNote: jest.fn(() => mockB2aggBuild())
   },
   Address: {
     fromBech32: jest.fn((addr: string) => {
@@ -270,6 +284,31 @@ describe('which account can ever consume a note', () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
     expect(() => noteConsumeRestriction(throwing(trap))).toThrow(trap);
     expect(() => reclaimDisabledP2ideTarget(throwing(trap))).toThrow(trap);
+  });
+});
+
+describe('isAgglayerBridgeOutNote (#2113)', () => {
+  it('recognises a B2AGG note by the root of a note the SDK builds, and only once that build succeeds', () => {
+    const bridgeOut = makeNote(B2AGG_ROOT, [16777216n, 0n, 0n, 0n, 0n, 0n]);
+    mockB2aggBuild.mockImplementationOnce(() => {
+      throw new Error('no B2AGG builder');
+    });
+    expect(isAgglayerBridgeOutNote(bridgeOut)).toBe(false);
+    expect(isAgglayerBridgeOutNote(bridgeOut)).toBe(true);
+    expect(isAgglayerBridgeOutNote(makeNote(P2ID_ROOT, [1n, 2n, 3n, 4n]))).toBe(false);
+    expect(isAgglayerBridgeOutNote(makeNote(P2IDE_ROOT, p2ideStorage(0n)))).toBe(false);
+  });
+
+  it('reads an unreadable note as no bridge-out, but lets a WebAssembly trap through', () => {
+    const throwing = (error: Error) =>
+      ({
+        details: () => {
+          throw error;
+        }
+      }) as unknown as InputNoteRecord;
+    expect(isAgglayerBridgeOutNote(throwing(new Error('boom')))).toBe(false);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    expect(() => isAgglayerBridgeOutNote(throwing(trap))).toThrow(trap);
   });
 });
 

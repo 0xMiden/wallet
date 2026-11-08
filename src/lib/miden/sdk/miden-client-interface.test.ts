@@ -4071,6 +4071,9 @@ describe('MidenClientInterface', () => {
         p2ide: () => ({ root: () => ({ toHex: () => P2IDE_ROOT }) }),
         feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
       },
+      AccountId: { fromHex: jest.fn() },
+      EthAddress: { fromHex: jest.fn() },
+      Note: { createB2AggNote: () => ({ recipient: () => rootedRecipient(B2AGG_ROOT) }) },
       getWasmOrThrow: jest.fn(async () => ({
         AccountId: { fromBech32: accountFromBech32, fromHex: jest.fn() }
       })),
@@ -4102,6 +4105,8 @@ describe('MidenClientInterface', () => {
   const emptyReader = () => ({ getConsumableNotes: jest.fn(async () => []) });
   // Miden 0.17 P2IDE storage: [reclaimer.suffix, reclaimer.prefix, target.suffix, target.prefix, reclaim, timelock].
   const P2IDE_ROOT = '0xp2ide';
+  const B2AGG_ROOT = '0xb2agg';
+  const rootedRecipient = (root: string) => ({ script: () => ({ root: () => ({ toHex: () => root }) }) });
   const QUERIED = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
   const OTHER = { prefix: 0x00000000feedbeefn, suffix: 0x7c9d1e2f3a4b0000n };
   const queriedAccount = jest.fn(() => ({
@@ -4217,6 +4222,26 @@ describe('MidenClientInterface', () => {
 
     await expect(makeClient().getConsumableNotes('mtst1account')).resolves.toEqual([reclaimReached, ownTarget]);
     expect(queriedAccount).toHaveBeenCalledWith('mtst1account');
+  });
+
+  // The client stores this account's own B2AGG output note as an input note its sender can consume; consuming it
+  // reclaims the funds and cancels the bridge-out (#2113).
+  it('drops an AggLayer bridge-out note, which the SDK lists as consumable now', async () => {
+    const consumableNow = (note: object) => ({
+      inputNoteRecord: () => note,
+      noteConsumability: () => [{ consumptionStatus: () => ({ consumableAfterBlock: () => undefined }) }]
+    });
+    const bridgeOut = { id: 'bridge-out', details: () => ({ recipient: () => rootedRecipient(B2AGG_ROOT) }) };
+    const payment = { id: 'payment', details: () => ({ recipient: () => p2ideRecipient(QUERIED, 0n) }) };
+    const getConsumableNotes = jest.fn(async () => [consumableNow(bridgeOut), consumableNow(payment)]);
+    const { makeClient } = await importWithReader(
+      jest.fn(async () => ({ getConsumableNotes })),
+      undefined,
+      undefined,
+      queriedAccount
+    );
+
+    await expect(makeClient().getConsumableNotes('mtst1account')).resolves.toEqual([payment]);
   });
 
   it('names the one account that can consume a stored reclaim-disabled P2IDE in its details', async () => {
