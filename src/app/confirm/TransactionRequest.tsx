@@ -103,7 +103,7 @@ export const AmountHeader: FC<{
 /** `amount  [glyph]  counterparty`, like the in-progress transaction screen's summary badge. */
 export const SummaryPill: FC<{ children: React.ReactNode }> = ({ children }) => (
   <Pill size="lg" haptic={false} className="max-w-full">
-    <span className="flex min-w-0 items-center gap-2.5 font-semibold">{children}</span>
+    <span className="flex min-w-0 items-center gap-2.5 text-base leading-5 font-bold">{children}</span>
   </Pill>
 );
 
@@ -122,7 +122,10 @@ interface MovementRow {
 const MovementCard: FC<{ rows: MovementRow[]; fee?: { label: string; value: React.ReactNode } }> = ({ rows, fee }) => (
   <div className="relative overflow-hidden rounded-2xl border border-hairline bg-page">
     {rows.map((row, i) => (
-      <div key={i} className={cn('relative flex items-center gap-3 px-4 py-3.5', i > 0 && 'border-t border-hairline')}>
+      <div
+        key={i}
+        className={cn('relative flex items-center gap-3 px-4 py-4.5', i > 0 && 'border-t border-hairline pt-5')}
+      >
         {i > 0 && (
           <span
             aria-hidden="true"
@@ -200,7 +203,9 @@ const GlyphAvatar: FC<{ icon: IconName; color?: string; tone?: 'neutral' }> = ({
     size={40}
     tone={tone ?? 'custom'}
     color={color}
-    icon={<Icon name={icon} size="sm" fill="currentColor" className={tone ? 'text-ink' : 'text-page'} />}
+    icon={
+      <Icon name={icon} size={tone ? 'sm' : 'xs'} fill="currentColor" className={tone ? 'text-ink' : 'text-page'} />
+    }
   />
 );
 
@@ -436,7 +441,7 @@ export const CustomRequest: FC<{
 
   const rows: MovementRow[] = [
     ...outgoing.map(a => ({
-      leading: <GlyphAvatar icon={IconName.ArrowRightUpFill} color="var(--accent-send)" />,
+      leading: <GlyphAvatar icon={IconName.Send} color="var(--accent-send)" />,
       title: t('confirmTxYouPay'),
       subtitle: t('confirmTxLeavesAccount'),
       amount: `-${label(a)}`,
@@ -445,7 +450,7 @@ export const CustomRequest: FC<{
       verified
     })),
     ...view.outgoingNfts.map(nft => ({
-      leading: <GlyphAvatar icon={IconName.ArrowRightUpFill} color="var(--accent-send)" />,
+      leading: <GlyphAvatar icon={IconName.Send} color="var(--accent-send)" />,
       title: t('confirmTxYouPay'),
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
       amount: `-${t('nft')} ${nft.assetId}`,
@@ -454,7 +459,7 @@ export const CustomRequest: FC<{
       verified
     })),
     ...incoming.map(a => ({
-      leading: <GlyphAvatar icon={IconName.ArrowRightDownFill} color="var(--accent-receive)" />,
+      leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
       title: t('confirmTxYouGet'),
       subtitle: t('confirmTxArrivesAccount'),
       amount: `+${label(a)}`,
@@ -463,7 +468,7 @@ export const CustomRequest: FC<{
       verified
     })),
     ...view.incomingNfts.map(nft => ({
-      leading: <GlyphAvatar icon={IconName.ArrowRightDownFill} color="var(--accent-receive)" />,
+      leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
       title: t('confirmTxYouGet'),
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
       amount: `+${t('nft')} ${nft.assetId}`,
@@ -491,7 +496,6 @@ export const CustomRequest: FC<{
           dim={dim}
           pill={
             <SummaryPill>
-              <Icon name={IconName.Code} size="xs" fill="currentColor" className="shrink-0 text-muted" />
               <span className="truncate">{t('confirmTxCustomTransaction')}</span>
             </SummaryPill>
           }
