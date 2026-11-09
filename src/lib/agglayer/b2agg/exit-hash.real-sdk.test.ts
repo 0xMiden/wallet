@@ -39,11 +39,14 @@ import {
   Note,
   NoteArray,
   NoteAssets,
+  NoteAttachment,
+  NoteType,
   TransactionRequestBuilder,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { TEST_EVM_NETWORK_ID, TEST_MIDEN_BRIDGE, TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { isAgglayerBridgeOutNote } from 'lib/miden/helpers';
 
 import {
   agglayerExitTxHash,
@@ -96,6 +99,26 @@ describe('the exit hash', () => {
     expect(() => b2aggDetailsCommitment(b2aggNote().recipient().digest(), new NoteAssets([]))).toThrow(
       'A B2AGG note carries at least one fungible asset'
     );
+  });
+});
+
+// `isAgglayerBridgeOutNote` reads the B2AGG root off a note it builds from placeholder ids, and a failed build reads as
+// no bridge-out. The mocked suites cannot see that build fail, so these notes come from the real SDK (#2113).
+describe('isAgglayerBridgeOutNote', () => {
+  const sender = () => AccountId.fromHex('0xa95e28ec96b9ae1132266aa4d4ddb9');
+  const target = () => AccountId.fromHex(TEST_MIDEN_BRIDGE);
+  const assets = () => new NoteAssets([new FungibleAsset(AccountId.fromHex(TEST_NATIVE_ETH_FAUCET), 10_000n)]);
+
+  it('recognises a B2AGG note built from real ids', () => {
+    expect(isAgglayerBridgeOutNote(b2aggNote())).toBe(true);
+  });
+
+  it('does not take a P2ID or a P2IDE note for one', () => {
+    const p2id = Note.createP2IDNote(sender(), target(), assets(), NoteType.Public, new NoteAttachment());
+    const p2ide = Note.createP2IDENote(sender(), target(), assets(), 100, null, NoteType.Public, new NoteAttachment());
+
+    expect(isAgglayerBridgeOutNote(p2id)).toBe(false);
+    expect(isAgglayerBridgeOutNote(p2ide)).toBe(false);
   });
 });
 
