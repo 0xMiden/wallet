@@ -7,10 +7,10 @@ import { Button } from 'components/ui/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { TextField } from 'components/ui/TextField';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { GC_DECIMALS, pickGcSale, quoteGcPurchase, type GcSale } from 'lib/miden/arcade/gc-sale';
 import type { GcPurchaseQuote } from 'lib/miden/transaction/initiate';
-import { formatAmount } from 'lib/shared/format';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
@@ -87,7 +87,9 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
       case null:
         return undefined;
       case 'arcadeGcPurchaseAboveInventory':
-        return t(amountErrorId, { available: formatAmount(sale?.offeredAmount ?? 0n, GC_DECIMALS) });
+        return t(amountErrorId, {
+          available: formatAmountDisplay(sale?.offeredAmount ?? 0n, { decimals: GC_DECIMALS, rounding: 'down' })
+        });
       default:
         return t(amountErrorId);
     }
@@ -111,9 +113,9 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
               error={amountError}
               errorId={amountErrorId}
               hint={t('arcadeGcPurchasePrice', {
-                price: formatAmount(
+                price: formatAmountDisplay(
                   (sale.requestedAmount * 10n ** BigInt(GC_DECIMALS) + sale.offeredAmount - 1n) / sale.offeredAmount,
-                  USDCX_DECIMALS
+                  { decimals: USDCX_DECIMALS, rounding: 'up' }
                 )
               })}
               data-testid="arcade-gc-purchase-amount"
@@ -121,12 +123,16 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
             <DetailCard>
               <DetailRow label={t('arcadeGcPurchaseYouPay')}>
                 {quote
-                  ? t('arcadeGcPurchaseUsdcx', { amount: formatAmount(quote.fillAmount, USDCX_DECIMALS) })
+                  ? t('arcadeGcPurchaseUsdcx', {
+                      amount: formatAmountDisplay(quote.fillAmount, { decimals: USDCX_DECIMALS, rounding: 'up' })
+                    })
                   : t('arcadeGcPurchaseNoQuote')}
               </DetailRow>
               <DetailRow label={t('arcadeGcPurchaseYouReceive')}>
                 {quote
-                  ? t('arcadeBalance', { balance: formatAmount(quote.expectedAmount, GC_DECIMALS) })
+                  ? t('arcadeBalance', {
+                      balance: formatAmountDisplay(quote.expectedAmount, { decimals: GC_DECIMALS, rounding: 'down' })
+                    })
                   : t('arcadeGcPurchaseNoQuote')}
               </DetailRow>
               <DetailRow label={t('networkFee')}>{t('arcadeGcPurchaseFeeSeparate')}</DetailRow>

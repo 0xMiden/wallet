@@ -29,6 +29,7 @@ import { PageHeader } from 'components/PageHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
@@ -260,9 +261,7 @@ async function rpcRequest(
 }
 
 function formatBalance(value: bigint, decimals: number): string {
-  const [whole = '0', rawFraction = ''] = formatUnits(value, decimals).split('.');
-  const fraction = rawFraction.slice(0, 4).replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole;
+  return formatAmountDisplay(value, { decimals, minimumFractionDigits: 4, rounding: 'down' });
 }
 
 /** The amount step receives a value only when the balance read settled successfully. */
@@ -1045,7 +1044,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
   const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
   const usdcxQuotedFee =
-    usdcxQuotedFeeUnits === undefined ? undefined : formatUnits(usdcxQuotedFeeUnits, CIRCLE_USDC_DECIMALS);
+    usdcxQuotedFeeUnits === undefined
+      ? undefined
+      : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' });
   // Only an Epoch token on the Fast route is quoted; Slow (AggLayer) and Circle need no quote.
   const [debouncedAmount] = useDebounce(
     fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
@@ -1435,9 +1436,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxFeeAboveBalanceMessage = useCallback(
     ({ needed, fee, balance }: { needed: bigint; fee: bigint; balance: bigint }): string =>
       t('usdcxDepositFeeAboveBalance', {
-        total: formatUnits(needed, CIRCLE_USDC_DECIMALS),
-        fee: formatUnits(fee, CIRCLE_USDC_DECIMALS),
-        balance: formatUnits(balance, CIRCLE_USDC_DECIMALS),
+        total: formatAmountDisplay(needed, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
+        fee: formatAmountDisplay(fee, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
+        balance: formatAmountDisplay(balance, { decimals: CIRCLE_USDC_DECIMALS, rounding: 'up' }),
         token: tokenLabel,
         network: (usdcxSource && getChain(usdcxSource.chain.id)?.name) ?? ''
       }),
@@ -2470,7 +2471,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputFaucetId={outputFaucetId}
               deliveredSymbol={route === 'epoch' ? deliveredSymbol : undefined}
               route={route}
-              outputAmount={formatMoneyAmount(outputAmount, 'typed')}
+              outputAmount={formatMoneyAmount(outputAmount, 'receives')}
               fee={usdcxQuotedFee}
               networkName={networkName}
               networkId={bridgeNetwork?.id}

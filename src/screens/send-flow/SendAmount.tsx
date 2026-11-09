@@ -9,13 +9,12 @@ import { NetworkChip } from 'components/NetworkChip';
 import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
-import { AnimatedNumber } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
-import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -24,7 +23,6 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
-import { balanceFormatterFor, formatBalance } from './amount-format';
 import { AmountShortcuts } from './AmountShortcuts';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
@@ -94,10 +92,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
-  // Built once per render, not per frame; harmless when `token` is undefined since it is only
-  // read from the `{token && ...}` branch below.
-  const formatAvailableBalance = balanceFormatterFor(token?.balance ?? 0);
-
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
@@ -151,7 +145,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           balance={token.balance}
           decimals={token.decimals}
           scaleIsKnown={scaleIsKnown}
-          maxAmount={formatBalance(balanceLowerBound(token.balance, token.decimals))}
           onAmountChange={value => {
             setShortcutSelection(selection => selection + 1);
             onAmountChange(value);
@@ -187,10 +180,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
                   {/* Keyed by token: a different token lands its balance, not a count from the last one. */}
                   {scaleIsKnown ? (
-                    <AnimatedNumber
+                    <TokenAmount
                       key={token.id}
-                      value={token.balance}
-                      format={value => `${t('available')} ${formatAvailableBalance(value)}`}
+                      amount={token.balance}
+                      prefix={`${t('available')} `}
+                      minimumFractionDigits={4}
+                      rounding="down"
+                      animated
                     />
                   ) : (
                     t('unknownTokenScale')

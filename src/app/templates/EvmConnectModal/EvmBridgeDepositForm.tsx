@@ -13,13 +13,13 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { evmQuote } from 'lib/prices/evm';
 import { useWalletStore } from 'lib/store';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
-import { balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
@@ -84,7 +84,6 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
           : 'raw_bridge_balance_failed'
         : errorId
       : null;
-  const balanceText = token.balance === null ? null : balanceFormatterFor(token.balance)(token.balance);
 
   return (
     <HomeGroupPaneBody
@@ -158,7 +157,12 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
               balanceUnreadable ? (
                 t('unavailable')
               ) : balanceReady ? (
-                `${t('available')} ${balanceText}`
+                <TokenAmount
+                  amount={token.balance}
+                  minimumFractionDigits={4}
+                  rounding="down"
+                  prefix={`${t('available')} `}
+                />
               ) : (
                 <Skeleton className="h-4 w-20" />
               )

@@ -1,7 +1,7 @@
 // The adaptive-precision helpers are pure and i18n-free, so the mock re-exports
 // the REAL implementation rather than restating it. Copying the logic here once
 // let the mock drift from the code it stands in for; importing it cannot.
-import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
+import { amountFormatterFor } from 'lib/i18n/amount-display';
 
 export {
   getAdaptiveDecimalPlaces,
@@ -15,14 +15,8 @@ export const formatFiat = (v: any) => String(v);
 export const formatPercentage = (v: any) => String(v);
 
 // Mirror the real usdFormatterFor and formatUsd so USD strings keep their exact shape in tests.
-export const usdFormatterFor = (target: number) => {
-  const decimalPlaces = getAdaptiveDecimalPlaces(target);
-  return (v: number) =>
-    `$${v.toLocaleString('en-US', {
-      minimumFractionDigits: decimalPlaces,
-      maximumFractionDigits: decimalPlaces
-    })}`;
-};
+export const usdFormatterFor = (target: number) =>
+  amountFormatterFor(target, { prefix: '$', grouping: true, trimTrailingZeros: false, minimumFractionDigits: 2 });
 export const formatUsd = (v: number) => usdFormatterFor(v)(v);
 // Mirrors the real stringToBigInt: scale by the decimals and round.
 export const stringToBigInt = (str: string, decimals: number): bigint =>

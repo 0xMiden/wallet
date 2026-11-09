@@ -488,12 +488,12 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → 150.12 USDC');
   });
 
-  // 12.345 reads 12.34 rounded down and 12.35 rounded up, so only the exact stored amount passes.
+  // Receipt estimates round down and do not add trailing zeros.
   it.each([
     ['12.00', '12'],
-    ['12.345', '12.345']
+    ['12.345', '12.34']
   ])(
-    'shows the stored "you receive" amount %s while in flight as %s, unpadded and unrounded',
+    'shows the stored "you receive" amount %s while in flight as %s with adaptive precision',
     (outputAmount, shown) => {
       mockRowState = {
         row: makeRow(makeInputs({ phase: 'delivering', outputAmount, outputSymbol: 'USDC' })),
@@ -559,7 +559,7 @@ describe('EvmBridgeDepositStatus', () => {
   });
 
   // Past ETH's six decimals: 0.0151235 reads 0.015123 rounded down and 0.015124 rounded up.
-  it('shows the Slow route amounts as typed, not rounded at the asset precision', () => {
+  it('keeps the Slow source amount exact and rounds the estimated receipt down', () => {
     mockRowState = {
       row: makeRow(
         makeInputs({
@@ -575,7 +575,7 @@ describe('EvmBridgeDepositStatus', () => {
     };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge').textContent).toBe('0.0151235 ETH → 0.0151235 ETH');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('0.0151235 ETH → 0.015123 ETH');
   });
 
   describe('testnet bridge USDC label', () => {

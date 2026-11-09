@@ -1,6 +1,6 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
-import { formatAmount } from 'lib/shared/format';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 
 import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes } from './fee-notes';
 import type { FeePaid } from './fee-notes';
@@ -88,5 +88,5 @@ export function feeTextFromTransaction(
   if (transaction.feeAmount === undefined) {
     return undefined;
   }
-  return `${formatAmount(transaction.feeAmount, decimals)} ${symbol}`;
+  return `${formatAmountDisplay(transaction.feeAmount, { decimals: decimals, rounding: 'up' })} ${symbol}`;
 }

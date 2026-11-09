@@ -17,7 +17,7 @@ import {
   type GuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryDismissal
 } from 'lib/guardian-note-recovery-progress';
-import { formatUsd } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -183,7 +183,8 @@ const markOwnFundingUnresolved = (address: string, requestedAt: number) =>
     }
   }).catch(error => console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error));
 
-const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
+const formatUsdTotal = (total: number | null): string | undefined =>
+  total === null ? undefined : formatAmountDisplay(total, { prefix: '$', grouping: true, trimTrailingZeros: false });
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 

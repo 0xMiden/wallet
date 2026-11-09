@@ -70,7 +70,7 @@ const outputLabel = (
     return amount === undefined ? symbol : `${amount} ${symbol}`;
   }
   if (!inputs.outputAmount) return 'Miden';
-  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${midenTokenLabel(bridgeConfig, row.faucetId, inputs.outputSymbol ?? '')}`.trim();
+  return `${formatMoneyAmount(inputs.outputAmount, 'receives', inputs.outputSymbol)} ${midenTokenLabel(bridgeConfig, row.faucetId, inputs.outputSymbol ?? '')}`.trim();
 };
 
 /**

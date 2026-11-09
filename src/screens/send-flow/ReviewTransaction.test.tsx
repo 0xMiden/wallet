@@ -888,7 +888,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {

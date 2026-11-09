@@ -19,7 +19,6 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
-
 import Explore from './Explore';
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
@@ -435,7 +434,7 @@ describe('Explore', () => {
 
         mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
         view.rerender(<Explore />);
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
@@ -613,7 +612,7 @@ describe('Explore', () => {
         await renderBeforeAnyPrice();
 
         expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its balance is zero', async () => {
@@ -624,7 +623,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its scale is unknown', async () => {
@@ -639,7 +638,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
     });
 

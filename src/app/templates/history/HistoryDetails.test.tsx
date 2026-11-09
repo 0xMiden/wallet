@@ -695,8 +695,8 @@ describe('HistoryDetails', () => {
       'Ethereum'
     );
     expect(formatAmount).toHaveBeenCalledWith(245000000n, 6);
-    expect(formatAmount).toHaveBeenCalledWith(240000000n, 6);
-    expect(formatAmount).toHaveBeenCalledWith(1000000n, 6);
+    expect(rowByLabel('oneClickMinimumOutput')).toHaveTextContent('240 MUSDC');
+    expect(rowByLabel('oneClickDepositAmount')).toHaveTextContent('1');
   });
 
   it('shows the friendly destination network name', async () => {
@@ -1697,7 +1697,7 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('created')?.textContent).toBe('1');
     });
 
-    it('returns the raw amount string when it is not a finite number (and omits fiat)', async () => {
+    it('shows a placeholder for an invalid amount and omits fiat', async () => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { formatAmount } = require('lib/shared/format');
       formatAmount.mockReturnValue('NaN');
@@ -1705,7 +1705,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       // The shared summary badge preserves the formatter's non-finite output.
-      expect(screen.getByText('NaN MID')).toBeInTheDocument();
+      expect(screen.getByText('— MID')).toBeInTheDocument();
       // formatFiatDisplayAmount → non-finite → undefined → no fiat line.
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
     });
@@ -1839,7 +1839,11 @@ describe('HistoryDetails', () => {
         const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
         // Which faucet gave the reader what: the asset and quantity it
         // contributed, not three bare ids under a hero that names one of them.
-        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', '10 BETA', '5 GAMMA']);
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual([
+          '0.00002 ALPHA',
+          '0.00001 BETA',
+          '0.000005 GAMMA'
+        ]);
         expect(rows.map(row => row.querySelector('[data-testid="hash-chip"]')?.textContent)).toEqual([
           'faucet-1',
           'faucet-2',
@@ -1887,7 +1891,7 @@ describe('HistoryDetails', () => {
         await renderAndLoad();
 
         const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
-        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', 'Unknown']);
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['0.00002 ALPHA', 'Unknown']);
       });
     });
   });
@@ -2067,7 +2071,7 @@ describe('HistoryDetails', () => {
       setMockRow(consumeTx({ faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n })); // 1234.567891 at 6 decimals.
       await renderAndLoad();
 
-      expect(screen.getByText('1234.567891 MID')).toBeInTheDocument();
+      expect(screen.getByText('1234.56 MID')).toBeInTheDocument();
       expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
     });
   });
@@ -2112,7 +2116,9 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
-      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_30_30_ IETH');
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent(
+        'swapAmountProgress_0.0000003_0.0000003_ IETH'
+      );
       expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('payback');
     });
 
@@ -2136,7 +2142,9 @@ describe('HistoryDetails', () => {
       // There is deliberately no fill-count meter: the lineage only tells us
       // how much remains, not how many fills the order will ultimately need.
       expect(screen.queryByTestId('swap-order-fill-rounds')).not.toBeInTheDocument();
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_1000_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.00001_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
 
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
@@ -2159,7 +2167,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
-      expect(within(screen.getByTestId('swap-order-hero')).getByText('1234.567891')).toBeInTheDocument();
+      expect(within(screen.getByTestId('swap-order-hero')).getByText('1234.57')).toBeInTheDocument();
       expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
     });
 
@@ -2235,7 +2243,9 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000006_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
     });
 
@@ -2273,7 +2283,9 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilledReclaimed');
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000004_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
     });
 
@@ -2489,7 +2501,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByText('swapReceivedAmount_685_ ETH')).toBeInTheDocument();
+      expect(screen.getByText('swapReceivedAmount_0.0000068_ ETH')).toBeInTheDocument();
       // Pin the scale of the timestamp, not just its presence: reading the
       // epoch-seconds field as milliseconds renders every fill at 1970 and a
       // prefix match cannot see it. Formatted here from the same instant so the
@@ -2574,7 +2586,9 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000006_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
       // 600 of 1000 is a partial fill, whatever the lineage would have said.
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
@@ -2616,7 +2630,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_0.00001_ ETH');
       expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
     });
 
@@ -2653,7 +2667,9 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000004_0.00001_ ETH'
+      );
     });
 
     it('keeps the claim route for a legacy order the wallet will never settle on its own', async () => {
@@ -2718,10 +2734,12 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000004_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
-      expect(screen.getByText('swapReceivedAmount_400_ ETH')).toBeInTheDocument();
+      expect(screen.getByText('swapReceivedAmount_0.000004_ ETH')).toBeInTheDocument();
     });
 
     it('reports the fill as unknown when a settlement consume never recorded its faucet', async () => {
@@ -2759,7 +2777,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_0.00001_ ETH');
       expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
     });
 
@@ -2782,7 +2800,9 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000004_0.00001_ ETH'
+      );
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilledReclaimed');
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
     });
@@ -2805,7 +2825,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_0.00001_ ETH');
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
     });
 
@@ -2826,7 +2846,9 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000004_0.00001_ ETH'
+      );
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
     });
 
@@ -2869,7 +2891,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_0.00001_ ETH');
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
     });
 
@@ -2894,7 +2916,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_0.00001_ ETH');
       expect(screen.getByTestId('swap-reclaimed-notes')).toHaveTextContent('original-pswap');
     });
 
@@ -2995,7 +3017,9 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_300_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000003_0.00001_ ETH'
+      );
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30');
       // The label has to agree with the bar: this is the ordinary outcome for a
       // manual-claim or restored wallet, and "Filled" over a 30% bar is the
@@ -3029,7 +3053,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_0.00001_ ETH');
       // An em dash beside a full-width empty bar reading "0%" still asserted
       // zero in every channel except the one word. Unknown progress draws no
       // bar and exposes no value to assistive technology.
@@ -3045,7 +3069,9 @@ describe('HistoryDetails', () => {
       // scale, not just the symbol, is observable in the rendered hero.
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { formatAmount } = require('lib/shared/format');
-      formatAmount.mockImplementation((amount: bigint, decimals?: number) => `${amount}@${decimals}`);
+      formatAmount.mockImplementation((amount: bigint, decimals?: number) =>
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
+      );
       mockGetSwapTokenByFaucetId.mockImplementation((id: string | undefined) =>
         id === 'faucet-1' ? { symbol: 'IETH', decimals: 8 } : { symbol: 'ETH', decimals: 8 }
       );
@@ -3057,9 +3083,9 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       const hero = screen.getByTestId('swap-order-card').textContent ?? '';
-      expect(hero).toContain('500@8');
+      expect(hero).toContain('0.000005');
       expect(hero).toContain('IETH');
-      expect(hero).not.toContain('500@6');
+      expect(hero).not.toContain('0.0005');
       expect(hero).not.toContain('MID');
     });
 
@@ -3071,7 +3097,9 @@ describe('HistoryDetails', () => {
       // two amount cells as an ordered pair.
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { formatAmount } = require('lib/shared/format');
-      formatAmount.mockImplementation((amount: bigint, decimals?: number) => `${amount}@${decimals}`);
+      formatAmount.mockImplementation((amount: bigint, decimals?: number) =>
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
+      );
       mockGetSwapTokenByFaucetId.mockImplementation((id: string | undefined) =>
         id === 'faucet-1' ? { symbol: 'IETH', decimals: 6 } : { symbol: 'ETH', decimals: 8 }
       );
@@ -3089,10 +3117,12 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600@8_1000@8_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe(
+        'swapAmountProgress_0.000006_0.00001_ ETH'
+      );
       // Read as an ordered pair: each side keeps its own scale AND its own
       // symbol, so neither can be reading the other's metadata.
-      expect(screen.getByTestId('swap-order-hero').textContent).toBe('500@6IETH1000@8ETH');
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.0005IETH0.00001ETH');
     });
 
     it('surfaces the failure reason and the raw error for a failed swap', async () => {
@@ -5328,7 +5358,7 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
     expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
-    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0_1000_ ETH');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0_0.00001_ ETH');
     expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
   });
@@ -5341,7 +5371,9 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
     expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusPartiallyFilled');
-    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent(
+      'swapAmountProgress_0.000006_0.00001_ ETH'
+    );
     expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
 
@@ -5443,7 +5475,9 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
     expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusPartiallyFilled');
-    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent(
+      'swapAmountProgress_0.000006_0.00001_ ETH'
+    );
     expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
 });

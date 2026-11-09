@@ -6,11 +6,10 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem, AssetListItemSkeleton } from 'components/ui/AssetListItem';
 import { Notice } from 'components/ui/Notice';
 import { SearchInput } from 'components/ui/SearchInput';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
@@ -132,8 +131,6 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
                   const scaleIsKnown = hasKnownScale(b.metadata);
                   const priceSymbol = priceSymbolFor(b.tokenId, b.metadata.symbol);
                   const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
-                  const formatQuantity = adaptiveFormatterFor(b.balance);
-                  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
                   const priceStatus = !scaleIsKnown
                     ? t('assetValueUnknownScale')
                     : fiatValue === undefined
@@ -153,15 +150,20 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
                       name={name}
                       amount={
                         scaleIsKnown ? (
-                          <AnimatedNumber value={b.balance} format={value => `${formatQuantity(value)} ${unit}`} />
+                          <TokenAmount
+                            amount={b.balance}
+                            symbol={unit}
+                            animated
+                            rounding="down"
+                            trimTrailingZeros={false}
+                            minimumFractionDigits={2}
+                          />
                         ) : (
                           unit
                         )
                       }
                       price={
-                        fiatValue === undefined ? undefined : (
-                          <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
-                        )
+                        fiatValue === undefined ? undefined : <UsdAmount amount={fiatValue} animated grouping={false} />
                       }
                       priceStatus={priceStatus}
                       data-testid={`send-token-${b.metadata.symbol}`}

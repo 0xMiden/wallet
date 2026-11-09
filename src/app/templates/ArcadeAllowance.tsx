@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useSyncExternalStore } from 'react';
 
-import { useTranslation } from 'react-i18next';
-
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasBalanceSnapshotForNetwork } from 'lib/miden/balance-snapshot';
 import { useTokensMetadata } from 'lib/miden/front/assets';
@@ -28,7 +27,6 @@ import { ArcadeCoinsCard } from './ArcadeCoinsCard';
 
 /** Existing export retained for the Coins route; weekly controls and service are no longer mounted. */
 export const ArcadeAllowance: React.FC = () => {
-  const { i18n } = useTranslation();
   const account = useAccount();
   const networks = useAllNetworks();
   const networkId = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
@@ -121,7 +119,7 @@ export const ArcadeAllowance: React.FC = () => {
     amount >= 0 &&
     (coin === undefined || (coin.metadata.decimals === 6 && !coin.metadata.scaleIsUnknown));
   const balance = known
-    ? new Intl.NumberFormat(i18n.resolvedLanguage ?? 'en', { maximumFractionDigits: 6 }).format(amount)
+    ? formatAmountDisplay(amount, { minimumFractionDigits: 6, grouping: true, rounding: 'down' })
     : null;
 
   return (

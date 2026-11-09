@@ -201,16 +201,16 @@ describe('ActivityRow', () => {
       expect(screen.getByText('+50.5')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim (sign absent)', () => {
+    it('shows a placeholder for an invalid value', () => {
       renderRow({ amount: { value: 'not-a-number' } });
 
-      expect(screen.getByText('not-a-number')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim even with a leading + sign', () => {
+    it('shows a placeholder for an invalid signed value', () => {
       renderRow({ amount: { value: '+abc' } });
 
-      expect(screen.getByText('+abc')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
     it('omits the symbol span when no symbol is provided', () => {

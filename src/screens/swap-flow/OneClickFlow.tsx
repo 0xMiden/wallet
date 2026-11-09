@@ -11,6 +11,7 @@ import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -787,7 +788,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     const formatFee = (raw: string | undefined, asset: OneClickAsset): string | undefined => {
       if (raw === undefined || !/^[0-9]+$/.test(raw)) return undefined;
       try {
-        return `${formatBigInt(BigInt(raw), asset.decimals)} ${asset.symbol}`;
+        return `${formatAmountDisplay(BigInt(raw), { decimals: asset.decimals, symbol: asset.symbol, rounding: 'up' })} ${asset.symbol}`;
       } catch {
         return undefined;
       }
@@ -935,7 +936,11 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             <DetailCard surface="fill">
               <DetailRow label={t('oneClickNetwork')}>{offerNetwork.name}</DetailRow>
               <DetailRow label={t('oneClickAmount')}>
-                {instruction.quote.amountInFormatted} {originAsset?.symbol}
+                {formatAmountDisplay(instruction.quote.amountInFormatted, {
+                  symbol: originAsset?.symbol,
+                  rounding: 'up'
+                })}{' '}
+                {originAsset?.symbol}
               </DetailRow>
               <DetailRow label={t('oneClickDepositAddress')} stacked>
                 {instruction.quote.depositAddress}

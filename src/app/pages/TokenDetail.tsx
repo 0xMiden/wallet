@@ -26,8 +26,8 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
-import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -117,8 +117,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
   const scaleIsKnown = hasKnownScale(metadata);
-  const formatBalance = adaptiveFormatterFor(balance ?? 0);
-  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
@@ -163,23 +161,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             value={
-              <AnimatedNumber
-                value={scaleIsKnown ? balance : null}
-                format={formatBalance}
-                // An em dash, not a translated phrase: this slot is a number in the hero,
-                // and the header above it already names the token.
-                placeholder="—"
-              />
+              <TokenAmount amount={scaleIsKnown ? balance : null} animated rounding="down" trimTrailingZeros={false} />
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
               scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
-                <AnimatedNumber
-                  value={fiatValue}
-                  format={value => `$${formatFiat(value)}`}
-                  // Same dash as the value above: this line hasn't priced anything yet either.
-                  placeholder="—"
-                />
+                <UsdAmount amount={fiatValue} animated grouping={false} />
               ) : undefined
             }
           />
@@ -310,8 +297,6 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const change = priceChange(priceInfo.percentageChange24h);
   // Pinned to the destination so the count keeps one shape.
   const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
-  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
-  const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
   // card, and a neutral `Pill` on a `fill` card would not show at all.
@@ -321,10 +306,12 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         {t('tokenPrice')}
       </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <AnimatedNumber
+        <UsdAmount
           className="min-w-0 truncate text-hero-value text-ink"
-          value={priceInfo.price}
-          format={formatPrice}
+          amount={priceInfo.price}
+          minimumFractionDigits={minimumFormatDecimals}
+          grouping={false}
+          animated
         />
         {/* The tone is the SHOWN change's, read once from the destination, so the pill does not
             change colour on its way there; the label follows each frame. */}
@@ -363,7 +350,13 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-xl bg-ink px-2 py-1 text-xs text-page">
-                      <div className="text-badge">${toAdaptiveFixed(point.value, minimumFormatDecimals)}</div>
+                      <div className="text-badge">
+                        <UsdAmount
+                          amount={point.value}
+                          minimumFractionDigits={minimumFormatDecimals}
+                          grouping={false}
+                        />
+                      </div>
                       {point.time && <div>{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

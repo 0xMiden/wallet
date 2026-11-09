@@ -144,7 +144,7 @@ describe('adaptive amount formatting', () => {
   it('clamps the expansion so far-below-cent values format instead of throwing', () => {
     expect(getAdaptiveDecimalPlaces(1e-30)).toBe(MAX_DISPLAY_DECIMAL_PLACES);
     expect(() => formatUsd(1e-30)).not.toThrow();
-    expect(formatUsd(1e-30)).toBe('$0.00000000000000000000');
+    expect(formatUsd(1e-30)).toBe('<$0.00000000000000000001');
     expect(toAdaptiveFixed('0.000000000000000000000001')).toBe('0.00000000000000000000');
   });
 
@@ -190,9 +190,9 @@ describe('adaptiveFormatterFor', () => {
 });
 
 describe('usdFormatterFor', () => {
-  it("holds the target's decimals for a frame formatUsd would widen", () => {
-    expect(formatUsd(13.0071)).toBe('$13.0071');
-    expect(usdFormatterFor(15.67)(13.0071)).toBe('$13.01');
+  it('holds the target precision for frames near zero', () => {
+    expect(formatUsd(0.005)).toBe('$0.0050');
+    expect(usdFormatterFor(1)(0.005)).toBe('$0.01');
   });
 
   it('keeps the $ prefix and en-US grouping of formatUsd', () => {

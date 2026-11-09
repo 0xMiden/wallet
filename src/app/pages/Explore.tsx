@@ -15,16 +15,10 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import {
-  AccountsDrawer,
-  AnimatedNumber,
-  AssetListItemSkeleton,
-  BalanceCard,
-  ErrorLine,
-  TextAction
-} from 'components/ui';
+import { AccountsDrawer, AssetListItemSkeleton, BalanceCard, ErrorLine, TextAction } from 'components/ui';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion, usePreset } from 'lib/animation';
-import { toLocalFormat } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -398,12 +392,6 @@ interface HomeOverviewProps {
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
-/**
- * The card's total: always two decimals, so a count never changes the number of them mid-flight.
- * No currency symbol: the card shows the currency as its own unit beside the amount.
- */
-const usdTotal = (value: number) => toLocalFormat(value, { decimalPlaces: 2 });
-
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
@@ -442,7 +430,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
               ) : (
                 // Keyed by the account: a switch lands on the new account's total instead of
                 // counting from the old one's (AnimatedNumber counts only within one subject).
-                <AnimatedNumber key={address} value={balance.toNumber()} format={usdTotal} />
+                <TokenAmount key={address} amount={balance.toNumber()} animated grouping trimTrailingZeros={false} />
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -454,7 +442,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             delta={
               change && pricesLoaded(tokenPrices, totalPriceSymbols)
                 ? {
-                    absolute: `${change.absolute < 0 ? '-' : '+'}$${usdTotal(Math.abs(change.absolute))}`,
+                    absolute: `${change.absolute < 0 ? '-' : '+'}$${formatAmountDisplay(Math.abs(change.absolute), { grouping: true, trimTrailingZeros: false })}`,
                     percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
                   }
                 : undefined
