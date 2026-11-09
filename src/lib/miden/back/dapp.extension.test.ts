@@ -12,11 +12,12 @@
  */
 
 import { NoteFilterTypes, NoteType, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
-import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import { type SignKind, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import * as noteQuarantine from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -389,7 +390,7 @@ describe('requestConfirm window-position fallback', () => {
               sourcePublicKey: 'miden-account-1',
               sourceAccountId: 'miden-account-1',
               payload: 'aGVsbG8=',
-              kind: 'word'
+              kind: 'signingInputs'
             })
             .then(
               () => 'approved',
@@ -415,7 +416,7 @@ describe('requestConfirm window-position fallback', () => {
       sourcePublicKey: 'miden-account-1',
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await new Promise(r => setTimeout(r, 0));
     expect(browser.windows.update).toHaveBeenCalled();
@@ -438,7 +439,7 @@ describe('requestConfirm window-position fallback', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'miden-account-1',
         payload: 'aGVsbG8=',
-        kind: 'word'
+        kind: 'signingInputs'
       } as never);
       await new Promise(r => setTimeout(r, 0));
       expect(listener).not.toBeNull();
@@ -499,7 +500,7 @@ describe('requestConfirm placement Chrome refuses', () => {
       sourcePublicKey: 'miden-account-1',
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
-      kind: 'word'
+      kind: 'signingInputs'
     });
   const connect = (origin: string) =>
     dapp.requestPermission(origin, {
@@ -730,7 +731,7 @@ describe('requestSign — extension flow', () => {
       sourcePublicKey: 'miden-account-1',
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     // Yield so requestConfirm can run far enough to register listeners
     await new Promise(r => setTimeout(r, 0));
@@ -747,7 +748,7 @@ describe('requestSign — extension flow', () => {
       sourcePublicKey: SIGNER_COMMITMENT_HEX,
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await new Promise(r => setTimeout(r, 0));
     // Find the listener and pull the registered id by handshaking through
@@ -783,7 +784,7 @@ describe('requestSign — extension flow', () => {
       sourcePublicKey: 'miden-account-1',
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await new Promise(r => setTimeout(r, 0));
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -1742,7 +1743,7 @@ describe('Full confirmation cycles in extension mode', () => {
             sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
-            kind: 'word'
+            kind: 'signingInputs'
           } as never),
         MidenMessageType.DAppSignConfirmationRequest,
         { confirmed: true }
@@ -1767,7 +1768,7 @@ describe('Full confirmation cycles in extension mode', () => {
         sourcePublicKey,
         sourceAccountId: 'miden-account-1',
         payload: 'aGVsbG8=',
-        kind: 'word'
+        kind: 'signingInputs'
       }) as never;
 
     const signWith = (sourcePublicKey: string) =>
@@ -1840,6 +1841,44 @@ describe('Full confirmation cycles in extension mode', () => {
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
 
       await expect(signRefused(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(signData).not.toHaveBeenCalled();
+    });
+  });
+
+  // The hot key signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. Every other
+  // request is refused before the popup opens, so the user never sees a request that the wallet will not sign.
+  describe('requestSign — the sign rule applies before the popup opens', () => {
+    // The SDK stub that `lib/miden/dapp-sign-inputs` reads; each case replaces its `SigningInputs` and restores it.
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const variant = (variantType: number) => ({ variantType, free: () => undefined });
+
+    it.each<[string, SignKind, { deserialize: () => unknown }]>([
+      ['a raw word', 'word', { deserialize: () => variant(1) }],
+      ['transaction summary signing inputs', 'signingInputs', { deserialize: () => variant(0) }],
+      ['blind signing inputs', 'signingInputs', { deserialize: () => variant(2) }]
+    ])('refuses %s', async (_label, kind, signingInputs) => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'fake-signature-base64');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+      const defaultSigningInputs = sdk.SigningInputs;
+      sdk.SigningInputs = signingInputs;
+
+      try {
+        const refusal = dapp.requestSign('https://miden.xyz', {
+          type: MidenDAppMessageType.SignRequest,
+          sourcePublicKey: SIGNER_COMMITMENT_HEX,
+          sourceAccountId: 'miden-account-1',
+          payload: 'aGVsbG8=',
+          kind
+        });
+        await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+      } finally {
+        sdk.SigningInputs = defaultSigningInputs;
+      }
+      expect(create).not.toHaveBeenCalled();
       expect(signData).not.toHaveBeenCalled();
     });
   });
@@ -2454,7 +2493,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
             sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
-            kind: 'word'
+            kind: 'signingInputs'
           } as never),
         MidenMessageType.DAppSignConfirmationRequest,
         { confirmed: true }
@@ -2479,7 +2518,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
             sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
-            kind: 'word'
+            kind: 'signingInputs'
           }),
         MidenMessageType.DAppSignConfirmationRequest,
         { confirmed: true }
@@ -2505,7 +2544,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
             sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
-            kind: 'word'
+            kind: 'signingInputs'
           }),
         MidenMessageType.DAppSignConfirmationRequest,
         { confirmed: true }

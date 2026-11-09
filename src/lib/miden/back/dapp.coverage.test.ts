@@ -380,7 +380,7 @@ describe('requestSign', () => {
         sourcePublicKey: 'unknown',
         sourceAccountId: 'unknown',
         payload: 'data',
-        kind: 'word'
+        kind: 'signingInputs'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });

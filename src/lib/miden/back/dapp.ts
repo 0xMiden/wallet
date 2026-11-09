@@ -1,13 +1,11 @@
 import {
+  getWasmOrThrow,
   Note,
   NoteFile,
   NoteFilterTypes,
   NoteType,
-  SigningInputs,
-  SigningInputsType,
   TransactionRequest,
-  type NoteQuery,
-  type TransactionSummary
+  type NoteQuery
 } from '@miden-sdk/miden-sdk/lazy';
 import {
   AllowedPrivateData,
@@ -25,7 +23,6 @@ import {
   declaredTransactionRequestToView,
   netOutflowByFaucet,
   simulatedBytesToView,
-  summaryToView,
   type AssetAmount,
   type TxAssetView
 } from 'app/confirm/decode';
@@ -70,10 +67,13 @@ import {
   type DAppConfirmationResult,
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
+import { getMessage } from 'lib/i18n';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
@@ -742,12 +742,22 @@ export async function requestSign(
     throw new Error(`${MidenDAppErrorType.NotGranted}: signing key is not the connected account's key`);
   }
 
+  // Every wallet account is a Guardian account, and its hot key signs only `Arbitrary` signing inputs whose
+  // preimage has no protocol message layout (see `signableArbitraryElements`). Refuse all other requests here,
+  // before any prompt, so that the user never sees a request that the wallet will not sign. The vault applies
+  // the same rule again at sign time. The service worker loads the WASM module only on demand.
+  await getWasmOrThrow();
+  const messageElements = signableArbitraryElements(req.kind, req.payload);
+  if (messageElements === undefined) {
+    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
+  }
+
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
   // unhandled rejection and leave the dApp's promise unsettled forever (the
   // caller only ever sees the injection script's 5-minute "Request timeout").
   return new Promise((resolve, reject) => {
-    generatePromisifySign(resolve, reject, origin, dApp, req, sessionId).catch(reject);
+    generatePromisifySign(resolve, reject, origin, dApp, req, messageElements.length, sessionId).catch(reject);
   });
 }
 
@@ -757,6 +767,7 @@ const generatePromisifySign = async (
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest,
+  messageLength: number,
   sessionId?: string
 ) => {
   const id = nanoid();
@@ -777,7 +788,7 @@ const generatePromisifySign = async (
         origin,
         dApp,
         networkRpc,
-        await formatSignPreview(req),
+        formatSignPreview(req, messageLength),
         sessionId,
         waits.deadline
       );
@@ -3685,14 +3696,6 @@ async function formatMaxNetworkFee(): Promise<string | null> {
 }
 
 /**
- * Shown when the wallet cannot tell the user what a signature authorizes. Same
- * meaning as the extension's `OpaqueSignatureWarning` alert, as a text row: the
- * mobile modal and the desktop overlay render a plain string list.
- */
-const OPAQUE_SIGNATURE_WARNING =
-  'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
-
-/**
  * Asset movement of a decoded transaction view, as `Label, value` rows.
  *
  * The extension renders the same `TxAssetView` graphically
@@ -3746,49 +3749,17 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
 /**
  * What the mobile modal / desktop overlay show for `signBytes`.
  *
- * A `signingInputs` payload is a full TRANSACTION authorization — `Vault.signData`
- * runs `wasmSecretKey.signData(SigningInputs.deserialize(...))` on it — so
- * approving one can move the whole balance. The extension decodes it
- * (`SigningInputsPayloadContent` in ConfirmPage) and renders the summary's asset
- * movement; off-extension `signBytes` had no approval sheet at all — it fell into
- * `requestConfirm`'s throw and the dApp's promise never settled (see
- * `confirmOnNonExtension`). These rows are the first thing mobile and desktop show
- * for it, and they are that same decode as text: the summary's real asset movement
- * when the payload carries one, and the explicit opaque-signature warning for the
- * `Arbitrary` / `Blind` variants, for the other `SignKind` (`word`, a raw digest),
- * and for bytes that do not decode at all — mirroring the extension's
- * `OpaqueSignatureWarning`.
- *
- * The summary is ground truth for the signature: it is the very value being
- * signed, not a dApp-declared description of it.
+ * `requestSign` refuses every request but `Arbitrary` signing inputs whose preimage has no protocol message
+ * layout, before the prompt. So a request that reaches the prompt is always a message of `messageLength` field
+ * elements, and these rows say so with the same text as the extension's message alert (`SignMessageContent` in
+ * ConfirmPage).
  */
-async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
-  const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
-  if (req.kind !== 'signingInputs') {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
-    return rows;
-  }
-
-  let summary: TransactionSummary | undefined;
-  try {
-    const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
-    if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
-      summary = signingInputs.transactionSummaryPayload();
-    }
-  } catch (e) {
-    // An undecodable payload is not a reason to refuse — it is a reason to say
-    // so. The user still gets the warning row below instead of a bare "Kind".
-    console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', e);
-  }
-
-  if (!summary) {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
-    return rows;
-  }
-
-  rows.push('Signing, a transaction that moves these assets');
-  rows.push(...(await formatAssetViewRows(summaryToView(summary))));
-  return rows;
+function formatSignPreview(req: MidenDAppSignRequest, messageLength: number): string[] {
+  return [
+    `Kind, ${req.kind}`,
+    `Account, ${truncateAddress(req.sourcePublicKey)}`,
+    getMessage('signMessageWarning', { count: messageLength })
+  ];
 }
 
 /**

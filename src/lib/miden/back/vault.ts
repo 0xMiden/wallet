@@ -33,6 +33,8 @@ import {
   savePlain,
   STORAGE_ITEM_NOT_FOUND
 } from 'lib/miden/back/safe-storage';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
@@ -2507,10 +2509,15 @@ export class Vault {
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
       );
     }
-    const bytes = b64ToU8(data);
+    // The hot key signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The dApp
+    // request path refuses all other requests before the prompt; this check refuses them again at sign time.
+    await getWasmOrThrow();
+    if (signableArbitraryElements(signKind, data) === undefined) {
+      throw new PublicError(DAPP_SIGN_RULE);
+    }
     // The SDK defines signData(inputs) as sign(inputs.toCommitment()), so signing that word with the hot key gives
     // the signature a single-key account returns. The native hot-key plugins sign only 32-byte words.
-    const wordHex = signKind === 'signingInputs' ? signingInputsCommitmentHex(bytes) : `0x${bytesToHex(bytes)}`;
+    const wordHex = signingInputsCommitmentHex(b64ToU8(data));
     const sigHex = await this.signWord(account.hotPublicKey, wordHex);
     // `signWord` strips the ECDSA scheme tag; `signBytes` returns the full serialized Signature, as the default
     // path does, and consumers such as MidenWalletSigner strip the tag themselves.

@@ -51,10 +51,11 @@ import { expect, test } from '../fixtures/extension';
  *    {@link EXPECTED_AMOUNT_ROW}.
  */
 
-/** A syntactically valid Word: four small field elements, little-endian u64s. */
-const SIGN_WORD_BYTES = [
-  1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0
-];
+/**
+ * The preimage of the arbitrary signing inputs the page asks to have signed: the only sign request the wallet
+ * accepts. The approval screen lists these elements under its "Raw value" disclosure.
+ */
+const SIGN_PREIMAGE = [1n, 2n, 3n, 4n];
 
 /**
  * Fixed dApp-requested send. Distinct, non-symmetric strings so a substituted
@@ -159,11 +160,11 @@ const pageConnect = async (): Promise<ConnectOutcome> => {
   }
 };
 
-/** Page-side: `signBytes(word)`. */
+/** Page-side: `signBytes(signingInputs)`, with the serialized signing inputs as bytes. */
 const pageSignBytes = async (bytes: number[]): Promise<SignOutcome> => {
   const provider = (window as unknown as { midenWallet: InjectedProvider }).midenWallet;
   try {
-    await provider.signBytes(new Uint8Array(bytes), 'word');
+    await provider.signBytes(new Uint8Array(bytes), 'signingInputs');
     return { ok: true, name: '', message: '' };
   } catch (e) {
     const err = e as { name?: string; message?: string };
@@ -402,21 +403,22 @@ test.describe('dApp provider', () => {
     expect(connected.address).toBe(walletAddress);
 
     // ── the signing prompt, and declining it ───────────────────────────────
+    // The payload is built here with the SDK directly, from SIGN_PREIMAGE.
+    const sdk = await loadMidenSdk();
+    const signBytes = Array.from(
+      sdk.SigningInputs.newArbitrary(SIGN_PREIMAGE.map(value => new sdk.Felt(value))).serialize()
+    );
     const signPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
-    const declinedCall = dapp.evaluate(pageSignBytes, SIGN_WORD_BYTES);
+    const declinedCall = dapp.evaluate(pageSignBytes, signBytes);
     const signPopup = await waitForConfirmForm(await signPopupPromise, CONFIRM_TESTID.signDecline, 15_000);
 
     await expect(signPopup.getByTestId('confirm-request-origin')).toHaveText(FIXTURE_DAPP_ORIGIN);
 
-    // The digest on screen must be the digest the dApp asked to have signed.
-    // Expanded from the "Raw value" disclosure; the expected hex is computed
-    // here from the same bytes the page sent, via the SDK directly, so a
-    // wallet-side mix-up (wrong payload rendered, or a stale request's digest
-    // shown for this one) fails.
-    const sdk = await loadMidenSdk();
-    const expectedWordHex = sdk.Word.deserialize(new Uint8Array(SIGN_WORD_BYTES)).toHex();
+    // The message on screen must be the preimage the dApp asked to have signed.
+    // Expanded from the "Raw value" disclosure, so a wallet-side mix-up (wrong
+    // payload rendered, or a stale request's message shown for this one) fails.
     await signPopup.getByTestId('advanced-details-toggle').click({ timeout: 15_000 });
-    await expect(signPopup.getByTestId('advanced-details-content')).toHaveText(expectedWordHex);
+    await expect(signPopup.getByTestId('advanced-details-content')).toHaveText(SIGN_PREIMAGE.join(', '));
 
     await clickConfirmAction(signPopup, CONFIRM_TESTID.signDecline, 15_000);
     const declined = await declinedCall;

@@ -2,8 +2,7 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
-import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
+import { PrivateDataPermission, type SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -21,11 +20,11 @@ import { TxStory } from 'components/tx-stage/TxStory';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
@@ -37,8 +36,8 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
+import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
@@ -102,40 +101,32 @@ function downloadData(filename: string, data: string) {
   document.body.removeChild(link);
 }
 
-function downloadBytes(filename: string, data: Uint8Array, mimeType = 'application/octet-stream') {
-  const blob = data instanceof Blob ? data : new Blob([data as BlobPart], { type: mimeType });
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-
-  try {
-    a.click();
-  } finally {
-    a.remove();
-    // Give the browser a microtask to start the download before revoking
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-}
-
-const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
-  useUserVisibleError(errorId, 'inline');
-  return <>{value}</>;
-};
-
-const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
-  rawValue,
-  errorId
-}) => {
+/**
+ * The content of a dApp `signBytes` request. The hot key signs only `Arbitrary` signing inputs whose preimage has no
+ * protocol message layout (`signableArbitraryElements`), and the service worker refuses all other requests before
+ * this page opens. This page shows such a request as a message of field elements, with the elements under the
+ * advanced details. It shows a refusal for any other request, because the wallet will not sign it.
+ */
+const SignMessageContent: FC<{ kind: SignKind; payload: string }> = ({ kind, payload }) => {
   const { t } = useTranslation();
+  const elements = useMemo(() => signableArbitraryElements(kind, payload), [kind, payload]);
+
+  if (!elements) {
+    return (
+      <Alert type="error" title={t('signRequestRefusedTitle')} description={t('signRequestRefused')} className="my-2" />
+    );
+  }
+
   return (
     <>
-      <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
+      <Alert
+        type="warn"
+        title={t('signMessageTitle')}
+        description={t('signMessageWarning', { count: elements.length })}
+        className="my-2"
+      />
       <AdvancedDetails label={t('rawValue')}>
-        <SignatureRawValue value={rawValue} errorId={errorId} />
+        <span className="break-all">{elements.join(', ')}</span>
       </AdvancedDetails>
     </>
   );
@@ -175,35 +166,11 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
   let content: string | React.ReactNode = t('noPreview');
 
   switch (payload.type) {
-    case 'sign': {
-      const bytes = b64ToU8(payload.payload);
-
-      switch (payload.kind) {
-        case 'word': {
-          let wordHex = t('invalidPayload');
-          let wordErrorId: UserErrorId | null = null;
-          try {
-            const word = Word.deserialize(bytes);
-            wordHex = word.toHex();
-          } catch (e) {
-            wordErrorId = 'invalidPayload';
-            console.error('Failed to deserialize payload for sign:', e);
-          }
-          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
-          break;
-        }
-
-        case 'signingInputs': {
-          console.log('Signing inputs payload', bytes);
-          content = <SigningInputsPayloadContent bytes={bytes} />;
-          break;
-        }
-      }
-
+    case 'sign':
+      content = <SignMessageContent kind={payload.kind} payload={payload.payload} />;
       break;
-    }
 
-    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
+    // The login key signs only sign-ins to its own site, so a login shows no message-signature warning.
     case 'loginSign':
       content = (
         <>
@@ -356,58 +323,6 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       <div className="text-sm text-ink">{error ? error : content}</div>
     </div>
   );
-};
-
-const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
-  const { t } = useTranslation();
-
-  const signingInputs = useMemo(() => {
-    try {
-      return SigningInputs.deserialize(bytes);
-    } catch (e) {
-      console.error('Failed to deserialize payload for sign:', e);
-      return null;
-    }
-  }, [bytes]);
-
-  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
-
-  if (!signingInputs) {
-    return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
-  }
-
-  switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary: {
-      const summary = signingInputs.transactionSummaryPayload();
-      let noteFlow: NoteFlow | undefined;
-      try {
-        noteFlow = noteFlowFromTransaction(summary);
-      } catch (noteError) {
-        console.error('Signing summary note details unavailable:', noteError);
-      }
-      return (
-        <TransactionAssetView
-          view={summaryToView(summary)}
-          noteFlow={noteFlow}
-          mode="verified"
-          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
-        />
-      );
-    }
-    case SigningInputsType.Arbitrary:
-    case SigningInputsType.Blind:
-      return (
-        <OpaqueSignatureWarning
-          rawValue={
-            signingInputs.variantType === SigningInputsType.Arbitrary
-              ? t('signArbitraryPayload')
-              : t('signBlindCommitment')
-          }
-        />
-      );
-    default:
-      return <div className="text-md text-center my-6">{t('noPreview')}</div>;
-  }
 };
 
 const CustomTransactionContent: React.FC<{

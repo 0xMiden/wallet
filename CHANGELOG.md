@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [CHANGE][all] dApp signing: the hot key signs only arbitrary signing inputs that carry their preimage, and the wallet refuses every other `signBytes` request before it asks for approval.
+
 ## 1.17.11 (TBD)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.

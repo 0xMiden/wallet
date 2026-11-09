@@ -9,6 +9,7 @@
  *   - `tryHardwareUnlock` success path (returns a Vault)
  */
 
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import * as Passworder from 'lib/miden/passworder';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletType } from 'screens/onboarding/types';
@@ -131,8 +132,14 @@ const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
 }));
 const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
 const mockSigningInputsDeserialize = jest.fn((bytes: Uint8Array) => ({
-  // The discriminant byte stands in for the variant: each variant's commitment differs, so the test can tell
-  // which input was reduced.
+  // The discriminant byte stands in for the variant (0 summary, 1 arbitrary, 2 blind, as `SigningInputsType`), and
+  // the other bytes are the preimage elements. Each variant's commitment differs, so the test can tell which input
+  // was reduced.
+  variantType: bytes[0] ?? 0,
+  toElements: () => {
+    const elements = Array.from(bytes.slice(1), byte => ({ asInt: () => BigInt(byte), free: jest.fn() }));
+    return { length: () => elements.length, get: (index: number) => elements[index], free: jest.fn() };
+  },
   toCommitment: () => ({
     toHex: () => `0x${(bytes[0] ?? 0).toString(16).padStart(2, '0').repeat(32)}`,
     free: jest.fn()
@@ -156,6 +163,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
     },
     SigningInputs: { deserialize: (bytes: Uint8Array) => mockSigningInputsDeserialize(bytes) },
+    SigningInputsType: { TransactionSummary: 0, Arbitrary: 1, Blind: 2 },
     Word: { deserialize: jest.fn(() => ({})), fromHex: (h: string) => mockWordFromHex(h) },
     AccountBuilder: jest.fn().mockImplementation(() => {
       const built = {
@@ -282,15 +290,15 @@ describe('Vault instance signData - Guardian account', () => {
     return vault;
   }
 
-  it('signs a word digest via the hot key when routed by accountId', async () => {
+  it('signs arbitrary signing inputs via the hot key when routed by accountId', async () => {
     const vault = await seedGuardianVault();
 
-    // The 32-byte digest the dApp passes to signBytes(kind: 'word'), base64-encoded.
-    const data = u8ToB64(new Uint8Array(32).fill(0xab));
+    // Arbitrary signing inputs (discriminant 0x01) with a three-element preimage, base64-encoded.
+    const data = u8ToB64(new Uint8Array([0x01, 0x0a, 0x0b, 0x0c]));
     // The commitment the dApp received at connect: the hot key's, with a decoy stored under it.
     const commitment = HOT_COMMITMENT;
 
-    const sig = await vault.signData(commitment, data, 'word', GUARDIAN_ADDR);
+    const sig = await vault.signData(commitment, data, 'signingInputs', GUARDIAN_ADDR);
 
     // signBytes must return the FULL serialized Signature (scheme tag + raw sig), matching the
     // default path and what @openzeppelin's MidenWalletSigner expects — it strips the leading tag
@@ -300,8 +308,21 @@ describe('Vault instance signData - Guardian account', () => {
     const returned = b64ToU8(sig);
     expect(returned[0]).toBe(0x01); // ECDSA Signature scheme tag
     expect(Array.from(returned.slice(1))).toEqual([0xaa, 0xbb, 0xcc]); // raw sig after MidenWalletSigner strips the tag
-    // Signed the exact word it was handed, via the hot (secure-hot-key) path.
-    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'ab'.repeat(32)}`);
+    // Signed the commitment of the signing inputs, via the hot (secure-hot-key) path.
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'01'.repeat(32)}`);
+  });
+
+  it('refuses a word request with the sign rule and signs nothing', async () => {
+    const vault = await seedGuardianVault();
+    mockAuthSecretKeyDeserialize.mockClear();
+
+    const data = u8ToB64(new Uint8Array(32).fill(0xab));
+
+    const refusal = vault.signData(HOT_COMMITMENT, data, 'word', GUARDIAN_ADDR);
+    await expect(refusal).rejects.toThrow(PublicError);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockWordFromHex).not.toHaveBeenCalled();
+    expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
   });
 
   it('throws a clear error for a Guardian account whose device (hot) key is not active yet', async () => {
@@ -343,23 +364,34 @@ describe('Vault instance signData - Guardian account', () => {
     expect(sig).toBe(u8ToB64(new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])));
   });
 
-  it.each([
-    ['arbitrary', 0x01],
-    ['summary', 0x00],
-    ['blind', 0x02]
-  ])('signs %s signing inputs with the hot key over their commitment', async (_variant, discriminant) => {
+  it('signs arbitrary signing inputs with the hot key over their commitment', async () => {
     const vault = await seedGuardianVault();
-    const payload = new Uint8Array([discriminant, 0x10, 0x20]);
+    const payload = new Uint8Array([0x01, 0x10, 0x20]);
     mockAuthSecretKeyDeserialize.mockClear();
 
     const sig = await vault.signData(HOT_COMMITMENT, u8ToB64(payload), 'signingInputs', GUARDIAN_ADDR);
 
     expect(Array.from(b64ToU8(sig))).toEqual([0x01, 0xaa, 0xbb, 0xcc]);
-    const commitmentHex = `0x${discriminant.toString(16).padStart(2, '0').repeat(32)}`;
-    expect(mockWordFromHex).toHaveBeenCalledWith(commitmentHex);
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'01'.repeat(32)}`);
     // Only the hot ciphertext (0a0b0c) is ever deserialized, never the decoy (dec0de) under the commitment.
     const deserialized = mockAuthSecretKeyDeserialize.mock.calls.map(([bytes]) => Buffer.from(bytes!).toString('hex'));
     expect(deserialized).toEqual(['0a0b0c']);
+  });
+
+  it.each([
+    ['transaction summary signing inputs', new Uint8Array([0x00, 0x10, 0x20])],
+    ['blind signing inputs', new Uint8Array([0x02, 0x10, 0x20])],
+    // Arbitrary, 24 elements, the first is 1: the layout of `TransactionSummary::to_elements`.
+    ['an arbitrary preimage with the transaction summary layout', new Uint8Array([0x01, 0x01, ...Array(23).fill(0x07)])]
+  ])('refuses %s with the sign rule and signs nothing', async (_case, payload) => {
+    const vault = await seedGuardianVault();
+    mockAuthSecretKeyDeserialize.mockClear();
+
+    const refusal = vault.signData(HOT_COMMITMENT, u8ToB64(payload), 'signingInputs', GUARDIAN_ADDR);
+    await expect(refusal).rejects.toThrow(PublicError);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockWordFromHex).not.toHaveBeenCalled();
+    expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
   });
 
   it.each(['word', 'signingInputs'] as const)(
@@ -379,11 +411,11 @@ describe('Vault instance signData - Guardian account', () => {
     ['base64 of its 32 bytes', (hex: string) => u8ToB64(new Uint8Array(Buffer.from(hex, 'hex')))],
     ['uppercase 0X hex', (hex: string) => `0X${hex.toUpperCase()}`]
   ])('with the commitment as %s', (_encoding, encode) => {
-    it.each(['word', 'signingInputs'] as const)('signs a %s request with the hot key', async kind => {
+    it('signs a signingInputs request with the hot key', async () => {
       const vault = await seedGuardianVault();
       const data = u8ToB64(new Uint8Array(32).fill(0x01));
 
-      await expect(vault.signData(encode(HOT_COMMITMENT), data, kind, GUARDIAN_ADDR)).resolves.toBe(
+      await expect(vault.signData(encode(HOT_COMMITMENT), data, 'signingInputs', GUARDIAN_ADDR)).resolves.toBe(
         u8ToB64(new Uint8Array([0x01, 0xaa, 0xbb, 0xcc]))
       );
     });
