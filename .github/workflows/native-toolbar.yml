@@ -13,7 +13,10 @@ permissions:
 jobs:
   native-toolbar:
     name: Native toolbar
-    runs-on: ubuntu-latest
+    # The locator reads Chromium's native toolbar through AT-SPI. On the ubuntu-26.04
+    # image (ubuntu-latest since 2026-11-08) it finds no single Bread button with the
+    # same browser, so the job stays on the image where the locator was verified.
+    runs-on: ubuntu-24.04
     environment: ${{ inputs.environment }}
     steps:
       - name: Check Out Code
