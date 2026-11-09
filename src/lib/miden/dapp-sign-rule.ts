@@ -25,28 +25,49 @@ export const TRANSACTION_SUMMARY_VERSION = 1n;
 export const GUARDIAN_LOOKUP_ELEMENT_COUNT = 9;
 
 /**
- * The Guardian lookup-auth domain tag as four field elements: `domainTagWord('guardian.lookup.v1')` in
- * `@openzeppelin/miden-multisig-client` (`lookupAuth.js`). The package does not export the tag, so it is written
- * here. `dapp-sign-inputs.real-sdk.test.ts` derives it again on the real SDK and pins it against `lookupAuthDigest`.
+ * The domain string of the Guardian lookup-auth tag. It mirrors `DOMAIN_TAG_BYTES` in
+ * `@openzeppelin/miden-multisig-client/dist/lookupAuth.js`. The package does not export the tag, so
+ * `dapp-sign-inputs.ts` derives it from this string as the package does (`domainTagWord` in `dist/utils/felt.js`).
  */
-export const GUARDIAN_LOOKUP_DOMAIN_TAG: readonly bigint[] = [
-  12760442403760176969n,
-  2807383406242250561n,
-  12812781962877582355n,
-  4063594356491030589n
-];
+export const GUARDIAN_LOOKUP_DOMAIN_STRING = 'guardian.lookup.v1';
+
+/** The Goldilocks field order (`2^64 - 2^32 + 1`), as `FELT_ORDER` in the multisig client's `dist/utils/felt.js`. */
+const FELT_ORDER = 0xffffffff00000001n;
+
+/**
+ * The field elements that `domainTagWord` hashes for `domain`: its UTF-8 bytes packed as 8-byte little-endian
+ * values, the last one padded with zeros, each one reduced modulo the field order (`feltFromU64Reduced`).
+ */
+export function domainTagPreimage(domain: string): bigint[] {
+  const bytes = new TextEncoder().encode(domain);
+  const elements: bigint[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 8) {
+    let value = 0n;
+    for (let index = 0; index < 8; index += 1) {
+      value |= BigInt(bytes[offset + index] ?? 0) << BigInt(8 * index);
+    }
+    elements.push(value % FELT_ORDER);
+  }
+  return elements;
+}
+
+/** The domain tags that `isProtocolMessageLayout` compares a preimage with. */
+export interface ProtocolTags {
+  /** The Guardian lookup-auth domain tag as four field elements. */
+  readonly guardianLookup: readonly bigint[];
+}
 
 /**
  * True when `elements` has the layout of a protocol message that the hot key must not sign as arbitrary inputs:
  * a transaction summary (24 elements, the first is version 1) or a Guardian lookup-auth message (9 elements, the
- * first four are the lookup domain tag).
+ * first four are the lookup domain tag in `tags`).
  */
-export function isProtocolMessageLayout(elements: readonly bigint[]): boolean {
+export function isProtocolMessageLayout(elements: readonly bigint[], tags: ProtocolTags): boolean {
   switch (elements.length) {
     case TRANSACTION_SUMMARY_ELEMENT_COUNT:
       return elements[0] === TRANSACTION_SUMMARY_VERSION;
     case GUARDIAN_LOOKUP_ELEMENT_COUNT:
-      return GUARDIAN_LOOKUP_DOMAIN_TAG.every((tagElement, index) => elements[index] === tagElement);
+      return tags.guardianLookup.every((tagElement, index) => elements[index] === tagElement);
     default:
       return false;
   }

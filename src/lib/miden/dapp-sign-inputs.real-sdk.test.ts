@@ -65,7 +65,22 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     free: () => undefined
   });
+  // The napi binding takes plain arrays where the browser binding takes a FeltArray, and has no such class.
+  function FeltArray(items: NativeFelt[]) {
+    return [...items];
+  }
   return {
+    Felt: addon.Felt,
+    FeltArray,
+    Rpo256: {
+      hashElements: (felts: NativeFelt[]) => {
+        const word = addon.Rpo256.hashElements(felts);
+        return {
+          toFelts: () => word.toFelts().map(felt => ({ asInt: () => felt.asInt(), free: () => undefined })),
+          free: () => undefined
+        };
+      }
+    },
     SigningInputs: { deserialize: (bytes: Uint8Array) => browserShape(addon.SigningInputs.deserialize(bytes)) },
     SigningInputsType: addon.SigningInputsType
   };
@@ -73,12 +88,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 import { u8ToB64 } from 'lib/shared/helpers';
 
-import { signableArbitraryElements } from './dapp-sign-inputs';
-import {
-  GUARDIAN_LOOKUP_DOMAIN_TAG,
-  GUARDIAN_LOOKUP_ELEMENT_COUNT,
-  TRANSACTION_SUMMARY_ELEMENT_COUNT
-} from './dapp-sign-rule';
+import { protocolTags, signableArbitraryElements } from './dapp-sign-inputs';
+import { GUARDIAN_LOOKUP_ELEMENT_COUNT, TRANSACTION_SUMMARY_ELEMENT_COUNT } from './dapp-sign-rule';
+
+/** The Guardian lookup domain tag as `domainTagWord('guardian.lookup.v1')` in the multisig client computes it. */
+const KNOWN_LOOKUP_TAG = [12760442403760176969n, 2807383406242250561n, 12812781962877582355n, 4063594356491030589n];
 
 const sdk = mockNativeSdk();
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -118,7 +132,7 @@ describe('signableArbitraryElements on the real SDK', () => {
   });
 
   it('refuses a preimage with the Guardian lookup layout and accepts one with another tag', () => {
-    const lookup = [...GUARDIAN_LOOKUP_DOMAIN_TAG, 1_700_000_000_000n, 5n, 6n, 7n, 8n];
+    const lookup = [...KNOWN_LOOKUP_TAG, 1_700_000_000_000n, 5n, 6n, 7n, 8n];
     expect(lookup).toHaveLength(GUARDIAN_LOOKUP_ELEMENT_COUNT);
     expect(signableArbitraryElements('signingInputs', arbitraryPayload(lookup))).toBeUndefined();
 
@@ -128,22 +142,9 @@ describe('signableArbitraryElements on the real SDK', () => {
   });
 });
 
-describe('GUARDIAN_LOOKUP_DOMAIN_TAG', () => {
-  it('is the RPO hash of "guardian.lookup.v1" packed as 8-byte little-endian elements', () => {
-    // The packing of `domainTagWord` in @openzeppelin/miden-multisig-client (`utils/felt.js`).
-    const bytes = new TextEncoder().encode('guardian.lookup.v1');
-    const felts: NativeFelt[] = [];
-    for (let offset = 0; offset < bytes.length; offset += 8) {
-      let value = 0n;
-      for (let index = 0; index < 8; index += 1) {
-        value |= BigInt(bytes[offset + index] ?? 0) << BigInt(8 * index);
-      }
-      felts.push(new sdk.Felt(value));
-    }
-    const tag = sdk.Rpo256.hashElements(felts)
-      .toFelts()
-      .map(felt => felt.asInt());
-    expect(tag).toEqual([...GUARDIAN_LOOKUP_DOMAIN_TAG]);
+describe('the derived Guardian lookup domain tag', () => {
+  it('is the known vector of domainTagWord("guardian.lookup.v1")', () => {
+    expect(protocolTags().guardianLookup).toEqual(KNOWN_LOOKUP_TAG);
   });
 
   it('is the tag that lookupAuthDigest in @openzeppelin/miden-multisig-client hashes', () => {
@@ -165,7 +166,7 @@ describe('GUARDIAN_LOOKUP_DOMAIN_TAG', () => {
     );
 
     const message = [
-      ...GUARDIAN_LOOKUP_DOMAIN_TAG.map(value => new sdk.Felt(value)),
+      ...protocolTags().guardianLookup.map(value => new sdk.Felt(value)),
       new sdk.Felt(timestampMs),
       ...sdk.Word.fromHex(keyCommitmentHex).toFelts()
     ];

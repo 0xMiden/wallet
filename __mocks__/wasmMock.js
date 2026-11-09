@@ -92,12 +92,23 @@ module.exports = {
       return {
         variantType: 1,
         toElements: () => ({ length: () => elements.length, get: index => elements[index], free: () => undefined }),
-        toCommitment: () => ({ toHex: () => `0x${'00'.repeat(32)}`, serialize: () => new Uint8Array(32), free: () => undefined }),
+        toCommitment: () => ({
+          toHex: () => `0x${'00'.repeat(32)}`,
+          serialize: () => new Uint8Array(32),
+          free: () => undefined
+        }),
         free: () => undefined
       };
     })
   }),
   SigningInputsType: { TransactionSummary: 0, Arbitrary: 1, Blind: 2 },
+  // A fixed stand-in for the Guardian lookup domain tag that `lib/miden/dapp-sign-inputs` derives with this hash.
+  Rpo256: {
+    hashElements: jest.fn(() => ({
+      toFelts: () => [91n, 92n, 93n, 94n].map(value => ({ asInt: () => value, free: () => undefined })),
+      free: () => undefined
+    }))
+  },
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),
   // Advice-map primitives used by the direct guardian-switch fallback.
