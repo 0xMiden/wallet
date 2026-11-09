@@ -5,6 +5,7 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header with vertical overscroll containment.
 
 ## 1.17.10 (2026-11-01)
 
@@ -12,7 +13,6 @@
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
-- [FIX][all] The bridge-in token drawer shows only Agglayer tokens with a positive balance and scrolls long token lists below a fixed header with vertical overscroll containment.
 
 ## 1.17.9 (2026-10-31)
 
