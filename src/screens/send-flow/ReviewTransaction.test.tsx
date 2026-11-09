@@ -281,12 +281,23 @@ jest.mock('components/ui/DetailCard', () => ({
     </div>
   ),
   // Like the real one, the rows inside render only while open and the summary only while closed.
-  DetailDisclosure: ({ title, summary, summaryEmphasis, open, onOpenChange, children, 'data-testid': testId }: any) => (
+  DetailDisclosure: ({
+    title,
+    summary,
+    summarySub,
+    summaryEmphasis,
+    open,
+    onOpenChange,
+    children,
+    'data-testid': testId
+  }: any) => (
     <div data-testid={testId} data-open={String(open)} data-emphasis={String(Boolean(summaryEmphasis))}>
       <button data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
         {title}
       </button>
-      {!open && summary && <span data-testid={`${testId}-summary`}>{summary}</span>}
+      {!open && summary && (
+        <span data-testid={`${testId}-summary`}>{summarySub ? `${summary} · ${summarySub}` : summary}</span>
+      )}
       {open && children}
     </div>
   )

@@ -145,6 +145,13 @@ export interface DetailDisclosureProps {
   summary?: React.ReactNode;
   /** Draws the summary in `accent-tint-ink` rather than `muted`: a choice that departs from the default. */
   summaryEmphasis?: boolean;
+  /**
+   * `end` lays the header out like a `DetailRow`: the title in the muted label face, the summary as
+   * the value on the right and `summarySub` under it, all top-aligned. Default `below`.
+   */
+  summaryPlacement?: 'below' | 'end';
+  /** With `summaryPlacement="end"`: a muted line under the summary, like a row's `sub`. */
+  summarySub?: React.ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The `DetailRow`s revealed when open. */
@@ -163,6 +170,8 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
   title,
   summary,
   summaryEmphasis = false,
+  summaryPlacement = 'below',
+  summarySub,
   open,
   onOpenChange,
   children,
@@ -171,6 +180,8 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
 }) => {
   const regionId = useId();
   const reveal = usePreset('reveal');
+  const face = useContext(DetailCardFaceContext);
+  const atEnd = summaryPlacement === 'end';
   return (
     <div data-testid={dataTestId} data-open={open} className={className}>
       <button
@@ -183,21 +194,41 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
           onOpenChange(!open);
         }}
         className={cn(
-          'flex w-full items-center gap-x-4 px-4 py-3 text-left transition-colors active:bg-fill-pressed',
+          'flex w-full gap-x-4 px-4 py-3 text-left transition-colors active:bg-fill-pressed',
+          atEnd ? 'items-start' : 'items-center',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
         )}
       >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-label text-ink">{title}</span>
-          {!open && summary && (
+        {atEnd ? (
+          <>
+            <span className={cn('shrink-0 text-body-sm text-muted', face === 'heading' && 'font-semibold')}>
+              {title}
+            </span>
             <span
               data-testid={dataTestId && `${dataTestId}-summary`}
-              className={cn('text-caption', summaryEmphasis ? 'text-accent-tint-ink' : 'text-muted')}
+              className="flex min-w-0 flex-1 flex-col items-end gap-1 text-right"
             >
-              {summary}
+              {!open && summary && (
+                <span className={cn('text-value', summaryEmphasis ? 'text-accent-tint-ink' : 'text-ink')}>
+                  {summary}
+                </span>
+              )}
+              {!open && summarySub && <span className="text-caption text-muted">{summarySub}</span>}
             </span>
-          )}
-        </span>
+          </>
+        ) : (
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-label text-ink">{title}</span>
+            {!open && summary && (
+              <span
+                data-testid={dataTestId && `${dataTestId}-summary`}
+                className={cn('text-caption', summaryEmphasis ? 'text-accent-tint-ink' : 'text-muted')}
+              >
+                {summary}
+              </span>
+            )}
+          </span>
+        )}
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(

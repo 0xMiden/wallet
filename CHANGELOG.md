@@ -1,12 +1,16 @@
 # Changelog
 
-## 1.17.11 (TBD)
+## 1.17.12 (TBD)
 
 - [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
 - [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, Connect held until the private-data consent is ticked, and the app's page header on every confirm window.
 - [CHANGE][extension] Redesign the dApp transaction windows (send, consume, custom): the amount with a summary pill up top, who the money moves between with the network fee, then the request's site, network, note type and note details; a failed Confirm keeps the request in view and offers Try again.
 - [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a heading with a short explanation (a key for sign-in, a caution for values Bread can't preview), the raw value shown open, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
 - [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
+- [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
+
+## 1.17.11 (TBD)
+
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
