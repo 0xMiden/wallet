@@ -824,6 +824,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeFillChainId: bridge?.fillChainId,
     bridgeReclaimHeight: bridge?.reclaimHeight,
     bridgeInPhase: bridgedReceive?.phase,
+    bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
@@ -1063,6 +1064,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInSourceToken: bridgedReceive?.agglayerDelivery?.originToken ?? bridgeIn?.sourceToken,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
+      bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,

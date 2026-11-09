@@ -253,6 +253,12 @@ jest.mock('./pages/ActivityGroup', () => ({
 jest.mock('screens/contacts/ContactDetailPage', () => ({
   ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
 }));
+jest.mock('./pages/RecoverLockedFundsLock', () => ({
+  __esModule: true,
+  default: ({ chainId, lockId }: { chainId?: string; lockId?: string }) => (
+    <div data-testid="recover-funds-lock" data-chain-id={chainId} data-lock-id={lockId} />
+  )
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -679,6 +685,22 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(el).toHaveAttribute('data-read-only', 'true');
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+  });
+
+  // Three segments: the generic `/settings/:tabSlug?` route cannot match it, so it has its own route.
+  it('/settings/recover-funds/:chainId/:lockId renders one lock inside a sliding FullScreenPage', () => {
+    renderAt('/settings/recover-funds/11155111/42', ready);
+    const el = screen.getByTestId('recover-funds-lock');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(el).toHaveAttribute('data-chain-id', '11155111');
+    expect(el).toHaveAttribute('data-lock-id', '42');
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+    cleanup();
+
+    // The list itself is the `recover-funds` settings tab.
+    renderAt('/settings/recover-funds', ready);
+    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', 'recover-funds');
   });
 
   it('/browser renders Browser inside TabLayout', () => {

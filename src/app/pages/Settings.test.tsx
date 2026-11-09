@@ -287,6 +287,10 @@ jest.mock('./Networks', () => ({
   __esModule: true,
   default: mockLayoutPage('networks-settings')
 }));
+jest.mock('./RecoverLockedFunds', () => ({
+  __esModule: true,
+  default: mockLayoutPage('recover-locked-funds')
+}));
 
 const mockNavigate = navigate as jest.Mock;
 const mockGoBack = goBack as jest.Mock;
@@ -955,6 +959,13 @@ describe('Settings page — active tab routing', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('exportAccountFile');
     expect(screen.getByTestId('export-account-file')).toBeInTheDocument();
+  });
+
+  it('renders the hidden recover-funds tab under its own title', () => {
+    render(<Settings tabSlug="recover-funds" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('recoverLockedFunds');
+    expect(screen.getByTestId('recover-locked-funds')).toBeInTheDocument();
   });
 
   it('resolves the hidden dapps slug to the connected-dApps list page', () => {

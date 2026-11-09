@@ -34,7 +34,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry,
+  hasOwnBridgeBadge,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -154,7 +154,7 @@ function buildRowProps(
             preformatted: true
           }
         : undefined,
-      status: isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : d.status
+      status: hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : d.status
     };
   }
 

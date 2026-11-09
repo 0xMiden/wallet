@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import type { Status } from 'components/ui/StatusBadge';
+import { epochLockedDepositState, type EpochLockedDepositState } from 'lib/epoch/bridge-in-lock';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
@@ -317,13 +318,32 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
   entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
 
+/** The state of an Epoch deposit in The Compact without an allocation, for a row that is not restored. */
+export const lockedDepositStateOf = (
+  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase' | 'restoredFromBackup'>
+): EpochLockedDepositState | undefined =>
+  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, entry.restoredFromBackup === true);
+
+/** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
+export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
+  isUsdcxBridgeEntry(entry) || lockedDepositStateOf(entry) !== undefined;
+
 /**
  * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
  * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
  * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
- * none arrives within 2 hours.
+ * none arrives within 2 hours. An Epoch deposit that is in The Compact without an allocation reads Deposit locked
+ * until a retry or a withdrawal recovers it.
  */
 export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
+  switch (lockedDepositStateOf(entry)) {
+    case 'locked':
+      return 'depositLocked';
+    case 'withdrawn':
+      return 'depositWithdrawn';
+    default:
+      break;
+  }
   if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
   if (entry.bridgeInProvider === 'usdcx') {
     const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';

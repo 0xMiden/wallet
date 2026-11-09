@@ -1622,6 +1622,7 @@ export const updateBridgedReceivePhase = async (
       | 'errorId'
       | 'usdcxRemoteRecipient'
       | 'epochAllocatorUrl'
+      | 'epochLockedDeposit'
     >
   > & {
     /** What failed the row, read only by its crash report and never stored: a cause can carry addresses and amounts. */
