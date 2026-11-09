@@ -1,7 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { useSWRConfig } from 'swr';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
@@ -64,19 +63,8 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
       : null,
     'status_screen'
   );
-  const { mutate } = useSWRConfig();
-  const refreshedReceipt = useRef<string>();
-  const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;
-  const receiptAccountId = row?.accountId;
-  useEffect(() => {
-    if (!receiptId || !receiptAccountId || refreshedReceipt.current === receiptId) return;
-    refreshedReceipt.current = receiptId;
-    // Drop the old position snapshot as the real credit arrives. Active readers refresh now;
-    // a covered Earn page reloads when it returns, even within its normal 30-second read interval.
-    void mutate(key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === receiptAccountId, undefined, {
-      revalidate: true
-    });
-  }, [receiptId, receiptAccountId, mutate]);
+  // This screen does not refresh the positions: `useEarnPositions` watches the account's Earn rows while an Earn page
+  // is mounted and reads again when this row is received or fails, and a page that mounts later reads at once.
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
