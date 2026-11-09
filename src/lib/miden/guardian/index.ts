@@ -84,6 +84,43 @@ export function isProposalChainSyncError(err: unknown): boolean {
 }
 
 /**
+ * The Guardian returned a proposal whose id is not the summary commitment that the wallet derived from the request it
+ * proposed. The wallet does not sign this proposal. The message names only the local commitment, so text from the
+ * Guardian cannot change how a classifier reads this error.
+ */
+export class ProposalIdMismatchError extends Error {
+  readonly expectedId: string;
+  readonly returnedId: string;
+
+  constructor(expectedId: string, returnedId: string) {
+    super(`Guardian proposal id is not the summary commitment ${expectedId} of the proposed request`);
+    this.name = 'ProposalIdMismatchError';
+    this.expectedId = expectedId;
+    this.returnedId = returnedId;
+  }
+}
+
+export function isProposalIdMismatchError(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof ProposalIdMismatchError);
+}
+
+/** A hex word in the form the multisig client compares commitments in: `0x`, lower case, 64 digits. */
+export function normalizeProposalHexWord(hex: string): string {
+  const digits = hex.startsWith('0x') || hex.startsWith('0X') ? hex.slice(2) : hex;
+  return `0x${digits.toLowerCase().padStart(64, '0')}`;
+}
+
+/**
+ * Make sure that `proposal.id` is `expectedCommitmentHex`, the summary commitment the wallet derived from the request
+ * bytes it proposed. Call this before any signature on the proposal.
+ */
+export function assertProposalIdIsCommitment(proposal: Proposal, expectedCommitmentHex: string): void {
+  const expected = normalizeProposalHexWord(expectedCommitmentHex);
+  const returned = typeof proposal.id === 'string' ? normalizeProposalHexWord(proposal.id) : '';
+  if (returned !== expected) throw new ProposalIdMismatchError(expected, String(proposal.id));
+}
+
+/**
  * Where one proposal attempt's hold stands, for a caller whose own deadline can stop awaiting it: `syncing` is set while
  * its chain sync runs, so a rejection then (a deadline or an eviction) came from inside the sync. A caller that stops
  * awaiting the attempt sets `abandoned` in whatever phase it is, and from then on the hold starts no sync and makes no
@@ -515,9 +552,87 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await this.withChainSyncedHold('custom proposal', () =>
-      this.proposalStep('proposal_create', () => this.multisig.createCustomProposal(requestBytes, proposalType))
+    return await this.withChainSyncedHold('custom proposal', (hold, client) =>
+      this.proposeCheckedCustomRequest(hold, client, requestBytes, proposalType, 'custom proposal')
     );
+  }
+
+  /**
+   * Create a custom proposal from `requestBytes` and make sure that its id is the summary commitment of these bytes.
+   * Every custom proposal the wallet creates goes through here, in the chain-synced hold of its caller.
+   *
+   * The wallet executes the bytes on its own client first, then the multisig client executes the same bytes at the
+   * same tip in the same hold. The bytes carry the salt and the bound block, so both executions give the same summary.
+   * A returned id that is not this commitment fails with `ProposalIdMismatchError`, and the caller does not sign it.
+   */
+  private proposeCheckedCustomRequest(
+    hold: WasmLockHold,
+    client: MidenClient,
+    requestBytes: Uint8Array,
+    proposalType: string,
+    label: string
+  ): Promise<Proposal> {
+    return this.proposalStep('proposal_create', async () => {
+      const expectedId = await this.summaryCommitmentOf(hold, client, requestBytes, label);
+      const proposal = await this.multisig.createCustomProposal(requestBytes, proposalType);
+      await this.requireProposalIdIsCommitment(proposal, expectedId);
+      return proposal;
+    });
+  }
+
+  /**
+   * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal` before the
+   * `ProposalIdMismatchError` goes to the caller. Nothing was signed or submitted, so the abandon is safe. It is best
+   * effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon is logged, and the mismatch error is thrown in
+   * all cases. The abandon makes no WASM call, so it can run in the hold of the caller.
+   */
+  private async requireProposalIdIsCommitment(proposal: Proposal, expectedCommitmentHex: string): Promise<void> {
+    try {
+      assertProposalIdIsCommitment(proposal, expectedCommitmentHex);
+    } catch (mismatch) {
+      try {
+        await withTimeout(
+          this.abandonCandidate(proposal.nonce),
+          OUTGOING_GUARDIAN_DEADLINE_MS,
+          'abandoning the candidate of a proposal whose id is not the derived summary commitment'
+        );
+      } catch (abandonError) {
+        console.warn(
+          `[Guardian] could not abandon the candidate at nonce ${proposal.nonce} after the proposal id check:`,
+          abandonError
+        );
+      }
+      throw mismatch;
+    }
+  }
+
+  /**
+   * The summary commitment of `requestBytes`, executed at the tip on `client` in `hold`. The WASM objects are freed
+   * only while the hold is still this flow's: after an eviction they belong to an abandoned flow.
+   */
+  private async summaryCommitmentOf(
+    hold: WasmLockHold,
+    client: MidenClient,
+    requestBytes: Uint8Array,
+    label: string
+  ): Promise<string> {
+    const request = TransactionRequest.deserialize(requestBytes);
+    let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
+    try {
+      summary = await executeForSummaryAtTip(client, this.accountId, request);
+      assertWasmHoldCurrent(hold, `${label}: after the summary execution`);
+      const commitment = summary.toCommitment();
+      try {
+        return normalizeProposalHexWord(commitment.toHex());
+      } finally {
+        commitment.free();
+      }
+    } finally {
+      if (getCurrentWasmLockHold() === hold) {
+        summary?.free();
+        request.free();
+      }
+    }
   }
 
   /**
@@ -553,8 +668,14 @@ export class MultisigService {
       const rebased = await this.proposalStep('rebase_build', async () =>
         builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize()
       );
-      const proposal = await this.proposalStep('proposal_create', () =>
-        this.multisig.createCustomProposal(rebased, proposalType)
+      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the rebuild');
+      // The check runs on `rebased`, the bytes this proposal is made from and the caller persists.
+      const proposal = await this.proposeCheckedCustomRequest(
+        hold,
+        client,
+        rebased,
+        proposalType,
+        'rebased custom proposal'
       );
       return { proposal, requestBytes: rebased };
     });
@@ -576,7 +697,7 @@ export class MultisigService {
     persistRequest: (requestBytes: Uint8Array) => Promise<void>,
     { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Proposal> {
-    return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
+    return await this.withChainSyncedHold('PSWAP cancel proposal', async (hold, client) => {
       const requestBytes = await this.proposalStep('reclaim_build', () =>
         midenClientProxy.buildPswapCancelRequest(
           this.accountId,
@@ -588,8 +709,12 @@ export class MultisigService {
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
       await this.proposalStep('reclaim_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
-      return this.proposalStep('proposal_create', () =>
-        this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
+      return this.proposeCheckedCustomRequest(
+        hold,
+        client,
+        requestBytes,
+        'custom_transaction',
+        'PSWAP cancel proposal'
       );
     });
   }
@@ -606,7 +731,7 @@ export class MultisigService {
     inputs: PswapConsumeRequestInputs,
     persistRequest: (requestBytes: Uint8Array) => Promise<void>
   ): Promise<Proposal> {
-    return await this.withChainSyncedHold('PSWAP consume proposal', async hold => {
+    return await this.withChainSyncedHold('PSWAP consume proposal', async (hold, client) => {
       const requestBytes = await this.proposalStep('purchase_build', () =>
         midenClientProxy.buildPswapConsumeRequest(this.accountId, inputs, step =>
           assertWasmHoldCurrent(hold, 'PSWAP consume proposal: inside the consume-request build', step)
@@ -615,8 +740,12 @@ export class MultisigService {
       assertWasmHoldCurrent(hold, 'PSWAP consume proposal: after the consume-request build');
       await this.proposalStep('purchase_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP consume proposal: after persisting the request');
-      return this.proposalStep('proposal_create', () =>
-        this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
+      return this.proposeCheckedCustomRequest(
+        hold,
+        client,
+        requestBytes,
+        'custom_transaction',
+        'PSWAP consume proposal'
       );
     });
   }
@@ -1002,7 +1131,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, boundBlockNum } = await withWasmClientLock(
+    const { summaryBase64, summaryCommitmentHex, saltHex, boundBlockNum } = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -1034,8 +1163,16 @@ export class MultisigService {
         // `summary` and `salt` are borrows of the client's RefCell, so touching them
         // past an eviction IS the double borrow.
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
+        const commitment = summary.toCommitment();
+        let summaryCommitmentHex: string;
+        try {
+          summaryCommitmentHex = normalizeProposalHexWord(commitment.toHex());
+        } finally {
+          commitment.free();
+        }
         return {
           summaryBase64: u8ToB64(summary.serialize()),
+          summaryCommitmentHex,
           saltHex: salt.toHex(),
           boundBlockNum
         };
@@ -1052,9 +1189,14 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
+    // The id of the proposal must be the commitment of the summary this device derived and sent, before any signature.
     const proposal = await this.proposalStep(
       'proposal_create',
-      () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
+      async () => {
+        const created = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
+        await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
+        return created;
+      },
       'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);

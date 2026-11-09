@@ -24,7 +24,12 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args)
 }));
 
-const mockRequestDeserialize = jest.fn((_bytes: Uint8Array) => ({ expectedOutputOwnNotes: () => [] }));
+const mockRequestDeserialize = jest.fn((_bytes: Uint8Array) => ({ expectedOutputOwnNotes: () => [], free: () => {} }));
+// The custom proposal id check derives this commitment locally; it is the id the custom proposal mock returns.
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  toCommitment: () => ({ toHex: () => 'private-reclaim-proposal', free: () => {} }),
+  free: () => {}
+}));
 const mockRebasedSerialize = jest.fn(() => new Uint8Array([5, 6]));
 const mockFeeBuilder = jest.fn(async (..._args: unknown[]) => ({
   withOwnOutputNotes: () => ({ build: () => ({ serialize: () => mockRebasedSerialize() }) })
@@ -43,6 +48,7 @@ jest.mock('../sdk/helpers', () => ({
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);

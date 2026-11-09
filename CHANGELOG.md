@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
+
 ## 1.17.11 (TBD)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.

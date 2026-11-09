@@ -52,6 +52,11 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   nonce: 8,
   metadata: { proposalType: 'custom' }
 }));
+// The custom proposal id check derives this commitment locally; it is the id the reclaim proposal mock returns.
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  toCommitment: () => ({ toHex: () => 'private-reclaim-proposal-id', free: () => {} }),
+  free: () => {}
+}));
 const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
 const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
   if (mockState.customAdvice) throw mockState.customAdvice;
@@ -122,14 +127,19 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   TransactionProver: { newLocalProver: () => ({}) },
   TransactionRequest: {
-    deserialize: () => {
-      if (mockState.customBuild) throw mockState.customBuild;
-      return { extendAdviceMap: () => ({ authArg: () => undefined, serialize: () => oldBytes }) };
-    }
+    // The custom request build fails at the advice step: the proposal id check also reads these bytes, before signing.
+    deserialize: () => ({
+      extendAdviceMap: () => {
+        if (mockState.customBuild) throw mockState.customBuild;
+        return { authArg: () => undefined, serialize: () => oldBytes };
+      },
+      free: () => {}
+    })
   }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);
