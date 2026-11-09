@@ -6,6 +6,7 @@
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
 - [FIX][all] Earn withdrawals no longer fail with "The balance or quote changed" when Epoch's positions service is slow: each positions read asks only for the account's own EVM address, one request per lender on the chains of its known markets (the listed vaults and the account's own deposits), and a balance check that cannot reach Epoch says so and keeps the review (#2116). The first withdrawal on a network waits for Epoch's one-time account setup to land on chain, and quotes again (never below the reviewed floor) when the setup outlasts the review (#2117). Earn positions refresh when a deposit or withdrawal settles, retry a failed read with a backoff, and otherwise refresh every 3 minutes instead of every 10 s. Earn no longer ties its markets to the Epoch USDC bridge routes: a listed vault can name any token on a listed EVM chain.
+- [FIX][ci] The native toolbar job finds the Bread toolbar button again on Ubuntu 26.04, which `ubuntu-latest` now selects: its accessibility locator accepts the `button` role name that at-spi2-core 2.53.1 gives in place of `push button`.
 
 ## 1.17.10 (2026-11-01)
 
