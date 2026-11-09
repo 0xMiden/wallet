@@ -5,10 +5,9 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 
 ## 1.17.10 (2026-11-01)
-
-- [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 
 - [FIX][all] Mainnet balances and accounts appear again after updating to 1.17.9: a wallet set up before 1.17.9 reopens the local store it was created in, which the move to the mainnet hosts had left behind (#2086).
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
