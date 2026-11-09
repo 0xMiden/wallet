@@ -794,6 +794,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
         if (!state?.instance) return;
+        // Only the main frame of the page can speak to the wallet bridge. The native side adds
+        // the origin of the frame that sent the message (`frameOrigin`) and the main-frame flag
+        // (`mainFrame`). A message from a frame of another origin than the session origin stops here.
+        if (event.mainFrame !== true || event.frameOrigin !== state.origin) {
+          console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
+          return;
+        }
         try {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
           const parsed: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;

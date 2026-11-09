@@ -645,6 +645,8 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await onMessage({
         id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
         detail: JSON.stringify({
           type: 'MIDEN_PAGE_REQUEST',
           payload: { type: 'PRIVATE_NOTES_REQUEST' },
@@ -658,6 +660,38 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     expect(refusal).toContain('NOT_GRANTED');
   });
 
+  it.each([
+    ['a frame that is not the main frame', { frameOrigin: 'https://dapp-a.test', mainFrame: false }],
+    ['a message without the main-frame flag', { frameOrigin: 'https://dapp-a.test' }],
+    ['a frame of another origin', { frameOrigin: 'https://other.example', mainFrame: true }],
+    ['a message without a frame origin', { mainFrame: true }]
+  ])('ignores a bridge message from %s', async (_label, frame) => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+    mockExecuteScript.mockClear();
+
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        ...frame,
+        detail: JSON.stringify({
+          type: 'MIDEN_PAGE_REQUEST',
+          payload: { type: 'PRIVATE_NOTES_REQUEST' },
+          reqId: 'r3'
+        })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+  });
+
   it('answers PING before confirmation — it is the bridge probe, not an origin-scoped request', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
@@ -668,6 +702,8 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await onMessage({
         id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
         detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
       });
     });
@@ -695,6 +731,8 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await listenerFor('messageFromWebview')({
         id: 'dapp-a',
+        frameOrigin: 'https://moved.example',
+        mainFrame: true,
         detail: JSON.stringify({
           type: 'MIDEN_PAGE_REQUEST',
           payload: { type: 'PRIVATE_NOTES_REQUEST' },
@@ -755,7 +793,14 @@ describe('an answer goes only to the origin that asked (#1416)', () => {
         })
     );
     mockExecuteScript.mockClear();
-    const handled = Promise.resolve(listenerFor('messageFromWebview')({ id: 'dapp-a', detail: WAIT }));
+    const handled = Promise.resolve(
+      listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
+        detail: WAIT
+      })
+    );
     await settle();
     return { release: () => release(), handled };
   }
@@ -821,7 +866,7 @@ describe('an answer goes only to the origin that asked (#1416)', () => {
     await navigate('data:text/html,<h1>hi</h1>');
     mockExecuteScript.mockClear();
     await act(async () => {
-      await listenerFor('messageFromWebview')({ id: 'dapp-a', detail: WAIT });
+      await listenerFor('messageFromWebview')({ id: 'dapp-a', frameOrigin: 'null', mainFrame: true, detail: WAIT });
     });
     expect(answers()).toHaveLength(1);
     expect(answers()[0]).toContain('NOT_GRANTED');
@@ -839,6 +884,8 @@ describe('an answer goes only to the origin that asked (#1416)', () => {
     await act(async () => {
       await listenerFor('messageFromWebview')({
         id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
         detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
       });
     });

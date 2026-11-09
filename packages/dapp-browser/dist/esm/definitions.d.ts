@@ -797,9 +797,15 @@ export interface InAppBrowserPlugin {
      * Your object has to be serializable to JSON, no functions or other non-JSON-serializable types are allowed.
      *
      * This method is inject at runtime in the webview
+     *
+     * Miden patch: only the main frame of the page can send a message. The native side
+     * adds `frameOrigin` (the origin of the frame that sent the message, in the form of
+     * `location.origin`) and `mainFrame` (always true) to each message.
      */
     addListener(eventName: 'messageFromWebview', listenerFunc: (event: {
         detail: Record<string, any>;
+        frameOrigin?: string;
+        mainFrame?: boolean;
     }) => void): Promise<PluginListenerHandle>;
     /**
      * Will be triggered when page is loaded. Miden patch (PR-4 chunk 9):
