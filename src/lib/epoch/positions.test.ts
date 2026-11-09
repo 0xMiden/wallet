@@ -1,6 +1,6 @@
-import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 
-import { carryForward, type EarnPosition, type EarnPositionsResult, getEarnDepositEvmAddresses } from './positions';
+import { carryForward, type EarnPosition, type EarnPositionsResult } from './positions';
 import { TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
 import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
 
@@ -12,7 +12,7 @@ jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
 );
 jest.mock('lib/miden/repo', () => ({
-  transactions: { filter: jest.fn() }
+  transactions: { where: jest.fn() }
 }));
 
 // The document lists the Aave V3 market of the test route first, then the dummy lender's.
@@ -21,13 +21,26 @@ const AAVE_LISTING = listingFor(
   'aave-v3-sepolia-usdc',
   'Aave V3 USDC'
 );
+/** The wallet's activity: the `earn-deposit` rows the market lookup reads. */
+const withRows = (rows: unknown[]) => {
+  const Repo = jest.requireMock('lib/miden/repo');
+  Repo.transactions.where.mockImplementation(() => ({
+    equals: (type: string) => ({
+      toArray: async () =>
+        rows.filter(row => typeof row === 'object' && row !== null && Reflect.get(row, 'type') === type)
+    })
+  }));
+};
+
 beforeEach(async () => {
+  withRows([]);
   await jest.isolateModulesAsync(async () => {
     ({ fetchEarnPositions } = await import('./positions'));
     ({ snapshotUiProducer: readLoadEvidence } = await import('lib/telemetry/ui-producer-diagnostics'));
     ({ readEarnVaults } = await import('./pools-read'));
   });
   jest.mocked(getEarnVaults).mockReturnValue([AAVE_LISTING, TEST_EARN_VAULT]);
+  jest.mocked(getSupportedEvmChainIds).mockReturnValue([11155111]);
 });
 
 const OWNER = '0x1111111111111111111111111111111111111111';
@@ -109,6 +122,8 @@ const requestedPaths = (fetchMock: jest.Mock) =>
 describe('fetchEarnPositions', () => {
   beforeEach(() => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // One listed lender, so each owner is one request; the per-lender split has its own tests below.
+    jest.mocked(getEarnVaults).mockReturnValue([TEST_EARN_VAULT]);
   });
 
   afterEach(() => {
@@ -124,6 +139,65 @@ describe('fetchEarnPositions', () => {
     expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
   });
 
+  it('makes no positions request for a listed vault on a chain this build skips', async () => {
+    jest.mocked(getSupportedEvmChainIds).mockReturnValue([]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [OWNER], errors: [] });
+  });
+
+  it('takes no owner from the activity rows: with no owner given, it makes no request', async () => {
+    withRows([
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } }
+    ]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ accountId: 'acct-1' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
+  });
+
+  it("reads only the given owner, never another owner of the account's deposit rows", async () => {
+    jest.mocked(getEarnVaults).mockReturnValue([]);
+    // A legacy row of the account that names another owner, in a market the document does not list.
+    withRows([
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } },
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OTHER_OWNER, marketUid: AAVE_UID } }
+    ]);
+    const fetchMock = serve();
+
+    const result = await fetchEarnPositions({ accountId: 'acct-1', owners: [OWNER] });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111&lenders=DUMMY_LENDING`
+    ]);
+    expect(result.owners).toEqual([OWNER]);
+  });
+
+  it('takes no market from a deposit row restored from a backup', async () => {
+    jest.mocked(getEarnVaults).mockReturnValue([]);
+    withRows([
+      {
+        type: 'earn-deposit',
+        accountId: 'acct-1',
+        restoredFromBackup: true,
+        extraInputs: { evmRecipient: OWNER, marketUid: AAVE_UID }
+      },
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: DUMMY_UID } }
+    ]);
+    const fetchMock = serve();
+
+    await fetchEarnPositions({ accountId: 'acct-1', owners: [OWNER] });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111&lenders=DUMMY_LENDING`
+    ]);
+  });
+
   it('finishes an oversized owner read across rolling request windows', async () => {
     jest.useFakeTimers();
     try {
@@ -136,7 +210,7 @@ describe('fetchEarnPositions', () => {
       });
       await jest.advanceTimersByTimeAsync(0);
 
-      expect(fetchMock).toHaveBeenCalledTimes(10);
+      expect(fetchMock).toHaveBeenCalledTimes(7);
       expect(settled).toBe(false);
 
       await jest.advanceTimersByTimeAsync(60_000);
@@ -153,7 +227,7 @@ describe('fetchEarnPositions', () => {
       jest.useFakeTimers();
       try {
         const fetchMock = serve(undefined, 404);
-        const owners = Array.from({ length: 10 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
+        const owners = Array.from({ length: 7 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
         const readCatalog = () =>
           readEarnVaults(
             fetchMock,
@@ -174,11 +248,11 @@ describe('fetchEarnPositions', () => {
         });
         await jest.advanceTimersByTimeAsync(0);
 
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(10);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(7);
         expect(settled).toBe(false);
         await jest.advanceTimersByTimeAsync(60_000);
         await second;
-        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(11);
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(8);
       } finally {
         jest.useRealTimers();
       }
@@ -190,9 +264,10 @@ describe('fetchEarnPositions', () => {
 
     await fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] });
 
-    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111`, {
-      signal: expect.any(AbortSignal)
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111&lenders=DUMMY_LENDING`,
+      { signal: expect.any(AbortSignal) }
+    );
     expect(requestedPaths(fetchMock).sort()).toEqual([
       `/positions?account=${OWNER}`,
       `/positions?account=${OTHER_OWNER}`
@@ -206,14 +281,6 @@ describe('fetchEarnPositions', () => {
     });
 
     await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('no positions host');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('rejects before any request while the config names no Epoch route', async () => {
-    const fetchMock = serve();
-    jest.mocked(getEpochRoutes).mockReturnValueOnce([]);
-
-    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('The bridge config names no Epoch route');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -242,17 +309,29 @@ describe('fetchEarnPositions', () => {
     ]);
   });
 
-  it('keeps the funded positions of every market of the route, matching the uid in any case', async () => {
-    serve(() =>
-      positionsAnswer([
-        apiItem('12.5', 12.5),
+  it('keeps the funded positions of the listed and deposited markets, matching the uid in any case', async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    // The document lists the dummy lender's market; the owner deposited into the Aave one.
+    withRows([
+      { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: AAVE_UID } }
+    ]);
+    const items: Record<string, unknown[]> = {
+      DUMMY_LENDING: [apiItem('12.5', 12.5), apiItem('4', 4, 'DUMMY_LENDING', `DUMMY_LENDING:11155111:${WETH}`)],
+      AAVE_V3: [
         apiItem('3', 3, 'AAVE_V3', `AAVE_V3:11155111:${SEPOLIA_USDC}`),
-        apiItem('0', 0, 'AAVE_V3', AAVE_UID)
-      ])
+        apiItem('5', 5, 'AAVE_V3', `AAVE_V3:11155111:${WETH}`),
+        apiItem('6', 6, 'AAVE_V3', `AAVE_V3:84532:${SEPOLIA_USDC}`)
+      ]
+    };
+    const fetchMock = jest.fn();
+    fetchMock.mockImplementation(async (url: string) =>
+      positionsAnswer(items[new URL(url).searchParams.get('lenders') ?? ''] ?? [])
     );
+    global.fetch = fetchMock;
 
-    const result = await fetchEarnPositions({ owners: [OWNER] });
+    const result = await fetchEarnPositions({ accountId: 'acct-1', owners: [OWNER] });
 
+    // The WETH positions on the owner's address and the Aave position on another chain are in no known market.
     expect(result.positions.map(position => [position.marketUid, position.deposits])).toEqual([
       [DUMMY_UID, '12.5'],
       [`AAVE_V3:11155111:${SEPOLIA_USDC}`, '3']
@@ -260,7 +339,7 @@ describe('fetchEarnPositions', () => {
     expect(result.totalDepositsUSD).toBe(15.5);
   });
 
-  it("keeps a position in any market of a route's USDC, listed or not, and leaves out one in another token or chain", async () => {
+  it('leaves out a funded position in a market that the document does not list and the owner never deposited into', async () => {
     const unlisted =
       'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
     jest.mocked(getEarnVaults).mockReturnValue([TEST_EARN_VAULT]);
@@ -268,41 +347,166 @@ describe('fetchEarnPositions', () => {
       positionsAnswer([
         apiItem('12.5', 12.5),
         apiItem('3', 3, 'AAVE_V3', AAVE_UID),
-        apiItem('5', 5, 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D', unlisted),
-        apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x4c1aeda9b43efcf1da1d1755b18802aabe90f61e'),
-        apiItem('6', 6, 'AAVE_V3', 'AAVE_V3:84532:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')
+        apiItem('5', 5, 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D', unlisted)
       ])
     );
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    // The list gates deposits only: the unlisted Aave and Morpho positions stay withdrawable; the Euler one is in
-    // another token, and the last one is on a chain no Epoch route names.
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID, unlisted]);
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID]);
   });
 
-  it('asks for the positions of every Epoch route in one request per owner, and keeps each route in its USDC', async () => {
-    const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-    const baseUid = `AAVE_V3:8453:${BASE_USDC.toLowerCase()}`;
-    jest.mocked(getEpochRoutes).mockReturnValue([
-      { chainId: 11155111, usdc: SEPOLIA_USDC },
-      { chainId: 8453, usdc: BASE_USDC }
-    ]);
-    const fetchMock = serve(() =>
-      positionsAnswer([
-        apiItem('12.5', 12.5),
-        { ...apiItem('3', 3, 'AAVE_V3', baseUid), chainId: '8453' },
-        { ...apiItem('4', 4, 'AAVE_V3', `AAVE_V3:8453:${SEPOLIA_USDC.toLowerCase()}`), chainId: '8453' }
-      ])
-    );
+  it('asks nothing for an owner the wallet knows no Earn market of', async () => {
+    jest.mocked(getEarnVaults).mockReturnValue([]);
+    const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111,8453`, {
-      signal: expect.any(AbortSignal)
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [OWNER], errors: [] });
+  });
+
+  describe('one request per lender', () => {
+    const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+    const MAINNET_USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+    const aaveBase = `aave_v3:8453:${BASE_USDC}`;
+    const aaveMainnet = `aave_v3:1:${MAINNET_USDC}`;
+    const requestedUrls = (fetchMock: jest.Mock) => fetchMock.mock.calls.map(([url]) => String(url)).sort();
+
+    beforeEach(() => {
+      jest.mocked(getSupportedEvmChainIds).mockReturnValue([11155111, 8453, 1]);
     });
-    expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, baseUid]);
+
+    it("asks each lender only on the chains of its known markets, upper-casing the lender's key", async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([
+        { ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase },
+        { ...TEST_EARN_VAULT, id: 'aave-mainnet', marketUid: aaveMainnet }
+      ]);
+      const morphoBase = `morpho_blue_d752:8453:${BASE_USDC}`;
+      // A deposit into a market the document no longer lists, and one into a market on a chain the document lists
+      // no vault on. Both are known markets of the owner.
+      withRows([
+        { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: morphoBase } },
+        {
+          type: 'earn-deposit',
+          accountId: 'acct-1',
+          extraInputs: { evmRecipient: OWNER, marketUid: `euler_v2:10:${BASE_USDC}` }
+        }
+      ]);
+      const fetchMock = serve();
+
+      await fetchEarnPositions({ owners: [OWNER] });
+
+      expect(requestedUrls(fetchMock)).toEqual([
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=10&lenders=EULER_V2`,
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453&lenders=MORPHO_BLUE_D752`,
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453,1&lenders=AAVE_V3`
+      ]);
+    });
+
+    it('orders the chains of a lender as the listed vaults, then the deposits, name them', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([
+        { ...TEST_EARN_VAULT, id: 'morpho-mainnet', marketUid: `morpho_blue_d752:1:${MAINNET_USDC}` },
+        { ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }
+      ]);
+      withRows([
+        { type: 'earn-deposit', accountId: 'acct-1', extraInputs: { evmRecipient: OWNER, marketUid: aaveMainnet } }
+      ]);
+      const fetchMock = serve();
+
+      await fetchEarnPositions({ owners: [OWNER] });
+
+      // Ethereum comes first: the first listed vault names it.
+      expect(requestedUrls(fetchMock)).toEqual([
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=1&lenders=MORPHO_BLUE_D752`,
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=1,8453&lenders=AAVE_V3`
+      ]);
+    });
+
+    it('reads no market whose chain segment is not a plain decimal id', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
+      // `Number('1e3')` is 1000 and `Number('0x10')` is 16: chains these uids do not name.
+      withRows([
+        {
+          type: 'earn-deposit',
+          accountId: 'acct-1',
+          extraInputs: { evmRecipient: OWNER, marketUid: `aave_v3:1e3:${MAINNET_USDC}` }
+        },
+        {
+          type: 'earn-deposit',
+          accountId: 'acct-1',
+          extraInputs: { evmRecipient: OWNER, marketUid: `euler_v2:0x10:${BASE_USDC}` }
+        }
+      ]);
+      const fetchMock = serve();
+
+      await fetchEarnPositions({ owners: [OWNER] });
+
+      expect(requestedUrls(fetchMock)).toEqual([
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=8453&lenders=AAVE_V3`
+      ]);
+    });
+
+    it('reads only the given market for a check of one position', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([{ ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase }]);
+      const fetchMock = serve();
+
+      await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+
+      expect(requestedUrls(fetchMock)).toEqual([
+        `${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=1&lenders=AAVE_V3`
+      ]);
+    });
+
+    it('a review-scoped read is admitted while page reads have spent their allowance', async () => {
+      jest.useFakeTimers();
+      const fetchMock = serve();
+      try {
+        for (let i = 0; i < 7; i += 1) await fetchEarnPositions({ owners: [OWNER] });
+        fetchMock.mockClear();
+
+        const pageRead = fetchEarnPositions({ owners: [OWNER] });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        // A reviewed source retry reads three times: its own balance read, then the review's check before the
+        // smart-account setup and again before execution. All three go out at once.
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        await fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+
+        const reviewRead = fetchEarnPositions({ owners: [OWNER], markets: [aaveMainnet] });
+        await jest.advanceTimersByTimeAsync(59_999);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+
+        await jest.advanceTimersByTimeAsync(1);
+        await Promise.all([pageRead, reviewRead]);
+        expect(fetchMock).toHaveBeenCalledTimes(5);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps none of the positions of an owner whose other lender request failed, and reports it once', async () => {
+      jest.mocked(getEarnVaults).mockReturnValue([
+        { ...TEST_EARN_VAULT, id: 'aave-base', marketUid: aaveBase },
+        { ...TEST_EARN_VAULT, id: 'moonwell-base', marketUid: `moonwell:8453:${BASE_USDC}` }
+      ]);
+      const fetchMock = jest.fn();
+      fetchMock.mockImplementation(async (url: string) => {
+        const lender = new URL(url).searchParams.get('lenders');
+        if (lender === 'MOONWELL') return answer(null, 503);
+        return positionsAnswer([{ ...apiItem('3', 3, 'AAVE_V3', aaveBase), chainId: '8453' }]);
+      });
+      global.fetch = fetchMock;
+
+      const result = await fetchEarnPositions({ owners: [OWNER] });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.positions).toEqual([]);
+      expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request failed (503)', stage: 'request' }]);
+    });
   });
 
   it('isolates malformed and failed API responses as per-owner errors', async () => {
@@ -438,38 +642,6 @@ describe('carryForward', () => {
   });
 });
 
-// Whatever comes back for these addresses is rendered as the user's OWN position
-// and folded into their total deposits, so only a genuine deposit's recipient
-// belongs in this list.
-describe('getEarnDepositEvmAddresses', () => {
-  const row = (over: Record<string, unknown> = {}) => ({
-    type: 'earn-deposit',
-    accountId: 'acct-1',
-    extraInputs: { evmRecipient: OWNER },
-    ...over
-  });
-
-  const withRows = (rows: unknown[]) => {
-    const Repo = jest.requireMock('lib/miden/repo');
-    (Repo.transactions.filter as jest.Mock).mockImplementation((predicate: (r: unknown) => boolean) => ({
-      toArray: async () => rows.filter(predicate)
-    }));
-  };
-
-  it('collects the recipient of a genuine deposit', async () => {
-    withRows([row()]);
-
-    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
-  });
-
-  it('excludes a deposit restored from a backup', async () => {
-    const attacker = '0x2222222222222222222222222222222222222222';
-    withRows([row({ restoredFromBackup: true, extraInputs: { evmRecipient: attacker } }), row()]);
-
-    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
-  });
-});
-
 describe('source-owned Earn load diagnostics', () => {
   const canary = 'private-owner 0xabcdef1234567890 amount 1234.56';
   it.each([
@@ -533,15 +705,17 @@ describe('source-owned Earn load diagnostics', () => {
     ).toBeUndefined();
   });
 
-  it('keeps an activity owner lookup failure on its exact root', async () => {
+  it('keeps a failure of the activity market lookup on its exact root', async () => {
     const failure = new Error(canary);
     const Repo = jest.requireMock('lib/miden/repo');
-    Repo.transactions.filter.mockReturnValueOnce({
-      toArray: async () => {
-        throw failure;
-      }
+    Repo.transactions.where.mockReturnValueOnce({
+      equals: () => ({
+        toArray: async () => {
+          throw failure;
+        }
+      })
     });
-    await expect(fetchEarnPositions()).rejects.toBe(failure);
+    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toBe(failure);
     expect(readLoadEvidence(failure, 'earnPositionsLoadError', 'notice')).toEqual({
       earnPositionsLoadStage: 'owner_lookup',
       earnPositionsLoadOutcome: 'complete_failure'

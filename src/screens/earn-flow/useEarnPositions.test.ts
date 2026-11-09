@@ -1,12 +1,13 @@
 import React from 'react';
 
 import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
-import { SWRConfig, useSWRConfig } from 'swr';
+import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { fetchEarnPositions, getEarnDepositEvmAddresses, positionsBudgetDelayMs } from 'lib/epoch';
+import { fetchEarnPositions, POSITIONS_PAGE_LIMIT, positionsBudgetDelayMs } from 'lib/epoch';
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { Probe } from 'lib/remote-config/derive';
@@ -23,18 +24,56 @@ const mockAccount: { publicKey: string; evmAddress?: string } = {
 };
 const mockUseRetryableSWR = jest.fn();
 const mockEarnDepositRows: Array<{
+  id?: string;
   type: string;
   accountId: string;
   initiatedAt: number;
   restoredFromBackup?: boolean;
-  extraInputs: { protocol?: string; evmRecipient?: string; marketUid?: string };
+  extraInputs: {
+    protocol?: string;
+    evmRecipient?: string;
+    marketUid?: string;
+    epochStatus?: string;
+    phase?: string;
+  };
 }> = [];
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: () => ({ toArray: async () => mockEarnDepositRows })
+    where: jest.fn((_index: string) => ({
+      anyOf: (...types: string[]) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => types.includes(row.type))
+      }),
+      equals: (type: string) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => row.type === type)
+      })
+    })),
+    filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
+      toArray: async () => mockEarnDepositRows.filter(predicate)
+    })
   }
 }));
+
+// A live query that runs once on subscribe and again on each `emitDbChange`, as Dexie runs one again after a write.
+const mockLiveQueries = new Set<() => Promise<void>>();
+jest.mock('lib/dexie-live-query', () => ({
+  subscribeToLiveQuery: <T>(query: () => T | Promise<T>, observer: { next: (value: T) => void }) => {
+    let active = true;
+    const run = async () => {
+      const value = await query();
+      if (active) observer.next(value);
+    };
+    mockLiveQueries.add(run);
+    run();
+    return () => {
+      active = false;
+      mockLiveQueries.delete(run);
+    };
+  }
+}));
+const emitDbChange = async () => {
+  await Promise.all([...mockLiveQueries].map(run => run()));
+};
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
@@ -56,15 +95,16 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/epoch', () => {
   const positions = jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions');
+  const budget = jest.requireActual<typeof import('lib/epoch/positions-budget')>('lib/epoch/positions-budget');
   const pools = jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read');
   return {
     carryForward: positions.carryForward,
-    positionsBudgetDelayMs: jest.fn(() => 0),
+    positionsBudgetDelayMs: jest.fn((_count: number, _limit?: number) => 0),
+    POSITIONS_PAGE_LIMIT: budget.POSITIONS_PAGE_LIMIT,
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
-    fetchEarnPositions: jest.fn(),
-    getEarnDepositEvmAddresses: jest.fn()
+    fetchEarnPositions: jest.fn()
   };
 });
 
@@ -222,7 +262,7 @@ const liveResult = {
 };
 
 // The SWR key of the fixtures' account on READY, and the storage key of its stored copy.
-const KEY = ['earn-positions', 'miden-account', '0xABCDEF', 'testnet', POSITIONS_URL, '11155111'];
+const KEY = ['earn-positions', 'miden-account', '0xABCDEF', 'testnet', POSITIONS_URL, LISTING.marketUid];
 const STORAGE_KEY = EARN_POSITIONS_STORAGE_PREFIX + JSON.stringify(KEY);
 const readStored = () => fetchFromStorage<{ at: number; result: EarnPositionsResult }>(STORAGE_KEY);
 
@@ -615,7 +655,7 @@ describe('useEarnPositions', () => {
     });
   });
 
-  it('loads every historical owner plus the lowercased wallet address once', async () => {
+  it("reads only the lowercased wallet address, never another owner of the account's deposit rows", async () => {
     let loadPositions: (() => Promise<EarnPositionsResult>) | undefined;
     let receivedKey: unknown;
     let receivedConfig: unknown;
@@ -627,7 +667,13 @@ describe('useEarnPositions', () => {
         return { data: undefined, isLoading: true };
       }
     );
-    jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue(['0xabcdef', '0xhistorical']);
+    // A legacy deposit row of the account that names another owner.
+    mockEarnDepositRows.push({
+      type: 'earn-deposit',
+      accountId: 'miden-account',
+      initiatedAt: 1,
+      extraInputs: { evmRecipient: '0x2222222222222222222222222222222222222222', marketUid: MARKET_UID }
+    });
     jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
 
     renderHook(() => useEarnPositions());
@@ -646,10 +692,9 @@ describe('useEarnPositions', () => {
     await loadPositions();
 
     expect(receivedKey).toEqual(KEY);
-    expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
-      owners: ['0xabcdef', '0xhistorical']
+      owners: ['0xabcdef']
     });
 
     // A covered page holds a null key, not a paused one.
@@ -662,25 +707,30 @@ describe('useEarnPositions', () => {
     await act(() => new Promise(resolve => setTimeout(resolve, 0)));
   });
 
-  it('uses only historical owners when the wallet has no derived EVM address', async () => {
+  it('reads no owner and waits for no request budget when the wallet has no derived EVM address', async () => {
     let loadPositions: (() => Promise<EarnPositionsResult>) | undefined;
     mockAccount.evmAddress = undefined;
     mockUseRetryableSWR.mockImplementation((_key: unknown, fetcher: () => Promise<EarnPositionsResult>) => {
       loadPositions = fetcher;
       return { data: undefined, isLoading: false };
     });
-    jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue(['0xhistorical']);
-    jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+    // A deposit row of the account names an owner, but the read takes no owner from it.
+    mockEarnDepositRows.push({
+      type: 'earn-deposit',
+      accountId: 'miden-account',
+      initiatedAt: 1,
+      extraInputs: { evmRecipient: '0x2222222222222222222222222222222222222222', marketUid: MARKET_UID }
+    });
+    const empty = { positions: [], totalDepositsUSD: 0, owners: [], errors: [] };
+    jest.mocked(fetchEarnPositions).mockResolvedValue(empty);
 
     renderHook(() => useEarnPositions());
 
     if (!loadPositions) throw new Error('positions fetcher was not registered');
-    await loadPositions();
+    expect(await loadPositions()).toEqual(empty);
 
-    expect(fetchEarnPositions).toHaveBeenCalledWith({
-      accountId: 'miden-account',
-      owners: ['0xhistorical']
-    });
+    expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden-account', owners: [] });
+    expect(positionsBudgetDelayMs).not.toHaveBeenCalled();
   });
 
   describe('before the config names the positions host, with the real SWR', () => {
@@ -690,7 +740,6 @@ describe('useEarnPositions', () => {
 
     it('reads nothing and shows no error, then reads at once when the config lands', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
       jest.mocked(fetchEarnPositions).mockImplementation(async () => {
         if (!mockConfigSnapshot.config) throw new Error('The bridge config has no usable epoch.positionsUrl.');
         return liveResult;
@@ -700,7 +749,6 @@ describe('useEarnPositions', () => {
       await act(async () => {
         await new Promise(resolve => setTimeout(resolve, 0));
       });
-      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
       expect(fetchEarnPositions).not.toHaveBeenCalled();
       expect(result.current.error).toBeUndefined();
       expect(result.current.isLoading).toBe(true);
@@ -718,12 +766,7 @@ describe('useEarnPositions', () => {
         'The bridge config has no usable epoch.positionsUrl.'
       ],
       [
-        'names the positions host but no Epoch route',
-        { ...READY_CONFIG, supportedEvmChains: {} },
-        'The bridge config has no usable Epoch route.'
-      ],
-      [
-        'names an Epoch route but lists no Earn vault',
+        'names the positions host but lists no Earn vault',
         { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined },
         'The bridge config has no usable Earn vault.'
       ]
@@ -739,7 +782,6 @@ describe('useEarnPositions', () => {
         expect(result.current.loadError).toBe(message);
         expect(result.current.error).toBe(message);
         expect(result.current.isLoading).toBe(false);
-        expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
         expect(fetchEarnPositions).not.toHaveBeenCalled();
       }
     );
@@ -756,7 +798,8 @@ describe('useEarnPositions', () => {
         },
         true
       ],
-      ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, true],
+      // The Epoch bridge routes do not configure Earn: a document with none still offers its listed vaults.
+      ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, false],
       [
         'a document that lists no Earn vault',
         { ...READY, config: { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined } },
@@ -771,7 +814,6 @@ describe('useEarnPositions', () => {
       'reports Earn as not on this network only when its document configures none: %s',
       async (_case, snapshot, expected) => {
         mockUseRetryableSWR.mockImplementation(realSWR);
-        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
         jest.mocked(fetchEarnPositions).mockRejectedValue(new Error('positions 503'));
         publishConfig(snapshot);
         const { result } = renderHook(() => useEarnPositions(), { wrapper });
@@ -784,7 +826,6 @@ describe('useEarnPositions', () => {
 
     it('reads again at once when the config moves the positions host', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       const { result } = renderHook(() => useEarnPositions(), { wrapper });
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
@@ -798,7 +839,6 @@ describe('useEarnPositions', () => {
 
     it('reads from the document alone, before any derivation lands', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       publishConfig({ ...READY, derived: null });
       const { result } = renderHook(() => useEarnPositions(), { wrapper });
@@ -828,7 +868,6 @@ describe('useEarnPositions', () => {
 
     it("never shows the previous account's positions while the next account's load is pending", async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
       jest.mocked(fetchEarnPositions).mockResolvedValueOnce(liveResult);
       const { result, rerender } = renderHook(() => useEarnPositions(), { wrapper });
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
@@ -856,44 +895,10 @@ describe('useEarnPositions', () => {
 
     beforeEach(() => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
-    });
-
-    it('reloads the remaining position on return after a receipt invalidated its cached balance', async () => {
-      const initial = { ...liveResult, positions: [position], errors: [] };
-      jest.mocked(fetchEarnPositions).mockResolvedValue(initial);
-      const cache = new Map();
-      let visible = true;
-      const { result, rerender } = renderHook(() => ({ earn: useEarnPositions(), mutate: useSWRConfig().mutate }), {
-        wrapper: ({ children }: { children: React.ReactNode }) =>
-          React.createElement(
-            SWRConfig,
-            { value: { provider: () => cache } },
-            React.createElement(PageActiveContext.Provider, { value: visible }, children)
-          )
-      });
-      await waitFor(() => expect(result.current.earn.positions[0]?.withdrawable).toBe('9.5'));
-      visible = false;
-      rerender();
-      jest
-        .mocked(fetchEarnPositions)
-        .mockResolvedValue({ ...initial, positions: [{ ...position, deposits: '7.75', withdrawable: '7.25' }] });
-      await act(async () => {
-        await result.current.mutate(
-          key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === mockAccount.publicKey,
-          undefined,
-          { revalidate: true }
-        );
-      });
-      visible = true;
-      rerender();
-      await waitFor(() => expect(result.current.earn.positions[0]?.withdrawable).toBe('7.25'));
-      expect(result.current.earn.positions[0]?.stale).toBe(false);
     });
 
     it('retries on the page that is showing when a covered page of the same account mounted first', async () => {
-      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
-      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult).mockRejectedValueOnce(new Error('lookup down'));
       // One cache for both, as the app's pages share one: the covered Earn pane under a slide earn page.
       const cache = new Map();
       let showing: Earn | undefined;
@@ -908,10 +913,10 @@ describe('useEarnPositions', () => {
         );
       });
       await waitFor(() => expect(showing?.loadError).toBe('lookup down'));
-      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
 
       await act(async () => showing?.refetch());
-      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     });
 
     // One hook whose page each test puts on or off screen, in a cache of its own.
@@ -944,7 +949,6 @@ describe('useEarnPositions', () => {
         renderOnPage();
       });
 
-      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
       expect(fetchEarnPositions).not.toHaveBeenCalled();
     });
 
@@ -1001,18 +1005,17 @@ describe('useEarnPositions', () => {
     }, 10_000);
 
     it('reads again when its page comes back after a load that failed before any request', async () => {
-      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
-      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult).mockRejectedValueOnce(new Error('lookup down'));
       const { result, rerender } = renderOnPage();
       await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
-      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
 
       onScreen = false;
       rerender();
       await pastDedupe();
       onScreen = true;
       rerender();
-      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     }, 10_000);
 
     it('keeps showing what it loaded while its page is covered', async () => {
@@ -1029,7 +1032,7 @@ describe('useEarnPositions', () => {
     });
 
     it('keeps showing its error while its page is covered', async () => {
-      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('lookup down'));
       const { result, rerender } = renderOnPage();
       await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
@@ -1042,7 +1045,7 @@ describe('useEarnPositions', () => {
 
     it("never shows the previous account's error once the account switches", async () => {
       jest
-        .mocked(getEarnDepositEvmAddresses)
+        .mocked(fetchEarnPositions)
         .mockRejectedValueOnce(new Error('lookup down'))
         .mockReturnValueOnce(new Promise(() => undefined));
       const { result, rerender } = renderOnPage();
@@ -1064,15 +1067,18 @@ describe('useEarnPositions', () => {
     });
 
     describe('on a fake clock', () => {
-      // Every read starts with the owner lookup, so its calls count the reads.
-      const reads = () => jest.mocked(getEarnDepositEvmAddresses).mock.calls.length;
+      // The budget wait is 0 on this clock, so every read calls `fetchEarnPositions` at once and its calls count the reads.
+      const reads = () => jest.mocked(fetchEarnPositions).mock.calls.length;
       // Moves the clock, and SWR's timers and the hook's with it, settling every read that starts on the way.
       const advance = (ms: number) => act(() => jest.advanceTimersByTimeAsync(ms));
 
+      // A read with no failure: neither the request nor any owner.
+      const okResult = { ...liveResult, errors: [] };
+
       beforeEach(() => {
         jest.useFakeTimers();
-        jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
-        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        jest.mocked(positionsBudgetDelayMs).mockImplementation((_count, _limit) => 0);
+        jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
       });
 
       afterEach(() => {
@@ -1080,57 +1086,93 @@ describe('useEarnPositions', () => {
         jest.useRealTimers();
       });
 
-      it('polls 10 s after the last read began, not sooner', async () => {
+      it('reads nothing 10 s after a successful read, and refreshes 3 minutes after it began', async () => {
         renderOnPage();
         await advance(0);
         expect(reads()).toBe(1);
 
-        await advance(9_900);
+        await advance(10_100);
+        expect(reads()).toBe(1);
+        await advance(169_800);
         expect(reads()).toBe(1);
         await advance(200);
         expect(reads()).toBe(2);
       });
 
-      it('keeps two-owner polling and a page return inside ten requests per minute', async () => {
-        const starts: number[] = [];
-        let budget!: typeof import('lib/epoch/positions');
-        await jest.isolateModulesAsync(async () => {
-          budget = await import('lib/epoch/positions');
+      it('retries a failed read 10 s, 30 s, then every 60 s after it began, and starts over after a success', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(1);
+
+        // Reads at 10 s, 40 s, 100 s and 160 s.
+        for (const wait of [10_000, 30_000, 60_000, 60_000]) {
+          const before = reads();
+          await advance(wait - 100);
+          expect(reads()).toBe(before);
+          await advance(100);
+          expect(reads()).toBe(before + 1);
+        }
+
+        // A read with no failure at 220 s ends the backoff: the next waits 3 minutes.
+        jest.mocked(fetchEarnPositions).mockResolvedValue(okResult);
+        await advance(60_000);
+        expect(reads()).toBe(6);
+        await advance(179_900);
+        expect(reads()).toBe(6);
+
+        // A failure after it is retried 10 s after it again.
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+        await advance(100);
+        expect(reads()).toBe(7);
+        await advance(9_900);
+        expect(reads()).toBe(7);
+        await advance(100);
+        expect(reads()).toBe(8);
+      });
+
+      it('waits for a page budget slot before the read of a page return', async () => {
+        // The budget answers in page slots (`POSITIONS_PAGE_LIMIT`, never the review reserve): the mount read gets
+        // one at once, the read of the page return finds the page allowance spent for 54.9 s. The arithmetic of the
+        // rolling window is the budget module's own test (positions.test.ts); this pins that the hook asks for a
+        // page slot and starts no read before the budget frees one.
+        const asked: Array<[number, number | undefined]> = [];
+        jest.mocked(positionsBudgetDelayMs).mockImplementation((count, limit) => {
+          asked.push([count, limit]);
+          return asked.length === 2 && limit === POSITIONS_PAGE_LIMIT ? 54_900 : 0;
         });
-        jest.mocked(positionsBudgetDelayMs).mockImplementation(budget.positionsBudgetDelayMs);
-        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue(['0x1111111111111111111111111111111111111111']);
-        jest.mocked(fetchEarnPositions).mockImplementation(async args => {
-          budget.notePositionsRequests(args?.owners?.length ?? 1);
-          starts.push(...(args?.owners ?? []).map(() => Date.now()));
-          return liveResult;
-        });
-        const beganAt = Date.now();
         const { rerender } = renderOnPage();
         await advance(5_000);
+        expect(reads()).toBe(1);
         onScreen = false;
         rerender();
         await advance(100);
         onScreen = true;
         rerender();
         await advance(100);
-        expect(starts).toHaveLength(4);
+        expect(asked).toEqual([
+          [1, POSITIONS_PAGE_LIMIT],
+          [1, POSITIONS_PAGE_LIMIT]
+        ]);
+        expect(reads()).toBe(1);
 
-        await advance(54_800);
-        const inWindow = starts.filter(at => at >= beganAt && at < beganAt + 60_000).length;
-        if (inWindow > 10) throw new Error(`positions budget exceeded: ${inWindow} owner requests in 60000ms`);
+        await advance(54_799);
+        expect(reads()).toBe(1);
+        await advance(101);
+        expect(reads()).toBe(2);
       });
 
-      it('a Retry moves the next poll to 10 s after it', async () => {
+      it('a Retry moves the next refresh to 3 minutes after it', async () => {
         const { result } = renderOnPage();
         await advance(0);
-        expect(result.current.error).toBe('owner unavailable');
+        expect(reads()).toBe(1);
 
         await advance(6_000);
         act(() => result.current.refetch());
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(9_900);
+        await advance(179_900);
         expect(reads()).toBe(2);
         await advance(200);
         expect(reads()).toBe(3);
@@ -1139,7 +1181,7 @@ describe('useEarnPositions', () => {
       it('a failed read is retried 10 s after it began, and nothing sooner', async () => {
         // SWR's first error retry, were it on, would wait a random share of its interval; this pins it at 2x.
         jest.spyOn(Math, 'random').mockReturnValue(0.9);
-        jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+        jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('lookup down'));
         const { result } = renderOnPage();
         await advance(0);
         expect(result.current.loadError).toBe('lookup down');
@@ -1150,7 +1192,9 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
       });
 
+      // A failed first read, so a retry falls due at 10 s and waits for the document and the network.
       it('no automatic read while the document is hidden', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
         const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
         renderOnPage();
         await advance(0);
@@ -1164,6 +1208,7 @@ describe('useEarnPositions', () => {
       });
 
       it('no automatic read while the device is offline', async () => {
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
         const online = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
         renderOnPage();
         await advance(0);
@@ -1188,10 +1233,11 @@ describe('useEarnPositions', () => {
         // And no timer left waiting to start one.
         expect(jest.getTimerCount()).toBe(0);
 
-        // Back on screen a read begins and re-arms every hook registered for the key; covered again, none is left.
+        // Back on screen SWR reads on the next frame, which re-arms every hook registered for the key; covered again,
+        // none is left.
         onScreen = true;
         rerender();
-        await advance(0);
+        await advance(100);
         expect(reads()).toBe(2);
 
         onScreen = false;
@@ -1220,9 +1266,10 @@ describe('useEarnPositions', () => {
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(3_400);
+        // The next refresh waits 3 minutes after the Retry.
+        await advance(179_900);
         expect(reads()).toBe(2);
-        await advance(6_700);
+        await advance(200);
         expect(reads()).toBe(3);
 
         // The remaining page leaves too, after reads that re-armed every hook registered for the key: none is left.
@@ -1241,11 +1288,143 @@ describe('useEarnPositions', () => {
         rerender();
         await advance(0);
         expect(reads()).toBe(2);
-        expect(getEarnDepositEvmAddresses).toHaveBeenLastCalledWith('another-account');
+        expect(fetchEarnPositions).toHaveBeenLastCalledWith({ accountId: 'another-account', owners: ['0x123456'] });
 
-        await advance(9_900);
+        await advance(179_900);
         expect(reads()).toBe(2);
         await advance(200);
+        expect(reads()).toBe(3);
+      });
+
+      // An Earn row of the fixtures' account, in flight until a test settles it.
+      const pushRow = (type: 'earn-deposit' | 'earn-withdraw', inputs: { epochStatus?: string; phase?: string }) => {
+        const row = { id: `${type}-1`, type, accountId: 'miden-account', initiatedAt: 1, extraInputs: inputs };
+        mockEarnDepositRows.push(row);
+        return row;
+      };
+
+      it.each([
+        ['a deposit is confirmed', 'earn-deposit', { epochStatus: 'pending' }, { epochStatus: 'confirmed' }],
+        ['a deposit fails', 'earn-deposit', { epochStatus: 'pending' }, { epochStatus: 'failed' }],
+        ['a withdrawal is redeemed', 'earn-withdraw', { phase: 'redeeming' }, { phase: 'delivering' }],
+        ['a withdrawal is received', 'earn-withdraw', { phase: 'delivering' }, { phase: 'received' }],
+        ['a withdrawal fails', 'earn-withdraw', { phase: 'redeeming' }, { phase: 'failed' }]
+      ] as const)('reads once at once when %s', async (_name, type, inFlight, settled) => {
+        const row = pushRow(type, inFlight);
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        row.extraInputs = settled;
+        await act(emitDbChange);
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        // The same settlement seen again asks for nothing.
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('reads nothing for a new Earn row that is still in flight', async () => {
+        renderOnPage();
+        await advance(5_000);
+
+        pushRow('earn-withdraw', { phase: 'redeeming' });
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+      });
+
+      it('a settled send row triggers no read', async () => {
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        mockEarnDepositRows.push({
+          id: 'send-1',
+          type: 'send',
+          accountId: 'miden-account',
+          initiatedAt: 1,
+          extraInputs: { epochStatus: 'confirmed', phase: 'received' }
+        });
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+        expect(Repo.transactions.where).toHaveBeenCalledWith('type');
+      });
+
+      it("reads nothing when another account's Earn row settles", async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        row.accountId = 'another-account';
+        renderOnPage();
+        await advance(5_000);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(60_000);
+        expect(reads()).toBe(1);
+      });
+
+      it('reads once when the page comes back after a row settled while it was covered', async () => {
+        const row = pushRow('earn-withdraw', { phase: 'delivering' });
+        const { rerender } = renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        onScreen = false;
+        rerender();
+        row.extraInputs = { phase: 'received' };
+        await act(emitDbChange);
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        onScreen = true;
+        rerender();
+        await advance(5_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('two pages of the account read once for one settlement', async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        const cache = new Map();
+        render(
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            page(true, () => undefined),
+            page(true, () => undefined)
+          )
+        );
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(5_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('a settlement while a read is out reads once more after it settles', async () => {
+        const row = pushRow('earn-deposit', { epochStatus: 'pending' });
+        renderOnPage();
+        await advance(5_000);
+        expect(reads()).toBe(1);
+
+        let finish: (result: EarnPositionsResult) => void = () => undefined;
+        jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(resolve => (finish = resolve)));
+        await advance(175_000);
+        expect(reads()).toBe(2);
+
+        row.extraInputs = { epochStatus: 'confirmed' };
+        await act(emitDbChange);
+        await advance(1_000);
+        expect(reads()).toBe(2);
+
+        await act(async () => finish(okResult));
+        await advance(0);
+        expect(reads()).toBe(3);
+        await advance(60_000);
         expect(reads()).toBe(3);
       });
     });
@@ -1263,19 +1442,18 @@ describe('useEarnPositions', () => {
 
     beforeEach(() => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
     });
 
     it('keeps the error and reports no loading while the retry is out', async () => {
       jest
-        .mocked(getEarnDepositEvmAddresses)
+        .mocked(fetchEarnPositions)
         .mockRejectedValueOnce(new Error('lookup down'))
-        .mockReturnValue(new Promise(() => undefined));
+        .mockReturnValueOnce(new Promise(() => undefined));
       const { result } = renderInCache();
       await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
       await act(async () => result.current.refetch());
-      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
 
       // SWR's own isLoading is true here (a read out, no data): the hook's is not, since an error is kept.
       expect(result.current.isLoading).toBe(false);
@@ -1284,18 +1462,18 @@ describe('useEarnPositions', () => {
 
     it('sends no second request when Retry is tapped again while its read is out', async () => {
       jest
-        .mocked(getEarnDepositEvmAddresses)
+        .mocked(fetchEarnPositions)
         .mockRejectedValueOnce(new Error('lookup down'))
-        .mockReturnValue(new Promise(() => undefined));
+        .mockReturnValueOnce(new Promise(() => undefined));
       const { result } = renderInCache();
       await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
       await act(async () => result.current.refetch());
-      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
       await act(async () => result.current.refetch());
       await act(() => new Promise(resolve => setTimeout(resolve, 50)));
 
-      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
     });
 
     it('keeps what its sole owner last loaded when a Retry finds it failed, stale until a read loads it', async () => {
@@ -1329,7 +1507,7 @@ describe('useEarnPositions', () => {
       const { result } = renderInCache();
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
 
-      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('lookup down'));
       await act(async () => result.current.refetch());
       await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
@@ -1367,7 +1545,6 @@ describe('useEarnPositions', () => {
 
     beforeEach(() => {
       mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
     });
 
     it('paints the stored read at once on a cold mount, every position stale, and reads at once', async () => {
@@ -1404,7 +1581,7 @@ describe('useEarnPositions', () => {
     it('keeps the stored copy when a read fails, and shows it stale beside the failure', async () => {
       const stored = { at: 1, result: storedResult };
       await getStorageProvider().set({ [STORAGE_KEY]: stored });
-      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('lookup down'));
 
       const { result } = renderCold();
 
