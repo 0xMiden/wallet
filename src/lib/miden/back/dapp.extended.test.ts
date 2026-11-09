@@ -291,7 +291,8 @@ beforeEach(() => {
       nullifier: 'nf-1',
       state: 0,
       assets: [{ faucetId: 'faucet-1', amount: '50' }],
-      nonFungibleAssets: []
+      nonFungibleAssets: [],
+      standardPayment: true
     }
   ]);
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
@@ -1632,7 +1633,8 @@ describe('requestConsumeTransaction', () => {
         state: 1,
         // What the note REALLY holds: 7 units of another faucet.
         assets: [{ faucetId: 'real-faucet', amount: '7' }],
-        nonFungibleAssets: []
+        nonFungibleAssets: [],
+        standardPayment: true
       }
     ]);
 
@@ -1671,7 +1673,8 @@ describe('requestConsumeTransaction', () => {
         nullifier: 'nf1',
         state: 1,
         assets: [{ faucetId: 'real-faucet', amount: '7' }],
-        nonFungibleAssets: []
+        nonFungibleAssets: [],
+        standardPayment: true
       }
     ]);
     await dapp.requestConsumeTransaction('https://miden.xyz', {
