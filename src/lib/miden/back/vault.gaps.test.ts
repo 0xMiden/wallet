@@ -382,7 +382,12 @@ describe('Vault instance signData - Guardian account', () => {
     ['transaction summary signing inputs', new Uint8Array([0x00, 0x10, 0x20])],
     ['blind signing inputs', new Uint8Array([0x02, 0x10, 0x20])],
     // Arbitrary, 24 elements, the first is 1: the layout of `TransactionSummary::to_elements`.
-    ['an arbitrary preimage with the transaction summary layout', new Uint8Array([0x01, 0x01, ...Array(23).fill(0x07)])]
+    [
+      'an arbitrary preimage with the transaction summary layout',
+      new Uint8Array([0x01, 0x01, ...Array(23).fill(0x07)])
+    ],
+    // Arbitrary, 24 elements, the first is 2: the length of a transaction summary of a later version.
+    ['an arbitrary 24-element preimage of another version', new Uint8Array([0x01, 0x02, ...Array(23).fill(0x07)])]
   ])('refuses %s with the sign rule and signs nothing', async (_case, payload) => {
     const vault = await seedGuardianVault();
     mockAuthSecretKeyDeserialize.mockClear();

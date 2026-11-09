@@ -7,16 +7,16 @@
  */
 export const DAPP_SIGN_RULE =
   'This wallet signs only arbitrary signing inputs that carry their preimage. It refuses a raw word, a blind ' +
-  'commitment, a transaction summary, and a preimage with the layout of a transaction summary or a Guardian lookup.';
+  'commitment, a transaction summary, a preimage of 24 elements (the length of a transaction summary), and a ' +
+  'preimage with the layout of a Guardian lookup.';
 
 /**
  * The number of field elements in `TransactionSummary::to_elements` (miden-protocol 0.17, `tx_summary.rs`,
  * `TransactionSummary::NUM_ELEMENTS`): the version, one metadata element, six user parameters and four words.
+ * The rule refuses every preimage of this length, whatever its first element (the summary version), so that a
+ * later summary version is refused too.
  */
 export const TRANSACTION_SUMMARY_ELEMENT_COUNT = 24;
-
-/** The first field element of `TransactionSummary::to_elements`: the summary version (`TransactionSummary::VERSION`). */
-export const TRANSACTION_SUMMARY_VERSION = 1n;
 
 /**
  * The number of field elements in a Guardian lookup-auth message: the four domain-tag elements, the timestamp and
@@ -59,13 +59,13 @@ export interface ProtocolTags {
 
 /**
  * True when `elements` has the layout of a protocol message that the hot key must not sign as arbitrary inputs:
- * a transaction summary (24 elements, the first is version 1) or a Guardian lookup-auth message (9 elements, the
- * first four are the lookup domain tag in `tags`).
+ * a transaction summary (24 elements, of any version) or a Guardian lookup-auth message (9 elements, the first
+ * four are the lookup domain tag in `tags`).
  */
 export function isProtocolMessageLayout(elements: readonly bigint[], tags: ProtocolTags): boolean {
   switch (elements.length) {
     case TRANSACTION_SUMMARY_ELEMENT_COUNT:
-      return elements[0] === TRANSACTION_SUMMARY_VERSION;
+      return true;
     case GUARDIAN_LOOKUP_ELEMENT_COUNT:
       return tags.guardianLookup.every((tagElement, index) => elements[index] === tagElement);
     default:

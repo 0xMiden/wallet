@@ -21,11 +21,13 @@ interface NativeWord {
 interface NativeSigningInputs {
   readonly variantType: number;
   serialize(): Uint8Array;
+  toCommitment(): NativeWord;
   toElements(): NativeFelt[];
 }
 interface NativeSdk {
   Felt: new (value: bigint) => NativeFelt;
   Word: { fromHex(hex: string): NativeWord };
+  Poseidon2: { hashElements(felts: NativeFelt[]): NativeWord };
   Rpo256: { hashElements(felts: NativeFelt[]): NativeWord };
   SigningInputs: {
     deserialize(bytes: Uint8Array): NativeSigningInputs;
@@ -122,13 +124,17 @@ describe('signableArbitraryElements on the real SDK', () => {
     expect(signableArbitraryElements('signingInputs', u8ToB64(new Uint8Array([0xff, 0x00, 0x01])))).toBeUndefined();
   });
 
-  it('refuses a preimage with the transaction summary layout and accepts another first element', () => {
+  it.each([1n, 2n, 0n])('refuses a 24-element preimage whose first element is %s', first => {
     expect(
-      signableArbitraryElements('signingInputs', arbitraryPayload(sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT, 1n)))
+      signableArbitraryElements('signingInputs', arbitraryPayload(sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT, first)))
     ).toBeUndefined();
-    expect(
-      signableArbitraryElements('signingInputs', arbitraryPayload(sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT, 2n)))
-    ).toHaveLength(TRANSACTION_SUMMARY_ELEMENT_COUNT);
+  });
+
+  it('accepts a preimage one element shorter or longer than a transaction summary', () => {
+    const shorter = sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT - 1, 1n);
+    const longer = sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT + 1, 1n);
+    expect(signableArbitraryElements('signingInputs', arbitraryPayload(shorter))).toEqual(shorter);
+    expect(signableArbitraryElements('signingInputs', arbitraryPayload(longer))).toEqual(longer);
   });
 
   it('refuses a preimage with the Guardian lookup layout and accepts one with another tag', () => {
@@ -147,7 +153,9 @@ describe('the derived Guardian lookup domain tag', () => {
     expect(protocolTags().guardianLookup).toEqual(KNOWN_LOOKUP_TAG);
   });
 
-  it('is the tag that lookupAuthDigest in @openzeppelin/miden-multisig-client hashes', () => {
+  // The Guardian digests use Rpo256, but an Arbitrary preimage commits with Poseidon2 (see the hash pins below), so
+  // the commitment of an Arbitrary preimage is not an Rpo256 digest. This test pins both facts for the lookup digest.
+  it('is the tag that lookupAuthDigest in @openzeppelin/miden-multisig-client hashes, with Rpo256', () => {
     const timestampMs = 1_700_000_000_123n;
     const keyCommitmentHex = `0x${'5a'.repeat(32)}`;
     // The package is an ES module that the jest transform does not load, so a Node child process imports it. Node
@@ -165,12 +173,29 @@ describe('the derived Guardian lookup domain tag', () => {
       { cwd: REPO_ROOT, encoding: 'utf8' }
     );
 
-    const message = [
+    const message = (): NativeFelt[] => [
       ...protocolTags().guardianLookup.map(value => new sdk.Felt(value)),
       new sdk.Felt(timestampMs),
       ...sdk.Word.fromHex(keyCommitmentHex).toFelts()
     ];
-    expect(message).toHaveLength(GUARDIAN_LOOKUP_ELEMENT_COUNT);
-    expect(digestHex).toBe(sdk.Rpo256.hashElements(message).toHex());
+    expect(message()).toHaveLength(GUARDIAN_LOOKUP_ELEMENT_COUNT);
+    expect(digestHex).toBe(sdk.Rpo256.hashElements(message()).toHex());
+    expect(digestHex).not.toBe(sdk.Poseidon2.hashElements(message()).toHex());
+    expect(digestHex).not.toBe(sdk.SigningInputs.newArbitrary(message()).toCommitment().toHex());
+  });
+});
+
+describe('the commitment of Arbitrary signing inputs', () => {
+  // The rule refuses a 24-element preimage because `TransactionSummary::to_commitment` (miden-protocol 0.17) is the
+  // Poseidon2 `hash_elements` of its 24 `to_elements`, the same hash as an Arbitrary commitment. The Node binding has
+  // no TransactionSummary constructor (only `deserialize`; a summary comes from a client's `executeForSummary`), so
+  // this pins the Arbitrary side: its commitment is Poseidon2 of the preimage, and not Rpo256.
+  const preimage = (): NativeFelt[] =>
+    sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT, 1n).map(value => new sdk.Felt(value));
+
+  it('is the Poseidon2 hash of the preimage, not the Rpo256 hash', () => {
+    const commitment = sdk.SigningInputs.newArbitrary(preimage()).toCommitment().toHex();
+    expect(commitment).toBe(sdk.Poseidon2.hashElements(preimage()).toHex());
+    expect(commitment).not.toBe(sdk.Rpo256.hashElements(preimage()).toHex());
   });
 });

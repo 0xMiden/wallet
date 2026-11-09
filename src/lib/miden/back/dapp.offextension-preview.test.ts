@@ -249,6 +249,11 @@ describe('dApp sign approval on mobile and desktop', () => {
       () => signingInputs(1, [1n, ...Array<bigint>(23).fill(9n)])
     ],
     [
+      'an arbitrary 24-element preimage of another version',
+      'signingInputs',
+      () => signingInputs(1, [2n, ...Array<bigint>(23).fill(9n)])
+    ],
+    [
       'bytes that do not decode',
       'signingInputs',
       () => {

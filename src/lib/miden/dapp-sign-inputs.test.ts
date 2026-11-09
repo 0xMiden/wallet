@@ -129,7 +129,10 @@ describe('isProtocolMessageLayout', () => {
 
   it.each([
     ['24 elements whose first element is version 1', summaryLayout(1n), true],
-    ['24 elements whose first element is not 1', summaryLayout(2n), false],
+    ['24 elements whose first element is another version', summaryLayout(2n), true],
+    ['24 elements whose first element is 0', summaryLayout(0n), true],
+    ['23 elements whose first element is version 1', summaryLayout(1n).slice(1), false],
+    ['25 elements whose first element is version 1', [...summaryLayout(1n), 9n], false],
     ['9 elements that start with the Guardian lookup tag', [...mockTag, 0n, 0n, 0n, 0n, 0n], true],
     ['9 elements that start with another tag', [0n, ...mockTag.slice(1), 0n, 0n, 0n, 0n, 0n], false],
     ['the lookup tag in a message of another length', [...mockTag, 0n], false],
