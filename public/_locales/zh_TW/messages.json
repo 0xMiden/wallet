@@ -856,6 +856,10 @@
     "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "無法透過 Epoch 查詢您的餘額。請重試。",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "此網路不提供「賺取」功能",
     "englishSource": "Earn is not available on this network"
