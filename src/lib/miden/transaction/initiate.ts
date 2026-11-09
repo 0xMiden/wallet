@@ -39,6 +39,7 @@ import {
   EarnDepositTransaction,
   EarnWithdrawTransaction,
   IAgglayerDelivery,
+  IApprovedCustomEffects,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
@@ -114,7 +115,12 @@ export const requestCustomTransaction = async (
   spentAssetTotals?: IConsumedAssetTotal[],
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  /**
+   * The effects of the approval-time dry run that the user approved; see `ITransaction.approvedEffects`. Generation
+   * proposes the row only when its own dry run gives the same effects, so a row without them is never proposed.
+   */
+  approvedEffects?: IApprovedCustomEffects
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
@@ -123,7 +129,8 @@ export const requestCustomTransaction = async (
     inputNoteIds,
     delegateTransaction,
     recipientAccountId,
-    spentAssetTotals
+    spentAssetTotals,
+    approvedEffects
   );
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];

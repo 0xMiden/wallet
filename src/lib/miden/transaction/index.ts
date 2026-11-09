@@ -113,6 +113,7 @@ import {
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
@@ -4077,10 +4078,28 @@ const generateGuardianTransaction = async (
         preparedBytes = await withWasmClientLock(async hold => {
           const client = await getMidenClient();
           assertWasmHoldCurrent(hold, 'after the custom request client build');
-          return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold, diagnostics => {
-            observedDiagnostics = diagnostics;
-            transaction.failureDiagnostics = diagnostics;
-          });
+          const prepared = await prepareCustomRequestBytes(
+            client.client,
+            transaction.accountId,
+            requestBytes,
+            hold,
+            diagnostics => {
+              observedDiagnostics = diagnostics;
+              transaction.failureDiagnostics = diagnostics;
+            }
+          );
+          assertWasmHoldCurrent(hold, 'after custom request preparation');
+          // The wallet proposes only the effects that the user approved. A dry run of the prepared bytes must give
+          // the approved effects, and its spends must be the row's `spentAssetTotals`; else this throws
+          // `CustomTransactionEffectsChangedError` and nothing is proposed. See `custom-effects.ts` for the cases
+          // that fail by design.
+          await verifyPreparedCustomRequest(
+            customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+            transaction.approvedEffects,
+            transaction.spentAssetTotals
+          );
+          assertWasmHoldCurrent(hold, 'after the custom request effects check');
+          return prepared;
         });
       } finally {
         if (observedDiagnostics !== undefined) {

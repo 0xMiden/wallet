@@ -36,6 +36,7 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 import { requestCustomTransaction } from './initiate';
+import type { IApprovedCustomEffects } from '../db/types';
 
 const REQUEST_BYTES = Buffer.from('custom-request').toString('base64');
 
@@ -74,6 +75,52 @@ describe('requestCustomTransaction', () => {
 
     expect(mockQueueOutgoing).not.toHaveBeenCalled();
     expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ type: 'execute' }));
+  });
+
+  it('records the approved effects on the queued row, on both insert paths', async () => {
+    const approvedEffects: IApprovedCustomEffects = {
+      shape: 'summary',
+      outgoing: [{ faucetId: 'faucet-a', amount: 101n }],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      recipients: ['0xr1'],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false,
+      introducedCredit: [],
+      introducedCount: 0
+    };
+    const totals = [{ faucetId: 'faucet-a', amount: 101n }];
+
+    await requestCustomTransaction(
+      'account-a',
+      REQUEST_BYTES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      totals,
+      undefined,
+      undefined,
+      approvedEffects
+    );
+    await requestCustomTransaction(
+      'account-a',
+      REQUEST_BYTES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      approvedEffects
+    );
+
+    expect(mockQueueOutgoing).toHaveBeenCalledWith(expect.objectContaining({ approvedEffects }), totals, undefined);
+    expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ approvedEffects }));
   });
 
   it('inserts directly when the dry run found an empty outgoing set', async () => {

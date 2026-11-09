@@ -579,6 +579,25 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/** The text of a Failed `execute` row whose generation-time effects are not the approved effects. */
+export const CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR =
+  'The wallet stopped this transaction because its effects are not the ones you approved. No funds moved.';
+
+/**
+ * The wallet refuses to propose an `execute` row because the generation-time dry run does not give the effects that
+ * the user approved. The failure is before the proposal, so nothing moved. `difference` names the first field that
+ * is not equal, for the log only.
+ */
+export class CustomTransactionEffectsChangedError extends Error {
+  readonly difference: string;
+
+  constructor(difference: string) {
+    super(`Custom transaction effects changed after approval: ${difference}`);
+    this.name = 'CustomTransactionEffectsChangedError';
+    this.difference = difference;
+  }
+}
+
 // Hedged: the proposal stages call the node as well as the guardian.
 export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
@@ -653,6 +672,9 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  if ([...causeChain(error)].some(link => link instanceof CustomTransactionEffectsChangedError)) {
+    return CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
   if (isSubmitCrossingUnrecorded(error)) {

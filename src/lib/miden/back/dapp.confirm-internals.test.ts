@@ -155,6 +155,22 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
 
+// The approval needs a dry run that decodes; its decoded view here moves nothing.
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
 const mockReleaseNoteIds = jest.fn(async (_ids: string[]) => undefined);
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map((n: string) => `id:${n}`)),

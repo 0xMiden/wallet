@@ -226,6 +226,50 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/**
+ * Execute (dApp custom) only: the asset movement of one dry run of a custom request.
+ *
+ * Two dry runs of the same request give the same value. This record does not contain the fee, the fee salt, the
+ * account commitment or other values that change with the block or the salt.
+ */
+export interface ICustomTransactionEffects {
+  /**
+   * The dry-run result: the summary of a proposal that is not yet signed, or a local execution. The two results
+   * count assets in different ways, so a change of result is a change of effects.
+   */
+  shape: 'summary' | 'executed';
+  /** Gross value that leaves the account. One entry for each canonical faucet, sorted by faucet. */
+  outgoing: IConsumedAssetTotal[];
+  /** Gross value that comes into the account. One entry for each canonical faucet, sorted by faucet. */
+  incoming: IConsumedAssetTotal[];
+  /** NFTs that leave the account, as `faucet|asset id`, sorted. */
+  outgoingNfts: string[];
+  /** NFTs that come into the account, as `faucet|asset id`, sorted. */
+  incomingNfts: string[];
+  /** Vault changes that the dry run cannot list. */
+  unlistedAssets: number;
+  /** The recipient digest of each note that the request creates (not the fee note), sorted. */
+  recipients: string[];
+  inputNotesConsumed: number;
+  outputNotesCreated: number;
+  storageChanged: boolean;
+}
+
+/**
+ * Execute (dApp custom) only: the effects that the user approved, from the approval-time dry run.
+ *
+ * The wallet proposes the row only when the generation-time dry run gives the same effects.
+ */
+export interface IApprovedCustomEffects extends ICustomTransactionEffects {
+  /**
+   * The assets of the notes that the request introduced at approval. The spending-limit charge subtracts only this
+   * value. The wallet cannot calculate it again at generation, because the approval dry run imported those notes.
+   */
+  introducedCredit: IConsumedAssetTotal[];
+  /** How many of the consumed notes the request introduced at approval. */
+  introducedCount: number;
+}
+
 /** One note a consume claimed, as it was queued. */
 export interface IConsumedNote {
   id: string;
@@ -876,6 +920,11 @@ export interface ITransaction {
    */
   spentAssetTotals?: IConsumedAssetTotal[];
   /**
+   * Execute (dApp custom) only: the effects that the user approved. See `IApprovedCustomEffects`. A row without this
+   * value is not proposed.
+   */
+  approvedEffects?: IApprovedCustomEffects;
+  /**
    * What this row sent, in micro-dollars, as valued when it was queued.
    *
    * Stamped once and never revalued: the rolling window sums these, so a price move must not
@@ -1216,6 +1265,8 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /** The effects that the user approved. See `ITransaction.approvedEffects`. */
+  approvedEffects?: IApprovedCustomEffects;
   spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1233,7 +1284,8 @@ export class Transaction implements ITransaction {
     inputNoteIds?: string[],
     delegateTransaction?: boolean,
     recipientAccountId?: string,
-    spentAssetTotals?: IConsumedAssetTotal[]
+    spentAssetTotals?: IConsumedAssetTotal[],
+    approvedEffects?: IApprovedCustomEffects
   ) {
     this.id = uuid();
     this.type = 'execute';
@@ -1243,6 +1295,7 @@ export class Transaction implements ITransaction {
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
     this.spentAssetTotals = spentAssetTotals;
+    this.approvedEffects = approvedEffects;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

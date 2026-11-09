@@ -37,7 +37,7 @@ import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
+import { simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
@@ -168,9 +168,19 @@ interface PayloadContentProps {
   account?: WalletAccount;
   viewKey?: string;
   error?: any;
+  /** A custom transaction tells the form when its simulated view is on the sheet. */
+  onCustomVerifiedChange?: (verified: boolean) => void;
 }
 
-const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account, viewKey }) => {
+const ignoreVerifiedChange = () => undefined;
+
+const PayloadContent: React.FC<PayloadContentProps> = ({
+  payload,
+  error,
+  account,
+  viewKey,
+  onCustomVerifiedChange = ignoreVerifiedChange
+}) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
 
@@ -244,7 +254,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
     case 'transaction': {
       if (payload.txKind === 'custom') {
-        content = <CustomTransactionContent payload={payload} id={viewKey ?? ''} />;
+        content = (
+          <CustomTransactionContent payload={payload} id={viewKey ?? ''} onVerifiedChange={onCustomVerifiedChange} />
+        );
         break;
       }
       content = (
@@ -413,27 +425,22 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
 const CustomTransactionContent: React.FC<{
   payload: Extract<MidenDAppPayload, { type: 'transaction' }>;
   id: string;
-}> = ({ payload, id }) => {
+  /** Tells the form whether the simulated view is on the sheet, so it can block the approval until then. */
+  onVerifiedChange: (verified: boolean) => void;
+}> = ({ payload, id, onVerifiedChange }) => {
   const { t } = useTranslation();
   const { simulateCustomTransaction } = useMidenContext();
 
-  const declaredView = useMemo<TxAssetView | null>(() => {
-    if (!payload.requestBytes) return null;
-    try {
-      return declaredRequestToView(payload.requestBytes, payload.importNotes ?? []);
-    } catch (e) {
-      console.error('Failed to decode declared custom transaction:', e);
-      return null;
-    }
-  }, [payload.requestBytes, payload.importNotes]);
-
+  // The user approves only the simulated view. The background refuses a request whose dry run fails before it raises
+  // this sheet, and this sheet never shows the effects that the dApp declares in place of the simulated view.
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [verifiedNoteFlow, setVerifiedNoteFlow] = useState<NoteFlow>();
-  const [simError, setSimError] = useState(false);
-  useUserVisibleError(
-    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
-    'inline'
-  );
+  const [simError, setSimError] = useState(!payload.requestBytes);
+  useUserVisibleError(simError ? 'customTransactionNotSimulated' : null, 'inline');
+
+  useEffect(() => {
+    onVerifiedChange(verifiedView !== null);
+  }, [verifiedView, onVerifiedChange]);
 
   useEffect(() => {
     if (!payload.requestBytes) return;
@@ -490,24 +497,20 @@ const CustomTransactionContent: React.FC<{
     );
   }
 
-  if (declaredView) {
+  if (simError) {
     return (
-      <>
-        <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && (
-          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
-            {t('couldNotVerifyBySimulation')}
-          </div>
-        )}
+      <div>
+        <div className="text-sm my-4" data-testid="tx-simulation-failed">
+          {t('customTransactionNotSimulated')}
+        </div>
         {advanced}
-      </>
+      </div>
     );
   }
 
   return (
-    <div>
-      <div className="text-sm my-4">{t('couldNotDecodeTransaction')}</div>
-      {advanced}
+    <div className="flex justify-center my-6" data-testid="tx-simulation-pending">
+      <Spinner />
     </div>
   );
 };
@@ -567,6 +570,9 @@ const ConfirmDAppForm: FC = () => {
   const delegate = isDelegateProofEnabled();
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   const confirmationInFlightRef = useRef(false);
+  // A custom transaction is approved only once its simulated view is on the sheet.
+  const [customVerified, setCustomVerified] = useState(false);
+  const awaitsCustomVerification = payload.type === 'transaction' && payload.txKind === 'custom' && !customVerified;
 
   const onConfirm = useCallback(
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
@@ -680,7 +686,7 @@ const ConfirmDAppForm: FC = () => {
   }, [payload, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
-    if (confirming || declining || confirmationInFlightRef.current) return;
+    if (confirming || declining || confirmationInFlightRef.current || awaitsCustomVerification) return;
     if (spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
@@ -691,7 +697,7 @@ const ConfirmDAppForm: FC = () => {
     await confirm(true);
     setConfirming(false);
     confirmationInFlightRef.current = false;
-  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, awaitsCustomVerification]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -895,7 +901,13 @@ const ConfirmDAppForm: FC = () => {
                 <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
               </>
             ) : (
-              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+              <PayloadContent
+                payload={payload}
+                error={payloadError}
+                account={account}
+                viewKey={id}
+                onCustomVerifiedChange={setCustomVerified}
+              />
             )}
           </>
         )}
@@ -932,6 +944,7 @@ const ConfirmDAppForm: FC = () => {
             variant={ButtonVariant.Primary}
             className="w-full"
             isLoading={confirming}
+            disabled={awaitsCustomVerification}
             onClick={handleConfirmClick}
             data-testid={content.confirmActionTestID}
           >

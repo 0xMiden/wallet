@@ -1,14 +1,7 @@
-import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
-import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
-
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
 import { importedNoteIds, type NoteDecodeOptions, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { dryRunPreparedCustomRequest } from 'lib/miden/sdk/custom-dry-run';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
-import {
-  isAlreadyAuthorizedError,
-  isSummaryFeeFaucetMissing,
-  isSummarySigningUnavailable
-} from 'lib/miden/sdk/dry-run-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -17,7 +10,7 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
-import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8 } from 'lib/shared/helpers';
 
 export interface SimulateCustomTxInput {
   /** Bech32 sending account address (the custom-tx `address` field). */
@@ -120,8 +113,9 @@ async function idsNotAlreadyHeld(
  * describe the same executed transaction; the confirm UI decodes whichever
  * arrives.
  * All WASM work runs inside a single `withWasmClientLock` scope (the client is
- * single-threaded). Never throws: failures are returned as `{ error }` so the
- * confirm UI can fall back to the declared view.
+ * single-threaded). Never throws: failures are returned as `{ error }`. The dApp
+ * approval refuses a request whose dry run gives `{ error }`, before any prompt
+ * (see `generatePromisifyTransaction` in `dapp.ts`).
  *
  * The whole locked operation races against `SIMULATION_TIMEOUT_MS` so a slow
  * import/sync/execute can never hang the confirm screen's "verifying…" state
@@ -213,63 +207,9 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           hold
         );
         assertWasmHoldCurrent(hold, 'after custom request preparation');
-        const request = TransactionRequest.deserialize(preparedBytes);
-        // ONLY the summary execution is caught here. A guard's own throw must never reach the
-        // fallback below: `assertWasmHoldCurrent` fires when the mutex is already a successor's,
-        // and retrying under it is the double borrow every guard in this callback exists to stop.
-        let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
-        let summaryFailure: unknown;
-        try {
-          // The summary binds the block the request's auth args name, which the dApp's own client
-          // chose and the sync above has moved this one past, so it executes at the tip like every
-          // other execution of a Guardian proposal.
-          summary = await executeForSummaryAtTip(client.client, accountIdHex, request);
-        } catch (e) {
-          summaryFailure = e;
-        }
-
-        if (summary !== undefined) {
-          // `summary.serialize()` borrows the client, so an evicted hold must not reach it.
-          assertWasmHoldCurrent(hold, 'before the summary serialize');
-          return { summaryBytes: u8ToB64(summary.serialize()), introducedCredit, introducedCount };
-        }
-
-        // Only two summary failures are retryable locally: the account was already fully
-        // authorized, and the summary client could not sign for it. Anything else - a genuine
-        // execution failure, an eviction, an abort - is reported as it stands, because retrying it
-        // would either mask the real error or borrow a client a successor already owns.
-        if (
-          !isAlreadyAuthorizedError(summaryFailure) &&
-          !isSummarySigningUnavailable(summaryFailure) &&
-          !isSummaryFeeFaucetMissing(summaryFailure)
-        ) {
-          throw summaryFailure;
-        }
-        if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
-          console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
-        }
-        // The rejection still ends the executeForSummaryAtTip parking await, so re-check before the
-        // fallback executes anything.
-        assertWasmHoldCurrent(hold, 'before the local execution fallback');
-        // Ordinary (non-guardian) account: nothing is pending authorization, so
-        // there is no summary — but the dry run itself is still available and is
-        // the same ground truth. `executeRequest` executes locally and submits,
-        // proves and persists NOTHING (SDK: "does not submit it to the network
-        // nor update the local database"), so it stays a dry run. Without this
-        // the verified asset view — the anti-phishing control that shows what the
-        // transaction really moves — was unreachable for every ordinary account
-        // on the 0.16 line.
-        //
-        // A fresh deserialization: the first request handle was consumed by
-        // `executeForSummaryAtTip` (wasm-bindgen moves it).
-        const executed = await client.client.transactions.executeRequest(
-          accountIdHex,
-          TransactionRequest.deserialize(preparedBytes)
-        );
-        // `result.serialize()` borrows the same client — same rule as the
-        // summary above. Still pre-submit: executeRequest broadcasts nothing.
-        assertWasmHoldCurrent(hold, 'before the result serialize');
-        return { executedBytes: u8ToB64(executed.result.serialize()), introducedCredit, introducedCount };
+        // The same dry run that the generation check of the queued row executes, so the two decode identically.
+        const dryRun = await dryRunPreparedCustomRequest(client.client, accountIdHex, preparedBytes, hold);
+        return { ...dryRun, introducedCredit, introducedCount };
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal
