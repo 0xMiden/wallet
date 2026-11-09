@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { SubPageLayout, SubPageLayoutProps } from 'components/ui/SubPageLayout';
+import { cn } from 'lib/ui/util';
 
 export interface OnboardingStepLayoutProps {
   /** Above the title: a tag such as the network's chip. */
@@ -11,6 +12,8 @@ export interface OnboardingStepLayoutProps {
   description?: React.ReactNode;
   /** Under the description: a text action such as "Learn more". */
   aside?: React.ReactNode;
+  /** Layout only: the heading's top padding, for a step whose title should line up with an eyebrow on its neighbours. */
+  headingClassName?: string;
   /** The step's content, 20px between blocks. */
   children?: React.ReactNode;
   /** The step's actions, pinned under the body: the primary CTA first. */
@@ -37,6 +40,7 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   title,
   description,
   aside,
+  headingClassName,
   children,
   footer,
   footerLayout = 'stack',
@@ -54,7 +58,7 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
     formId={formId}
   >
     {(eyebrow || title || description || aside) && (
-      <div data-slot="step-heading" className="flex shrink-0 flex-col items-start gap-2 pt-4">
+      <div data-slot="step-heading" className={cn('flex shrink-0 flex-col items-start gap-2 pt-4', headingClassName)}>
         {eyebrow && <div className="self-stretch pb-1">{eyebrow}</div>}
         {title && <h1 className="text-title-tab text-ink">{title}</h1>}
         {/* The explainer's size and leading, in Nunito semibold like the rest of the step's text. */}

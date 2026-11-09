@@ -3053,8 +3053,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Ваша фраза відновлення відновлює ваші ключі, а разом із резервною копією вашого «Guardian» — і ваш обліковий запис. Зберігайте цю фразу в безпечному місці.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Ваша фраза та резервна копія вашого «Guardian» відновлюють ваш обліковий запис. Зберігайте фразу в безпечному місці.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ваші кошти залишаються вашими",
@@ -3073,8 +3073,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Більше про «Guardians»",
-    "englishSource": "More about Guardians"
+    "message": "Дізнайтеся більше про «Guardian»",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Продовжуйте з $name$",
@@ -4137,6 +4137,128 @@
     "message": "Підтвердження потрібно вводити щоразу, коли запитуються дані облікового запису",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "Цей сайт зможе",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Перегляньте свій баланс та історію",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Читати приватні дані без дозволу",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "Буде надано доступ до $scopes$",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Запитайте, перш ніж читати приватні дані",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Надсилати вам запити на транзакції",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Ви затверджуєте кожне з них",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Ніколи не переказуйте кошти самостійно",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Кошти виходять з рахунку лише після вашого затвердження",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Не вдалося підключитися",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Інша мережа",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Запит від",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet токенів",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Блоки відкликання",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Отримання",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note від faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "ви",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ви платите",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Ви отримуєте",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Виходить з вашого рахунку",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Надходить на ваш рахунок",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Індивідуальна транзакція",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Звіт про транзакції",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Не вдалося підтвердити",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Не підтверджено",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Транзакція завершена",
     "englishSource": "Transaction Completed"
@@ -4618,6 +4740,10 @@
         "content": "$1"
       }
     }
+  },
+  "loginSignatureTitle": {
+    "message": "Це лише входить у систему",
+    "englishSource": "This only signs you in"
   },
   "loginSignatureNote": {
     "message": "Bread підписує це повідомлення про вхід ключем, створеним виключно для $domain$. Він не може переказувати кошти або змінювати ваш рахунок.",
@@ -6305,12 +6431,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Запит на підпис із прихованим вмістом",
-    "englishSource": "Opaque signature request"
+    "message": "Bread не може переглянути це",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що саме він авторизує. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ попросив вас підписати необроблене значення. Bread не може показати, що саме авторизується, тому продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

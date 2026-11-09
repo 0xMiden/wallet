@@ -409,14 +409,13 @@ test.describe('dApp provider', () => {
     await expect(signPopup.getByTestId('confirm-request-origin')).toHaveText(FIXTURE_DAPP_ORIGIN);
 
     // The digest on screen must be the digest the dApp asked to have signed.
-    // Expanded from the "Raw value" disclosure; the expected hex is computed
+    // Shown open under "Raw value"; the expected hex is computed
     // here from the same bytes the page sent, via the SDK directly, so a
     // wallet-side mix-up (wrong payload rendered, or a stale request's digest
     // shown for this one) fails.
     const sdk = await loadMidenSdk();
     const expectedWordHex = sdk.Word.deserialize(new Uint8Array(SIGN_WORD_BYTES)).toHex();
-    await signPopup.getByTestId('advanced-details-toggle').click({ timeout: 15_000 });
-    await expect(signPopup.getByTestId('advanced-details-content')).toHaveText(expectedWordHex);
+    await expect(signPopup.getByTestId('confirm-sign-raw-value')).toHaveText(expectedWordHex, { timeout: 15_000 });
 
     await clickConfirmAction(signPopup, CONFIRM_TESTID.signDecline, 15_000);
     const declined = await declinedCall;

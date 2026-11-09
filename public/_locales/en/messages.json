@@ -3053,8 +3053,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Your funds stay yours",
@@ -3073,8 +3073,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "More about Guardians",
-    "englishSource": "More about Guardians"
+    "message": "Learn more about the Guardian",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continue with $name$",
@@ -4137,6 +4137,128 @@
     "message": "Confirmation is required every time account data is requested",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "This site will be able to",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "See your balance and history",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Read private data without asking",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "Access to $scopes$ will be granted",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Ask before reading private data",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Send you transaction requests",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "You approve each one",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Never move funds on its own",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Funds leave only when you approve",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Your request is still here, so you can retry.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Couldn't connect",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Different network",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Request from",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "Token faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Recall blocks",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Receiving",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note from faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "you",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "You pay",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "You get",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Leaves your account",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Arrives in your account",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Custom transaction",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Transaction summary",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Your request is still here, so you can try again.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Couldn't confirm",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Not verified",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Transaction Completed",
     "englishSource": "Transaction Completed"
@@ -4616,6 +4738,10 @@
         "content": "$1"
       }
     }
+  },
+  "loginSignatureTitle": {
+    "message": "This only signs you in",
+    "englishSource": "This only signs you in"
   },
   "loginSignatureNote": {
     "message": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
@@ -6303,12 +6429,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Opaque signature request",
-    "englishSource": "Opaque signature request"
+    "message": "Bread can't preview this",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

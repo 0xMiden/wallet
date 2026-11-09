@@ -23,7 +23,7 @@ export type HeroProps = HeroContentProps & {
   /** Ref for the `name` heading, e.g. to move focus there on mount so an outcome is announced. */
   nameRef?: React.Ref<HTMLHeadingElement>;
   /** `lg` sets the name at the page title's size, for a screen whose hero is its only heading (onboarding's outcome). */
-  nameSize?: 'md' | 'lg';
+  nameSize?: 'md' | 'lg' | 'xl';
   /** The `name` heading's level: `h2` under a page header's title, `h1` on a screen with no header. */
   nameAs?: 'h1' | 'h2';
   /** Extra attributes for the `name` heading, e.g. `tabIndex={-1}` alongside `nameRef`. */
@@ -60,7 +60,12 @@ export const Hero: React.FC<HeroProps> = ({
         ref={nameRef}
         className={cn(
           'mt-4 w-full text-center text-ink outline-none',
-          nameSize === 'lg' ? 'text-title-tab' : 'text-hero-name'
+          nameSize === 'xl'
+            ? // 32px at the title's 800 weight: a step up from `lg` for a closing screen's headline.
+              'text-hero-value font-extrabold'
+            : nameSize === 'lg'
+              ? 'text-title-tab'
+              : 'text-hero-name'
         )}
         {...nameProps}
       >

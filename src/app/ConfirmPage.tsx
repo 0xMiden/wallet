@@ -2,7 +2,6 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -12,20 +11,15 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
-import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
-import { storyFromMessages } from 'components/tx-stage/tx-story';
-import { TxStory } from 'components/tx-stage/TxStory';
-import { CopyButton } from 'components/ui/CopyButton';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { DappOrigin } from 'components/ui/DappOrigin';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
@@ -33,20 +27,23 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
 import { useLocation } from 'lib/woozie';
-import { truncateAddress, truncateHash } from 'utils/string';
+import { truncateAddress } from 'utils/string';
 
-import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
-import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
-import { TransactionAssetView } from './confirm/TransactionAssetView';
+import { ConnectRequest } from './confirm/ConnectRequest';
+import { declaredRequestToView, simulatedBytesToView, TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, NoteFlow } from './confirm/note-flow';
+import { RequestTiles } from './confirm/RequestTiles';
+import { SignatureRequest } from './confirm/SignatureRequest';
+import {
+  ConsumeRequest,
+  CustomRequest,
+  FailureNotice,
+  SendRequest,
+  TransactionRequestError
+} from './confirm/TransactionRequest';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
-import { ReactComponent as BreadLogo } from './icons/brand/new-bread.svg';
-import { Icon, IconName } from './icons/v2';
-import AccountBanner from './templates/AccountBanner';
-import ConnectBanner from './templates/ConnectBanner';
-import PrivateDataPermissionBanner from './templates/PrivateDataPermissionBanner';
-import PrivateDataPermissionCheckbox from './templates/PrivateDataPermissionCheckbox';
+import { IconName } from './icons/v2';
 
 const ConfirmPage: FC = () => {
   const { t } = useTranslation();
@@ -102,318 +99,64 @@ function downloadData(filename: string, data: string) {
   document.body.removeChild(link);
 }
 
-function downloadBytes(filename: string, data: Uint8Array, mimeType = 'application/octet-stream') {
-  const blob = data instanceof Blob ? data : new Blob([data as BlobPart], { type: mimeType });
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-
-  try {
-    a.click();
-  } finally {
-    a.remove();
-    // Give the browser a microtask to start the download before revoking
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-}
-
-const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
-  useUserVisibleError(errorId, 'inline');
-  return <>{value}</>;
-};
-
-const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
-  rawValue,
-  errorId
-}) => {
-  const { t } = useTranslation();
-  return (
-    <>
-      <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      <AdvancedDetails label={t('rawValue')}>
-        <SignatureRawValue value={rawValue} errorId={errorId} />
-      </AdvancedDetails>
-    </>
-  );
-};
-
-/** The sentence under the originator chip: what this site is asking for. */
+/** The line under the site on a data request: what this site is asking for. */
 const RequestOriginBanner: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
-    className={classNames(
-      'text-sm text-left text-ink',
-      'tx-stage-rise flex w-full gap-x-3 items-center p-4',
-      'border border-gray-100 rounded-2xl mb-4'
-    )}
-  >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
-    <div className="flex min-w-0 flex-col">{children}</div>
-  </div>
+  <p className="text-body-strong font-bold text-muted">{children}</p>
 );
-
-/**
- * E2E hook for one `label, value` row of a transaction/consume approval screen.
- * The labels are raw dApp-preview keys ("Amount", "Recipient", "Note Type"), so
- * they're slugified rather than used verbatim.
- */
-const txRowValueTestId = (label: string | undefined) =>
-  `confirm-tx-value-${(label ?? '').trim().toLowerCase().replace(/\s+/g, '-')}`;
 
 interface PayloadContentProps {
   payload: MidenDAppPayload;
-  account?: WalletAccount;
-  viewKey?: string;
   error?: any;
 }
 
-const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account, viewKey }) => {
+const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error }) => {
   const { t } = useTranslation();
   let content: string | React.ReactNode = t('noPreview');
+  let action: React.ReactNode = null;
 
   switch (payload.type) {
-    case 'sign': {
-      const bytes = b64ToU8(payload.payload);
-
-      switch (payload.kind) {
-        case 'word': {
-          let wordHex = t('invalidPayload');
-          let wordErrorId: UserErrorId | null = null;
-          try {
-            const word = Word.deserialize(bytes);
-            wordHex = word.toHex();
-          } catch (e) {
-            wordErrorId = 'invalidPayload';
-            console.error('Failed to deserialize payload for sign:', e);
-          }
-          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
-          break;
-        }
-
-        case 'signingInputs': {
-          console.log('Signing inputs payload', bytes);
-          content = <SigningInputsPayloadContent bytes={bytes} />;
-          break;
-        }
-      }
-
-      break;
-    }
-
-    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
-    case 'loginSign':
-      content = (
-        <>
-          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
-          <DetailCard className="my-2">
-            <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
-              <span className="min-w-0 font-sans font-semibold">{payload.accountId}</span>
-              <CopyButton text={payload.accountId} data-testid="confirm-login-account-copy" />
-            </DetailRow>
-          </DetailCard>
-        </>
-      );
-      break;
-
     case 'privateNotes': {
       content = (
-        <>
-          <div className="text-md text-center my-6">
-            {t('sharePrivateNoteDataForAccount')}
-            <br />
-            {`${truncateAddress(payload.sourcePublicKey)}?`}
-          </div>
-          <div className="flex items-center justify-center">
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              size="sm"
-              className="w-3/5"
-              onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
-            >
-              {t('downloadPrivateNoteData')}
-            </Button>
-          </div>
-        </>
+        <div className="text-center">
+          {t('sharePrivateNoteDataForAccount')}
+          <br />
+          {`${truncateAddress(payload.sourcePublicKey)}?`}
+        </div>
+      );
+      action = (
+        <Button
+          type="button"
+          variant={ButtonVariant.Secondary}
+          size="sm"
+          className="h-[52px] w-full"
+          iconLeft={IconName.Download}
+          title={t('downloadPrivateNoteData')}
+          onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
+        />
       );
       break;
     }
-
-    case 'transaction': {
-      if (payload.txKind === 'custom') {
-        content = <CustomTransactionContent payload={payload} id={viewKey ?? ''} />;
-        break;
-      }
-      content = (
-        <div>
-          <div className="tx-stage-rise text-sm" key={0}>
-            {payload.transactionMessages[0]} <br />
-            <span data-testid="confirm-tx-faucet">{payload.transactionMessages[1]}</span>
-          </div>
-          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 2 })} />
-          {account && (
-            <>
-              <hr className="h-px bg-border-light my-4" />
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('account')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{account.name}</span>
-                  <span>{truncateAddress(account.publicKey)}</span>
-                </div>
-              </div>
-            </>
-          )}
-          <hr className="h-px bg-border-light my-4" />
-          <div className="tx-stage-list">
-            {payload.transactionMessages.slice(2).map((message, i) => {
-              const [label, rawValue] = message.split(', ');
-              // Amount arrives already formatted from the faucet's real decimals
-              // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
-              // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
-              // token and lost precision above 2^53 via `Number()`.
-              let value = rawValue ?? '';
-              if (label === 'Recipient') {
-                value = truncateAddress(value);
-              }
-              return (
-                <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                  <span className="text-text-muted">{label}</span>
-                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-      break;
-    }
-
-    case 'consume':
-      content = (
-        <div>
-          <div className="tx-stage-rise text-sm" key={0}>
-            {payload.transactionMessages[0]}
-          </div>
-          <TxStory hops={storyFromMessages(payload.transactionMessages, { skip: 1, incoming: true })} />
-          {account && (
-            <>
-              <hr className="h-px bg-border-light my-4" />
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('account')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{account.name}</span>
-                  <span>{truncateAddress(account.publicKey)}</span>
-                </div>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">{t('noteId')}</span>
-                <div className="text-ink flex flex-col items-end">
-                  <span>{truncateHash(payload.noteId)}</span>
-                </div>
-              </div>
-            </>
-          )}
-          <hr className="h-px bg-border-light my-4" />
-          <div className="tx-stage-list">
-            {payload.transactionMessages.slice(1).map((message, i) => {
-              const [label, rawValue] = message.split(', ');
-              let value = rawValue ?? '';
-              if (label === 'Recipient') {
-                value = truncateAddress(value);
-              }
-              return (
-                <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                  <span className="text-text-muted">{label}</span>
-                  <span className="text-ink" data-testid={txRowValueTestId(label)}>
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-      break;
   }
 
   useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
 
   return (
-    <div className={classNames('w-full', 'flex flex-col')}>
-      {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
-      {payload.type !== 'loginSign' && t('payload') && (
-        <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
-          <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
-            {t('payload')}
-          </span>
-        </h2>
-      )}
-      <div className="text-sm text-ink">{error ? error : content}</div>
-    </div>
+    <>
+      <div className="w-full overflow-hidden rounded-2xl border border-hairline">
+        <h2 className="border-b border-hairline bg-fill/50 px-4 py-3 text-value text-ink">{t('payload')}</h2>
+        <div className="px-4 py-3 text-body-strong font-bold text-ink">{error ? error : content}</div>
+      </div>
+      {!error && action}
+    </>
   );
-};
-
-const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes }) => {
-  const { t } = useTranslation();
-
-  const signingInputs = useMemo(() => {
-    try {
-      return SigningInputs.deserialize(bytes);
-    } catch (e) {
-      console.error('Failed to deserialize payload for sign:', e);
-      return null;
-    }
-  }, [bytes]);
-
-  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
-
-  if (!signingInputs) {
-    return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
-  }
-
-  switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary: {
-      const summary = signingInputs.transactionSummaryPayload();
-      let noteFlow: NoteFlow | undefined;
-      try {
-        noteFlow = noteFlowFromTransaction(summary);
-      } catch (noteError) {
-        console.error('Signing summary note details unavailable:', noteError);
-      }
-      return (
-        <TransactionAssetView
-          view={summaryToView(summary)}
-          noteFlow={noteFlow}
-          mode="verified"
-          onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
-        />
-      );
-    }
-    case SigningInputsType.Arbitrary:
-    case SigningInputsType.Blind:
-      return (
-        <OpaqueSignatureWarning
-          rawValue={
-            signingInputs.variantType === SigningInputsType.Arbitrary
-              ? t('signArbitraryPayload')
-              : t('signBlindCommitment')
-          }
-        />
-      );
-    default:
-      return <div className="text-md text-center my-6">{t('noPreview')}</div>;
-  }
 };
 
 const CustomTransactionContent: React.FC<{
   payload: Extract<MidenDAppPayload, { type: 'transaction' }>;
   id: string;
-}> = ({ payload, id }) => {
+  account: WalletAccount;
+  error?: TransactionRequestError;
+}> = ({ payload, id, account, error }) => {
   const { t } = useTranslation();
   const { simulateCustomTransaction } = useMidenContext();
 
@@ -481,35 +224,53 @@ const CustomTransactionContent: React.FC<{
     </AdvancedDetails>
   );
 
+  const shared = { origin: payload.origin, account, advanced, error };
   if (verifiedView) {
     return (
-      <>
-        <TransactionAssetView view={verifiedView} mode="verified" noteFlow={verifiedNoteFlow} />
-        {advanced}
-      </>
+      <CustomRequest
+        {...shared}
+        view={verifiedView}
+        mode="verified"
+        noteFlow={verifiedNoteFlow}
+        simulationFailed={false}
+      />
     );
   }
 
   if (declaredView) {
-    return (
-      <>
-        <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && (
-          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
-            {t('couldNotVerifyBySimulation')}
-          </div>
-        )}
-        {advanced}
-      </>
-    );
+    return <CustomRequest {...shared} view={declaredView} mode="declared" simulationFailed={simError} />;
   }
 
   return (
-    <div>
-      <div className="text-sm my-4">{t('couldNotDecodeTransaction')}</div>
+    <div className="flex w-full flex-col gap-4 face-heading">
+      <p className="text-body-sm font-semibold text-ink">{t('couldNotDecodeTransaction')}</p>
       {advanced}
     </div>
   );
+};
+
+/** Send, consume and custom-transaction requests: the amount, who it moves between, then the request's details. */
+const TransactionBody: React.FC<{
+  payload: Extract<MidenDAppPayload, { type: 'transaction' | 'consume' }>;
+  account: WalletAccount;
+  viewKey: string;
+  error?: TransactionRequestError;
+}> = ({ payload, account, viewKey, error }) => {
+  if (payload.type === 'consume') {
+    return (
+      <ConsumeRequest
+        origin={payload.origin}
+        account={account}
+        messages={payload.transactionMessages}
+        noteId={payload.noteId}
+        error={error}
+      />
+    );
+  }
+  if (payload.txKind === 'custom') {
+    return <CustomTransactionContent payload={payload} id={viewKey} account={account} error={error} />;
+  }
+  return <SendRequest origin={payload.origin} account={account} messages={payload.transactionMessages} error={error} />;
 };
 
 export default ConfirmPage;
@@ -679,6 +440,10 @@ const ConfirmDAppForm: FC = () => {
     void confirm(true);
   }, [payload, confirm]);
 
+  // A new Auto permission on a private account needs the consent box: Connect waits for the tick
+  // instead of answering an unticked press with an error.
+  const consentMissing = requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved;
+
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
     if (spendingLimitAssessment !== undefined) {
@@ -701,7 +466,9 @@ const ConfirmDAppForm: FC = () => {
     setDeclining(false);
   }, [confirming, declining, setDeclining, confirm]);
 
-  const handleErrorAlertClose = useCallback(() => setError(null), [setError]);
+  const transactionError: TransactionRequestError | undefined = error
+    ? { message: error?.message ?? t('smthWentWrong'), errorId }
+    : undefined;
 
   const content = useMemo(() => {
     switch (payload.type) {
@@ -714,20 +481,15 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTestID: error
             ? ConfirmPageSelectors.ConnectAction_RetryButton
             : ConfirmPageSelectors.ConnectAction_ConnectButton,
-          want: (
-            <PrivateDataPermissionBanner
-              privateDataPermission={privateDataPermission}
-              allowedPrivateData={payload.allowedPrivateData}
-              isPublicAccount={isPublicAccount}
-            />
-          )
+          // ConnectRequest draws the connect window's whole body, its access sentence included.
+          want: null
         };
       case 'transaction':
         return {
           title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.TransactionAction_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.TransactionAction_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -740,7 +502,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.ConsumeAction_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.ConsumeAction_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -753,7 +515,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestPrivateNotes'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestPrivateNotes_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestPrivateNotes_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -766,33 +528,27 @@ const ConfirmDAppForm: FC = () => {
           title: t('confirmSignature'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.SignData_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.SignData_AcceptButton,
-          want: (
-            <RequestOriginBanner>
-              <span className="text-text-muted">{t('requestsYourSignature')}</span>
-            </RequestOriginBanner>
-          )
+          // SignatureRequest draws the signature window's whole body.
+          want: null
         };
       case 'loginSign':
         return {
           title: t('confirmLoginSignature', { domain: payload.domain }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
-          want: (
-            <RequestOriginBanner>
-              <span className="text-muted">{t('requestsYourSignature')}</span>
-            </RequestOriginBanner>
-          )
+          // SignatureRequest draws the signature window's whole body.
+          want: null
         };
       case 'assets':
         return {
           title: t('requestAssets'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestAssets_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestAssets_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -805,7 +561,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestImportPrivateNote'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -818,7 +574,7 @@ const ConfirmDAppForm: FC = () => {
           title: t('requestConsumableNotes'),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.RequestConsumableNotes_RejectButton,
-          confirmActionTitle: t('confirm'),
+          confirmActionTitle: error ? t('tryAgain') : t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestConsumableNotes_AcceptButton,
           want: (
             <RequestOriginBanner>
@@ -829,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
       case 'unlock':
         return null;
     }
-  }, [error, payload, privateDataPermission, isPublicAccount, t]);
+  }, [error, payload, t]);
 
   if (content === null) {
     return (
@@ -841,66 +597,62 @@ const ConfirmDAppForm: FC = () => {
 
   return (
     <div
-      className={classNames(
-        'tx-stage-popup relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto',
-        'flex flex-col'
-      )}
+      className={classNames('relative bg-page text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
       style={{
         width: 440,
         minHeight: 694
       }}
     >
       <div className="flex flex-col items-left px-4">
-        <div className="flex items-center gap-3 pt-6 pb-3">
-          <BreadLogo className="shrink-0" style={{ width: 28, height: 'auto' }} aria-label={t('appName')} />
-          <h2 className="flex min-w-0 text-ink text-lg font-semibold">{content.title}</h2>
+        {/* The pushed-page header: the `text-title-tab` title left, the 4px rule under it. */}
+        <div className="flex min-h-[60px] items-center gap-3">
+          {/* A long title ("Sign in to app.darwin.market") steps down to 24px so it stays on one line. */}
+          <h2
+            className="flex min-w-0 text-title-tab text-ink"
+            style={content.title.length > 22 ? { fontSize: 24, lineHeight: '30px' } : undefined}
+          >
+            {content.title}
+          </h2>
         </div>
-        <div className="tx-stage-rule mb-4" aria-hidden="true" />
+        <HeaderRule className="mb-4" />
 
-        {payload.type !== 'connect' && (
-          <div className="mb-4">
-            <OriginatorChip origin={payload.origin} testId="confirm-request-origin" />
+        {payload.type === 'connect' ? (
+          <ConnectRequest
+            origin={payload.origin}
+            account={account}
+            isPublicAccount={isPublicAccount}
+            privateDataPermission={privateDataPermission}
+            allowedPrivateData={payload.allowedPrivateData}
+            claimedNetwork={payload.network}
+            requireConsent={requirePrivateDataCheckbox}
+            consentChecked={isPrivateDataChecked}
+            onConsentChange={setIsPrivateDataChecked}
+            error={error ? { message: error?.message ?? t('smthWentWrong'), errorId } : undefined}
+          />
+        ) : payload.type === 'sign' || payload.type === 'loginSign' ? (
+          <SignatureRequest payload={payload} payloadError={payloadError} error={transactionError} />
+        ) : (payload.type === 'transaction' || payload.type === 'consume') && !payloadError ? (
+          <TransactionBody payload={payload} account={account} viewKey={id} error={transactionError} />
+        ) : (
+          <div className="flex w-full flex-col gap-5 face-heading">
+            {/* The connect window's top: Bread ··· the site, the site in large type, then what it asks for. */}
+            <div className="flex flex-col items-center gap-2 pt-1 text-center">
+              <RequestTiles className="mb-1" />
+              <DappOrigin
+                origin={payload.origin}
+                className="justify-center text-center text-hero-name text-ink"
+                data-testid="confirm-request-origin"
+              />
+              {content.want}
+            </div>
+
+            {error ? (
+              <FailureNotice message={error?.message ?? t('smthWentWrong')} errorId={errorId} />
+            ) : (
+              <PayloadContent payload={payload} error={payloadError} />
+            )}
           </div>
         )}
-
-        {payload.type === 'connect' && (
-          <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
-        )}
-
-        {content.want}
-
-        {error ? (
-          <Alert
-            closable
-            onClose={handleErrorAlertClose}
-            type="error"
-            errorId={errorId}
-            title={t('error')}
-            description={error?.message ?? t('smthWentWrong')}
-            className="my-4"
-            autoFocus
-          />
-        ) : (
-          <>
-            {payload.type === 'connect' ? (
-              <>
-                {account && (
-                  <AccountBanner
-                    account={account}
-                    networkRpc={payload.networkRpc}
-                    labelIndent="sm"
-                    className="w-full my-2"
-                  />
-                )}
-                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
-              </>
-            ) : (
-              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
-            )}
-          </>
-        )}
-
-        {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
       </div>
 
       <div className="flex-1" />
@@ -932,6 +684,7 @@ const ConfirmDAppForm: FC = () => {
             variant={ButtonVariant.Primary}
             className="w-full"
             isLoading={confirming}
+            disabled={consentMissing}
             onClick={handleConfirmClick}
             data-testid={content.confirmActionTestID}
           >

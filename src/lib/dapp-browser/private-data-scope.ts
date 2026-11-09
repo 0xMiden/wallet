@@ -6,7 +6,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
  * `AllowedPrivateData.None`.
  *
  * Shared by every platform's connect prompt — the extension popup's
- * `PrivateDataPermissionBanner`, the mobile `DappConfirmationModal` and the
+ * `ConnectRequest`, the mobile `DappConfirmationModal` and the
  * desktop `DesktopDappConfirmationModal` — so the three cannot describe the same
  * grant differently. It is only true while all three IMPORT it: the extension
  * banner used to keep a private copy, and it had already drifted (it branched on

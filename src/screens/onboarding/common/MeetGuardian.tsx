@@ -113,7 +113,8 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
           />
           {!noOperators && (
             <TextAction
-              className="self-center"
+              // No fill, in the same hairline edge as the provider cards and the sheet's footnote pill.
+              className="self-center rounded-full border border-hairline px-4 py-1.5"
               data-testid="meet-guardian-choose-different"
               onClick={() => setIsSheetOpen(true)}
             >
@@ -139,11 +140,12 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         </Notice>
       ) : (
         // One block in every state: while the round is out it holds the operator's shape (the logo, the
-        // name, the sentence), so nothing below moves when the operator lands.
+        // name, the sentence), so nothing below moves when the operator lands. `my-auto` centres it
+        // between the title and the pinned actions.
         <section
           data-testid={chosen ? 'meet-guardian-card' : 'meet-guardian-checking'}
           aria-busy={chosenVerdict === undefined}
-          className="flex shrink-0 flex-col items-center gap-1 text-center"
+          className="my-auto flex shrink-0 flex-col items-center gap-1 text-center"
         >
           {/* On a short screen (an iPhone SE) the rings tighten so the region still shows above the CTA. */}
           <div

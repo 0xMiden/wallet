@@ -3053,8 +3053,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Sua frase de recuperação restaura suas chaves e, com o backup do seu “Guardian”, sua conta. Mantenha a frase em segurança.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Sua frase secreta e o backup do seu “Guardian” restauram sua conta. Mantenha a frase secreta em segurança.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Seus fundos continuam sendo seus",
@@ -3073,8 +3073,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Mais sobre os Guardians",
-    "englishSource": "More about Guardians"
+    "message": "Saiba mais sobre o “Guardian”",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continue com $name$",
@@ -4137,6 +4137,128 @@
     "message": "É necessária uma confirmação sempre que os dados da conta forem solicitados",
     "englishSource": "Confirmation is required every time account data is requested"
   },
+  "connectFactsTitle": {
+    "message": "Este site poderá",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Veja seu saldo e histórico",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Ler dados privados sem pedir permissão",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "O acesso a $scopes$ será concedido",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Pergunte antes de ler dados privados",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Envie suas solicitações de transação",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Você aprova cada uma delas",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Nunca transfira fundos por conta própria",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Os fundos só saem quando você aprovar",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Sua solicitação ainda está aqui, então você pode tentar novamente.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Não foi possível conectar",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Rede diferente",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Solicitação de",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet de tokens",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Recall de blocos",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Recebimento",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note do faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "você",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Você paga",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Você entende",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Sai da sua conta",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Chega à sua conta",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Transação personalizada",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Resumo da transação",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Sua solicitação ainda está aqui, então você pode tentar novamente.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Não foi possível confirmar",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Não verificado",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "transactionCompleted": {
     "message": "Transação concluída",
     "englishSource": "Transaction Completed"
@@ -4621,6 +4743,10 @@
         "content": "$1"
       }
     }
+  },
+  "loginSignatureTitle": {
+    "message": "Isso serve apenas para fazer seu login",
+    "englishSource": "This only signs you in"
   },
   "loginSignatureNote": {
     "message": "A Bread assina esta mensagem de login com uma chave criada exclusivamente para $domain$. Ela não pode movimentar fundos nem alterar sua conta.",
@@ -6308,12 +6434,17 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Solicitação de assinatura opaca",
-    "englishSource": "Opaque signature request"
+    "message": "O Bread não permite visualizar isso",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureWarning": {
-    "message": "Este site solicitou que você assinasse um valor bruto. A carteira não pode mostrar o que está sendo autorizado. Só continue se confiar plenamente neste site.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ solicitou que você assinasse um valor bruto. O Bread não pode mostrar o que está sendo autorizado; portanto, só continue se você confiar plenamente neste site.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

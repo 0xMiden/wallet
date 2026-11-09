@@ -22,8 +22,12 @@ export type NoticeTone = 'neutral' | 'warning' | 'caution' | 'negative' | 'posit
  * - `block` — the tinted card, for copy the page wants read.
  * - `inline` — a caption line with the tone's glyph and no surface, for a footnote under the thing
  *   it qualifies (the Receive page's test-funds warning). Same tone, same meaning, less weight.
+ * - `fact` — the tinted card in the anatomy of a `FactRow`: the glyph in a solid 24px circle of the
+ *   tone's ink, an extrabold title and a `muted` body, with a soft edge in the tone's ink. For a
+ *   notice that sits beside a list of facts (the dApp connect window) and has to read as one family
+ *   with it.
  */
-export type NoticeVariant = 'block' | 'inline';
+export type NoticeVariant = 'block' | 'inline' | 'fact';
 
 export interface NoticeProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
@@ -59,6 +63,7 @@ const noticeVariants = cva('flex w-full items-start text-left', {
   variants: {
     variant: {
       block: 'gap-2.5 rounded-2xl px-3.5 py-3',
+      fact: 'gap-2.5 rounded-2xl border px-3.5 py-3',
       // 4px of inset only, so the glyph lines up with the copy above it rather than the group edge.
       inline: 'gap-2 px-1'
     } satisfies Record<NoticeVariant, string>
@@ -77,6 +82,34 @@ const noticeSurfaceVariants = cva('', {
       caution: 'bg-pending-tint',
       negative: 'bg-status-negative/10',
       positive: 'bg-status-positive/10'
+    } satisfies Record<NoticeTone, string>
+  },
+  defaultVariants: { tone: 'neutral' }
+});
+
+// The `fact` card's surface: the tone's opaque tint with its ink at 30% for the edge. The circle
+// inverts the pair (tint-ink disc, tint glyph), the treatment of `GuardianInfoDrawer`'s facts.
+const noticeFactSurfaceVariants = cva('', {
+  variants: {
+    tone: {
+      neutral: 'border-hairline bg-fill',
+      warning: 'border-accent-tint-ink/30 bg-accent-tint',
+      caution: 'border-pending-tint-ink/30 bg-pending-tint',
+      negative: 'border-negative-tint-ink/30 bg-negative-tint',
+      positive: 'border-positive-tint-ink/30 bg-positive-tint'
+    } satisfies Record<NoticeTone, string>
+  },
+  defaultVariants: { tone: 'neutral' }
+});
+
+const noticeFactCircleVariants = cva('flex size-6 shrink-0 items-center justify-center rounded-full [&>svg]:size-3', {
+  variants: {
+    tone: {
+      neutral: 'bg-ink text-page',
+      warning: 'bg-accent-tint-ink text-accent-tint',
+      caution: 'bg-pending-tint-ink text-pending-tint',
+      negative: 'bg-negative-tint-ink text-negative-tint',
+      positive: 'bg-positive-tint-ink text-positive-tint'
     } satisfies Record<NoticeTone, string>
   },
   defaultVariants: { tone: 'neutral' }
@@ -141,9 +174,21 @@ export const Notice: React.FC<NoticeProps> = ({
       data-variant={variant}
       data-testid={dataTestId}
       data-reason={dataReason}
-      className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
+      className={cn(
+        noticeVariants({ variant }),
+        variant === 'block' && noticeSurfaceVariants({ tone }),
+        variant === 'fact' && noticeFactSurfaceVariants({ tone }),
+        // A fact notice that is only its title is one line beside the circle: centre the two.
+        variant === 'fact' && children === undefined && 'items-center',
+        className
+      )}
     >
-      {icon && (
+      {icon && variant === 'fact' && (
+        <span aria-hidden="true" data-slot="icon" className={noticeFactCircleVariants({ tone })}>
+          {icon}
+        </span>
+      )}
+      {icon && variant !== 'fact' && (
         <span
           aria-hidden="true"
           data-slot="icon"
@@ -158,7 +203,14 @@ export const Notice: React.FC<NoticeProps> = ({
       )}
       <div className="flex min-w-0 flex-col gap-0.5">
         {title && (
-          <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
+          <span
+            data-slot="title"
+            className={
+              variant === 'fact'
+                ? cn(children === undefined ? 'text-row-title' : 'text-action', 'font-extrabold text-ink')
+                : cn('text-label', noticeInkVariants({ tone }))
+            }
+          >
             {title}
           </span>
         )}
@@ -167,7 +219,13 @@ export const Notice: React.FC<NoticeProps> = ({
         {children !== undefined && (
           <span
             data-slot="body"
-            className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+            className={
+              variant === 'inline'
+                ? 'text-caption text-muted'
+                : variant === 'fact'
+                  ? 'text-caption-heading text-muted'
+                  : noticeBodyVariants({ tone })
+            }
           >
             {children}
           </span>
