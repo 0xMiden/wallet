@@ -5,6 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
+import { EpochCollateralNoteMismatchError } from './collateral-guard';
 import {
   type OpenEarnPositionArgs,
   openEarnPosition,
@@ -17,7 +18,7 @@ import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
-import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
+import { TEST_ALLOCATOR_ACCOUNT, TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { AAVE_V3_LISTING } from './testing/pools-fixtures';
 
@@ -578,7 +579,7 @@ describe('openEarnPosition guards', () => {
       getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
       getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
       solveIntent: jest.fn(async options => {
-        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
         return { nonce: 'nonce-1' };
       })
     } as never);
@@ -667,7 +668,7 @@ describe('openEarnPosition guards', () => {
       getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
       getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
       solveIntent: jest.fn(async options => {
-        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
         return { nonce: 'nonce-1' };
       })
     } as never);
@@ -682,6 +683,57 @@ describe('openEarnPosition guards', () => {
         marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
       })
     );
+  });
+
+  describe('the collateral note request', () => {
+    let noteResult: unknown;
+
+    const requestNote = (faucet: string, amount: string, allocatorId: string) => {
+      mockGetSdk.mockResolvedValue({
+        getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+        getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+        solveIntent: jest.fn(async options => {
+          noteResult = await options.createMidenP2IDENote(faucet, amount, allocatorId, 5_000, [1n]);
+          return { nonce: 'nonce-1' };
+        })
+      } as never);
+    };
+
+    beforeEach(() => {
+      noteResult = undefined;
+      mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    });
+
+    it('builds the note for the reviewed collateral, the reviewed amount and the configured allocator', async () => {
+      requestNote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT);
+
+      await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+      expect(noteResult).toEqual({ success: true, noteId: 'note-1' });
+      expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          faucetId: TEST_MIDEN_USDC.faucetId,
+          amount: '1000000',
+          allocatorId: TEST_ALLOCATOR_ACCOUNT
+        })
+      );
+    });
+
+    it.each([
+      ['another faucet', '0x0000000000000000000000000000ff', '1000000', TEST_ALLOCATOR_ACCOUNT, 'faucet'],
+      ['another amount', TEST_MIDEN_USDC.faucetId, '999999', TEST_ALLOCATOR_ACCOUNT, 'amount'],
+      ['another allocator', TEST_MIDEN_USDC.faucetId, '1000000', '0x0000000000000000000000000000ee', 'allocator']
+    ])('builds no note for %s and fails with the named error', async (_label, faucet, amount, allocatorId, field) => {
+      requestNote(faucet, amount, allocatorId);
+
+      const failure = openEarnPosition(baseArgs());
+      await expect(failure).rejects.toBeInstanceOf(EpochCollateralNoteMismatchError);
+      await expect(failure).rejects.toMatchObject({ field });
+
+      expect(noteResult).toEqual({ success: false });
+      expect(mockCreateEarnP2IDENote).not.toHaveBeenCalled();
+      expect(mockUpdateStatus).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {

@@ -73,6 +73,15 @@ export interface AgglayerDepositToken {
   scale: number;
 }
 
+/**
+ * The Miden account that the Epoch allocator at `allocatorUrl` receives collateral notes with (`/miden-recipient`).
+ * A collateral note goes only to this account.
+ */
+export interface EpochAllocatorAccount {
+  allocatorUrl: string;
+  accountId: string; // '0x' + 30 lowercase hex
+}
+
 export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
@@ -83,6 +92,8 @@ export interface DerivedBridgeConfig {
   agglayer: { indexer: Probe<true> };
   epoch: {
     allocator: Probe<true>;
+    /** The allocator's Miden account. A Fast send and an Earn deposit build their collateral note only for it. */
+    allocatorAccount: Probe<EpochAllocatorAccount>;
     market: Probe<EarnMarket>;
     midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
     /**
@@ -351,6 +362,23 @@ function admitSdkInteger(value: unknown, name: string, min: number, max?: number
   if (typeof value !== 'number' || !Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
     throw new Error(`allocator /health returned invalid ${name}`);
   }
+}
+
+// The route the Epoch SDK reads the collateral recipient from (`getMidenCollateralConfig`, epoch-intents-sdk 2.0.1).
+// The SDK gives its `midenP2IDRecipientAccountId` to the collateral note callback as `allocatorId`.
+function readAllocatorAccount(
+  io: Pick<DeriveDeps, 'fetch' | 'midenAccountHex'>,
+  allocatorUrl: string
+): Promise<Probe<EpochAllocatorAccount>> {
+  return attempt(async (): Promise<EpochAllocatorAccount> => {
+    const url = `${allocatorUrl}/miden-recipient`;
+    const body = await fetchBoundedJson(io.fetch, url, { maxBytes: HEALTH_MAX_BYTES, timeoutMs: HEALTH_TIMEOUT_MS });
+    const named = isRecord(body) ? body.midenP2IDRecipientAccountId : undefined;
+    if (typeof named !== 'string' || named.trim() === '') throw new Error(`${url} names no Miden account`);
+    const accountId = await io.midenAccountHex(named.trim());
+    if (!/^0x[0-9a-f]{30}$/.test(accountId)) throw new Error(`${url} names an invalid Miden account`);
+    return { allocatorUrl, accountId };
+  });
 }
 
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
@@ -789,11 +817,12 @@ export async function deriveBridgeConfig(
     if (usdcRead && usdc?.toLowerCase() === underlying.toLowerCase()) return usdcRead;
     return probeErc20(evmReads.get(chainId) ?? null, underlying);
   };
-  const [earn, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
+  const [earn, allocator, allocatorAccount, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
     discoverEarnVaults(config, io, readEarnUnderlying),
     when(epoch.allocatorUrl, url =>
       checkHealth(io.fetch, `${url}/health`, body => isAllocatorHealthy(body, epochSdkChainIds(config)))
     ),
+    when(epoch.allocatorUrl, url => readAllocatorAccount(io, url)),
     when(faucetId, id => attempt(() => readFaucet(id))),
     when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
     when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url, readFaucet))
@@ -830,7 +859,7 @@ export async function deriveBridgeConfig(
     derivedAt: io.now(),
     chains,
     agglayer: { indexer },
-    epoch: { allocator, market: earn.market, midenUsdcFaucet, vaults: earn.vaults },
+    epoch: { allocator, allocatorAccount, market: earn.market, midenUsdcFaucet, vaults: earn.vaults },
     swap: { pairs: swapPairs }
   };
 }

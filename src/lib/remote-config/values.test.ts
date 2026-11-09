@@ -24,6 +24,7 @@ import {
   selectEarnVault,
   selectEarnVaultCatalog,
   selectEarnVaultLogoUrl,
+  selectEpochAllocatorAccount,
   selectEpochDepositTokens,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
@@ -42,6 +43,8 @@ import {
 } from './values';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
+
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 
 const CONFIG: BridgeConfig = {
   network: 'testnet',
@@ -132,6 +135,10 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: {
+      state: 'ok',
+      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: ALLOCATOR_ACCOUNT }
+    },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
@@ -181,6 +188,23 @@ beforeEach(() => {
 });
 afterAll(() => {
   process.env.MIDEN_E2E_TEST = savedE2e;
+});
+
+describe('selectEpochAllocatorAccount', () => {
+  const ALLOCATOR_URL = 'https://testnet-dev.epochprotocol.xyz';
+
+  it('gives the account that the derivation read from that allocator', () => {
+    expect(selectEpochAllocatorAccount(snapshot(), ALLOCATOR_URL)).toBe(ALLOCATOR_ACCOUNT);
+  });
+
+  it('gives no account for another allocator URL', () => {
+    expect(selectEpochAllocatorAccount(snapshot(), 'https://other-allocator.test')).toBeNull();
+  });
+
+  it('gives no account while the read failed or no derivation is there', () => {
+    expect(selectEpochAllocatorAccount(withDerived({ epoch: { allocatorAccount: ERROR } }), ALLOCATOR_URL)).toBeNull();
+    expect(selectEpochAllocatorAccount(EMPTY, ALLOCATOR_URL)).toBeNull();
+  });
 });
 
 describe('selectors', () => {

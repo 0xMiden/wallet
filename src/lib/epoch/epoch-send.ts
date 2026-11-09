@@ -3,10 +3,17 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, getEpochAllocatorUrl, getEpochOutputToken, getEvmChainId } from 'lib/remote-config/values';
+import {
+  type EvmUsdc,
+  findEpochAllocatorAccount,
+  getEpochAllocatorUrl,
+  getEpochOutputToken,
+  getEvmChainId
+} from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote, normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './collateral-guard';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
@@ -156,7 +163,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
   // capture the row id from the callback so we can patch the EVM solve hash on it.
   let bridgeTxId: string | undefined;
-  let spendingLimitError: unknown;
+  let noteError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
@@ -164,6 +171,16 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      // Build the note only for the reviewed token and amount, and only for the allocator account that the
+      // configuration names.
+      const mismatch = collateralNoteMismatch(
+        { faucetId: faucet, amount, allocatorId },
+        { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: findEpochAllocatorAccount(allocatorUrl) }
+      );
+      if (mismatch !== null) {
+        noteError = new EpochCollateralNoteMismatchError(mismatch);
+        return { success: false };
+      }
       try {
         const res = await createBridgeP2IDENote({
           senderAccountId: args.senderPublicKey,
@@ -182,12 +199,12 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
         bridgeTxId = res.txId;
         return { success: res.success, noteId: res.noteId };
       } catch (error) {
-        spendingLimitError = error;
+        noteError = error;
         return { success: false };
       }
     }
   });
-  if (spendingLimitError !== undefined) throw spendingLimitError;
+  if (noteError !== undefined) throw noteError;
   if (intent.error) {
     // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
+
 ## 1.17.11 (TBD)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.

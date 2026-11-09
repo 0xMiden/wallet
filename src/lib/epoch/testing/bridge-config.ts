@@ -10,6 +10,8 @@ import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
 export const TEST_ALLOCATOR_URL = 'https://allocator.test';
+/** The Miden account that the test allocator receives collateral notes with (lowercase hex). */
+export const TEST_ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 export const TEST_POSITIONS_URL = 'https://positions.test';
 export const TEST_EVM_CHAIN_ID = 11155111;
 export const TEST_EVM_USDC: EvmUsdc = {
@@ -73,6 +75,9 @@ export const TEST_EVM_NETWORK_ID = 0;
 export function remoteConfigValuesMock() {
   return {
     getEpochAllocatorUrl: jest.fn(() => TEST_ALLOCATOR_URL),
+    findEpochAllocatorAccount: jest.fn((allocatorUrl: string): string | null =>
+      allocatorUrl === TEST_ALLOCATOR_URL ? TEST_ALLOCATOR_ACCOUNT : null
+    ),
     getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
     getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
     getSupportedEvmChainIds: jest.fn((): number[] => [TEST_EVM_CHAIN_ID]),
@@ -159,6 +164,7 @@ const TEST_DERIVED: DerivedBridgeConfig = {
   epoch: {
     market: { state: 'ok', value: TEST_EARN_MARKET },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { allocatorUrl: TEST_ALLOCATOR_URL, accountId: TEST_ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
     vaults: { state: 'ok', value: [...TEST_EARN_VAULT_CATALOG] }
   },

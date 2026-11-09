@@ -18,12 +18,18 @@ const mockGetEvmUsdc = jest.fn((_chainId: number, _faucetId: string) => mockUsdc
 jest.mock('./bridge', () => ({
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args),
   buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args),
-  normalizeMidenIdToHex: (id: string) => `hex:${id}`
+  // Idempotent, as the real conversion is: a hex id stays the same id.
+  normalizeMidenIdToHex: (id: string) => (id.startsWith('hex:') ? id : `hex:${id}`)
 }));
+// The allocator account that the configuration names for the test allocator.
+const mockFindEpochAllocatorAccount = jest.fn((url: string): string | null =>
+  url === 'https://allocator.test' ? '0xallocator' : null
+);
 jest.mock('lib/remote-config/values', () => ({
   getEpochOutputToken: (chainId: number, faucetId: string) => mockGetEvmUsdc(chainId, faucetId),
   getEvmChainId: () => 11155111,
-  getEpochAllocatorUrl: () => 'https://allocator.test'
+  getEpochAllocatorUrl: () => 'https://allocator.test',
+  findEpochAllocatorAccount: (url: string) => mockFindEpochAllocatorAccount(url)
 }));
 jest.mock('./chain', () => ({
   getCurrentMidenBlock: () => mockGetCurrentMidenBlock(),
@@ -40,6 +46,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({ CollateralType: { Miden: 'Miden' } }));
 
+import { EpochCollateralNoteMismatchError } from './collateral-guard';
 import { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
 
 const authorization = {
@@ -70,7 +77,7 @@ describe('bridgeEpochSend spending-limit authorization', () => {
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '250' } });
     mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
     mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
-      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
       return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
     });
   });
@@ -120,7 +127,7 @@ describe('the Epoch quote amount', () => {
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '10655599' } });
     mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
     mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
-      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
       return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
     });
   });
@@ -160,7 +167,7 @@ describe('the configured output token', () => {
     mockGetCurrentMidenBlock.mockResolvedValue(1000);
     mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
     mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
-      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
       return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
     });
   });
@@ -207,6 +214,69 @@ describe('the configured output token', () => {
     });
     await expect(bridgeEpochSend(args())).rejects.toThrow('no output token');
     expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+  });
+});
+
+// The collateral note is built only for the reviewed token and amount, and for the allocator account that the
+// configuration names.
+describe('the collateral note request', () => {
+  let noteResult: unknown;
+
+  const requestNote = (faucet: string, amount: string, allocatorId: string) => {
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      noteResult = await options.createMidenP2IDENote(faucet, amount, allocatorId, 5_000, [1n]);
+      return { error: 'Failed to create P2IDE note' };
+    });
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    noteResult = undefined;
+    mockGetEpochReadOnlySdk.mockResolvedValue({});
+    mockGetCurrentMidenBlock.mockResolvedValue(1000);
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '250' } });
+    mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+  });
+
+  it('builds the note for the reviewed faucet, the reviewed amount and the configured allocator', async () => {
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      noteResult = await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
+
+    await expect(bridgeEpochSend(args())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(noteResult).toEqual({ success: true, noteId: 'note-1' });
+    expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ faucetId: 'hex:mtst1faucet', amount: '250', allocatorId: '0xallocator' })
+    );
+    expect(mockFindEpochAllocatorAccount).toHaveBeenCalledWith('https://allocator.test');
+  });
+
+  it.each([
+    ['another faucet', 'hex:mtst1otherfaucet', '250', '0xallocator', 'faucet'],
+    ['another amount', 'hex:mtst1faucet', '251', '0xallocator', 'amount'],
+    ['an amount the SDK took from a quote', 'hex:mtst1faucet', '250000', '0xallocator', 'amount'],
+    ['another allocator', 'hex:mtst1faucet', '250', '0xotherallocator', 'allocator']
+  ])('builds no note for %s and fails with the named error', async (_label, faucet, amount, allocatorId, field) => {
+    requestNote(faucet, amount, allocatorId);
+
+    const failure = bridgeEpochSend(args());
+    await expect(failure).rejects.toBeInstanceOf(EpochCollateralNoteMismatchError);
+    await expect(failure).rejects.toMatchObject({ field });
+
+    expect(noteResult).toEqual({ success: false });
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+    expect(mockMarkBridgedSendFailed).not.toHaveBeenCalled();
+    expect(mockUpdateBridgeClaimStatus).not.toHaveBeenCalled();
+  });
+
+  it('builds no note while the configuration names no allocator account', async () => {
+    mockFindEpochAllocatorAccount.mockReturnValueOnce(null);
+    requestNote('hex:mtst1faucet', '250', '0xallocator');
+
+    await expect(bridgeEpochSend(args())).rejects.toMatchObject({ field: 'allocator' });
     expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
   });
 });

@@ -168,10 +168,13 @@ const SDK_ALLOCATOR_HEALTH = {
   supportedChains: []
 };
 const ALLOCATOR_HEALTH_URL = 'https://testnet-dev.epochprotocol.xyz/health';
+const ALLOCATOR_RECIPIENT_URL = 'https://testnet-dev.epochprotocol.xyz/miden-recipient';
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 // The indexer and the positions catalogue as they answered on 2026-10-03. The allocator body is the SDK 2.0.1
 // service configuration, not the status-and-addresses answer from that day.
 const HEALTH: Record<string, unknown> = {
   [ALLOCATOR_HEALTH_URL]: SDK_ALLOCATOR_HEALTH,
+  [ALLOCATOR_RECIPIENT_URL]: { midenP2IDRecipientAccountId: ALLOCATOR_ACCOUNT, midenMinReclaimBlocks: 1000 },
   [SEPOLIA_CATALOG_URL]: EPOCH_CATALOG,
   'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz': { status: 'SERVING' }
 };
@@ -273,6 +276,10 @@ const HEALTHY: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: {
+      state: 'ok',
+      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: ALLOCATOR_ACCOUNT }
+    },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [DUMMY_VAULT_INFO] }
   },
@@ -305,6 +312,7 @@ describe('deriveBridgeConfig', () => {
     expect(io.readMidenFaucet).toHaveBeenCalledWith('0x537c15a622074e91188aa894456c52', RPC);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       'https://testnet-dev.epochprotocol.xyz/health',
+      ALLOCATOR_RECIPIENT_URL,
       'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz',
       // The catalogue waits for the route's USDC read, which gives the token of its positions fallback.
       SEPOLIA_POOLS_URL,
@@ -324,7 +332,13 @@ describe('deriveBridgeConfig', () => {
       ...HEALTHY,
       chains: {},
       agglayer: { indexer: SKIPPED },
-      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
+      epoch: {
+        market: SKIPPED,
+        allocator: SKIPPED,
+        allocatorAccount: SKIPPED,
+        midenUsdcFaucet: SKIPPED,
+        vaults: SKIPPED
+      }
     });
     expect(io.readBridgeRegistry).not.toHaveBeenCalled();
     expect(io.fetch).not.toHaveBeenCalled();
@@ -423,6 +437,43 @@ describe('deriveBridgeConfig', () => {
 
   const deriveAllocator = (body: unknown, config: BridgeConfig = TESTNET) =>
     deriveBridgeConfig(config, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_HEALTH_URL]: body }) }));
+
+  const deriveAllocatorAccount = (body: unknown, io: Partial<DeriveDeps> = {}) =>
+    deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_RECIPIENT_URL]: body }), ...io }));
+
+  it("reads the allocator's Miden account in its lowercase hex form, keyed by the allocator URL", async () => {
+    const midenAccountHex = jest.fn(async () => ALLOCATOR_ACCOUNT);
+    const derived = await deriveAllocatorAccount(
+      { midenP2IDRecipientAccountId: 'mtst1allocator', midenMinReclaimBlocks: 1000 },
+      { midenAccountHex }
+    );
+    expect(midenAccountHex).toHaveBeenCalledWith('mtst1allocator');
+    expect(derived.epoch.allocatorAccount).toEqual({
+      state: 'ok',
+      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: ALLOCATOR_ACCOUNT }
+    });
+  });
+
+  it.each([
+    ['no account', { midenMinReclaimBlocks: 1000 }],
+    ['an empty account', { midenP2IDRecipientAccountId: '  ' }],
+    ['an account that is not a string', { midenP2IDRecipientAccountId: 7 }],
+    ['an account that is not a Miden account id', { midenP2IDRecipientAccountId: '0x1234' }]
+  ])('reads an allocator account answer with %s as a failed read', async (_name, body) => {
+    const derived = await deriveAllocatorAccount(body);
+    expect(derived.epoch.allocatorAccount.state).toBe('error');
+    // The health probe is separate, so a Fast deposit, which needs no collateral note, is not affected.
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('reads an allocator account route that is down as a failed read', async () => {
+    const { [ALLOCATOR_RECIPIENT_URL]: _route, ...withoutRoute } = HEALTH;
+    const derived = await deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch(withoutRoute) }));
+    expect(derived.epoch.allocatorAccount).toEqual({
+      state: 'error',
+      message: 'Remote JSON request failed with HTTP 503'
+    });
+  });
 
   it.each([
     ['status only', { status: 'healthy' }],
@@ -569,8 +620,9 @@ describe('deriveBridgeConfig', () => {
     });
     const pending = deriveBridgeConfig(TESTNET, io);
     await new Promise(resolve => setTimeout(resolve, 0));
-    // The two health routes, `/pools` and, after the testnet host refuses `/pools`, the positions fallback.
-    expect(io.fetch).toHaveBeenCalledTimes(4);
+    // The two health routes, the allocator's account, `/pools` and, after the testnet host refuses `/pools`, the
+    // positions fallback.
+    expect(io.fetch).toHaveBeenCalledTimes(5);
     expect(io.readMidenFaucet).toHaveBeenCalledTimes(1);
     releaseRegistry({ rollupId: 86, tokens: [ETH] });
     await expect(pending).resolves.toEqual(HEALTHY);

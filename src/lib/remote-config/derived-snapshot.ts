@@ -8,6 +8,7 @@ import type {
   BridgeToken,
   DerivedBridgeConfig,
   DerivedChainConfig,
+  EpochAllocatorAccount,
   EpochTokenRead,
   Probe,
   TokenMetadata
@@ -104,6 +105,11 @@ function probe<T>(value: unknown, read: (value: unknown) => T | null): Probe<T> 
   if (value.state !== 'ok') return null;
   const found = read(value.value);
   return found === null ? null : { state: 'ok', value: found };
+}
+
+function allocatorAccount(value: unknown): EpochAllocatorAccount | null {
+  if (!isRecord(value) || typeof value.allocatorUrl !== 'string' || !isMidenAccountId(value.accountId)) return null;
+  return { allocatorUrl: value.allocatorUrl, accountId: value.accountId };
 }
 
 function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {
@@ -335,6 +341,9 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   }
   const indexer = probe(agglayer.indexer, yes);
   const allocator = probe(epoch.allocator, yes);
+  // A copy stored by a build that read no allocator account has no such probe, so it reads as missing and is derived
+  // again.
+  const allocatorAccountRead = probe(epoch.allocatorAccount, allocatorAccount);
   const earnMarket = probe(epoch.market, market);
   const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   // A copy stored by a build that read no swap pairs has no such probe, so it reads as missing and is derived again.
@@ -349,7 +358,9 @@ export function parseStoredDerived(value: unknown, network: string, version: num
           state: 'error',
           message: 'The stored Earn vault catalogue is malformed'
         });
-  if (!indexer || !allocator || !earnMarket || !midenUsdcFaucet || !swapPairs || !vaults) return null;
+  if (!indexer || !allocator || !allocatorAccountRead || !earnMarket || !midenUsdcFaucet || !swapPairs || !vaults) {
+    return null;
+  }
   const reads: Record<number, DerivedChainConfig> = {};
   for (const [key, entry] of Object.entries(chains)) {
     const chainId = Number(key);
@@ -363,7 +374,7 @@ export function parseStoredDerived(value: unknown, network: string, version: num
     derivedAt,
     chains: reads,
     agglayer: { indexer },
-    epoch: { allocator, market: earnMarket, midenUsdcFaucet, vaults },
+    epoch: { allocator, allocatorAccount: allocatorAccountRead, market: earnMarket, midenUsdcFaucet, vaults },
     swap: { pairs: swapPairs }
   };
 }
@@ -384,7 +395,7 @@ export function failedDerivation(config: BridgeConfig, message: string, derivedA
     derivedAt,
     chains,
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
+    epoch: { allocator: error, allocatorAccount: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }
   };
 }

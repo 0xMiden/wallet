@@ -166,6 +166,20 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 }
 
 /**
+ * The Miden account (lowercase hex) that the derivation read from the Epoch allocator at `allocatorUrl`
+ * (`derived.epoch.allocatorAccount`). Null while no derivation holds one for that allocator, or while its read failed.
+ */
+export function selectEpochAllocatorAccount(s: BridgeConfigSnapshot, allocatorUrl: string): string | null {
+  const read = okValue(s.derived?.epoch.allocatorAccount);
+  return read && read.allocatorUrl === allocatorUrl ? read.accountId : null;
+}
+
+/** `selectEpochAllocatorAccount` on this realm's snapshot. */
+export function findEpochAllocatorAccount(allocatorUrl: string): string | null {
+  return selectEpochAllocatorAccount(getBridgeConfigSnapshot(), allocatorUrl);
+}
+
+/**
  * The Earn vault catalogue the derivation read (`derived.epoch.vaults`): the listed vaults the service serves, in the
  * document's order. Null while no derivation holds one, or while its read failed or was skipped.
  */

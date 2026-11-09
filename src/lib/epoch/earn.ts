@@ -12,10 +12,16 @@ import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { EarnVaultProtocol } from 'lib/remote-config/schema';
-import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
+import {
+  type EarnMarket,
+  findEpochAllocatorAccount,
+  getEpochAllocatorUrl,
+  getEvmChainId
+} from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './collateral-guard';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
@@ -386,7 +392,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   };
 
   let earnTxId: string | undefined;
-  let spendingLimitError: unknown;
+  let noteError: unknown;
   const quote = await getEarnQuote(sdk, params, evmRecipient);
   const intent = await buildEarnIntent(sdk, {
     ...params,
@@ -402,6 +408,20 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
       );
     },
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      // Build the note only for the reviewed collateral and amount, and only for the allocator account that the
+      // configuration names.
+      const mismatch = collateralNoteMismatch(
+        { faucetId: faucet, amount, allocatorId },
+        {
+          faucetId: args.collateral.faucetId,
+          amount: args.amount,
+          allocatorAccountId: findEpochAllocatorAccount(allocatorUrl)
+        }
+      );
+      if (mismatch !== null) {
+        noteError = new EpochCollateralNoteMismatchError(mismatch);
+        return { success: false };
+      }
       try {
         const res = await createEarnP2IDENote({
           senderAccountId: args.senderPublicKey,
@@ -423,13 +443,13 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
 
         return { success: res.success, noteId: res.noteId };
       } catch (error) {
-        spendingLimitError = error;
+        noteError = error;
         return { success: false };
       }
     }
   });
 
-  if (spendingLimitError !== undefined) throw spendingLimitError;
+  if (noteError !== undefined) throw noteError;
 
   if (intent.error) {
     if (earnTxId) {
