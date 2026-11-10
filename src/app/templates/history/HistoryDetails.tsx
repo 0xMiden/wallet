@@ -113,10 +113,29 @@ const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
   arc: 'oneClickNetworkArc'
 };
 
-const oneClickNetworkLabel = (t: TFunction, blockchain: string): string => {
+/** The name of a 1Click chain: the translated name of a known chain, else the name the row's config gives it. */
+const oneClickNetworkLabel = (t: TFunction, blockchain: string, tracking?: IOneClickTrackingData): string => {
   const key = ONE_CLICK_NETWORK_LABELS[blockchain];
-  return key ? t(key) : blockchain;
+  if (key) return t(key);
+  return tracking?.config.chains?.find(chain => chain.id === blockchain)?.name ?? blockchain;
 };
+
+/** An explorer link that 1Click gives for a transaction. Only an https link is used; any other value gives none. */
+const oneClickExplorerHref = (url: string): string | undefined => (/^https:\/\/[^\s]+$/.test(url) ? url : undefined);
+
+const ETHEREUM_CHAIN_ID = 1;
+
+/**
+ * The explorer link of a transaction on the origin chain of a 1Click row: the link 1Click gives, else the
+ * Ethereum explorer for an Ethereum origin. Another origin chain has no explorer in the wallet, so it has no link.
+ */
+const oneClickOriginTxHref = (blockchain: string | undefined, hash: string, url: string): string | undefined =>
+  oneClickExplorerHref(url) ??
+  (blockchain === 'eth' ? evmExplorerUrl(getChain(ETHEREUM_CHAIN_ID), 'tx', hash) : undefined);
+
+/** The explorer link of a transaction on the destination chain: the link 1Click gives, else the Miden explorer. */
+const oneClickDestinationTxHref = (blockchain: string | undefined, hash: string, url: string): string | undefined =>
+  oneClickExplorerHref(url) ?? (blockchain === 'miden' ? getExplorerTxUrl(hash) : undefined);
 function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['providerStatus']): string {
   switch (status) {
     case 'KNOWN_DEPOSIT_TX':
@@ -140,12 +159,13 @@ function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['pro
 
 /**
  * Return true when an inbound 1Click row can still get a deposit or still waits for one.
- * The deposit page shows the address and the status of this row only. An outbound row and a
- * row in a terminal phase do not get the page.
+ * The deposit page shows the address and the status of this row only. An outbound row, a row that
+ * 1Click reports as delivered (`arriving`) and a row in a terminal phase do not get the page.
  */
 function isOpenNearIntentsDeposit(tracking: IOneClickTrackingData): boolean {
   if (tracking.direction !== 'evm-to-miden') return false;
   switch (tracking.phase) {
+    case 'arriving':
     case 'delivered':
     case 'refunded':
     case 'failed':
@@ -980,7 +1000,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
-                  {isBridgeIn && entry.bridgeInSourceAddress && (
+                  {/* A NEAR Intents row stores the refund address in this field, not the sender: the wallet does
+                      not know which address paid the deposit. Its section below shows it as the refund address. */}
+                  {isBridgeIn && entry.bridgeInSourceAddress && entry.bridgeInProvider !== 'near-intents' && (
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
@@ -1303,10 +1325,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )}
                     <DetailRow label={t('oneClickNetwork')}>{entry.oneClickTracking.network}</DetailRow>
                     <DetailRow label={t('oneClickOriginNetwork')}>
-                      {oneClickNetworkLabel(t, entry.oneClickTracking.originAsset.blockchain)}
+                      {oneClickNetworkLabel(t, entry.oneClickTracking.originAsset.blockchain, entry.oneClickTracking)}
                     </DetailRow>
                     <DetailRow label={t('oneClickDestinationNetwork')}>
-                      {oneClickNetworkLabel(t, entry.oneClickTracking.destinationAsset.blockchain)}
+                      {oneClickNetworkLabel(
+                        t,
+                        entry.oneClickTracking.destinationAsset.blockchain,
+                        entry.oneClickTracking
+                      )}
                     </DetailRow>
                     <DetailRow label={t('oneClickAmount')}>
                       {entry.oneClickTracking.direction === 'evm-to-miden'
@@ -1374,10 +1400,41 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         </span>
                       </DetailRow>
                     )}
-                    {entry.oneClickTracking.originTransactionHash && (
-                      <DetailRow label={t('txIdLabel')}>
-                        <HashChip hash={entry.oneClickTracking.originTransactionHash} trimHash className="ml-2" />
+                    {entry.oneClickTracking.direction === 'evm-to-miden' && (
+                      <DetailRow label={t('nearIntentsRefundTo')}>
+                        <HashChip hash={entry.oneClickTracking.request.refundTo} trimHash className="ml-2" />
                       </DetailRow>
+                    )}
+                    {/* The two sides of the transfer, as 1Click reports them: the deposit on the origin chain
+                        and the delivery on the destination chain. */}
+                    {(entry.oneClickTracking.statusResponse?.swapDetails.originChainTxHashes ?? []).map(origin => (
+                      <DetailRow key={`origin-${origin.hash}`} label={t('oneClickOriginTransaction')}>
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={origin.hash} trimHash className="ml-2" />}
+                          href={oneClickOriginTxHref(
+                            entry.oneClickTracking?.originAsset.blockchain,
+                            origin.hash,
+                            origin.explorerUrl
+                          )}
+                        />
+                      </DetailRow>
+                    ))}
+                    {(entry.oneClickTracking.statusResponse?.swapDetails.destinationChainTxHashes ?? []).map(
+                      destination => (
+                        <DetailRow
+                          key={`destination-${destination.hash}`}
+                          label={t('nearIntentsDestinationTransaction')}
+                        >
+                          <ExternalLinkValue
+                            displayValue={<HashChip hash={destination.hash} trimHash className="ml-2" />}
+                            href={oneClickDestinationTxHref(
+                              entry.oneClickTracking?.destinationAsset.blockchain,
+                              destination.hash,
+                              destination.explorerUrl
+                            )}
+                          />
+                        </DetailRow>
+                      )
                     )}
                   </DetailSection>
                   {transaction && isOpenNearIntentsDeposit(entry.oneClickTracking) && (
@@ -1407,8 +1464,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </>
             )}
 
-            {/* Inbound bridge details */}
-            {isBridgeIn && (
+            {/* Inbound bridge details. A NEAR Intents row has its own section above; this one would name the
+                Agglayer route and a note id that the row never has. */}
+            {isBridgeIn && entry.bridgeInProvider !== 'near-intents' && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 {/* The steps between Pending and Confirmed of a USDCx deposit, read off the row. */}

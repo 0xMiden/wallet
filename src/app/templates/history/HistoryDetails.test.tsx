@@ -727,7 +727,7 @@ describe('HistoryDetails', () => {
     );
   });
 
-  it.each<IOneClickPhase>(['pending-deposit', 'known-deposit-tx', 'incomplete-deposit', 'processing', 'arriving'])(
+  it.each<IOneClickPhase>(['pending-deposit', 'known-deposit-tx', 'incomplete-deposit', 'processing'])(
     'opens the deposit page of an inbound 1Click row in the %s phase',
     async phase => {
       setOneClickHistoryRow('eth', 'miden', 'evm-to-miden', phase);
@@ -739,8 +739,8 @@ describe('HistoryDetails', () => {
     }
   );
 
-  it.each<IOneClickPhase>(['delivered', 'refunded', 'failed', 'expired'])(
-    'offers no deposit page for an inbound 1Click row in the terminal %s phase',
+  it.each<IOneClickPhase>(['arriving', 'delivered', 'refunded', 'failed', 'expired'])(
+    'offers no deposit page for an inbound 1Click row in the %s phase, after 1Click reports the result',
     async phase => {
       setOneClickHistoryRow('eth', 'miden', 'evm-to-miden', phase);
       await renderAndLoad({ transactionId: 'one-click-history' });

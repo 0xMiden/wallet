@@ -10,6 +10,8 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import type { OneClickAsset } from 'lib/one-click/types';
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
+import { tokenLogoSymbol } from './chains';
+
 export interface ReceiveTokenDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -52,7 +54,7 @@ export const ReceiveTokenDrawer: React.FC<ReceiveTokenDrawerProps> = ({
                 subtitle={t('nearIntentsOnChain', { chain: t('miden') })}
                 avatar={
                   <TokenLogo
-                    symbol={output.symbol}
+                    symbol={tokenLogoSymbol(output.symbol)}
                     faucetId={output.faucetId}
                     size="lg"
                     badge={<NetworkLogo kind="miden" />}

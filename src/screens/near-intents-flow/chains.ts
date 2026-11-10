@@ -26,6 +26,15 @@ export function chainLogoNetwork(chainId: string): string {
   }
 }
 
+/**
+ * The `TokenLogo` symbol of a token in this flow. `TokenLogo` knows its marks by upper-case symbol, and wrapped
+ * bitcoin has the bitcoin mark.
+ */
+export function tokenLogoSymbol(symbol: string): string {
+  const upper = symbol.toUpperCase();
+  return upper === 'WBTC' ? 'BTC' : upper;
+}
+
 /** The ids of the three selections on the form. An undefined id selects the first entry. */
 export interface NearIntentsSelection {
   chainId?: string;

@@ -31,8 +31,9 @@ import type {
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
-import { chainLogoNetwork, NearIntentsSelection, resolveSelection } from './chains';
+import { chainLogoNetwork, NearIntentsSelection, resolveSelection, tokenLogoSymbol } from './chains';
 import { arrivalMinutes, formatQuoteUsd, formatRate } from './format';
+import { isPreviewRefundAddress, previewRefundAddress } from './preview-refund';
 import { ReceiveTokenDrawer } from './ReceiveTokenDrawer';
 import { SendTokenDrawer } from './SendTokenDrawer';
 import { nearIntentsQuoteExpired, useNearIntentsQuote } from './useNearIntentsQuote';
@@ -45,6 +46,10 @@ const PREVIEW_DEADLINE_REFRESH_MS = 240_000;
 const SLIPPAGE_BPS = 100;
 
 const deadlineFromNow = (): string => new Date(Date.now() + QUOTE_LIFETIME_MS).toISOString();
+
+/** True when 1Click refused the quote because it has no liquidity for the amount (`OneClickHttpError.code`). */
+const isNoLiquidityError = (error: Error | undefined): boolean =>
+  error !== undefined && 'code' in error && error.code === 'no_liquidity';
 
 /** The parts of a request that make the route, without the deadline that moves on each refresh. */
 const routeKey = (request: OneClickQuoteRequest): string =>
@@ -116,7 +121,10 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   const trimmedRefund = refundAddress.trim();
   const refundValid =
     chain !== undefined && trimmedRefund !== '' && isValidNearIntentsAddress(chain.addressKind, trimmedRefund);
-  const refundError = chain !== undefined && trimmedRefund !== '' && !refundValid;
+  // A user who types a preview placeholder as the refund address is refused: the guard in `submit` cannot tell
+  // that address from the placeholder.
+  const refundUsable = refundValid && !isPreviewRefundAddress(trimmedRefund);
+  const refundError = chain !== undefined && trimmedRefund !== '' && !refundUsable;
 
   const amountBaseUnits = useMemo(() => {
     if (!token || amount.trim() === '' || amountExceedsTokenDecimals(amount, token.asset.decimals)) return undefined;
@@ -140,17 +148,18 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   }, [active]);
 
   const previewRequest = useMemo<OneClickQuoteRequest | undefined>(() => {
-    if (!token || !output || amountBaseUnits === undefined || !refundValid || !publicKey) return undefined;
+    if (!chain || !token || !output || amountBaseUnits === undefined || !publicKey) return undefined;
     return {
       amount: amountBaseUnits.toString(),
       originAsset: token.asset,
       destinationAsset: output,
-      refundTo: trimmedRefund,
+      // The quote shows from the amount alone. Until the refund address is valid, the dry quote uses a placeholder.
+      refundTo: refundUsable ? trimmedRefund : previewRefundAddress(chain.addressKind),
       recipient: publicKey,
       deadline: previewDeadline,
       slippageTolerance: SLIPPAGE_BPS
     };
-  }, [token, output, amountBaseUnits, refundValid, trimmedRefund, publicKey, previewDeadline]);
+  }, [chain, token, output, amountBaseUnits, refundUsable, trimmedRefund, publicKey, previewDeadline]);
   const previewRequestRef = useRef(previewRequest);
   previewRequestRef.current = previewRequest;
 
@@ -162,11 +171,17 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   const quote: OneClickQuoteResponse | undefined = previewRequest ? preview.quote : undefined;
 
   const canSubmit =
-    previewRequest !== undefined && quote !== undefined && !nearIntentsQuoteExpired(quote) && !submitting;
+    previewRequest !== undefined &&
+    refundUsable &&
+    quote !== undefined &&
+    !nearIntentsQuoteExpired(quote) &&
+    !submitting;
 
   const submit = useCallback(async () => {
     const current = previewRequestRef.current;
     if (!current || !token || !output || !publicKey || submittingRef.current) return;
+    // A deposit quote must carry the refund address of the user, never a preview placeholder.
+    if (isPreviewRefundAddress(current.refundTo)) return;
     const faucetId = output.faucetId;
     submittingRef.current = true;
     setSubmitting(true);
@@ -247,12 +262,13 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
         {tabs}
         <div className="flex flex-col gap-5 pt-4">
           <div className="flex flex-col">
-            <Card surface="fill" padding="tile" data-testid="near-intents-send-card">
+            <Card surface="fill" padding="row" data-testid="near-intents-send-card">
               <span className="text-label text-muted">{t('nearIntentsYouSend')}</span>
               <div className="flex items-center gap-3">
-                <TokenLogo symbol={token.symbol} size="lg" badge={originBadge} />
+                <TokenLogo symbol={tokenLogoSymbol(token.symbol)} size="lg" badge={originBadge} />
                 <AmountInput
                   className="min-w-0 flex-1"
+                  size="compact"
                   value={amount}
                   onValueChange={value => {
                     setAmount(value ?? '');
@@ -267,7 +283,14 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
                     <Pill
                       tone="page"
                       onClick={() => setSendDrawerOpen(true)}
-                      trailingIcon={<Icon name={IconName.ChevronDown} size="xs" />}
+                      trailingIcon={
+                        <Icon
+                          name={IconName.ChevronDown}
+                          size="xs"
+                          className="text-accent-receive-ink"
+                          fill="currentColor"
+                        />
+                      }
                       aria-haspopup="dialog"
                       aria-label={t('nearIntentsChooseSendToken', { symbol: token.symbol })}
                       data-testid="near-intents-send-token-pill"
@@ -279,7 +302,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
                   data-testid="near-intents-amount"
                 />
               </div>
-              <div className="mt-2 flex items-center justify-between gap-3 text-caption text-muted">
+              <div className="mt-1 flex items-center justify-between gap-3 text-caption text-muted">
                 <span data-testid="near-intents-send-usd">{inUsd ?? ''}</span>
                 <span className="truncate">{t('nearIntentsOnChain', { chain: chainName })}</span>
               </div>
@@ -287,20 +310,21 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
             {/* The arrow between the two cards: it overlaps both, so it says that one becomes the other. */}
             <div aria-hidden="true" className="relative z-10 -my-3 flex justify-center">
               <IconCircle size="md" className="border border-hairline bg-page text-ink">
-                <Icon name={IconName.ArrowDown} size="xs" />
+                <Icon name={IconName.ArrowDown} size="xs" fill="currentColor" />
               </IconCircle>
             </div>
-            <Card surface="fill" padding="tile" data-testid="near-intents-receive-card">
+            <Card surface="fill" padding="row" data-testid="near-intents-receive-card">
               <span className="text-label text-muted">{t('nearIntentsYouReceive')}</span>
               <div className="flex items-center gap-3">
                 <TokenLogo
-                  symbol={output.symbol}
+                  symbol={tokenLogoSymbol(output.symbol)}
                   faucetId={output.faucetId}
                   size="lg"
                   badge={<NetworkLogo kind="miden" />}
                 />
                 <AmountInput
                   className="min-w-0 flex-1"
+                  size="compact"
                   value={quote?.quote.amountOutFormatted ?? ''}
                   onValueChange={() => undefined}
                   preservePrecision
@@ -314,7 +338,14 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
                     <Pill
                       tone="page"
                       onClick={() => setReceiveDrawerOpen(true)}
-                      trailingIcon={<Icon name={IconName.ChevronDown} size="xs" />}
+                      trailingIcon={
+                        <Icon
+                          name={IconName.ChevronDown}
+                          size="xs"
+                          className="text-accent-receive-ink"
+                          fill="currentColor"
+                        />
+                      }
                       aria-haspopup="dialog"
                       aria-label={t('nearIntentsChooseReceiveToken', { symbol: output.symbol })}
                       data-testid="near-intents-receive-token-pill"
@@ -326,7 +357,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
                   data-testid="near-intents-quoted-amount"
                 />
               </div>
-              <div className="mt-2 flex items-center justify-between gap-3 text-caption text-muted">
+              <div className="mt-1 flex items-center justify-between gap-3 text-caption text-muted">
                 <span data-testid="near-intents-receive-usd">{outUsd ?? ''}</span>
                 <span className="truncate">{t('nearIntentsOnChain', { chain: t('miden') })}</span>
               </div>
@@ -353,7 +384,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
               isMobile() && trimmedRefund === '' ? (
                 <Pill
                   tone="page"
-                  icon={<Icon name={IconName.FileCopy} size="xs" />}
+                  icon={<Icon name={IconName.FileCopy} size="xs" fill="currentColor" />}
                   onClick={() => onPaste()}
                   data-testid="near-intents-refund-paste"
                 >
@@ -380,7 +411,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
 
           {previewRequest !== undefined && preview.error !== undefined && !preview.loading && (
             <ErrorLine errorId="oneClickQuoteUnavailable" data-testid="near-intents-quote-error">
-              {t('oneClickQuoteUnavailable')}
+              {isNoLiquidityError(preview.error) ? t('nearIntentsNoLiquidity') : t('oneClickQuoteUnavailable')}
             </ErrorLine>
           )}
 

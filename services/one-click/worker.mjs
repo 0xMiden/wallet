@@ -110,13 +110,25 @@ async function upstreamFetch(fetchImpl, url, init, timeoutMs) {
       text += decoder.decode(part.value, { stream: true });
     }
     text += decoder.decode();
-    if (!response.ok) return json({ error: 'upstream_request_failed' }, response.status >= 400 && response.status < 500 ? response.status : 502);
+    if (!response.ok) return json({ error: upstreamErrorCode(text) }, response.status >= 400 && response.status < 500 ? response.status : 502);
     JSON.parse(text);
     return new Response(text, { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' } });
   } finally {
     clearTimeout(timer);
     controller.abort();
   }
+}
+
+// The provider's refusal text never reaches the wallet. Only a reason on this fixed list becomes its own code,
+// so the wallet can tell the user what to change.
+function upstreamErrorCode(text) {
+  try {
+    const body = JSON.parse(text);
+    if (record(body) && body.message === 'No liquidity available') return 'no_liquidity';
+  } catch {
+    // A body that is not JSON has no reason the wallet can use.
+  }
+  return 'upstream_request_failed';
 }
 
 function upstreamUrl(path, params = new URLSearchParams()) {

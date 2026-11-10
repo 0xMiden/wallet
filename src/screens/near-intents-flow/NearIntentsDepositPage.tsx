@@ -208,8 +208,10 @@ export const NearIntentsDepositPage: React.FC<NearIntentsDepositPageProps> = ({ 
         {t(display.labelKey)}
       </Pill>
 
-      <p className="text-center text-caption text-muted">
-        {t('nearIntentsDepositCaption', { symbol: origin.symbol, chain: chainName })}
+      <p className="text-center text-caption text-muted" data-testid="near-intents-deposit-hint">
+        {display.hintKey
+          ? t(display.hintKey, { symbol: tracking.destinationAsset.symbol })
+          : t('nearIntentsDepositCaption', { symbol: origin.symbol, chain: chainName })}
       </p>
     </SubPageLayout>
   );

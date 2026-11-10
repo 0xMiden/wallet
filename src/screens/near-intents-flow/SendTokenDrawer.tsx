@@ -12,7 +12,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import type { NearIntentsCatalog } from 'lib/one-click/types';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { chainLogoNetwork } from './chains';
+import { chainLogoNetwork, tokenLogoSymbol } from './chains';
 import { NetworkSheet } from './NetworkSheet';
 
 export interface SendTokenDrawerProps {
@@ -74,7 +74,7 @@ export const SendTokenDrawer: React.FC<SendTokenDrawerProps> = ({
           />
           <div className="flex shrink-0 items-center justify-between gap-3 pt-4">
             <span className="flex items-center gap-2 text-body-sm text-muted">
-              <Icon name={IconName.Globe} size="xs" aria-hidden="true" />
+              <Icon name={IconName.Globe} size="xs" fill="currentColor" aria-hidden="true" />
               {t('nearIntentsFilterByNetwork')}
             </span>
             {filterChain && (
@@ -102,7 +102,7 @@ export const SendTokenDrawer: React.FC<SendTokenDrawerProps> = ({
                     subtitle={filterChain?.name}
                     avatar={
                       <TokenLogo
-                        symbol={token.symbol}
+                        symbol={tokenLogoSymbol(token.symbol)}
                         size="lg"
                         badge={<NetworkLogo kind="ethereum" network={chainLogoNetwork(filterChain?.id ?? '')} />}
                       />

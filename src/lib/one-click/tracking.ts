@@ -25,7 +25,12 @@ import {
   submitOneClickDeposit
 } from './client';
 import { assertOneClickFundingDeadline, effectiveOneClickFundingDeadline } from './deadline';
-import { oneClickActualOutputAmount, oneClickDestinationFaucet, hasOneClickDeliveryArrived } from './delivery';
+import {
+  oneClickActualOutputAmount,
+  oneClickDestinationFaucet,
+  hasOneClickDeliveryArrived,
+  hasOneClickDeliveryArrivedByAmount
+} from './delivery';
 import type { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 /** A deposit row stays open for this time after its funding deadline before it can expire. */
@@ -35,6 +40,11 @@ export const NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS = 10 * 60_000;
  * evidence than a `PENDING_DEPOSIT` answer, so the row stays open for one day in case the answer is an error.
  */
 export const NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS = 24 * 60 * 60_000;
+/**
+ * How long after 1Click reports the delivery the wallet looks for the delivered note. After this time the row
+ * closes as delivered, so a note that the wallet cannot match does not keep the row open.
+ */
+export const NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS = 60 * 60_000;
 export const NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR = 'No deposit reached the 1Click address before the quote deadline.';
 
 export interface OneClickTrackingInput {
@@ -354,6 +364,8 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
         statusResponse: status,
         updatedAt: updated.updatedAt
       });
+      // The receipt service names the exact notes of the delivery. It is optional: when it gives no note ids, the
+      // check below finds the delivery by its amount.
       try {
         const hashes = status.swapDetails.destinationChainTxHashes.map(item => item.hash);
         if (hashes.length > 0) {
@@ -366,30 +378,47 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
                 .flatMap(receipt => receipt.noteIds)
             )
           ];
-          const faucetId = oneClickDestinationFaucet(tracking);
-          const amount = oneClickActualOutputAmount(tracking, status.swapDetails.amountOut);
-          if (faucetId && destinationNoteIds.length > 0 && amount !== undefined) {
-            const notes = await withWasmClientLock(
-              async hold =>
-                midenClientProxy.getConsumableNotes(tracking.accountId, step =>
-                  assertWasmHoldCurrent(hold, 'inside the 1Click delivery note read', step)
-                ),
-              { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'one-click-delivery' }
-            );
-            const consumed = await Repo.transactions.where('type').equals('consume').toArray();
-            if (
-              hasOneClickDeliveryArrived({
-                targetAccountId: tracking.accountId,
-                faucetId,
-                amount,
-                noteIds: destinationNoteIds,
-                consumableNotes: notes,
-                transactions: consumed
-              })
-            ) {
-              phase = 'delivered';
-            }
-          }
+        }
+      } catch (error) {
+        console.warn('[one-click-tracking] destination receipt lookup failed', transaction.id, error);
+      }
+      try {
+        const faucetId = oneClickDestinationFaucet(tracking);
+        const amount = oneClickActualOutputAmount(tracking, status.swapDetails.amountOut);
+        const successAgeMs = Date.now() - Date.parse(status.updatedAt);
+        if (successAgeMs > NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS) {
+          // 1Click reported the delivery long ago and the wallet found no matching note (for example, a batch
+          // claim took it). The success of the provider is final, so the row closes and the note reads stop.
+          phase = 'delivered';
+        } else if (faucetId && amount !== undefined) {
+          const notes = await withWasmClientLock(
+            async hold =>
+              midenClientProxy.getConsumableNotes(tracking.accountId, step =>
+                assertWasmHoldCurrent(hold, 'inside the 1Click delivery note read', step)
+              ),
+            { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'one-click-delivery' }
+          );
+          const consumed = await Repo.transactions.where('type').equals('consume').toArray();
+          const noteIds = destinationNoteIds ?? [];
+          const arrived =
+            noteIds.length > 0
+              ? hasOneClickDeliveryArrived({
+                  targetAccountId: tracking.accountId,
+                  faucetId,
+                  amount,
+                  noteIds,
+                  consumableNotes: notes,
+                  transactions: consumed
+                })
+              : hasOneClickDeliveryArrivedByAmount({
+                  targetAccountId: tracking.accountId,
+                  faucetId,
+                  amount,
+                  since: transaction.initiatedAt,
+                  consumableNotes: notes,
+                  transactions: consumed
+                });
+          if (arrived) phase = 'delivered';
         }
       } catch (error) {
         console.warn('[one-click-tracking] destination delivery check failed', transaction.id, error);

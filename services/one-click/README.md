@@ -58,7 +58,9 @@ All responses use `Cache-Control: private, no-store`; logs and traces are disabl
 | `MIDEN_RECEIPT_ADAPTER_URL` | Worker variable | Optional fixed HTTPS adapter URL for exact destination note resolution |
 | `MIDEN_RECEIPT_ADAPTER_TOKEN` | Worker secret | Optional bearer credential for that adapter |
 
-Provider app fees are unsigned fields in the 1Click quote signature. Keep `APP_FEES` reviewed and synchronized with the mainnet remote config. The wallet and proxy reject quote requests whose fee list differs from the configured list; never treat the provider's fee fields as proof of payment authorization.
+Provider app fees are unsigned fields in the 1Click quote signature, so the wallet checks them itself: the `appFees` list of the wallet config is the exact list that a signed quote must carry, and the wallet refuses a quote with another list. The wallet sends no fee list in its request. `APP_FEES` is the list that the proxy adds to a quote request; a partner key can also make 1Click add a fee on its own. A fee that is both sent and added by the key is charged twice, so leave `APP_FEES` empty for such a key and put the fee that the key adds in the wallet config. Never treat the provider's fee fields as proof of payment authorization.
+
+A refused request returns `upstream_request_failed`, without the provider's text. One reason has its own code: `no_liquidity`, which the wallet shows to the user.
 
 The receipt adapter must return only `{ "transactionHash": "...", "noteIds": ["..."] }` entries for requested hashes, after verifying the final Miden transaction and exact note IDs. The service validates that every hash was requested and caps each entry at 64 note IDs. If the adapter is absent or fails, the wallet continues to show incoming swaps as arriving. Do not map a destination hash to a note by amount or symbol.
 

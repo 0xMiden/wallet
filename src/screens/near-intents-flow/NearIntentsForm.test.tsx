@@ -11,6 +11,7 @@ import type {
 } from 'lib/one-click/types';
 
 import { NearIntentsForm } from './NearIntentsForm';
+import { previewRefundAddress } from './preview-refund';
 import { PREVIEW_DEBOUNCE_MS } from './useNearIntentsQuote';
 
 jest.mock('react-i18next', () => ({
@@ -199,21 +200,48 @@ describe('NearIntentsForm', () => {
     expect(screen.getByTestId('near-intents-receive-token-pill')).toHaveTextContent('USDCx');
   });
 
-  it('keeps the button disabled and asks for no quote until the amount and the refund address are valid', async () => {
+  it('names a missing-liquidity refusal and shows the general text for any other quote failure', async () => {
+    mockRequestQuote.mockRejectedValue(
+      Object.assign(new Error('1Click request failed (400)'), { code: 'no_liquidity' })
+    );
+    renderForm();
+    typeAmount('46');
+    await flushQuote();
+    expect(screen.getByTestId('near-intents-quote-error')).toHaveTextContent('nearIntentsNoLiquidity');
+
+    mockRequestQuote.mockRejectedValue(new Error('1Click request failed (400)'));
+    typeAmount('47');
+    await flushQuote();
+    expect(screen.getByTestId('near-intents-quote-error')).toHaveTextContent('oneClickQuoteUnavailable');
+  });
+
+  it('shows a dry quote from the amount alone with a placeholder refund address, and keeps the button disabled', async () => {
     renderForm();
     const button = screen.getByTestId('near-intents-get-deposit-address');
     expect(button).toBeDisabled();
+    expect(mockRequestQuote).not.toHaveBeenCalled();
 
     typeAmount('46');
     await flushQuote();
-    expect(mockRequestQuote).not.toHaveBeenCalled();
+    expect(mockRequestQuote).toHaveBeenCalledTimes(1);
+    const [, request, dry] = mockRequestQuote.mock.calls[0]!;
+    expect(dry).toBe(true);
+    expect(request.refundTo).toBe(previewRefundAddress('evm'));
     expect(button).toBeDisabled();
 
     typeRefund('not-an-address');
     await flushQuote();
     expect(screen.getByTestId('near-intents-refund-error')).toHaveTextContent('nearIntentsRefundInvalid');
-    expect(mockRequestQuote).not.toHaveBeenCalled();
     expect(button).toBeDisabled();
+
+    // The placeholder itself is refused as a refund address, so it can never go into a deposit quote.
+    typeRefund(previewRefundAddress('evm'));
+    await flushQuote();
+    expect(screen.getByTestId('near-intents-refund-error')).toBeInTheDocument();
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    await flushQuote();
+    expect(mockRequestQuote.mock.calls.every(call => call[2] === true)).toBe(true);
   });
 
   it('shows the dry quote, its rate and its time once the inputs are valid, then enables the button', async () => {

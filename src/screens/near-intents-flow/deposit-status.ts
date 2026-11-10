@@ -78,15 +78,19 @@ export function acceptsDeposit(status: NearIntentsDepositStatus): boolean {
 }
 
 /** The i18n key and the pill tone of each status. */
+/**
+ * `hintKey` is the line under the pill for a status after the deposit: it tells the user what occurs next. A
+ * status with no hint shows the general caption about the deposit.
+ */
 export const DEPOSIT_STATUS_DISPLAY: Record<
   NearIntentsDepositStatus,
-  { labelKey: string; tone: NearIntentsDepositTone }
+  { labelKey: string; tone: NearIntentsDepositTone; hintKey?: string }
 > = {
   waiting: { labelKey: 'nearIntentsStatusWaiting', tone: 'warning' },
   incomplete: { labelKey: 'nearIntentsStatusIncomplete', tone: 'warning' },
-  processing: { labelKey: 'nearIntentsStatusProcessing', tone: 'warning' },
-  arriving: { labelKey: 'nearIntentsStatusArriving', tone: 'warning' },
-  received: { labelKey: 'nearIntentsStatusReceived', tone: 'positive' },
+  processing: { labelKey: 'nearIntentsStatusProcessing', tone: 'warning', hintKey: 'nearIntentsHintProcessing' },
+  arriving: { labelKey: 'nearIntentsStatusArriving', tone: 'positive', hintKey: 'nearIntentsHintArriving' },
+  received: { labelKey: 'nearIntentsStatusReceived', tone: 'positive', hintKey: 'nearIntentsHintReceived' },
   refunded: { labelKey: 'nearIntentsStatusRefunded', tone: 'inactive' },
   failed: { labelKey: 'nearIntentsStatusFailed', tone: 'negative' },
   expired: { labelKey: 'nearIntentsStatusExpired', tone: 'negative' }

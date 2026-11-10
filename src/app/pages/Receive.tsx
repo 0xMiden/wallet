@@ -93,7 +93,13 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
 
   const tabItems: readonly SegmentedControlItem<ReceiveTab>[] = [
     { id: 'miden', label: t('miden'), 'data-testid': 'receive-tab-miden' },
-    { id: 'near-intents', label: t('nearIntentsTab'), 'data-testid': 'receive-tab-near-intents' }
+    {
+      id: 'near-intents',
+      label: t('nearIntentsTab'),
+      badge: t('nearIntentsBeta'),
+      ring: 'rainbow',
+      'data-testid': 'receive-tab-near-intents'
+    }
   ];
   const tabs = nearIntentsConfig ? (
     <SegmentedControl

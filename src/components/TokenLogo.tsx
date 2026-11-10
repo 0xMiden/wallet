@@ -5,7 +5,9 @@ import clsx from 'clsx';
 import { ReactComponent as BtcLogo } from 'app/icons/logos/btc.svg';
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
+import { ReactComponent as SolLogo } from 'app/icons/logos/sol.svg';
 import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
+import { ReactComponent as UsdtLogo } from 'app/icons/logos/usdt.svg';
 import { Avatar, AvatarSize } from 'components/ui/Avatar';
 import { useTokenLogoUri } from 'lib/token-list/useTokenLogoUri';
 
@@ -18,7 +20,9 @@ const TOKEN_LOGOS: Record<string, TokenMark> = {
   MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
   ETH: { Logo: EthLogo, bg: 'bg-pure-black' },
   USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
-  BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }
+  USDT: { Logo: UsdtLogo, bg: 'bg-[#26A17B]' },
+  BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' },
+  SOL: { Logo: SolLogo, bg: 'bg-pure-black' }
 };
 
 const markOf = (symbol: string | undefined): TokenMark | undefined =>

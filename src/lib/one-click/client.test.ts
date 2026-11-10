@@ -456,6 +456,18 @@ describe('1Click client', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('accepts a status answer whose quote has no correlation id of its own, as the live API sends it', async () => {
+    const response = quoteWithFees(pinnedWetQuote, []);
+    const { correlationId, ...quoteWithoutId } = response;
+    fetchMock.mockResolvedValue(Response.json({ ...statusResponse(response), quoteResponse: quoteWithoutId }));
+
+    const status = await fetchOneClickStatus(configWithFees([]), wetDepositAddress, undefined, pinnedWetQuote);
+
+    expect(status.status).toBe('PROCESSING');
+    expect(status.quoteResponse.correlationId).toBe(correlationId);
+    expect(hashOneClickQuote(status.quoteResponse)).toBe(hashOneClickQuote(pinnedWetQuote));
+  });
+
   it('caps response bodies by UTF-8 byte length rather than decoded string length', async () => {
     fetchMock.mockResolvedValue(new Response('€'.repeat(400_000)));
     await expect(fetchOneClickStatus(config, wetDepositAddress)).rejects.toThrow('too large');

@@ -39,10 +39,26 @@ const MAX_CHAINS = 32;
 const MAX_TOKENS_PER_CHAIN = 64;
 const MAX_TOKEN_OUTPUTS = 8;
 
+/** A reason that the proxy names for a refused request. The proxy hides every other provider reason. */
+export type OneClickErrorCode = 'no_liquidity';
+
 export class OneClickHttpError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly code?: OneClickErrorCode
+  ) {
     super(`1Click request failed (${status})`);
     this.name = 'OneClickHttpError';
+  }
+}
+
+/** Reads the reason code from the body of a refused request. An unknown or absent code gives undefined. */
+function errorCodeOf(body: string): OneClickErrorCode | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return isRecord(parsed) && parsed.error === 'no_liquidity' ? 'no_liquidity' : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -213,7 +229,7 @@ export async function requestOneClickJson(
       void reader.cancel().catch(() => undefined);
       throw error;
     }
-    if (!response.ok) throw new OneClickHttpError(response.status);
+    if (!response.ok) throw new OneClickHttpError(response.status, errorCodeOf(body));
     return JSON.parse(body);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -458,9 +474,11 @@ export async function requestOneClickQuote(
     refundType: 'ORIGIN_CHAIN',
     recipient: request.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    deadline: request.deadline,
-    ...(config.appFees ? { appFees: config.appFees } : {})
+    deadline: request.deadline
   };
+  // The request names no fees. The proxy and the partner key decide the fees that 1Click attaches, and
+  // `config.appFees` is the exact list that the signed quote must carry (`assertOneClickQuoteBinding`).
+  // A fee that the wallet sent as well was added a second time by 1Click.
   const raw = await requestOneClickJson(config, '/v0/quote', { method: 'POST', body: JSON.stringify(body) }, fetcher);
   const response = parseOneClickQuoteResponse(raw);
   assertOneClickQuoteBinding(request, response, dry, config);
@@ -530,7 +548,12 @@ function parseStatus(value: unknown): OneClickStatusResponse {
     !Array.isArray(value.swapDetails.nearTxHashes)
   )
     throw new Error('Invalid 1Click status response');
-  const quoteResponse = parseOneClickQuoteResponse(value.quoteResponse);
+  // The quote inside a status answer has no correlation id of its own; 1Click gives one id for the whole answer.
+  // The id is not part of the signed payload, so the quote takes the id of the answer.
+  const nested = value.quoteResponse;
+  const quoteResponse = parseOneClickQuoteResponse(
+    isRecord(nested) && nested.correlationId === undefined ? { ...nested, correlationId: value.correlationId } : nested
+  );
   if (!verifyOneClickQuoteSignature(quoteResponse)) throw new Error('1Click status quote signature is invalid');
   return {
     correlationId: value.correlationId,

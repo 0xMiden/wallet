@@ -1319,7 +1319,13 @@ describe('Receive - tabs', () => {
 
     expect(container.querySelector('[data-testid="receive-page"] [data-testid="receive-tabs"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="receive-tab-miden"]')?.textContent).toBe('miden');
-    expect(container.querySelector('[data-testid="receive-tab-near-intents"]')?.textContent).toBe('nearIntentsTab');
+    // The Near Intents tab has the rainbow ring and the beta badge on the edge of its pill, beside the button.
+    const nearIntentsTab = container.querySelector('[data-testid="receive-tab-near-intents"]');
+    expect(nearIntentsTab?.textContent).toBe('nearIntentsTab');
+    const decoration = nearIntentsTab?.parentElement;
+    expect(decoration?.querySelector('[data-testid="segmented-control-rainbow-ring"]')).not.toBeNull();
+    expect(decoration?.querySelector('[data-testid="segmented-control-badge"]')?.textContent).toBe('nearIntentsBeta');
+    expect(container.querySelectorAll('[data-testid="segmented-control-rainbow-ring"]')).toHaveLength(1);
 
     const nearIntents = container.querySelector('[data-testid="receive-tab-near-intents"]');
     await act(async () => {
