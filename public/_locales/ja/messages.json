@@ -6298,6 +6298,10 @@
     "message": "このdAppはカスタムトランザクションを要求しています。ウォレットはその詳細をデコードできませんでした。その動作内容を正確に把握している場合のみ、続行してください。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "このウォレットではこの取引をシミュレートできないため、その動作を表示することはできません。したがって、この取引を承認することはできません。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "生データ",
     "englishSource": "Raw value"

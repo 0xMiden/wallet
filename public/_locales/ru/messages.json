@@ -6302,6 +6302,10 @@
     "message": "Это dApp запрашивает пользовательскую транзакцию. Кошелек не смог расшифровать её детали — продолжайте только в том случае, если точно знаете, что она собой представляет.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Кошелек не смог смоделировать эту транзакцию, поэтому не может показать, что она собой представляет. Вы не можете её утвердить.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Исходное значение",
     "englishSource": "Raw value"

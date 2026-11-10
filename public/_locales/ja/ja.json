@@ -1376,6 +1376,7 @@
   "unverifiedTokenTitle": "未確認のトークン",
   "couldNotVerifyBySimulation": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
   "couldNotDecodeTransaction": "このdAppはカスタムトランザクションを要求しています。ウォレットはその詳細をデコードできませんでした。その動作内容を正確に把握している場合のみ、続行してください。",
+  "customTransactionNotSimulated": "このウォレットではこの取引をシミュレートできないため、その動作を表示することはできません。したがって、この取引を承認することはできません。",
   "rawValue": "生データ",
   "opaqueSignatureTitle": "不透明な署名要求",
   "opaqueSignatureWarning": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",
