@@ -33,6 +33,23 @@ function request(path, method = 'GET', body, requestOrigin = origin) {
   });
 }
 
+test('accepts a partner key the length of a signed token and refuses an oversize one', async () => {
+  const seen = [];
+  const service = createService({
+    fetchImpl: async (_url, init) => {
+      seen.push(init.headers.Authorization);
+      return new Response('[]', { status: 200 });
+    }
+  });
+  const token = 'k'.repeat(600);
+  const accepted = await service.fetch(request('/v0/tokens'), { ...env, ONE_CLICK_PARTNER_KEY: token });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(seen, [`Bearer ${token}`]);
+  const refused = await service.fetch(request('/v0/tokens'), { ...env, ONE_CLICK_PARTNER_KEY: 'k'.repeat(4097) });
+  assert.equal(refused.status, 503);
+  assert.equal(seen.length, 1);
+});
+
 test('requires an exact allowed origin before calling the provider', async () => {
   let calls = 0;
   const service = createService({

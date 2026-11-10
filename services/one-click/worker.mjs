@@ -154,7 +154,8 @@ export function createService({ fetchImpl = fetch, timeoutMs = MAX_TIMEOUT_MS } 
       const origin = allowedOrigin(request, origins);
       if (!origin) return json({ error: 'origin_not_allowed' }, 403);
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin, 'content-type') });
-      if (!env.ONE_CLICK_PARTNER_KEY || env.ONE_CLICK_PARTNER_KEY.length > 512) return json({ error: 'service_unavailable' }, 503, cors(origin));
+      // A 1Click partner key is a signed token of more than 512 characters, so the limit is 4096.
+      if (!env.ONE_CLICK_PARTNER_KEY || env.ONE_CLICK_PARTNER_KEY.length > 4096) return json({ error: 'service_unavailable' }, 503, cors(origin));
       const url = new URL(request.url);
       const authHeaders = { Authorization: `Bearer ${env.ONE_CLICK_PARTNER_KEY}`, Accept: 'application/json' };
       let response;
