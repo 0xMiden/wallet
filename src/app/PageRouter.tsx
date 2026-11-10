@@ -36,6 +36,7 @@ import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import { NearIntentsDepositPage } from 'screens/near-intents-flow/NearIntentsDepositPage';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
@@ -276,6 +277,20 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   // Full-screen pages - wrapped in FullScreenPage for slide animation
+  [
+    // Before `/receive`. The deposit page of one NEAR Intents tracking row, keyed on the row id so a
+    // route change to another row mounts a new page with its own countdown.
+    '/receive/near-intents/:rowId',
+    onlyReady(({ rowId }) => {
+      const decoded = decodeParam(rowId);
+      if (decoded === undefined) return <Woozie.Redirect to="/receive" />;
+      return (
+        <FullScreenPage key={`near-intents-deposit-${rowId}`} entrance="slide">
+          <NearIntentsDepositPage rowId={decoded} />
+        </FullScreenPage>
+      );
+    })
+  ],
   [
     '/receive',
     onlyReady(() => (

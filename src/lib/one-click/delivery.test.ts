@@ -92,7 +92,11 @@ describe('1Click destination delivery matching', () => {
         deadline: '2026-10-22T12:00:00Z'
       }
     },
-    config: { serviceUrl: 'https://1click.test', midenAssets: [{ assetId: 'miden', faucetId: 'faucet', decimals: 0 }] },
+    config: {
+      serviceUrl: 'https://1click.test',
+      chains: [],
+      midenAssets: [{ id: 'mid', assetId: 'miden', faucetId: 'faucet', decimals: 0 }]
+    },
     network: 'mainnet',
     accountId: 'target-account',
     accountAddress: 'target-account',

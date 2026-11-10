@@ -33,13 +33,18 @@ const parsed = (version: number) => ({
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) =>
   doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
-const oneClickDoc = (version: number) =>
+const nearIntentsDoc = (version: number) =>
   doc(version, {
     network: 'localnet',
-    swap: {
-      oneClick: {
-        serviceUrl: 'http://127.0.0.1:8550',
-        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+    nearIntents: {
+      serviceUrl: 'http://127.0.0.1:8550',
+      midenAssets: { usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 } },
+      chains: {
+        eth: {
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+        }
       }
     }
   });
@@ -131,27 +136,29 @@ describe('bridgeConfigUrl', () => {
 });
 
 describe('fetchAndStoreBridgeConfig', () => {
-  it('keeps localnet 1Click hidden without the dedicated E2E compile flags', async () => {
+  it('keeps localnet NEAR Intents hidden without the dedicated E2E compile flags', async () => {
     setEnv('true', `${SERVED_BASE}/`, undefined, 'localhost');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
-    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
   });
 
-  it('allows localnet 1Click only when both E2E gates and the localhost build target are explicit', async () => {
+  it('allows localnet NEAR Intents only when both E2E gates and the localhost build target are explicit', async () => {
     setEnv('true', `${SERVED_BASE}/`, 'true', 'localhost');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
     await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({
-      config: { swap: { oneClick: { serviceUrl: 'http://127.0.0.1:8550' } } }
+      config: { nearIntents: { serviceUrl: 'http://127.0.0.1:8550' } }
     });
   });
 
-  it('keeps localnet 1Click hidden when the build network is not localhost', async () => {
+  it('keeps localnet NEAR Intents hidden when the build network is not localhost', async () => {
     setEnv('true', `${SERVED_BASE}/`, 'true', 'testnet');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
-    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
   });
 
   it('fetches past the browser cache, then stores the body as fetched and raises the floor', async () => {

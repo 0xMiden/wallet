@@ -1,21 +1,23 @@
 /** @jest-environment node */
 
-import {
-  fetchOneClickAssets,
-  fetchOneClickStatus,
-  isSameOneClickUnderlyingAsset,
-  parseOneClickQuoteResponse,
-  requestOneClickQuote,
-  submitOneClickDeposit
-} from './client';
+import { fetchNearIntentsCatalog } from './catalog';
+import { fetchOneClickStatus, parseOneClickQuoteResponse, requestOneClickQuote, submitOneClickDeposit } from './client';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import dryFixture from './test-fixtures-dry.json';
 import wetFixture from './test-fixtures-wet.json';
-import type { OneClickAppFee, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
+import type { NearIntentsConfig, OneClickAppFee, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
-const config: OneClickConfig = {
+const config: NearIntentsConfig = {
   serviceUrl: 'https://proxy.example',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
+  chains: [
+    {
+      id: 'eth',
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: [{ symbol: 'ETH', assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdc'] }]
+    }
+  ],
+  midenAssets: [{ id: 'usdc', assetId: 'miden:usdc', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
 };
 
 const input: OneClickQuoteRequest = {
@@ -54,22 +56,10 @@ const secondFixtureFee: OneClickAppFee = { recipient: 'partner-two.near', fee: 7
 const wetDepositAddress = '0xe5E9d98Ee5e8E8d379fa7bEb302f33E94261f21B';
 const submitTransactionHash = `0x${'1'.repeat(64)}`;
 
-function configWithFees(appFees: OneClickAppFee[] = []): OneClickConfig {
-  return {
-    serviceUrl: 'https://proxy.example',
-    midenAssets: [],
-    evmAssets: [
-      {
-        assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
-        blockchain: 'eth',
-        chainId: 1,
-        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        decimals: 6,
-        symbol: 'USDC'
-      }
-    ],
-    appFees
-  };
+// The pinned production fixtures are a chain-to-chain route (Ethereum USDC to Base ETH). The fee checks run before
+// the pair check, so a fixture with matching fees stops only at the pair check.
+function configWithFees(appFees: OneClickAppFee[] = []): NearIntentsConfig {
+  return { serviceUrl: 'https://proxy.example', midenAssets: [], chains: [], appFees };
 }
 
 function quoteWithFees(quote: OneClickQuoteResponse, appFees: OneClickAppFee[]): OneClickQuoteResponse {
@@ -119,7 +109,7 @@ function statusResponse(quoteResponse: OneClickQuoteResponse) {
 }
 
 async function callStatusBoundary(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   quote: OneClickQuoteResponse,
   expectedQuote?: OneClickQuoteResponse
 ) {
@@ -129,7 +119,7 @@ async function callStatusBoundary(
 }
 
 async function callSubmitBoundary(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   quote: OneClickQuoteResponse,
   expectedQuote?: OneClickQuoteResponse
 ) {
@@ -161,16 +151,16 @@ describe('1Click client', () => {
       delete process.env.MIDEN_E2E_TEST;
       delete process.env.MIDEN_E2E_ONE_CLICK_TESTNET;
       process.env.MIDEN_NETWORK = 'localhost';
-      await expect(fetchOneClickAssets(loopbackConfig, async () => ({ decimals: 6, symbol: 'USDC' }))).rejects.toThrow(
-        'Invalid 1Click service URL'
-      );
+      await expect(
+        fetchNearIntentsCatalog(loopbackConfig, async () => ({ decimals: 6, symbol: 'USDC' }))
+      ).rejects.toThrow('Invalid 1Click service URL');
 
       process.env.MIDEN_E2E_TEST = 'true';
       process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
       fetchMock.mockResolvedValue(Response.json([]));
-      await expect(fetchOneClickAssets(loopbackConfig, async () => ({ decimals: 6, symbol: 'USDC' }))).resolves.toEqual(
-        []
-      );
+      await expect(
+        fetchNearIntentsCatalog(loopbackConfig, async () => ({ decimals: 6, symbol: 'USDC' }))
+      ).resolves.toEqual({ chains: [] });
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringMatching(/^http:\/\/127\.0\.0\.1:8550\/v0\/tokens$/),
         expect.anything()
@@ -183,302 +173,6 @@ describe('1Click client', () => {
       if (saved.network === undefined) delete process.env.MIDEN_NETWORK;
       else process.env.MIDEN_NETWORK = saved.network;
     }
-  });
-
-  it('does not invent a Miden asset absent from the live provider catalog', async () => {
-    fetchMock.mockResolvedValue(
-      Response.json([
-        { assetId: 'nep141:eth.omft.near', blockchain: 'eth', symbol: 'ETH', decimals: 18 },
-        { assetId: 'eth:unverified-native', blockchain: 'eth', symbol: 'ETH', decimals: 18, contractAddress: 'native' },
-        {
-          assetId: 'sol:token',
-          blockchain: 'sol',
-          symbol: 'TOKEN',
-          decimals: 9,
-          contractAddress: 'So11111111111111111111111111111111111111112'
-        }
-      ])
-    );
-    const resolver = jest.fn(async () => ({ decimals: 6, symbol: 'USDC' }));
-    const assets = await fetchOneClickAssets(config, resolver);
-    expect(assets.map(asset => asset.assetId)).toEqual(['nep141:eth.omft.near', 'sol:token']);
-    expect(assets.find(asset => asset.assetId === 'nep141:eth.omft.near')?.contractAddress).toBe('native');
-    expect(resolver).not.toHaveBeenCalled();
-  });
-
-  it('accepts catalog metadata only when it matches the configured EVM identity', async () => {
-    const trustedAsset = {
-      assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
-      blockchain: 'base',
-      chainId: 8453,
-      contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
-      decimals: 6,
-      symbol: 'USDC'
-    };
-    const catalogAsset: Record<string, unknown> = { ...trustedAsset };
-    delete catalogAsset.chainId;
-    const trustedConfig = Object.assign(
-      { serviceUrl: 'https://proxy.example', midenAssets: [] },
-      { evmAssets: [trustedAsset] }
-    ) as OneClickConfig;
-    fetchMock.mockResolvedValue(Response.json([{ ...catalogAsset, coingeckoId: 'usd-coin' }]));
-
-    await expect(fetchOneClickAssets(trustedConfig, jest.fn())).resolves.toEqual([
-      { ...trustedAsset, coingeckoId: 'usd-coin' }
-    ]);
-  });
-
-  it('does not assign an inherited chain ID to a catalog token', async () => {
-    fetchMock.mockResolvedValue(
-      Response.json([
-        { assetId: 'constructor:token', blockchain: 'constructor', symbol: 'TOKEN', decimals: 6 },
-        { assetId: 'nep141:eth.omft.near', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
-      ])
-    );
-
-    const assets = await fetchOneClickAssets(config, jest.fn());
-    const constructorAsset = assets.find(asset => asset.assetId === 'constructor:token');
-    const ethereumAsset = assets.find(asset => asset.assetId === 'nep141:eth.omft.near');
-
-    expect(constructorAsset).toBeDefined();
-    expect(constructorAsset?.chainId).toBeUndefined();
-    expect(ethereumAsset).toMatchObject({
-      assetId: 'nep141:eth.omft.near',
-      blockchain: 'eth',
-      contractAddress: 'native',
-      chainId: 1
-    });
-  });
-
-  it('omits unconfigured EVM ERC-20 metadata while retaining pinned native assets', async () => {
-    fetchMock.mockResolvedValue(
-      Response.json([
-        {
-          assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
-          blockchain: 'base',
-          symbol: 'USDC',
-          decimals: 6,
-          contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
-        },
-        { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 }
-      ])
-    );
-
-    const assets = await fetchOneClickAssets(configWithFees(), jest.fn());
-
-    expect(assets).toEqual([
-      {
-        assetId: 'nep141:base.omft.near',
-        blockchain: 'base',
-        symbol: 'ETH',
-        decimals: 18,
-        contractAddress: 'native',
-        chainId: 8453
-      }
-    ]);
-  });
-
-  it.each([
-    [
-      'provider asset ID conflicts with configured identity',
-      { assetId: 'nep141:base-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.omft.near' }
-    ],
-    [
-      'provider contract address conflicts with configured identity',
-      { contractAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
-    ],
-    ['provider decimals conflict with configured identity', { decimals: 18 }],
-    ['provider display symbol conflicts with configured identity', { symbol: 'USD Coin' }],
-    ['provider EVM chain conflicts with configured identity', { blockchain: 'arb' }],
-    ['configured EVM token is relabeled as a non-EVM chain', { blockchain: 'sol' }]
-  ])('omits an EVM token when %s', async (_label, override) => {
-    const trustedAsset = {
-      assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
-      blockchain: 'base',
-      chainId: 8453,
-      contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
-      decimals: 6,
-      symbol: 'USDC'
-    };
-    const catalogAsset: Record<string, unknown> = { ...trustedAsset };
-    delete catalogAsset.chainId;
-    const trustedConfig = Object.assign(
-      { serviceUrl: 'https://proxy.example', midenAssets: [] },
-      { evmAssets: [trustedAsset] }
-    ) as OneClickConfig;
-    fetchMock.mockResolvedValue(Response.json([{ ...catalogAsset, ...override }]));
-
-    const assets = await fetchOneClickAssets(trustedConfig, jest.fn());
-
-    expect(assets).toEqual([]);
-  });
-
-  it('requires both provider and on-chain Miden decimals to match the configured mapping', async () => {
-    fetchMock.mockResolvedValue(
-      Response.json([{ assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6 }])
-    );
-    const assets = await fetchOneClickAssets(config, async () => ({ decimals: 9, symbol: 'USDC' }));
-    expect(assets).toEqual([]);
-  });
-
-  it('keeps independently verified mappings when another Miden metadata lookup fails or mismatches', async () => {
-    const metadataConfig: OneClickConfig = {
-      serviceUrl: 'https://proxy.example',
-      evmAssets: [
-        {
-          assetId: 'eth:token',
-          blockchain: 'eth',
-          chainId: 1,
-          contractAddress: `0x${'a'.repeat(40)}`,
-          decimals: 18,
-          symbol: 'TOKEN'
-        }
-      ],
-      midenAssets: [
-        { assetId: 'miden:verified', faucetId: `0x${'1'.repeat(30)}`, decimals: 6 },
-        { assetId: 'miden:unavailable', faucetId: `0x${'2'.repeat(30)}`, decimals: 6 },
-        { assetId: 'miden:mismatched', faucetId: `0x${'3'.repeat(30)}`, decimals: 6 },
-        { assetId: 'miden:invalid', faucetId: `0x${'4'.repeat(30)}`, decimals: 6 }
-      ]
-    };
-    fetchMock.mockResolvedValue(
-      Response.json([
-        {
-          assetId: 'eth:token',
-          blockchain: 'eth',
-          symbol: 'TOKEN',
-          decimals: 18,
-          contractAddress: `0x${'a'.repeat(40)}`
-        },
-        ...metadataConfig.midenAssets.map(asset => ({
-          assetId: asset.assetId,
-          blockchain: 'miden',
-          symbol: 'USD Coin',
-          decimals: asset.decimals
-        }))
-      ])
-    );
-    const resolver = jest.fn(async (asset: { faucetId?: string }) => {
-      if (asset.faucetId === metadataConfig.midenAssets[1]?.faucetId) throw new Error('metadata unavailable');
-      if (asset.faucetId === metadataConfig.midenAssets[2]?.faucetId) return { decimals: 9, symbol: 'USDC' };
-      if (asset.faucetId === metadataConfig.midenAssets[3]?.faucetId) return { decimals: 6, symbol: '  ' };
-      return { decimals: 6, symbol: 'USDC' };
-    });
-
-    const assets = await fetchOneClickAssets(metadataConfig, resolver);
-
-    expect(assets.map(asset => asset.assetId)).toEqual(['eth:token', 'miden:verified']);
-    expect(resolver).toHaveBeenCalledTimes(4);
-  });
-
-  it('limits Miden metadata reads to four concurrent lookups', async () => {
-    const metadataConfig: OneClickConfig = {
-      serviceUrl: 'https://proxy.example',
-      midenAssets: Array.from({ length: 6 }, (_, index) => ({
-        assetId: `miden:asset-${index}`,
-        faucetId: `0x${String(index + 1).repeat(30)}`,
-        decimals: 6
-      }))
-    };
-    fetchMock.mockResolvedValue(
-      Response.json(
-        metadataConfig.midenAssets.map(asset => ({
-          assetId: asset.assetId,
-          blockchain: 'miden',
-          symbol: 'USDC',
-          decimals: asset.decimals
-        }))
-      )
-    );
-    let active = 0;
-    let peak = 0;
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>(resolve => {
-      release = resolve;
-    });
-    const resolver = jest.fn(async () => {
-      active += 1;
-      peak = Math.max(peak, active);
-      await gate;
-      active -= 1;
-      return { decimals: 6, symbol: 'USDC' };
-    });
-    const pending = fetchOneClickAssets(metadataConfig, resolver);
-    let startedBeforeRelease = 0;
-
-    try {
-      for (let attempt = 0; attempt < 25 && resolver.mock.calls.length < 4; attempt += 1) await Promise.resolve();
-      startedBeforeRelease = resolver.mock.calls.length;
-      release?.();
-      const assets = await pending;
-      expect(assets).toHaveLength(6);
-    } finally {
-      release?.();
-      await pending;
-    }
-
-    expect(startedBeforeRelease).toBe(4);
-    expect(peak).toBe(4);
-    expect(peak).toBeLessThanOrEqual(4);
-  });
-
-  it('fails closed when the provider token response has an invalid top-level shape', async () => {
-    fetchMock.mockResolvedValue(Response.json({ tokens: [] }));
-    await expect(fetchOneClickAssets(config, async () => ({ decimals: 6, symbol: 'USDC' }))).rejects.toThrow(
-      'Invalid 1Click token response'
-    );
-  });
-
-  it('preserves canonical IDs from the provider catalog and matches underlying assets without symbols', async () => {
-    const catalogConfig: OneClickConfig = {
-      ...config,
-      evmAssets: [
-        {
-          assetId: 'nep141:usdc',
-          blockchain: 'eth',
-          chainId: 1,
-          contractAddress: `0x${'a'.repeat(40)}`,
-          decimals: 6,
-          symbol: 'USDC'
-        },
-        {
-          assetId: 'nep141:other',
-          blockchain: 'eth',
-          chainId: 1,
-          contractAddress: `0x${'b'.repeat(40)}`,
-          decimals: 6,
-          symbol: 'USDC'
-        }
-      ]
-    };
-    fetchMock.mockResolvedValue(
-      Response.json([
-        { assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USD Coin', decimals: 6, coingeckoId: 'usd-coin' },
-        {
-          assetId: 'nep141:usdc',
-          blockchain: 'eth',
-          symbol: 'USDC',
-          decimals: 6,
-          contractAddress: `0x${'a'.repeat(40)}`,
-          coingeckoId: 'usd-coin'
-        },
-        {
-          assetId: 'nep141:other',
-          blockchain: 'eth',
-          symbol: 'USDC',
-          decimals: 6,
-          contractAddress: `0x${'b'.repeat(40)}`
-        }
-      ])
-    );
-    const assets = await fetchOneClickAssets(catalogConfig, async () => ({ decimals: 6, symbol: 'USDC' }));
-    const miden = assets.find(asset => asset.blockchain === 'miden');
-    const evm = assets.find(asset => asset.assetId === 'nep141:usdc');
-    const other = assets.find(asset => asset.assetId === 'nep141:other');
-    expect(miden?.coingeckoId).toBe('usd-coin');
-    expect(miden && evm && isSameOneClickUnderlyingAsset(miden, evm)).toBe(true);
-    expect(evm && other && isSameOneClickUnderlyingAsset(evm, other)).toBe(false);
-    expect(evm && isSameOneClickUnderlyingAsset({ ...evm, assetId: 'same' }, { ...evm, assetId: 'same' })).toBe(true);
   });
 
   it('keeps the 1Click signer credential off the client and rejects an unsigned quote before returning it', async () => {
@@ -531,7 +225,8 @@ describe('1Click client', () => {
     const matchingQuote = quoteWithFees(pinnedDryQuote, [fixtureFee]);
     fetchMock.mockResolvedValue(Response.json(matchingQuote));
 
-    await expect(requestOneClickQuote(matchingConfig, request)).resolves.toEqual(matchingQuote);
+    // Matching fees pass the fee check. The chain-to-chain fixture then stops at the pair check.
+    await expect(requestOneClickQuote(matchingConfig, request)).rejects.toThrow('configured NEAR Intents pair');
 
     const editedQuote = quoteWithFees(pinnedDryQuote, [{ ...fixtureFee, recipient: 'attacker.near' }]);
     expect(verifyOneClickQuoteSignature(editedQuote)).toBe(true);
@@ -560,7 +255,7 @@ describe('1Click client', () => {
     );
   });
 
-  it('quote boundary accepts an order-insensitive configured fee match', async () => {
+  it('quote boundary passes an order-insensitive configured fee match on to the pair check', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
     const configured = [fixtureFee, secondFixtureFee];
     const response = quoteWithFees(pinnedDryQuote, [secondFixtureFee, fixtureFee]);
@@ -568,8 +263,8 @@ describe('1Click client', () => {
     expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedDryQuote));
     fetchMock.mockResolvedValue(Response.json(response));
 
-    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).resolves.toEqual(
-      response
+    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).rejects.toThrow(
+      'configured NEAR Intents pair'
     );
   });
 
@@ -732,10 +427,11 @@ describe('1Click client', () => {
   });
 
   it('rejects invalid config mappings and fees before any request', async () => {
+    const midenAsset = config.midenAssets[0]!;
     await expect(
-      fetchOneClickAssets(
-        { ...config, midenAssets: [{ ...config.midenAssets[0]!, decimals: Number.MAX_SAFE_INTEGER + 1 }] },
-        async () => ({ decimals: 6 })
+      requestOneClickQuote(
+        { ...config, midenAssets: [{ ...midenAsset, decimals: Number.MAX_SAFE_INTEGER + 1 }] },
+        input
       )
     ).rejects.toThrow('asset configuration');
     await expect(
@@ -744,8 +440,24 @@ describe('1Click client', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a token output that names no Miden token', { tokens: [{ ...config.chains[0]!.tokens[0]!, miden: ['other'] }] }],
+    ['a token with no output', { tokens: [{ ...config.chains[0]!.tokens[0]!, miden: [] }] }],
+    ['a chain named miden', { id: 'miden' }],
+    ['a chain with no token', { tokens: [] }],
+    [
+      'a token asset id that is also a Miden asset id',
+      { tokens: [{ ...config.chains[0]!.tokens[0]!, assetId: 'miden:usdc' }] }
+    ]
+  ])('rejects %s before any request', async (_label, override) => {
+    await expect(
+      requestOneClickQuote({ ...config, chains: [{ ...config.chains[0]!, ...override }] }, input)
+    ).rejects.toThrow('configuration');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('caps response bodies by UTF-8 byte length rather than decoded string length', async () => {
     fetchMock.mockResolvedValue(new Response('€'.repeat(400_000)));
-    await expect(fetchOneClickAssets(config, async () => ({ decimals: 6 }))).rejects.toThrow('too large');
+    await expect(fetchOneClickStatus(config, wetDepositAddress)).rejects.toThrow('too large');
   });
 });

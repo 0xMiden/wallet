@@ -13,15 +13,19 @@ const document = (network = 'testnet', version = 13) => ({
   features: { earn: true },
   swap: { etaUrl: 'https://quotes.test' }
 });
-const oneClick = {
+const usdcx = { assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 };
+const nearIntents = {
   serviceUrl: 'https://one-click.example/api',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+  midenAssets: { usdcx },
+  chains: {
+    eth: { name: 'Ethereum', addressKind: 'evm', tokens: { USDC: { assetId: 'eth:usdc', decimals: 6, miden: ['usdcx'] } } }
+  }
 };
-const nearIntentsDocument = (network = 'testnet', version = 13, serviceUrl = oneClick.serviceUrl) => ({
+const nearIntentsDocument = (network = 'testnet', version = 13, serviceUrl = nearIntents.serviceUrl) => ({
   network,
   version,
   features: { earn: false, nearIntents: true },
-  swap: { oneClick: { ...oneClick, serviceUrl } },
+  nearIntents: { ...nearIntents, serviceUrl },
   geo: { wallet: {} }
 });
 async function start(options = {}) {
@@ -115,17 +119,12 @@ test('config overrides update both realms and strict decisions together', async 
   });
 });
 
-test('oneClick-only swap capability is eligible only with nearIntents and a valid Miden mapping', async () => {
+test('a Near Intents section alone is eligible only with nearIntents and a valid Miden mapping', async () => {
   const oneClickDocument = {
     network: 'testnet',
     version: 13,
     features: { earn: false, nearIntents: true },
-    swap: {
-      oneClick: {
-        serviceUrl: 'https://oneclick.example',
-        midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'11'.repeat(15)}`, decimals: 6 }]
-      }
-    }
+    nearIntents: { ...nearIntents, serviceUrl: 'https://oneclick.example' }
   };
   const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(oneClickDocument)) });
   const eligible = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
@@ -139,7 +138,7 @@ test('oneClick-only swap capability is eligible only with nearIntents and a vali
   const missingMapping = {
     ...oneClickDocument,
     version: 15,
-    swap: { oneClick: { serviceUrl: 'https://oneclick.example', midenAssets: [] } }
+    nearIntents: { ...nearIntents, serviceUrl: 'https://oneclick.example', midenAssets: {} }
   };
   await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(missingMapping) });
   const unusable = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
@@ -193,10 +192,11 @@ test('HTTP eligibility follows OneClick-only Near Intents policy and validates m
   for (const config of [
     { ...nearIntentsDocument('testnet', 16), features: { earn: false } },
     { ...nearIntentsDocument('testnet', 17), features: { nearIntents: false } },
-    { ...nearIntentsDocument('testnet', 18), swap: { oneClick: { ...oneClick, midenAssets: [] } } },
-    { ...nearIntentsDocument('testnet', 19), swap: { oneClick: { ...oneClick, midenAssets: [{ ...oneClick.midenAssets[0], assetId: '' }] } } },
-    { ...nearIntentsDocument('testnet', 20), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } } },
-    { ...nearIntentsDocument('testnet', 21), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } } }
+    { ...nearIntentsDocument('testnet', 18), nearIntents: { ...nearIntents, midenAssets: {} } },
+    { ...nearIntentsDocument('testnet', 19), nearIntents: { ...nearIntents, midenAssets: { usdcx: { ...usdcx, assetId: '' } } } },
+    { ...nearIntentsDocument('testnet', 20), nearIntents: { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, faucetId: `0x${'cd'.repeat(15)}` } } } },
+    { ...nearIntentsDocument('testnet', 21), nearIntents: { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, assetId: 'miden:other' } } } },
+    { ...nearIntentsDocument('testnet', 22), nearIntents: { ...nearIntents, chains: {} } }
   ]) {
     const result = await update('testnet', config);
     assert.equal(result.allowed.swap, false);

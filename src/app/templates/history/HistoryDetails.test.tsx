@@ -17,6 +17,7 @@ import {
   PREPARED_OWNER,
   PREPARED_RECIPIENT
 } from 'lib/epoch/testing/earn-prepared';
+import type { IOneClickPhase } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -570,7 +571,8 @@ describe('HistoryDetails', () => {
   const setOneClickHistoryRow = (
     originBlockchain = 'eth',
     destinationBlockchain = 'miden',
-    direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden'
+    direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden',
+    phase: IOneClickPhase = 'arriving'
   ) => {
     const outbound = direction === 'miden-to-evm';
     const originAssetId = outbound ? 'miden-usdc' : 'usdc';
@@ -646,7 +648,7 @@ describe('HistoryDetails', () => {
             symbol: outbound ? 'USDC' : 'MUSDC',
             decimals: 6
           },
-          phase: 'arriving',
+          phase,
           depositAddress: 'deposit',
           providerStatus: 'SUCCESS',
           updatedAt: Date.now(),
@@ -723,6 +725,37 @@ describe('HistoryDetails', () => {
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
       'Optimism'
     );
+  });
+
+  it.each<IOneClickPhase>(['pending-deposit', 'known-deposit-tx', 'incomplete-deposit', 'processing', 'arriving'])(
+    'opens the deposit page of an inbound 1Click row in the %s phase',
+    async phase => {
+      setOneClickHistoryRow('eth', 'miden', 'evm-to-miden', phase);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+
+      fireEvent.click(screen.getByTestId('history-near-intents-deposit-button'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('/receive/near-intents/one-click-history');
+    }
+  );
+
+  it.each<IOneClickPhase>(['delivered', 'refunded', 'failed', 'expired'])(
+    'offers no deposit page for an inbound 1Click row in the terminal %s phase',
+    async phase => {
+      setOneClickHistoryRow('eth', 'miden', 'evm-to-miden', phase);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+
+      expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-near-intents-deposit-button')).not.toBeInTheDocument();
+    }
+  );
+
+  it('offers no deposit page for an outbound 1Click row', async () => {
+    setOneClickHistoryRow('miden', 'eth', 'miden-to-evm', 'pending-deposit');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-near-intents-deposit-button')).not.toBeInTheDocument();
   });
 
   it('keeps an unknown route network visible as its raw ID', async () => {

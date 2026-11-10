@@ -1,4 +1,4 @@
-import type { OneClickConfig } from './schema';
+import type { NearIntentsConfig } from '../one-click/types';
 
 /**
  * Place rules from a wallet-config document. A rule is a phrase such as "block NY state" or
@@ -63,20 +63,29 @@ export type GeoLookup =
   | { state: 'failed'; diagnostics?: StartupEligibilityDiagnostics }
   | ({ state: 'ready' } & FeatureEligibility);
 
-/** Structural feature availability; live route and market probes remain separate. */
+/**
+ * Structural feature availability; live route and market probes remain separate. The `swap` place rules also cover
+ * the NEAR Intents deposit of the Receive page, so a configured NEAR Intents section enables them.
+ */
 export function geoFeatureEnabled(
   feature: GeoFeature,
   config: {
     features: { earn: boolean; nearIntents?: unknown };
-    swap?: { etaUrl?: string; oneClick?: OneClickConfig };
+    swap?: { etaUrl?: string };
+    nearIntents?: NearIntentsConfig;
   }
 ): boolean {
-  if (feature === 'wallet') return true;
-  if (feature === 'earn') return config.features.earn;
-  return (
-    Boolean(config.swap?.etaUrl) ||
-    (config.features.nearIntents === true && (config.swap?.oneClick?.midenAssets.length ?? 0) > 0)
-  );
+  switch (feature) {
+    case 'wallet':
+      return true;
+    case 'earn':
+      return config.features.earn;
+    case 'swap':
+      return (
+        Boolean(config.swap?.etaUrl) ||
+        (config.features.nearIntents === true && (config.nearIntents?.chains.length ?? 0) > 0)
+      );
+  }
 }
 
 const PHRASE_ALIASES: Readonly<Record<string, GeoPlace>> = {

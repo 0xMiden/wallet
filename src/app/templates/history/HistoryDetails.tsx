@@ -138,6 +138,24 @@ function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['pro
   }
 }
 
+/**
+ * Return true when an inbound 1Click row can still get a deposit or still waits for one.
+ * The deposit page shows the address and the status of this row only. An outbound row and a
+ * row in a terminal phase do not get the page.
+ */
+function isOpenNearIntentsDeposit(tracking: IOneClickTrackingData): boolean {
+  if (tracking.direction !== 'evm-to-miden') return false;
+  switch (tracking.phase) {
+    case 'delivered':
+    case 'refunded':
+    case 'failed':
+    case 'expired':
+      return false;
+    default:
+      return true;
+  }
+}
+
 function formatOneClickBaseUnit(value: string | undefined, decimals: number): string | undefined {
   if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isInteger(decimals) || decimals < 0 || decimals > 38)
     return undefined;
@@ -1362,6 +1380,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       </DetailRow>
                     )}
                   </DetailSection>
+                  {transaction && isOpenNearIntentsDeposit(entry.oneClickTracking) && (
+                    <Button
+                      data-testid="history-near-intents-deposit-button"
+                      variant={ButtonVariant.Secondary}
+                      title={t('nearIntentsOpenDeposit')}
+                      onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
+                      className="mt-5 w-full max-w-none"
+                    />
+                  )}
                 </div>
               </div>
             )}

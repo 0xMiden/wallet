@@ -37,17 +37,14 @@ function hasControlCharacters(value) {
   });
 }
 
-function hasOneClickSwap(document) {
+// Reads the top-level `nearIntents` section. Its `midenAssets` and `chains` are maps keyed by id.
+function hasNearIntents(document) {
   if (document.features?.nearIntents !== true) return false;
-  const config = document.swap?.oneClick;
-  if (
-    !record(config) ||
-    !Array.isArray(config.midenAssets) ||
-    config.midenAssets.length < 1 ||
-    config.midenAssets.length > 64
-  ) {
-    return false;
-  }
+  const config = document.nearIntents;
+  if (!record(config) || !record(config.chains) || Object.keys(config.chains).length < 1) return false;
+  if (!record(config.midenAssets)) return false;
+  const midenAssets = Object.values(config.midenAssets);
+  if (midenAssets.length < 1 || midenAssets.length > 64) return false;
   if (typeof config.serviceUrl !== 'string' || config.serviceUrl.length > 512) return false;
   let serviceUrl;
   try {
@@ -70,7 +67,7 @@ function hasOneClickSwap(document) {
   }
   const assetIds = new Set();
   const faucetIds = new Set();
-  return config.midenAssets.every(asset => {
+  return midenAssets.every(asset => {
     if (
       !record(asset) ||
       typeof asset.assetId !== 'string' ||
@@ -95,7 +92,7 @@ function hasOneClickSwap(document) {
 
 function hasSwapCapability(document) {
   const hasDexSolver = typeof document.swap?.etaUrl === 'string' && document.swap.etaUrl.length > 0;
-  return hasDexSolver || hasOneClickSwap(document);
+  return hasDexSolver || hasNearIntents(document);
 }
 
 /** Real HTTP decisions for explicitly compiled E2E builds, shared by page and background realms. */

@@ -6,6 +6,7 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   ITransactionStatus,
   BridgedReceiveTransaction,
+  type IOneClickPhase,
   type IOneClickTrackingData,
   type ITransaction
 } from 'lib/miden/db/types';
@@ -17,20 +18,29 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
-  ONE_CLICK_EVM_CHAIN_IDS,
+  OneClickHttpError,
   assertOneClickQuoteBinding,
   fetchOneClickStatus,
   resolveOneClickDestinationReceipts,
   submitOneClickDeposit
 } from './client';
-import { assertOneClickFundingDeadline } from './deadline';
+import { assertOneClickFundingDeadline, effectiveOneClickFundingDeadline } from './deadline';
 import { oneClickActualOutputAmount, oneClickDestinationFaucet, hasOneClickDeliveryArrived } from './delivery';
-import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
+import type { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
+
+/** A deposit row stays open for this time after its funding deadline before it can expire. */
+export const NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS = 10 * 60_000;
+/**
+ * The additional time before a row expires when 1Click has no record of its address (HTTP 404). A 404 is weaker
+ * evidence than a `PENDING_DEPOSIT` answer, so the row stays open for one day in case the answer is an error.
+ */
+export const NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS = 24 * 60 * 60_000;
+export const NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR = 'No deposit reached the 1Click address before the quote deadline.';
 
 export interface OneClickTrackingInput {
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
-  config: OneClickConfig;
+  config: NearIntentsConfig;
   network: string;
   accountId: string;
   accountAddress: string;
@@ -122,101 +132,20 @@ function trackingData(
     faucetId: input.faucetId,
     amount: direction === 'evm-to-miden' ? input.quote.quote.amountOut : input.quote.quote.amountIn,
     phase: 'depositing',
-    ...(direction === 'evm-to-miden' && ONE_CLICK_EVM_CHAIN_IDS[input.originAsset.blockchain] !== undefined
-      ? { evmSubmission: 'not-started' as const }
-      : {}),
     depositAddress: input.quote.quote.depositAddress,
     depositMemo: input.quote.quote.depositMemo,
     updatedAt: Date.now()
   };
 }
 
-function samePersistedDepositReference(left: IOneClickTrackingData, right: IOneClickTrackingData): boolean {
-  const leftChainId = left.originAsset.chainId ?? left.request.originAsset.chainId ?? '';
-  const rightChainId = right.originAsset.chainId ?? right.request.originAsset.chainId ?? '';
-  return (
-    left.originAsset.blockchain === right.originAsset.blockchain &&
-    leftChainId === rightChainId &&
-    left.depositAddress?.trim().toLowerCase() === right.depositAddress?.trim().toLowerCase() &&
-    (left.depositMemo ?? '') === (right.depositMemo ?? '')
-  );
-}
-
-function blocksEvmDepositRetry(tracking: IOneClickTrackingData): boolean {
-  if (tracking.originTransactionHash || tracking.evmSubmission === 'known') return true;
-  if (tracking.evmSubmission === 'not-started') return false;
-  return true;
-}
-
-export class OneClickEvmDepositAlreadyAttemptedError extends Error {
-  constructor() {
-    super('This EVM deposit reference already has a pending or ambiguous funding attempt');
-    this.name = 'OneClickEvmDepositAlreadyAttemptedError';
-  }
-}
-
-export async function claimOneClickEvmDepositAttempt(rowId: string): Promise<void> {
-  await Repo.db.transaction('rw', Repo.transactions, async () => {
-    const row = await Repo.transactions.get(rowId);
-    const tracking = row ? oneClickOf(row) : undefined;
-    if (
-      !row ||
-      !tracking ||
-      tracking.direction !== 'evm-to-miden' ||
-      ONE_CLICK_EVM_CHAIN_IDS[tracking.originAsset.blockchain] === undefined
-    ) {
-      throw new Error('The EVM deposit tracking row could not be claimed');
-    }
-    if (tracking.evmSubmission !== 'not-started' || tracking.originTransactionHash) {
-      throw new OneClickEvmDepositAlreadyAttemptedError();
-    }
-    const existing = await Repo.transactions.where('type').equals('bridged-receive').toArray();
-    const conflict = existing.some(candidate => {
-      if (candidate.id === rowId) return false;
-      const persisted = oneClickOf(candidate);
-      if (!persisted || persisted.direction !== 'evm-to-miden') return false;
-      if (!samePersistedDepositReference(tracking, persisted)) return false;
-      return blocksEvmDepositRetry(persisted);
-    });
-    if (conflict) throw new OneClickEvmDepositAlreadyAttemptedError();
-    await Repo.transactions.update(rowId, {
-      extraInputs: {
-        ...row.extraInputs,
-        phase: 'delivering',
-        oneClick: { ...tracking, evmSubmission: 'attempted', updatedAt: Date.now() }
-      }
-    });
-  });
-}
-
-export async function retireOneClickEvmPreflightFailure(rowId: string, ownsAttemptClaim = false): Promise<void> {
-  await Repo.db.transaction('rw', Repo.transactions, async () => {
-    const transaction = await Repo.transactions.get(rowId);
-    const tracking = transaction ? oneClickOf(transaction) : undefined;
-    if (
-      !transaction ||
-      !tracking ||
-      tracking.direction !== 'evm-to-miden' ||
-      tracking.originTransactionHash ||
-      tracking.evmSubmission === 'known' ||
-      (tracking.evmSubmission === 'attempted' && !ownsAttemptClaim) ||
-      (tracking.evmSubmission !== 'attempted' && tracking.evmSubmission !== 'not-started')
-    ) {
-      return;
-    }
-    await Repo.transactions.update(rowId, {
-      extraInputs: {
-        ...transaction.extraInputs,
-        phase: 'failed',
-        oneClick: { ...tracking, evmSubmission: 'not-started', phase: 'failed', updatedAt: Date.now() }
-      }
-    });
-  });
-}
-
-export async function persistOneClickTrackingRow(input: OneClickTrackingInput): Promise<string> {
+/**
+ * Write the tracking-only row of a NEAR Intents deposit into Miden and return its id. The user pays the deposit
+ * address from a wallet outside this one, so the row has no origin transaction hash. The row follows the deposit
+ * through `GET /v0/status` alone.
+ */
+export async function persistNearIntentsDeposit(input: OneClickTrackingInput): Promise<string> {
   if (input.destinationAsset.blockchain !== 'miden' || input.originAsset.blockchain === 'miden') {
-    throw new Error('A tracking-only 1Click row requires an EVM-to-Miden quote.');
+    throw new Error('A NEAR Intents deposit row requires a quote from another chain into Miden.');
   }
   const tracking = trackingData(input, 'evm-to-miden');
   const row = new BridgedReceiveTransaction(
@@ -232,7 +161,7 @@ export async function persistOneClickTrackingRow(input: OneClickTrackingInput): 
   );
   row.extraInputs.oneClick = tracking;
   row.extraInputs.phase = 'submitting';
-  row.displayMessage = 'Swapping through 1Click';
+  row.displayMessage = 'Receiving through NEAR Intents';
   await Repo.transactions.add(row);
   return row.id;
 }
@@ -260,36 +189,20 @@ export async function initiateOneClickMidenDeposit(
   );
 }
 
-export async function recordOneClickOriginTransactionHash(rowId: string, transactionHash: string): Promise<void> {
-  await Repo.transactions
-    .where('id')
-    .equals(rowId)
-    .modify(transaction => {
-      const tracking = oneClickOf(transaction);
-      if (!tracking) return false;
-      if (tracking.direction !== 'evm-to-miden') return false;
-      transaction.extraInputs = {
-        ...transaction.extraInputs,
-        evmTxHash: transactionHash,
-        oneClick: {
-          ...tracking,
-          originTransactionHash: transactionHash,
-          phase: 'known-deposit-tx',
-          evmSubmission: 'known',
-          updatedAt: Date.now()
-        }
-      };
-      return undefined;
-    });
+function rowPhaseForOneClick(phase: IOneClickPhase): 'received' | 'failed' | 'delivering' {
+  switch (phase) {
+    case 'delivered':
+      return 'received';
+    case 'failed':
+    case 'refunded':
+    case 'expired':
+      return 'failed';
+    default:
+      return 'delivering';
+  }
 }
 
-function rowPhaseForOneClick(phase: IOneClickTrackingData['phase']): 'received' | 'failed' | 'delivering' {
-  if (phase === 'delivered') return 'received';
-  if (phase === 'failed' || phase === 'refunded') return 'failed';
-  return 'delivering';
-}
-
-export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickTrackingData['phase']): Promise<void> {
+export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickPhase): Promise<void> {
   await Repo.transactions
     .where('id')
     .equals(rowId)
@@ -305,8 +218,34 @@ export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClic
     });
 }
 
-const isTerminal = (phase: IOneClickTrackingData['phase']): boolean =>
-  phase === 'delivered' || phase === 'refunded' || phase === 'failed';
+const TERMINAL_PHASES: ReadonlySet<IOneClickPhase> = new Set(['delivered', 'refunded', 'failed', 'expired']);
+
+const isTerminal = (phase: IOneClickPhase): boolean => TERMINAL_PHASES.has(phase);
+
+function fundingDeadlineMs(tracking: IOneClickTrackingData): number | undefined {
+  if (tracking.fundingDeadline !== undefined) {
+    const stored = Date.parse(tracking.fundingDeadline);
+    return Number.isFinite(stored) ? stored : undefined;
+  }
+  try {
+    return Date.parse(effectiveOneClickFundingDeadline(tracking.request.deadline, tracking.quote.quote.deadline));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Tell if a deposit into Miden expired: 1Click still waits for the deposit (`PENDING_DEPOSIT`, or no status read
+ * yet) and the funding deadline plus the grace time is in the past. A row with a known origin transaction, or with
+ * any other provider status, never expires this way.
+ */
+export function isNearIntentsDepositExpired(tracking: IOneClickTrackingData, now = Date.now()): boolean {
+  if (tracking.direction !== 'evm-to-miden' || tracking.originTransactionHash || isTerminal(tracking.phase))
+    return false;
+  if (tracking.providerStatus !== undefined && tracking.providerStatus !== 'PENDING_DEPOSIT') return false;
+  const deadline = fundingDeadlineMs(tracking);
+  return deadline !== undefined && now > deadline + NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS;
+}
 
 async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingData>): Promise<void> {
   await Repo.transactions
@@ -319,7 +258,6 @@ async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingDat
       const next: IOneClickTrackingData = {
         ...current,
         ...patch,
-        evmSubmission: current.evmSubmission ?? patch.evmSubmission,
         originTransactionHash: current.originTransactionHash ?? patch.originTransactionHash,
         providerSubmitted: current.providerSubmitted || patch.providerSubmitted,
         updatedAt: Math.max(current.updatedAt ?? 0, patch.updatedAt ?? 0)
@@ -345,6 +283,8 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
   const depositAddress = tracking.depositAddress;
   if (!depositAddress) return;
   let updated = tracking;
+  // A NEAR Intents deposit row has no origin hash: the user pays from another wallet. So this step runs only for a
+  // Miden send and for a row that an older build recorded with a hash.
   const originTransactionHash =
     tracking.direction === 'miden-to-evm' ? transaction.transactionId : tracking.originTransactionHash;
   if (originTransactionHash && !tracking.providerSubmitted) {
@@ -383,6 +323,16 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
 
   try {
     const status = await fetchOneClickStatus(tracking.config, depositAddress, tracking.depositMemo, tracking.quote);
+    if (isNearIntentsDepositExpired({ ...updated, providerStatus: status.status })) {
+      await updateTracking(transaction.id, {
+        phase: 'expired',
+        providerStatus: status.status,
+        statusResponse: status,
+        error: NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
+        updatedAt: Date.now()
+      });
+      return;
+    }
     let phase = phaseForProviderStatus(status.status);
     const actualOutputAmount =
       tracking.direction === 'evm-to-miden' && status.status === 'SUCCESS'
@@ -467,6 +417,21 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
       updatedAt: updated.updatedAt
     });
   } catch (error) {
+    // 404 means 1Click has no record of the deposit address. The row expires one day after its deadline, so a row
+    // that nobody paid does not stay open, and one incorrect 404 cannot close a paid deposit. Any other failure can
+    // be a network fault, so the row stays open and the next round reads the status again.
+    if (
+      error instanceof OneClickHttpError &&
+      error.status === 404 &&
+      isNearIntentsDepositExpired(updated, Date.now() - NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS)
+    ) {
+      await updateTracking(transaction.id, {
+        phase: 'expired',
+        error: NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
+        updatedAt: Date.now()
+      });
+      return;
+    }
     console.warn('[one-click-tracking] status reconciliation failed', transaction.id, error);
   }
 }
@@ -482,9 +447,7 @@ export async function reconcileOneClickSwaps(): Promise<void> {
   }
 }
 
-export function phaseForProviderStatus(
-  status: IOneClickTrackingData['providerStatus']
-): IOneClickTrackingData['phase'] {
+export function phaseForProviderStatus(status: IOneClickTrackingData['providerStatus']): IOneClickPhase {
   switch (status) {
     case 'KNOWN_DEPOSIT_TX':
       return 'known-deposit-tx';

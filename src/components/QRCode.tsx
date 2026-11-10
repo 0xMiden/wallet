@@ -34,6 +34,12 @@ export interface QRCodeProps {
    * would see nothing new and skip the retry entirely.
    */
   recolourAttempt?: number;
+  /**
+   * How the code carries `address`. `miden` (default) writes the `miden:` URI. `plain` writes the
+   * text as it is, for an address on another chain (a NEAR Intents deposit address) that an
+   * external wallet must read without a Miden prefix.
+   */
+  payload?: 'miden' | 'plain';
 }
 
 /** The QR's colour treatments: one per account-card colour, painted solid in that colour. */
@@ -110,8 +116,8 @@ const isUsableDraw = (data: unknown) =>
  * encoding the address in miden:<address> format via qr-code-styling.
  */
 export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
-  ({ address, size, caption, palette, onPaletteCommitted, recolourAttempt }, ref) => {
-    const qrValue = encodeAddress(address);
+  ({ address, size, caption, palette, onPaletteCommitted, recolourAttempt, payload = 'miden' }, ref) => {
+    const qrValue = payload === 'plain' ? address : encodeAddress(address);
     // Two slots: the painted code stays on screen while a new colour is drawn into the other one.
     const slotA = useRef<HTMLDivElement>(null);
     const slotB = useRef<HTMLDivElement>(null);

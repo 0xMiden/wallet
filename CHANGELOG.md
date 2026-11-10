@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
+
 ## 1.17.11 (2026-11-09)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.

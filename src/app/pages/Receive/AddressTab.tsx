@@ -30,6 +30,8 @@ import { truncateAddress } from 'utils/string';
 interface AddressTabProps {
   address: string;
   onBridgeDeposit: () => void;
+  /** The Receive tabs, drawn as the first line of the body. Absent when Receive has one tab. */
+  tabs?: React.ReactNode;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -118,7 +120,7 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   );
 };
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
+export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit, tabs }) => {
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
@@ -231,6 +233,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <HomeGroupPaneBody testId="receive-page" top="visual">
+      {tabs !== undefined && <div className="pb-4">{tabs}</div>}
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
           captions, the warning) resolve to the heading face here. `contents` adds no box, so the
           pane's layout is untouched. */}
