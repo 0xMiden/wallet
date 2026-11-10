@@ -504,3 +504,12 @@ it('shows a native fixed quote with a flat line and a flat move, fetching no mar
   expect(screen.getByTestId('sparkline')).toBeInTheDocument();
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });
+
+it("shows a basket's net asset value with no move, fetching no market series", () => {
+  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket' });
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={{ BTC: basketQuote }} />);
+  expect(screen.getByTestId('row-price')).toHaveTextContent('$3.00');
+  expect(screen.queryByTestId('row-delta')).toBeNull();
+  expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});

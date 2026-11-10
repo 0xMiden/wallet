@@ -2,8 +2,10 @@ import React from 'react';
 
 import { act, render, renderHook } from '@testing-library/react';
 
-import { fetchTokenPrices } from './feed';
+import { fetchBasketPrices } from './basket-nav';
+import { fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { PriceProvider, useTokenSparkline } from './index';
+import { writeUsdPriceCache } from './usd';
 
 let mockNetwork = 'testnet';
 let mockAssets = new Map([
@@ -14,10 +16,14 @@ let mockSnapshot = 0;
 const mockListeners = new Set<() => void>();
 const mockListListeners = new Set<(network: string) => void>();
 let mockLoadedAssets: Map<string, string> | null = null;
+let mockBaskets: Map<string, string[]> | null = null;
+let mockDecimals: Map<string, number> | null = null;
 let mockResolveList: ((value: Map<string, string> | null) => void) | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
 jest.mock('lib/token-list/runtime', () => ({
   peekTokenPriceAssets: () => mockLoadedAssets,
+  peekTokenBaskets: () => mockBaskets,
+  peekTokenDecimals: () => mockDecimals,
   loadTokenPriceAssets: () =>
     new Promise<Map<string, string> | null>(resolve => {
       mockResolveList = resolve;
@@ -39,9 +45,21 @@ jest.mock('lib/remote-config/runtime', () => ({
   },
   getBridgeConfigSnapshot: () => mockSnapshot
 }));
-jest.mock('lib/miden/swap/tokens', () => ({ getPriceAssets: () => mockAssets }));
+jest.mock('lib/miden/swap/tokens', () => ({
+  getPriceAssets: () => mockAssets,
+  normalizedFaucetId: (id: string) => id
+}));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
-jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn(async () => ({})), fetchKlineData: jest.fn() }));
+jest.mock('./feed', () => ({
+  fetchTokenPrices: jest.fn(async () => ({})),
+  fetchKlineData: jest.fn(),
+  hasNoUsdMarket: jest.fn(() => false)
+}));
+jest.mock('./basket-nav', () => ({
+  ...jest.requireActual('./basket-nav'),
+  fetchBasketPrices: jest.fn(async () => ({}))
+}));
+jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -63,6 +81,11 @@ beforeEach(() => {
     ['bridge', 'ETH']
   ]);
   mockLoadedAssets = null;
+  mockBaskets = null;
+  mockDecimals = null;
+  jest.mocked(hasNoUsdMarket).mockReturnValue(false);
+  jest.mocked(fetchBasketPrices).mockClear();
+  jest.mocked(writeUsdPriceCache).mockClear();
   mockWallet.locked = false;
   mockWallet.ready = true;
   setTokenPrices.mockClear();
@@ -117,7 +140,7 @@ describe('PriceProvider', () => {
         ['verified', 'ARB']
       ])
     ]);
-    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {} });
+    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {}, basketPrices: {} });
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
   });
 
@@ -217,6 +240,57 @@ describe('PriceProvider', () => {
     render(<PriceProvider />);
     expect(setTokenPrices).toHaveBeenCalledTimes(1);
     expect(setTokenPrices).toHaveBeenCalledWith({});
+  });
+
+  it('prices a basket from its vault only once the feed has ruled out its market', async () => {
+    mockBaskets = new Map([['verified', ['bridge']]]);
+    mockDecimals = new Map([['bridge', 8]]);
+    render(<PriceProvider />);
+    await mockUseRetryableSWR.mock.lastCall?.[1]();
+    expect(fetchBasketPrices).not.toHaveBeenCalled();
+
+    jest.mocked(hasNoUsdMarket).mockImplementation(symbol => symbol === 'ARB');
+    const exchange = { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } };
+    jest.mocked(fetchTokenPrices).mockResolvedValueOnce(exchange);
+    const basketPrices = {
+      ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, observedAt: 1, source: 'basket' as const }
+    };
+    jest.mocked(fetchBasketPrices).mockResolvedValueOnce(basketPrices);
+    await expect(mockUseRetryableSWR.mock.lastCall?.[1]()).resolves.toMatchObject({ basketPrices });
+    expect(fetchBasketPrices).toHaveBeenCalledWith(
+      [
+        {
+          faucetId: 'verified',
+          priceSymbol: 'ARB',
+          constituents: [{ faucetId: 'bridge', priceSymbol: 'ETH', decimals: 8 }]
+        }
+      ],
+      exchange
+    );
+  });
+
+  it('shows basket quotes under exchange quotes and never writes them to the spending-limit cache', () => {
+    const exchange = { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } };
+    mockUseRetryableSWR.mockReturnValue({
+      data: {
+        network: 'testnet',
+        assetKey: JSON.stringify([
+          ['bridge', 'ETH'],
+          ['verified', 'ARB']
+        ]),
+        prices: exchange,
+        basketPrices: {
+          ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket' },
+          ETH: { price: 1, change24h: 0, percentageChange24h: 0, source: 'basket' }
+        }
+      }
+    });
+    render(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenLastCalledWith({
+      ...exchange,
+      ARB: { price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket' }
+    });
+    expect(writeUsdPriceCache).toHaveBeenLastCalledWith(exchange);
   });
 
   it('renders nothing (returns null)', () => {

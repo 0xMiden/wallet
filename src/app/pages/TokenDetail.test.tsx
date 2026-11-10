@@ -508,6 +508,17 @@ describe('TokenDetail', () => {
     expect(mockFetchKlineData).not.toHaveBeenCalled();
   });
 
+  it('values a basket token at its net asset value without a move or a market chart', () => {
+    renderPage({
+      tokenPrices: { ETH: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), source: 'basket' } }
+    });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(mockFetchKlineData).not.toHaveBeenCalled();
+  });
+
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
     // Prices have loaded, and ETH is not among them.
     renderPage({ tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } } });
