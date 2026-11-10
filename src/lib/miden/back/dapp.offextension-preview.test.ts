@@ -6,12 +6,12 @@
  * `escapeHtml`ed rows), so whatever `dapp.ts` puts in that array IS the sheet —
  * there is no second decoder downstream, unlike the extension's `ConfirmPage`.
  *
- * Two blind-approval regressions are covered here:
+ * Two approval sheets are covered here:
  *
- * 1. SIGN. `signBytes(bytes, 'signingInputs')` is a full transaction
- *    authorization (`Vault.signData` → `secretKey.signData(SigningInputs…)`).
- *    The sheet used to carry only `Kind` and `Account`, so a page could have the
- *    user sign away the whole balance with nothing on screen about assets.
+ * 1. SIGN. The wallet signs only `Arbitrary` signing inputs whose preimage has no
+ *    protocol message layout (`lib/miden/dapp-sign-inputs`), and refuses every other
+ *    `signBytes` request before the sheet opens. The sheet shows an accepted request
+ *    as a message of field elements.
  *
  * 2. CUSTOM TRANSACTION. The sheet was four fixed strings plus `From` and a
  *    dApp-declared `Recipient`, none of it derived from `transactionRequest` —
@@ -22,7 +22,10 @@
  * from the same decoders instead.
  */
 
+import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
+
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 // ── Mocks ──────────────────────────────────────────────────────────
@@ -138,6 +141,12 @@ jest.mock('lib/miden/back/vault', () => ({
  */
 jest.unmock('lib/i18n/numbers');
 
+// The sign sheet's message row is translated; the key and its count are what the row must carry.
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string, substitutions?: { count?: number }) => `${key}:${substitutions?.count}`
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 import { requestSign, requestTransaction } from './dapp';
 
@@ -183,9 +192,6 @@ const sheetRows = (): string[] => {
   return (mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages?: string[] }).transactionMessages ?? [];
 };
 
-const OPAQUE_WARNING =
-  'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
@@ -194,7 +200,7 @@ beforeEach(() => {
   mockRequestConfirmation.mockResolvedValue({ confirmed: false });
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'USDC' });
   sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
-  // Silence the decode-failure breadcrumbs the "cannot decode" cases emit.
+  // Silence the decode-failure breadcrumbs that the refusal and preview cases emit.
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
@@ -203,115 +209,64 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-// ── 1. `signBytes(…, 'signingInputs')` is not blind-signed ─────────
+// ── 1. `signBytes`: only arbitrary signing inputs reach the sheet ──
 
-describe('dApp sign approval names the assets the signature authorizes', () => {
-  const signRequest = (kind: string, payload = 'c2lnbmluZy1pbnB1dHM=') =>
-    ({
-      type: MidenDAppMessageType.SignRequest,
-      sourceAccountId: 'miden-account-1',
-      sourcePublicKey: 'miden-account-1',
-      payload,
-      kind
-    }) as unknown as Parameters<typeof requestSign>[1];
-
-  /** A `SigningInputs` whose variant is a TransactionSummary moving `assets` out. */
-  const summarySigningInputs = (outgoing: ReturnType<typeof fungibleAsset>[], unlisted = 0) => ({
-    variantType: 0,
-    transactionSummaryPayload: () => ({
-      accountDelta: () => ({
-        id: () => ({ __faucet: 'miden-account-1' }),
-        vault: () => ({
-          removedFungibleAssets: () => outgoing,
-          addedFungibleAssets: () => [],
-          numAssets: () => outgoing.length + unlisted
-        }),
-        storage: () => ({ isEmpty: () => true })
-      }),
-      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
-      // `notes()` as well: summary output notes now go through the fee split, because
-      // `fee::pay_fee` runs in auth BEFORE the summary is built.
-      outputNotes: () => ({
-        numNotes: () => 1,
-        notes: () => [
-          {
-            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
-            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
-          }
-        ]
-      })
-    })
+describe('dApp sign approval on mobile and desktop', () => {
+  const signRequest = (kind: SignKind, payload = 'c2lnbmluZy1pbnB1dHM='): Parameters<typeof requestSign>[1] => ({
+    type: MidenDAppMessageType.SignRequest,
+    sourceAccountId: 'miden-account-1',
+    sourcePublicKey: 'miden-account-1',
+    payload,
+    kind
   });
 
-  it('renders the summary asset movement instead of only Kind + Account', async () => {
-    sdk.SigningInputs = { deserialize: () => summarySigningInputs([fungibleAsset('faucet-usdc', 1500000n)]) };
+  /** `SigningInputs` of `variantType` whose preimage is `values`. */
+  const signingInputs = (variantType: number, values: readonly bigint[] = []) => ({
+    variantType,
+    toElements: () => ({
+      length: () => values.length,
+      get: (index: number) => ({ asInt: () => values[index], free: () => undefined }),
+      free: () => undefined
+    }),
+    free: () => undefined
+  });
+
+  it('shows an arbitrary message with its element count', async () => {
+    sdk.SigningInputs = { deserialize: () => signingInputs(1, [4n, 5n, 6n, 7n]) };
 
     await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
 
-    const rows = sheetRows();
-    // The whole point: an amount and a token, on screen, before Approve.
-    expect(rows).toContain('Sending, -1.5 USDC');
-    expect(rows).toContain('Notes, 0 consumed / 1 created');
-    expect(rows).not.toContain(OPAQUE_WARNING);
-    // The pre-existing rows stay.
-    expect(rows).toContain('Kind, signingInputs');
+    expect(sheetRows()).toEqual(['Kind, signingInputs', 'Account, miden-account-1', 'signMessageWarning:4']);
   });
 
-  it('scales the amount by the faucet decimals, not a fixed 6', async () => {
-    mockGetTokenMetadata.mockResolvedValue({ decimals: 9, symbol: 'BTC' });
-    sdk.SigningInputs = { deserialize: () => summarySigningInputs([fungibleAsset('faucet-btc', 1500000000n)]) };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    expect(sheetRows()).toContain('Sending, -1.5 BTC');
-  });
-
-  it('says so when the summary moves no fungible assets, rather than showing an empty sheet', async () => {
-    sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expect(rows).toContain('Assets, no fungible asset moves');
-    expect(rows).toContain('Notes, 0 consumed / 1 created');
-  });
-
-  it('warns when the summary changes the vault by an asset it cannot list, instead of saying none moves', async () => {
-    sdk.SigningInputs = { deserialize: () => summarySigningInputs([], 1) };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expect(rows).toEqual(expect.arrayContaining([expect.stringMatching(/^Warning, .*cannot list.*NFT/)]));
-    expect(rows).not.toContain('Assets, no fungible asset moves');
-  });
-
-  it('warns explicitly for an Arbitrary payload, which carries no readable summary', async () => {
-    sdk.SigningInputs = { deserialize: () => ({ variantType: 1 }) };
-
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expect(rows).toContain(OPAQUE_WARNING);
-    expect(rows.some(row => row.startsWith('Sending, '))).toBe(false);
-  });
-
-  it('warns explicitly when the payload does not decode at all', async () => {
-    sdk.SigningInputs = {
-      deserialize: () => {
+  it.each<[string, SignKind, () => unknown]>([
+    ['a raw word', 'word', () => signingInputs(1, [1n])],
+    ['transaction summary signing inputs', 'signingInputs', () => signingInputs(0)],
+    ['blind signing inputs', 'signingInputs', () => signingInputs(2)],
+    [
+      'an arbitrary preimage with the transaction summary layout',
+      'signingInputs',
+      () => signingInputs(1, [1n, ...Array<bigint>(23).fill(9n)])
+    ],
+    [
+      'an arbitrary 24-element preimage of another version',
+      'signingInputs',
+      () => signingInputs(1, [2n, ...Array<bigint>(23).fill(9n)])
+    ],
+    [
+      'bytes that do not decode',
+      'signingInputs',
+      () => {
         throw new Error('not signing inputs');
       }
-    };
+    ]
+  ])('refuses %s with the sign rule before the sheet opens', async (_case, kind, deserialize) => {
+    sdk.SigningInputs = { deserialize };
 
-    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
-
-    expect(sheetRows()).toContain(OPAQUE_WARNING);
-  });
-
-  it('warns explicitly for a raw `word` digest', async () => {
-    await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DECLINED);
-
-    expect(sheetRows()).toContain(OPAQUE_WARNING);
+    const refusal = requestSign(DAPP_ORIGIN, signRequest(kind), 'session-1');
+    await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 });
 

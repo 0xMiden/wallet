@@ -236,7 +236,7 @@ describe('requestConfirm autodecline timeout', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Advance past the 120s autodecline timer
@@ -252,7 +252,7 @@ describe('requestConfirm popup size', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     p.catch(() => {});
     await jest.advanceTimersByTimeAsync(0);
@@ -282,7 +282,7 @@ describe('requestConfirm intercom handler — unknown port', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
 
@@ -586,7 +586,7 @@ describe('requestConfirm — window already fullscreen', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Windows.update should NOT have been called when state is fullscreen
@@ -605,7 +605,7 @@ describe('requestConfirm — closeWindow error handling', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Trigger autodecline which calls close → closeWindow
@@ -871,7 +871,7 @@ describe('requestConfirm stops its auto-decline on the first payload request and
         sourcePublicKey: 'a1',
         sourceAccountId: 'a1',
         payload: 'aA==',
-        kind: 'word'
+        kind: 'signingInputs'
       } as never)
     );
     await jest.advanceTimersByTimeAsync(0);
@@ -978,7 +978,7 @@ describe('the state a request no confirmation handler answered is refused with (
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'word'
+      kind: 'signingInputs'
     } as never);
     answer.catch(() => undefined);
     await jest.advanceTimersByTimeAsync(0);
@@ -1119,7 +1119,7 @@ describe('the state a request no confirmation handler answered is refused with (
         sourcePublicKey: 'a1',
         sourceAccountId: 'a1',
         payload: 'aA==',
-        kind: 'word'
+        kind: 'signingInputs'
       } as never);
       answer.catch(() => undefined);
       await jest.advanceTimersByTimeAsync(0);

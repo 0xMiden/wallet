@@ -4568,14 +4568,6 @@
     "message": "Download full summary (bytes)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "Sign the Arbitrary payload?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "Sign the Blind commitment?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "Connect to website",
     "englishSource": "Connect to website"
@@ -6302,13 +6294,26 @@
     "message": "Raw value",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "Opaque signature request",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "Message signature request",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "Signature request refused",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

@@ -4569,14 +4569,6 @@
     "message": "Tam özeti indir (bayt)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "\"Arbitrary\" yükünü imzalamak mı?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "“Blind” taahhütnamesini imzalamak mı?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "Web sitesine bağlan",
     "englishSource": "Connect to website"
@@ -6303,13 +6295,26 @@
     "message": "Ham değer",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "Gizli imza talebi",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "Mesaj imza talebi",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "Bu site, sizden $count$ alan öğesinden oluşan bir mesajı imzalamanızı istedi. Cüzdan, mesajın ne anlama geldiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "İmza talebi reddedildi",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "Bu cüzdan, yalnızca ön görüntüsünü taşıyan rastgele imza girdilerini imzalar. Bu isteği imzalamaz.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

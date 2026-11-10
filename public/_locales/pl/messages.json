@@ -4569,14 +4569,6 @@
     "message": "Pobierz pełne streszczenie (bajtów)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "Czy podpisać dowolny ładunek?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "Czy podpisać zobowiązanie „Blind”?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "Połącz się ze stroną internetową",
     "englishSource": "Connect to website"
@@ -6304,13 +6296,26 @@
     "message": "Wartość surowa",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "Prośba o niejawny podpis",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "Żądanie podpisu wiadomości",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "Ta strona poprosiła Cię o podpisanie surowej wartości. Portfel nie może wyświetlić, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "Ta strona poprosiła Cię o podpisanie wiadomości zawierającej $count$ elementów pola. Portfel nie jest w stanie wyświetlić znaczenia tej wiadomości. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "Odmowa prośby o podpis",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "Ten portfel podpisuje wyłącznie dowolne dane wejściowe do podpisania, które zawierają swoje preobraz. Nie podpisuje on tego żądania.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

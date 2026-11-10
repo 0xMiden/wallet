@@ -4572,14 +4572,6 @@
     "message": "Скачать полное резюме (байт)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "Подписать произвольный полезный груз?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "Подписать обязательство «Blind»?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "Перейти на сайт",
     "englishSource": "Connect to website"
@@ -6306,13 +6298,26 @@
     "message": "Исходное значение",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "Запрос на подписание с сокрытием информации",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "Запрос на подпись сообщения",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "Этот сайт попросил вас подписать исходное значение. Кошелек не может отобразить, что именно он авторизует. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "Этот сайт попросил вас подписать сообщение, состоящее из $count$ элементов поля. Кошелек не может показать, что означает это сообщение. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "Запрос на подпись отклонен",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "Этот кошелек подписывает только произвольные входные данные для подписи, которые содержат свои преображения. Он не подписывает данный запрос.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

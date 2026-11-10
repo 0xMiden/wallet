@@ -4570,14 +4570,6 @@
     "message": "Завантажити повний виклад (байт)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "Підписати довільний корисний вантаж?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "Підписати зобов’язання «Blind»?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "Перейти на веб-сайт",
     "englishSource": "Connect to website"
@@ -6304,13 +6296,26 @@
     "message": "Необроблене значення",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "Запит на підпис із прихованим вмістом",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "Запит на підпис повідомлення",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що саме він авторизує. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "Цей сайт попросив вас підписати повідомлення, що містить $count$ елементів поля. Гаманець не може показати, що означає це повідомлення. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "Запит на підпис відхилено",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "Цей гаманець підписує лише довільні вхідні дані для підписання, які містять їхні первісні зображення. Він не підписує цей запит.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",
