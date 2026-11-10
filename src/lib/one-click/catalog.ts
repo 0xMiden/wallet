@@ -64,6 +64,38 @@ function listedTokens(raw: unknown): Map<string, ListedToken> {
   return byId;
 }
 
+// A 1Click asset id of the form `1cs_v1:<chain>:<standard>:<address>`.
+const ONE_CLICK_V1_ID = /^1cs_v1:([a-z][a-z0-9-]{0,31}):([a-z0-9-]{1,32}):([^:]{1,200})$/;
+
+/**
+ * Find the live entry of a configured asset id. An entry with the same id comes first. The live list can give an
+ * older id for a token that the config names with its `1cs_v1` id. That id holds the chain and the contract address,
+ * so the one entry with the same chain and contract address is the same token. The native coin of a chain
+ * (`native:coin`) is the one entry of that chain with no contract address. When the result is not exactly one entry,
+ * there is no match.
+ */
+function liveEntry(
+  assetId: string,
+  sameAddress: (left: string, right: string) => boolean,
+  listed: ReadonlyMap<string, ListedToken>
+): ListedToken | undefined {
+  const exact = listed.get(assetId);
+  if (exact) return exact;
+  const parsed = ONE_CLICK_V1_ID.exec(assetId);
+  if (!parsed) return undefined;
+  const [, blockchain, standard, address] = parsed;
+  const native = standard === 'native' && address === 'coin';
+  const matches = [...listed.values()].filter(entry => {
+    if (entry.blockchain !== blockchain) return false;
+    if (native) return entry.contractAddress === undefined;
+    return entry.contractAddress !== undefined && sameAddress(address, entry.contractAddress);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+// A Miden faucet id is hex, the same in upper and lower case.
+const sameMidenFaucet = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+
 // Keep a configured origin token only when the live list has it on the same chain, with the same decimals and, when
 // the config gives one, the same contract address.
 function confirmedOriginAsset(
@@ -72,7 +104,11 @@ function confirmedOriginAsset(
   token: NearIntentsTokenConfig,
   listed: ReadonlyMap<string, ListedToken>
 ): OneClickAsset | undefined {
-  const live = listed.get(token.assetId);
+  const live = liveEntry(
+    token.assetId,
+    (left, right) => sameNearIntentsContractAddress(addressKind, left, right),
+    listed
+  );
   if (!live || live.blockchain !== chainId || live.decimals !== token.decimals) return undefined;
   if (token.contractAddress !== undefined) {
     if (
@@ -100,7 +136,7 @@ async function confirmedMidenAsset(
   listed: ReadonlyMap<string, ListedToken>,
   resolveMetadata: OneClickOnchainMetadataResolver
 ): Promise<OneClickAsset | undefined> {
-  const live = listed.get(configured.assetId);
+  const live = liveEntry(configured.assetId, sameMidenFaucet, listed);
   if (!live || live.blockchain !== 'miden' || live.decimals !== configured.decimals) return undefined;
   const candidate: OneClickAsset = {
     assetId: configured.assetId,

@@ -248,3 +248,158 @@ describe('fetchNearIntentsCatalog', () => {
     );
   });
 });
+
+describe('fetchNearIntentsCatalog with 1cs_v1 asset ids', () => {
+  const usdcId = '1cs_v1:eth:erc20:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+  const v1Config: NearIntentsConfig = {
+    serviceUrl: 'https://proxy.example',
+    chains: [
+      {
+        id: 'eth',
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: [
+          {
+            symbol: 'USDC',
+            assetId: usdcId,
+            decimals: 6,
+            contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            miden: ['usdc']
+          },
+          { symbol: 'ETH', assetId: '1cs_v1:eth:native:coin', decimals: 18, miden: ['eth'] }
+        ]
+      },
+      {
+        id: 'sol',
+        name: 'Solana',
+        addressKind: 'solana',
+        tokens: [
+          {
+            symbol: 'USDC',
+            assetId: `1cs_v1:sol:spl:${solanaMint}`,
+            decimals: 6,
+            contractAddress: solanaMint,
+            miden: ['usdc']
+          }
+        ]
+      },
+      {
+        id: 'btc',
+        name: 'Bitcoin',
+        addressKind: 'bitcoin',
+        tokens: [{ symbol: 'BTC', assetId: '1cs_v1:btc:native:coin', decimals: 8, miden: ['eth'] }]
+      }
+    ],
+    midenAssets: [
+      { id: 'usdc', assetId: `1cs_v1:miden:ft:${usdcFaucet}`, faucetId: usdcFaucet, decimals: 6 },
+      { id: 'eth', assetId: `1cs_v1:miden:ft:${ethFaucet}`, faucetId: ethFaucet, decimals: 18 }
+    ]
+  };
+  // The live list gives the older ids, except for one Bitcoin entry.
+  const v1Live = [
+    {
+      assetId: 'nep141:eth-usdc.omft.near',
+      blockchain: 'eth',
+      symbol: 'USDC',
+      decimals: 6,
+      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
+    },
+    { assetId: 'nep141:eth.omft.near', blockchain: 'eth', symbol: 'ETH', decimals: 18, coingeckoId: 'ethereum' },
+    {
+      assetId: 'nep141:sol-usdc.omft.near',
+      blockchain: 'sol',
+      symbol: 'USDC',
+      decimals: 6,
+      contractAddress: solanaMint
+    },
+    { assetId: 'nep141:btc.omft.near', blockchain: 'btc', symbol: 'BTC', decimals: 8 },
+    { assetId: '1cs_v1:btc:native:coin', blockchain: 'btc', symbol: 'BTC(OMNI)', decimals: 8 },
+    {
+      assetId: 'nep141:miden-usdc.omft.near',
+      blockchain: 'miden',
+      symbol: 'USDC',
+      decimals: 6,
+      contractAddress: usdcFaucet
+    },
+    {
+      assetId: 'nep141:miden-eth.omft.near',
+      blockchain: 'miden',
+      symbol: 'ETH',
+      decimals: 18,
+      contractAddress: ethFaucet
+    }
+  ];
+
+  it('confirms each token by the chain and address of its id, and keeps the configured id', async () => {
+    const catalog = await fetchNearIntentsCatalog(v1Config, resolver(), fetcherFor(v1Live));
+
+    expect(tokenIds(catalog)).toEqual([
+      ['eth', [usdcId, '1cs_v1:eth:native:coin']],
+      ['sol', [`1cs_v1:sol:spl:${solanaMint}`]],
+      ['btc', ['1cs_v1:btc:native:coin']]
+    ]);
+    expect(catalog.chains[0]?.tokens[0]?.outputs.map(output => output.assetId)).toEqual([
+      `1cs_v1:miden:ft:${usdcFaucet}`
+    ]);
+    expect(catalog.chains[0]?.tokens[1]?.asset.coingeckoId).toBe('ethereum');
+  });
+
+  it('drops a native coin when its chain has two entries with no contract address and none has its id', async () => {
+    const live = v1Live.filter(token => token.assetId !== '1cs_v1:btc:native:coin');
+    const extra = { assetId: 'nep141:btc-2.omft.near', blockchain: 'btc', symbol: 'BTC', decimals: 8 };
+    const catalog = await fetchNearIntentsCatalog(v1Config, resolver(), fetcherFor([...live, extra]));
+
+    expect(catalog.chains.map(chain => chain.id)).toEqual(['eth', 'sol']);
+  });
+
+  it('drops a token when two entries of its chain have its contract address', async () => {
+    const twin = { ...v1Live[2], assetId: 'nep141:sol-usdc-2.omft.near' };
+    const catalog = await fetchNearIntentsCatalog(v1Config, resolver(), fetcherFor([...v1Live, twin]));
+
+    expect(catalog.chains.map(chain => chain.id)).toEqual(['eth', 'btc']);
+  });
+
+  it('compares a Solana address in its id exactly', async () => {
+    const live = v1Live.map(token =>
+      token.assetId === 'nep141:sol-usdc.omft.near' ? { ...token, contractAddress: solanaMint.toLowerCase() } : token
+    );
+    const catalog = await fetchNearIntentsCatalog(v1Config, resolver(), fetcherFor(live));
+
+    expect(catalog.chains.map(chain => chain.id)).toEqual(['eth', 'btc']);
+  });
+
+  it('drops a token whose id names another chain than the chain that lists it', async () => {
+    const baseConfig: NearIntentsConfig = {
+      ...v1Config,
+      chains: [
+        {
+          id: 'eth',
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: [
+            {
+              symbol: 'USDC',
+              assetId: '1cs_v1:base:erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              decimals: 6,
+              miden: ['usdc']
+            }
+          ]
+        }
+      ]
+    };
+    const live = [...v1Live, { ...v1Live[0], assetId: 'nep141:base-usdc.omft.near', blockchain: 'base' }];
+    const catalog = await fetchNearIntentsCatalog(baseConfig, resolver(), fetcherFor(live));
+
+    expect(catalog.chains).toEqual([]);
+  });
+
+  it('drops a Miden output when no Miden entry has its faucet', async () => {
+    const live = v1Live.filter(token => token.assetId !== 'nep141:miden-eth.omft.near');
+    const catalog = await fetchNearIntentsCatalog(v1Config, resolver(), fetcherFor(live));
+
+    expect(tokenIds(catalog)).toEqual([
+      ['eth', [usdcId]],
+      ['sol', [`1cs_v1:sol:spl:${solanaMint}`]]
+    ]);
+  });
+});
