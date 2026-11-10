@@ -4,7 +4,6 @@
 
 - [CHANGE][mobile] Mobile dApp browser: the wallet bridge accepts messages from the dApp's main frame only, and each message carries the origin of its sender, which must be the session origin.
 
-## 1.17.11 (TBD)
 ## 1.17.11 (2026-11-09)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
