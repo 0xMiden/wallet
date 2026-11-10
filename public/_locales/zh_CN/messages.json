@@ -5483,6 +5483,10 @@
     "message": "代币信息",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "成分",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "描述",
     "englishSource": "Description"

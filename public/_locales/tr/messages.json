@@ -5484,6 +5484,10 @@
     "message": "Token bilgileri",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Bileşim",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Açıklama",
     "englishSource": "Description"

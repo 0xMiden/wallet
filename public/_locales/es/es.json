@@ -1218,6 +1218,7 @@
   "invalidAmount": "Importe no válido",
   "tokenPrice": "Precio del token",
   "tokenInfo": "Información sobre el token",
+  "basketComposition": "Composición",
   "tokenDescription": "Descripción",
   "fungible": "Fungible",
   "network": "Red",

@@ -1222,6 +1222,7 @@
   "invalidAmount": "Неправильна сума",
   "tokenPrice": "Ціна токена",
   "tokenInfo": "Інформація про токен",
+  "basketComposition": "Склад",
   "tokenDescription": "Опис",
   "fungible": "Замінний",
   "network": "Мережа",

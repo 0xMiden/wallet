@@ -10,7 +10,8 @@ import {
   loadTokenPriceAssets,
   peekTokenBaskets,
   peekTokenDecimals,
-  peekTokenPriceAssets
+  peekTokenPriceAssets,
+  peekTokenSymbols
 } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
@@ -21,7 +22,7 @@ import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
 export { fetchKlineData } from './feed';
-export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+export type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
  * useTokenSparkline — close prices over the given timeframe for a single symbol.
@@ -68,7 +69,13 @@ export function PriceProvider() {
       const prices = await fetchTokenPrices(symbols);
       // After the feed, which is what rules a market out and prices the constituents: a basket's value never stands
       // in for an exchange's price.
-      const sources = basketPriceSources(peekTokenBaskets(network), assets, peekTokenDecimals(network), hasNoUsdMarket);
+      const sources = basketPriceSources(
+        peekTokenBaskets(network),
+        assets,
+        peekTokenDecimals(network),
+        hasNoUsdMarket,
+        peekTokenSymbols(network)
+      );
       const basketPrices = sources.length > 0 ? await fetchBasketPrices(sources, prices) : {};
       return { network, assetKey, prices, basketPrices };
     },

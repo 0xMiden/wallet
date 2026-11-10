@@ -169,3 +169,11 @@ it('drops a basket that has no price asset itself', () => {
     parseTokenList(list([basket(['mtst1bbb'], { symbol: 'bsk' }), coin('mtst1bbb', 'BBB')]), 'testnet')?.baskets.size
   ).toBe(0);
 });
+
+it("keeps each token's symbol as the list writes it", () => {
+  const parsed = parseTokenList(
+    list([token({ symbol: 'wBTC.e' }), token({ faucetId: 'mtst1bbb', symbol: 'bad symbol' })]),
+    'testnet'
+  );
+  expect(parsed?.symbols).toEqual(new Map([['mtst1aaa', 'wBTC.e']]));
+});

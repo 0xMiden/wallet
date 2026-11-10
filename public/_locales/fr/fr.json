@@ -1221,6 +1221,7 @@
   "invalidAmount": "Montant non valide",
   "tokenPrice": "Prix du jeton",
   "tokenInfo": "Informations sur le jeton",
+  "basketComposition": "Composition",
   "tokenDescription": "Description",
   "fungible": "Fongible",
   "network": "Réseau",

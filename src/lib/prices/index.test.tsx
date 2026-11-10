@@ -24,6 +24,7 @@ jest.mock('lib/token-list/runtime', () => ({
   peekTokenPriceAssets: () => mockLoadedAssets,
   peekTokenBaskets: () => mockBaskets,
   peekTokenDecimals: () => mockDecimals,
+  peekTokenSymbols: () => new Map([['bridge', 'WETH']]),
   loadTokenPriceAssets: () =>
     new Promise<Map<string, string> | null>(resolve => {
       mockResolveList = resolve;
@@ -262,7 +263,7 @@ describe('PriceProvider', () => {
         {
           faucetId: 'verified',
           priceSymbol: 'ARB',
-          constituents: [{ faucetId: 'bridge', priceSymbol: 'ETH', decimals: 8 }]
+          constituents: [{ faucetId: 'bridge', symbol: 'WETH', priceSymbol: 'ETH', decimals: 8 }]
         }
       ],
       exchange

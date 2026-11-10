@@ -5,6 +5,7 @@
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 - [CHANGE][all] Value a verified basket token that no exchange lists at its net asset value, read from chain: when the token list gives it `basket.constituents`, the wallet reads one account proof for its supply and its balance of each constituent, without loading unrelated storage maps, and prices each constituent at its market price. No issuer endpoint is involved. Display only: no 24h move or chart, and spending limits are unchanged.
+- [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. Its price section shows the net asset value with a 24h move and a chart derived from the constituents' market prices, weighted by that composition.
 
 ## 1.17.11 (2026-11-09)
 

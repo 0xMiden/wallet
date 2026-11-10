@@ -1224,6 +1224,7 @@
   "invalidAmount": "金額無效",
   "tokenPrice": "代幣價格",
   "tokenInfo": "代幣資訊",
+  "basketComposition": "成分",
   "tokenDescription": "說明",
   "fungible": "可互換的",
   "network": "網路",

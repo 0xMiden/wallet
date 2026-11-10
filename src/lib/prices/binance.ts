@@ -16,6 +16,19 @@ export interface TokenPriceInfo {
    * market move or history behind it.
    */
   source?: 'basket';
+  /** What one unit of a basket token holds, read from its vault (`./basket-nav`). */
+  composition?: BasketComponent[];
+}
+
+/** One verified token in a basket and its share of the basket's value, as a fraction (the shares sum to 1). */
+export interface BasketComponent {
+  /** As the token list spells it. */
+  faucetId: string;
+  /** The verified list's symbol for the token. */
+  symbol: string;
+  /** The asset the feed quotes the token under. */
+  priceSymbol: string;
+  weight: number;
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;

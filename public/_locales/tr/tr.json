@@ -1223,6 +1223,7 @@
   "invalidAmount": "Geçersiz tutar",
   "tokenPrice": "Token fiyatı",
   "tokenInfo": "Token bilgileri",
+  "basketComposition": "Bileşim",
   "tokenDescription": "Açıklama",
   "fungible": "Değiştirilebilir",
   "network": "Ağ",

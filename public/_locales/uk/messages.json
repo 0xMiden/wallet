@@ -5485,6 +5485,10 @@
     "message": "Інформація про токен",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Склад",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Опис",
     "englishSource": "Description"

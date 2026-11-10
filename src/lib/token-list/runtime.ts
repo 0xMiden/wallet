@@ -26,6 +26,7 @@ interface LoadedList {
   faucetsBySymbol: Map<string, string> | null;
   baskets: Map<string, string[]> | null;
   decimals: Map<string, number> | null;
+  symbols: Map<string, string> | null;
 }
 
 const defaults = (): Dependencies => ({
@@ -89,7 +90,8 @@ async function readList(network: string): Promise<LoadedList> {
     priceAssets: bundled?.priceAssets ?? null,
     faucetsBySymbol: bundled?.faucetsBySymbol ?? null,
     baskets: bundled?.baskets ?? null,
-    decimals: bundled?.decimals ?? null
+    decimals: bundled?.decimals ?? null,
+    symbols: bundled?.symbols ?? null
   };
 }
 
@@ -200,4 +202,13 @@ export function peekTokenBaskets(network: string): Map<string, string[]> | null 
 export function peekTokenDecimals(network: string): Map<string, number> | null | undefined {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return settled.get(network)?.decimals;
+}
+
+/**
+ * Each listed token's symbol (`TokenList.symbols`), by faucet id as the list spells it, or undefined before the first
+ * load completes. Loaded with the price assets.
+ */
+export function peekTokenSymbols(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.symbols;
 }
