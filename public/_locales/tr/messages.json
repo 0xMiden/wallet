@@ -8271,6 +8271,10 @@
     "message": "Yakın Anlamlar",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "Gönderirsiniz",
     "englishSource": "You send"
@@ -8366,8 +8370,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "Herhangi bir cüzdandan veya borsadan gönderebilirsiniz.",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "Kendi cüzdanınızdan gönderin.",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "Para yatırma adresi yok",
@@ -8510,8 +8514,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Miden'e varış",
-    "englishSource": "Arriving on Miden"
+    "message": "Miden'de yayınlanmıştır",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Para yatırma işleminiz onaylandı. Miden'e transfer devam ediyor. Bu sayfayı kapatabilirsiniz.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "$symbol$'niz Miden'de. note, bir sonraki senkronizasyondan sonra cüzdanınıza ulaşır. Activity bölümünden alabilirsiniz.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "$symbol$'ınız cüzdanınızda bulunmaktadır.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "Alındı",
@@ -8532,6 +8558,14 @@
   "nearIntentsOpenDeposit": {
     "message": "Para yatırma adresini göster",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Hedef işlem",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Bu tutar için yeterli likidite yok. Farklı bir tutar deneyin.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Mevcut: $amount$ $symbol$",

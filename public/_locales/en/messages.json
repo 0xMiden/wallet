@@ -8270,6 +8270,10 @@
     "message": "Near Intents",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "You send",
     "englishSource": "You send"
@@ -8365,8 +8369,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "Send from any wallet or exchange.",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "Send from your own wallet.",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "No deposit address",
@@ -8509,8 +8513,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Arriving on Miden",
-    "englishSource": "Arriving on Miden"
+    "message": "Delivered on Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Your $symbol$ is in your wallet.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "Received",
@@ -8531,6 +8557,14 @@
   "nearIntentsOpenDeposit": {
     "message": "Show deposit address",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Destination transaction",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Not enough liquidity for this amount. Try a different amount.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Available: $amount$ $symbol$",

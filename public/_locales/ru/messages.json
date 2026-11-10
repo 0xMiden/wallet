@@ -8274,6 +8274,10 @@
     "message": "Почти намерения",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "Вы отправляете",
     "englishSource": "You send"
@@ -8369,8 +8373,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "Отправляйте с любого кошелька или биржи.",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "Отправляйте средства со своего собственного кошелька.",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "Отсутствие адреса для депозита",
@@ -8513,8 +8517,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Прибытие на Миден",
-    "englishSource": "Arriving on Miden"
+    "message": "Доставлено на Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Ваш депозит подтверждён. Перевод в Miden находится в процессе. Вы можете закрыть эту страницу.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Ваш $symbol$ находится на Miden. note поступит в ваш кошелек после следующей синхронизации. Получите его в разделе «Активность».",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Ваш $symbol$ находится в вашем кошельке.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "Получено",
@@ -8535,6 +8561,14 @@
   "nearIntentsOpenDeposit": {
     "message": "Показать адрес для пополнения",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Транзакция назначения",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Недостаточная ликвидность для этой суммы. Попробуйте указать другую сумму.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Доступно: $amount$ $symbol$",

@@ -8272,6 +8272,10 @@
     "message": "Наближені наміри",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "БЕТА",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "Ви надсилаєте",
     "englishSource": "You send"
@@ -8367,8 +8371,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "Надсилайте з будь-якого гаманця або біржі.",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "Надсилайте з власного гаманця.",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "Відсутність адреси для депозиту",
@@ -8511,8 +8515,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Прибуття на Miden",
-    "englishSource": "Arriving on Miden"
+    "message": "Опубліковано на Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Ваш депозит підтверджено. Переказ до Miden триває. Ви можете закрити цю сторінку.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Ваш $symbol$ знаходиться на Miden. note надійде у ваш гаманець після наступної синхронізації. Отримайте його в розділі «Активність».",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Ваш $symbol$ знаходиться у вашому гаманці.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "Отримано",
@@ -8533,6 +8559,14 @@
   "nearIntentsOpenDeposit": {
     "message": "Показати адресу депозиту",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Транзакція призначення",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Недостатньо ліквідності для цієї суми. Спробуйте вказати іншу суму.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Доступно: $amount$ $symbol$",

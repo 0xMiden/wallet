@@ -8270,6 +8270,10 @@
     "message": "近似意圖",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "您發送",
     "englishSource": "You send"
@@ -8365,8 +8369,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "可從任何錢包或交易所發送。",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "請從您自己的錢包發送。",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "無存款地址",
@@ -8509,8 +8513,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "抵達 Miden",
-    "englishSource": "Arriving on Miden"
+    "message": "透過 Miden 交付",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "您的存款已確認。轉帳至 Miden 的作業正在進行中。您可以關閉此頁面。",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "您的 $symbol$ 已上線 Miden。下次同步後，該note 將送達您的錢包。請前往「活動」頁面領取。",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "您的 $symbol$ 存放在您的錢包中。",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "已收到",
@@ -8531,6 +8557,14 @@
   "nearIntentsOpenDeposit": {
     "message": "顯示存款地址",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "目標交易",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "此金額的流動性不足。請嘗試其他金額。",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "可用：$amount$ $symbol$",

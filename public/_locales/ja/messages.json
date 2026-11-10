@@ -8270,6 +8270,10 @@
     "message": "近似の意図",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "送信する",
     "englishSource": "You send"
@@ -8365,8 +8369,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "どのウォレットや取引所からでも送信可能です。",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "ご自身のウォレットから送信してください。",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "入金アドレスなし",
@@ -8509,8 +8513,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Midenへの到着",
-    "englishSource": "Arriving on Miden"
+    "message": "Midenにて配信",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "ご入金を確認しました。Midenへの送金が進行中です。このページを閉じていただいて結構です。",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "$symbol$はMiden上にあります。次の同期後に、noteがウォレットに届きます。「アクティビティ」から受け取ってください。",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "あなたの$symbol$はウォレット内にあります。",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "受信済み",
@@ -8531,6 +8557,14 @@
   "nearIntentsOpenDeposit": {
     "message": "入金アドレスを表示",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "宛先取引",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "この金額には十分な流動性がありません。別の金額をお試しください。",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "利用可能：$amount$ $symbol$",

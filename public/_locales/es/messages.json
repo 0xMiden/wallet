@@ -8276,6 +8276,10 @@
     "message": "Intenciones cercanas",
     "englishSource": "Near Intents"
   },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
   "nearIntentsYouSend": {
     "message": "Envías",
     "englishSource": "You send"
@@ -8371,8 +8375,8 @@
     "englishSource": "Get deposit address"
   },
   "nearIntentsSendFromAnyWallet": {
-    "message": "Envía desde cualquier monedero o plataforma de intercambio.",
-    "englishSource": "Send from any wallet or exchange."
+    "message": "Envía desde tu propia cartera.",
+    "englishSource": "Send from your own wallet."
   },
   "nearIntentsDepositAddressFailedTitle": {
     "message": "Sin dirección de depósito",
@@ -8515,8 +8519,30 @@
     "englishSource": "Processing your deposit"
   },
   "nearIntentsStatusArriving": {
-    "message": "Llegada a Miden",
-    "englishSource": "Arriving on Miden"
+    "message": "Publicado en Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Tu depósito ha sido confirmado. La transferencia a Miden está en curso. Puedes cerrar esta página.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Tu $symbol$ está en Miden. El note llegará a tu monedero tras la próxima sincronización. Reclamalo en «Actividad».",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Tu $symbol$ está en tu monedero.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "nearIntentsStatusReceived": {
     "message": "Recibido",
@@ -8537,6 +8563,14 @@
   "nearIntentsOpenDeposit": {
     "message": "Mostrar dirección de depósito",
     "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Transacción de destino",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "No hay suficiente liquidez para este importe. Intenta con otro importe.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Disponible: $amount$ $symbol$",
