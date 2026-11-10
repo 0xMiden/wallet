@@ -5,6 +5,7 @@
 - [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
 
 ## 1.17.11 (TBD)
+## 1.17.11 (2026-11-09)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
