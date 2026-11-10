@@ -5,6 +5,7 @@
 - [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value.
 
 ## 1.17.11 (TBD)
+## 1.17.11 (2026-11-09)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
