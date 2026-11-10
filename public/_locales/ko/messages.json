@@ -4568,14 +4568,6 @@
     "message": "전체 요약 다운로드 (바이트)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "임의의 페이로드에 서명할까요?",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "‘블라인드’ 서약에 서명하시겠습니까?",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "웹사이트에 접속하기",
     "englishSource": "Connect to website"
@@ -6302,13 +6294,26 @@
     "message": "원값",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "비공개 서명 요청",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "메시지 서명 요청",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "이 사이트에서 원시 값에 서명할 것을 요청했습니다. 지갑에서는 승인 내역을 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "이 사이트는 $count$개의 필드 요소로 구성된 메시지에 서명하도록 요청했습니다. 지갑에서는 이 메시지의 의미를 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "서명 요청 거부됨",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "이 지갑은 프리이미지를 포함하는 임의의 서명 입력에 대해서만 서명합니다. 이 요청에는 서명하지 않습니다.",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

@@ -4568,14 +4568,6 @@
     "message": "概要全文をダウンロード（バイト）",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "「任意のペイロード」に署名しますか？",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "「ブラインド・コミットメント」に署名しますか？",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "ウェブサイトに接続する",
     "englishSource": "Connect to website"
@@ -6302,13 +6294,26 @@
     "message": "生データ",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "不透明な署名要求",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "メッセージ署名リクエスト",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "このサイトは、$count$個のフィールド要素からなるメッセージへの署名を求めました。ウォレットでは、そのメッセージの意味を表示することはできません。このサイトを完全に信頼している場合にのみ、続行してください。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "署名リクエストが拒否されました",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "このウォレットは、その原像（プリイメージ）を持つ任意の署名入力に対してのみ署名を行います。このリクエストに対しては署名を行いません。",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",

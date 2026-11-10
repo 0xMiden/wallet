@@ -4568,14 +4568,6 @@
     "message": "下载完整摘要（字节）",
     "englishSource": "Download full summary (bytes)"
   },
-  "signArbitraryPayload": {
-    "message": "对“任意有效载荷”进行签名吗？",
-    "englishSource": "Sign the Arbitrary payload?"
-  },
-  "signBlindCommitment": {
-    "message": "签署《盲人承诺书》？",
-    "englishSource": "Sign the Blind commitment?"
-  },
   "connectToWebsite": {
     "message": "连接到网站",
     "englishSource": "Connect to website"
@@ -6302,13 +6294,26 @@
     "message": "原始值",
     "englishSource": "Raw value"
   },
-  "opaqueSignatureTitle": {
-    "message": "不透明签名请求",
-    "englishSource": "Opaque signature request"
+  "signMessageTitle": {
+    "message": "消息签名请求",
+    "englishSource": "Message signature request"
   },
-  "opaqueSignatureWarning": {
-    "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+  "signMessageWarning": {
+    "message": "本网站要求您签署一条包含 $count$ 个字段元素的消息。钱包无法显示该消息的具体含义。仅当您完全信任本网站时，才可继续操作。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "signRequestRefusedTitle": {
+    "message": "签名请求被拒绝",
+    "englishSource": "Signature request refused"
+  },
+  "signRequestRefused": {
+    "message": "该钱包仅对携带其原像的任意签名输入进行签名。它不会对该请求进行签名。",
+    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
   },
   "note": {
     "message": "Note",
