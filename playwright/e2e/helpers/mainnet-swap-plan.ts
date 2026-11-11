@@ -109,8 +109,25 @@ export function chooseMainnetSwapLoop(candidates: readonly SwapLoopPlan[]): Swap
   })[0];
 }
 
-export function realizedSwapLoss(_samples: readonly { before: SwapHolding; after: bigint }[]): bigint {
-  throw new Error('not implemented');
+export function realizedSwapLoss(samples: readonly { before: SwapHolding; after: bigint }[]): bigint {
+  if (!samples.length) throw new Error('No balance evidence for swap loss');
+  const seen = new Map<string, { before: SwapHolding; after: bigint }>();
+  let loss = 0n;
+  for (const sample of samples) {
+    const { before, after } = sample;
+    if (after < 0n) throw new Error('Invalid final swap balance');
+    const previous = seen.get(before.faucetId);
+    if (previous) {
+      if (previous.before.balance !== before.balance || previous.after !== after ||
+        previous.before.decimals !== before.decimals || previous.before.usdMicros !== before.usdMicros)
+        throw new Error('Conflicting balance samples for the same swap asset');
+      continue;
+    }
+    seen.set(before.faucetId, sample);
+    const delta = before.balance - after;
+    loss += delta >= 0n ? swapValue(before, delta) : -swapValue(before, -delta, false);
+  }
+  return loss > 0n ? loss : 0n;
 }
 
 export function swapSearchAmounts(holding: SwapHolding): bigint[] {

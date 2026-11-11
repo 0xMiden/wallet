@@ -24,13 +24,13 @@ import {
   planMainnetSwapLoop,
   swapSearchAmounts,
   swapValue,
+  realizedSwapLoss,
   SWAP_LOSS_CAP,
   SWAP_TX_FEE_MULTIPLE,
   type SwapLoopPlan
 } from '../../helpers/mainnet-swap-plan';
-import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount, runPreparedSwap } from '../../helpers/mainnet-swap-ui';
+import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount, runPreparedSwap, cachedSolverRegistry } from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
-import { parseSwapPairs } from '../../../../src/lib/remote-config/swap-pairs';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
 const PRICE_IDS: Record<string, string> = { ETH: 'ethereum', BTC: 'bitcoin', USDC: 'usd-coin' };
@@ -78,13 +78,18 @@ async function balances(
 }
 
 async function registry(wallet: GuardianAwareWalletPage) {
-  const response = wallet.page.waitForResponse(res => new URL(res.url()).pathname === '/v2/pairs', { timeout: 90_000 });
-  await wallet.page.reload({ waitUntil: 'domcontentloaded' });
-  const res = await response;
-  if (!res.ok() || new URL(res.url()).protocol !== 'https:')
-    throw new Error('The wallet did not load a live HTTPS solver registry');
-  const pairs = parseSwapPairs(await res.json());
-  if (!pairs?.pairs.length) throw new Error('The accepted wallet config has no live swap pairs');
+  let accepted: ReturnType<typeof cachedSolverRegistry> | undefined;
+  await expect.poll(async () => {
+    const stored = await wallet.page.evaluate(() => new Promise<{ config: unknown; derived: unknown }>(resolve => {
+      chrome.storage.local.get(['bridge_config_v1:mainnet', 'bridge_config_derived_v2:mainnet'], items => {
+        resolve({ config: items['bridge_config_v1:mainnet'], derived: items['bridge_config_derived_v2:mainnet'] });
+      });
+    }));
+    try { accepted = cachedSolverRegistry(stored.config, stored.derived); return true; }
+    catch { return false; }
+  }, { timeout: 90_000, intervals: [1_000], message: 'The accepted mainnet solver registry did not hydrate' }).toBe(true);
+  if (!accepted) throw new Error('No accepted mainnet solver registry');
+  const { pairs, service } = accepted;
   const ids = [
     ...new Set(
       pairs.tokens.flatMap(token =>
@@ -114,7 +119,7 @@ async function registry(wallet: GuardianAwareWalletPage) {
   const fee = await walletDiscoveredBaseFee(wallet.page);
   if (fee === null || !Number.isSafeInteger(fee) || fee <= 0)
     throw new Error('The wallet did not discover a positive native base fee');
-  return { service: new URL(res.url()).origin, tokens, native, baseFee: BigInt(fee), pairs: pairs.pairs, prices };
+  return { service, tokens, native, baseFee: BigInt(fee), pairs: pairs.pairs, prices };
 }
 
 async function prepare(
@@ -400,10 +405,11 @@ async function authorizeReturn(
 
 function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType<typeof settle>>): void {
   const totalFees = BigInt(state.paidFees) + result.fees;
-  const principalUsd = swapValue(holding(state.offer), BigInt(state.principal) - BigInt(state.forwardRefunded ?? '0'));
-  const returnedUsd = swapValue(holding(state.offer), result.received, false);
-  const loss =
-    (principalUsd > returnedUsd ? principalUsd - returnedUsd : 0n) + swapValue(holding(state.native), totalFees);
+  const loss = realizedSwapLoss([
+    { before: holding(state.offer), after: result.now.offer },
+    { before: holding(state.request), after: result.now.request },
+    { before: holding(state.native), after: result.now.native }
+  ]);
   if (result.refunded > 0n) throw new Error('Return was partially reclaimed; intermediate principal is unresolved');
   if (loss > SWAP_LOSS_CAP || totalFees > BigInt(state.feeBudget))
     throw new Error('Realized round-trip loss or network fees exceeded the authorized budget');

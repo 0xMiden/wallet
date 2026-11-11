@@ -97,8 +97,19 @@ export async function runPreparedSwap<T>(prepare: () => Promise<() => Promise<T>
   return submit();
 }
 
-export function cachedSolverRegistry(_config: unknown, _derived: unknown): { service: string; pairs: SwapPairs } {
-  throw new Error('not implemented');
+export function cachedSolverRegistry(config: unknown, derived: unknown): { service: string; pairs: SwapPairs } {
+  if (!record(config) || !record(config.body) || !record(derived)) throw new Error('Mainnet config has not hydrated');
+  const body = config.body;
+  const swap = record(body.swap) ? body.swap : undefined;
+  const probe = record(derived.swap) && record(derived.swap.pairs) ? derived.swap.pairs : undefined;
+  const pairs = probe?.state === 'ok' ? parseSwapPairs(probe.value) : null;
+  if (body.network !== 'mainnet' || derived.network !== 'mainnet' ||
+    typeof body.version !== 'number' || !Number.isSafeInteger(body.version) || body.version < 1 || body.version !== derived.version ||
+    typeof swap?.etaUrl !== 'string' || !pairs?.pairs.length) throw new Error('No matching accepted mainnet solver registry');
+  const url = new URL(swap.etaUrl);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+    throw new Error('The accepted solver endpoint is not a public HTTPS API');
+  return { service: url.href.replace(/\/+$/, ''), pairs };
 }
 
 export function swapDisplayAmount(amount: bigint, decimals: number): string {
@@ -119,7 +130,7 @@ export async function readLiveSwapLeg(
   requested: SavedSwapHolding,
   amount: bigint
 ): Promise<SwapLegBound> {
-  const priceUrl = new URL('/v2/pair-price', service);
+  const priceUrl = new URL(`${service}/v2/pair-price`);
   priceUrl.search = new URLSearchParams({ offered_faucet: offered.hex, requested_faucet: requested.hex }).toString();
   const minimum = quotedSwapMinimum(
     await swapJson(priceUrl),
@@ -147,7 +158,7 @@ async function checkLiveSwapEta(
   amount: bigint,
   minimum: bigint
 ): Promise<void> {
-  const url = new URL('/v2/swap-eta', service);
+  const url = new URL(`${service}/v2/swap-eta`);
   url.search = new URLSearchParams({
     offered_faucet: offered.hex,
     requested_faucet: requested.hex,
@@ -186,7 +197,7 @@ export async function prepareMainnetSwapReview(
       const url = new URL(response.url());
       return (
         url.origin === new URL(service).origin &&
-        url.pathname === '/v2/swap-eta' &&
+        url.pathname === new URL(`${service}/v2/swap-eta`).pathname &&
         url.searchParams.get('offered_faucet') === offered.hex &&
         url.searchParams.get('requested_faucet') === requested.hex &&
         url.searchParams.get('offered_amount') === amount.toString()
