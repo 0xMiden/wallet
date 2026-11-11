@@ -148,6 +148,7 @@
   "earnCollateralLoading": "Chargement des informations relatives au jeton de dépôt. Vous pourrez continuer dès qu’elles seront disponibles.",
   "earnCollateralUnavailable": "Le jeton de dépôt n’est pas disponible pour le moment ; les dépôts sont donc suspendus. Veuillez réessayer plus tard.",
   "earnCollateralMismatch": "Cette vérification a été préparée pour un jeton de dépôt différent. Revenez en arrière et saisissez à nouveau le montant.",
+  "epochCollateralNoteMismatch": "La note de garantie doit utiliser le token validé, le montant validé et l’allocateur configuré. Rien n’a été envoyé. Revenez en arrière et réessayez.",
   "earnTotalEarnedRewards": "Total gagné",
   "earnEarningBlendedApy": "Bénéficier d'un taux de rendement annuel (APY) combiné de l'$apy$",
   "earnTotalDeposited": "Total des dépôts",

@@ -11,11 +11,18 @@ import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/t
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { EarnVaultProtocol } from 'lib/remote-config/schema';
-import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
+import {
+  BridgeConfigUnavailableError,
+  type EarnMarket,
+  getEvmChainId,
+  selectEpochAllocator
+} from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './collateral-guard';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
@@ -364,10 +371,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   if (!isEvmAddress(args.evmAddress)) {
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
   }
+  const allocator = selectEpochAllocator(getBridgeConfigSnapshot());
+  if (allocator === null) {
+    throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
+  }
+  const { allocatorUrl, accountId } = allocator;
   const evmRecipient = args.evmAddress;
 
   const { market } = args;
-  const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(evmRecipient, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
 
@@ -386,7 +397,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   };
 
   let earnTxId: string | undefined;
-  let spendingLimitError: unknown;
+  let noteError: unknown;
   const quote = await getEarnQuote(sdk, params, evmRecipient);
   const intent = await buildEarnIntent(sdk, {
     ...params,
@@ -402,6 +413,20 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
       );
     },
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      // Build the note only for the reviewed collateral and amount, and only for the allocator account that the
+      // configuration names.
+      const mismatch = collateralNoteMismatch(
+        { faucetId: faucet, amount, allocatorId },
+        {
+          faucetId: args.collateral.faucetId,
+          amount: args.amount,
+          allocatorAccountId: accountId
+        }
+      );
+      if (mismatch !== null) {
+        noteError = new EpochCollateralNoteMismatchError(mismatch);
+        return { success: false };
+      }
       try {
         const res = await createEarnP2IDENote({
           senderAccountId: args.senderPublicKey,
@@ -423,13 +448,13 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
 
         return { success: res.success, noteId: res.noteId };
       } catch (error) {
-        spendingLimitError = error;
+        noteError = error;
         return { success: false };
       }
     }
   });
 
-  if (spendingLimitError !== undefined) throw spendingLimitError;
+  if (noteError !== undefined) throw noteError;
 
   if (intent.error) {
     if (earnTxId) {

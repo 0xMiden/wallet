@@ -4,6 +4,7 @@
 
 - [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity; the Android JavaScript-interface fallback forwards page events without frame identity, so the wallet bridge refuses fallback wallet requests while generic app events still reach their listeners.
 - [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
+- [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 
 ## 1.17.11 (2026-11-09)
