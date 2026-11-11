@@ -84,6 +84,7 @@ function liveEntry(
   const parsed = ONE_CLICK_V1_ID.exec(assetId);
   if (!parsed) return undefined;
   const [, blockchain, standard, address] = parsed;
+  if (address === undefined) return undefined;
   const native = standard === 'native' && address === 'coin';
   const matches = [...listed.values()].filter(entry => {
     if (entry.blockchain !== blockchain) return false;
