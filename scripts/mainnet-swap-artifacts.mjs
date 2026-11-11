@@ -5,37 +5,47 @@ import { basename } from 'node:path';
 const BASELINE_RUN = 42966766471;
 const BASELINE_SHA = '96a3228a181d050395241d00071c5863a1815ab5';
 
-export function swapStepAttempted(jobs, leg) {
+function validateProvider(provider) {
+  if (!['swap', 'epoch', 'near'].includes(provider)) throw new Error('Invalid mainnet loop provider');
+}
+
+export function swapStepAttempted(jobs, leg, provider = 'swap') {
+  validateProvider(provider);
   if (!Array.isArray(jobs?.jobs)) throw new Error('Invalid workflow jobs response');
   return jobs.jobs.some(job =>
     (job.steps ?? []).some(
       step =>
-        step.name === `Run mainnet swap ${leg}` &&
+        (step.name === `Run mainnet ${provider} ${leg}` ||
+          (provider === 'near' && step.name === 'Run funded 1Click swap-out and swap-back acceptance')) &&
         ['in_progress', 'completed'].includes(step.status) &&
         step.conclusion !== 'skipped'
     )
   );
 }
 
-export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN) {
+export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
+  validateProvider(provider);
+  const prefix = provider === 'near' ? '1click' : provider;
+  const stages = ['final', 'reverse-authorized', 'forward-authorized'];
+  if (provider === 'near') stages.push('execute-started', 'preflight');
   for (const run of [...runs].sort((a, b) => b.id - a.id)) {
     if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
     if (run.id <= baseline) return { bootstrap: true };
     const artifacts = await getArtifacts(run.id);
     if (!Array.isArray(artifacts?.artifacts)) throw new Error('Invalid workflow artifact response');
-    for (const stage of ['final', 'reverse-authorized', 'forward-authorized']) {
-      const name = `mainnet-swap-${stage}-${run.id}`;
+    for (const stage of stages) {
+      const name = `mainnet-${prefix}-${stage}-${run.id}`;
       const matching = artifacts.artifacts.filter(artifact => artifact.name === name);
-      if (matching.length > 1) throw new Error('Duplicate mainnet swap checkpoint artifact');
+      if (matching.length > 1) throw new Error(`Duplicate mainnet ${provider} checkpoint artifact`);
       const [artifact] = matching;
       if (artifact) {
         if (artifact.expired)
-          throw new Error(`Newest swap checkpoint expired in run ${run.id}; recover before restarting`);
+          throw new Error(`Newest ${provider} checkpoint expired in run ${run.id}; recover before restarting`);
         return { runId: run.id, name, bootstrap: false };
       }
     }
     const jobs = await getJobs(run.id);
-    if (swapStepAttempted(jobs, 'forward') || swapStepAttempted(jobs, 'reverse')) {
+    if (swapStepAttempted(jobs, 'forward', provider) || swapStepAttempted(jobs, 'reverse', provider)) {
       throw new Error(
         `Recovery checkpoint missing for potentially funded run ${run.id}; refusing an older complete checkpoint`
       );
@@ -63,8 +73,11 @@ function output(name, value) {
 
 async function main() {
   const mode = process.argv[2];
+  const provider = process.argv[3] ?? 'swap';
+  validateProvider(provider);
+  const prefix = provider === 'near' ? '1click' : provider;
   if (mode === 'attempts') {
-    const state = JSON.parse(readFileSync('test-results/mainnet-swap-state/roundtrip.json', 'utf8'));
+    const state = JSON.parse(readFileSync(`test-results/mainnet-${prefix}-state/roundtrip.json`, 'utf8'));
     for (const [leg, id] of [
       ['forward', state.sourceRunId],
       ['reverse', state.authorizationRunId ?? state.sourceRunId]
@@ -73,7 +86,7 @@ async function main() {
       const run = await github(`actions/runs/${id}`);
       const current = await github(`actions/runs/${process.env.GITHUB_RUN_ID}`);
       if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
-      output(`${leg}_attempted`, swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg));
+      output(`${leg}_attempted`, swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg, provider));
     }
     return;
   }
@@ -97,7 +110,9 @@ async function main() {
   const selected = await chooseSwapCheckpoint(
     runs,
     id => github(`actions/runs/${id}/artifacts?per_page=100`),
-    id => github(`actions/runs/${id}/jobs?per_page=100`)
+    id => github(`actions/runs/${id}/jobs?per_page=100`),
+    BASELINE_RUN,
+    provider
   );
   output('bootstrap', selected.bootstrap);
   if (!selected.bootstrap) {
