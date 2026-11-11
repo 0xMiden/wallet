@@ -1296,6 +1296,20 @@ test('cleanup requires independent script-level switches when version readback o
   assert.ok(paths.includes('/workers/scripts/miden-elig-probe-40265000001-1/script-settings'));
 });
 
+test('run removes its owned worker when privacy readback is unknown without sending probe traffic', async () => {
+  const f = fixture({
+    mutateRemote: remote => {
+      remote.scriptSettings.observability = null;
+    }
+  });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.support, 'unknown');
+  assert.equal(result.reason, 'ownership_mismatch');
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(f.calls.length, 0);
+  assert.equal(deleted(f).length, 1);
+});
+
 for (const [gate, path] of [
   ['script_observability', ['enabled']],
   ['script_observability_logs', ['logs', 'enabled']],
