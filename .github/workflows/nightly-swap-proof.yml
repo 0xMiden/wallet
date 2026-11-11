@@ -1,0 +1,25 @@
+name: Nightly swap frozen regression proof
+on:
+  push:
+    branches: [wiktor/nightly-swap-loop]
+permissions:
+  contents: read
+concurrency:
+  group: nightly-swap-proof-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+        timeout-minutes: 8
+      - name: Native intermediate funding regression
+        run: yarn jest scripts/mainnet-swap-plan.test.ts --maxWorkers=2 --watch=false
