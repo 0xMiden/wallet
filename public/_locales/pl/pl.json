@@ -148,6 +148,7 @@
   "earnCollateralLoading": "Ładowanie danych tokenu depozytowego. Możesz kontynuować, gdy tylko się pojawią.",
   "earnCollateralUnavailable": "Token do wpłat jest obecnie niedostępny, więc wpłaty zostały wstrzymane. Spróbuj ponownie później.",
   "earnCollateralMismatch": "Niniejszy przegląd został przygotowany dla innego tokenu depozytowego. Cofnij się i wprowadź kwotę ponownie.",
+  "epochCollateralNoteMismatch": "note z zabezpieczeniem musi zawierać zweryfikowany token, zweryfikowaną kwotę oraz skonfigurowany alokator. Nic nie zostało wysłane. Cofnij się i spróbuj ponownie.",
   "earnTotalEarnedRewards": "Łączna kwota zarobków",
   "earnEarningBlendedApy": "Zyskaj mieszaną roczną stopę zwrotu (APY) w wysokości $apy$",
   "earnTotalDeposited": "Łączna kwota wpłat",
