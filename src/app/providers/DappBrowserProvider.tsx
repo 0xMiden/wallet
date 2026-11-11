@@ -794,10 +794,30 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
         if (!state?.instance) return;
-        // Only the main frame of the page can speak to the wallet bridge. The native side adds
-        // the origin of the frame that sent the message (`frameOrigin`) and the main-frame flag
-        // (`mainFrame`). A message from a frame of another origin than the session origin stops here.
-        if (event.mainFrame !== true || event.frameOrigin !== state.origin) {
+        // Only a platform-verified main frame can speak to the wallet bridge. A main-frame
+        // availability PING is answered while the session origin trails the document, so an
+        // origin mismatch does not stop it. Any other message from another origin stops here.
+        if (event.mainFrame !== true) {
+          console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
+          return;
+        }
+        // Same parse as the handler, before the try that writes session state: `detail` when
+        // present, otherwise the event; a string is JSON. A PING is a non-null object whose
+        // `type` and `reqId` are strings and whose `payload` is exactly `PING`.
+        let isAvailabilityPing = false;
+        try {
+          const eventData = (event as { detail?: unknown })?.detail ?? event;
+          const classified: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
+          isAvailabilityPing =
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            (classified as { payload?: unknown }).payload === 'PING';
+        } catch {
+          // A parse failure is not an availability PING.
+        }
+        if (!isAvailabilityPing && event.frameOrigin !== state.origin) {
           console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
           return;
         }
