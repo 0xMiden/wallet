@@ -886,6 +886,7 @@
   "usdcxBurnFeeUnavailable": "No se ha podido calcular la comisión de red de esta quema, por lo que no se puede verificar el importe. Elige otro destino para volver a intentarlo.",
   "insufficientFeeAsset": "Necesitas USDCX para pagar la comisión de red. Obtén algo de USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
+  "proposalEffectRefused": "El monedero detuvo esta transacción antes de firmarla, porque no pudo confirmar que la transacción solo transfiriera lo que tú habías aprobado. No se transfirieron fondos.",
   "amountMustBeLessThanBalance": "El importe debe ser inferior al saldo",
   "autoConsumeSettings": "Aceptar automáticamente las transferencias USDCX",
   "autoConsumeSettingsDescription": "Acepta automáticamente las transferencias USDCX entrantes en tu saldo, igual que si pulsaras Aceptar. No acepta con más frecuencia ni cuesta más comisiones que pulsar Aceptar tú mismo.",
