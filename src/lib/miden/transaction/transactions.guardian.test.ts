@@ -14906,9 +14906,10 @@ describe('Guardian proposal effect check', () => {
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.error).toBe(getMessage('proposalEffectRefused'));
       expect(row.rawError).toBe(`ProposalEffectRefusedError: Refused to sign this consume transaction: ${detail}`);
-      // Not kept on the row, not requeued: a refusal is the summary's verdict, not a transient failure.
+      // Not kept on the row, not requeued, and no Retry: a refusal is the summary's verdict, not a transient failure.
       expect(row.guardianCandidate).toBeUndefined();
       expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.proposalEffectRefused).toBe(true);
     }
   );
 

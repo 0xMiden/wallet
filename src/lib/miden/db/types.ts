@@ -880,6 +880,8 @@ export interface ITransaction {
    * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
    */
   approvedNftOutflow?: string[];
+  /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */
+  proposalEffectRefused?: true;
   /**
    * What this row sent, in micro-dollars, as valued when it was queued.
    *
