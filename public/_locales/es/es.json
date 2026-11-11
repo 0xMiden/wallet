@@ -155,6 +155,7 @@
   "earnPositionsTitle": "Mis posiciones",
   "earnPositionsRegionLabel": "Posiciones",
   "earnPositionsLoadError": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
+  "earnPositionsUnavailable": "No se ha podido comprobar tu saldo con Epoch. Inténtalo de nuevo.",
   "earnUnavailableOnNetwork": "La función «Earn» no está disponible en esta red",
   "earnVaultLoadError": "No se ha podido cargar esta caja fuerte. Comprueba tu conexión e inténtalo de nuevo.",
   "earnPositionsApy": "$apy$ APY",

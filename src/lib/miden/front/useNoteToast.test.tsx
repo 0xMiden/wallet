@@ -136,7 +136,7 @@ describe('useNoteToastMonitor', () => {
 
     _g.__noteToastTest.claimableNotes = [
       { id: 'seeded', faucetId: 'faucet-other' },
-      { id: 'auto', faucetId: 'faucet-native' },
+      { id: 'auto', faucetId: 'faucet-native', standardPayment: true },
       { id: 'manual', faucetId: 'faucet-other' }
     ];
     rerender();
@@ -155,7 +155,7 @@ describe('useNoteToastMonitor', () => {
     rerender();
     _g.__noteToastTest.claimableNotes = [
       { id: 'seeded', faucetId: 'faucet-other' },
-      { id: 'actual', faucetId: 'faucet-native', amount: '1000000' },
+      { id: 'actual', faucetId: 'faucet-native', amount: '1000000', standardPayment: true },
       { id: 'legacy', faucetId: 'legacy-display', amount: '1000000' }
     ];
     rerender();

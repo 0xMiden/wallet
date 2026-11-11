@@ -390,6 +390,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Test coverage resource sampler
+        run: node --test scripts/ci/coverage-resource-sampler.test.mjs
+
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
       - name: Inject linked guardian PR
@@ -407,6 +410,16 @@ jobs:
           SHARDS: ${{ strategy.job-total }}
         run: |
           set -euo pipefail
+          node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
+          SAMPLER_PID=$!
+          stop_sampler() {
+            kill "$SAMPLER_PID" 2>/dev/null || true
+            wait "$SAMPLER_PID" 2>/dev/null || true
+            return 0
+          }
+          trap stop_sampler EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.

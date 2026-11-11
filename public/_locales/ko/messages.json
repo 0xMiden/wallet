@@ -856,6 +856,10 @@
     "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "Epoch로 잔액을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
     "englishSource": "Earn is not available on this network"

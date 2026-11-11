@@ -152,6 +152,7 @@ import { simulateCustomTransaction, type SimulateCustomTxResult } from './simula
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { IConsumedAssetTotal, type ITransaction } from '../db/types';
+import { isStandardPayment } from '../sdk/consumable-notes';
 import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
@@ -1141,11 +1142,17 @@ async function getPrivateNoteDetails(
                 return true;
               })
             : candidates;
-        // `restriction` is the wallet's own consume guard and `nonFungibleAssets` feeds only its own approval sheet,
-        // not note data the user agreed to share.
+        // Keep wallet consume checks and NFT preview data out of the shared note data.
         return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
-          .map(({ restriction: _restriction, nonFungibleAssets: _nonFungibleAssets, ...note }) => note);
+          .map(
+            ({
+              restriction: _restriction,
+              nonFungibleAssets: _nonFungibleAssets,
+              standardPayment: _standardPayment,
+              ...note
+            }) => note
+          );
       });
     });
     return privateNotes;
@@ -3437,6 +3444,7 @@ interface ResolvedConsumeNote {
   nonFungibleAssets: NftAsset[];
   noteType: string;
   restriction?: ConsumeRestriction;
+  standardPayment?: boolean;
 }
 
 /** What a consume sheet shows, and the id of the note it shows, which is the note the approved consume spends. */
@@ -3476,6 +3484,7 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
       details: note,
       noteType: metadata ? toNoteTypeString(metadata.noteType()) : 'unknown',
       restriction: noteConsumeRestriction(note),
+      standardPayment: isStandardPayment(note),
       assets: note
         .assets()
         .fungibleAssets()
@@ -3515,7 +3524,8 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
         assets: decoded.assets,
         nonFungibleAssets: decoded.nonFungibleAssets,
         noteType: decoded.noteType,
-        restriction: decoded.restriction
+        restriction: decoded.restriction,
+        standardPayment: decoded.standardPayment
       };
     }
   }
@@ -3567,7 +3577,8 @@ async function resolveConsumeNote(
     assets: details.assets,
     nonFungibleAssets: details.nonFungibleAssets,
     noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
-    restriction: details.restriction
+    restriction: details.restriction,
+    standardPayment: details.standardPayment
   };
 }
 
@@ -3607,8 +3618,11 @@ async function formatConsumeTransactionPreview(
   carried: ResolvedConsumeNote | null,
   accountId: string
 ): Promise<ConsumePreview> {
-  const { noteId, assets, nonFungibleAssets, noteType, restriction } =
+  const { noteId, assets, nonFungibleAssets, noteType, restriction, standardPayment } =
     carried ?? (await resolveConsumeNote(transaction, accountId));
+  if (standardPayment !== true) {
+    throw new Error('Only standard payment notes can use a consume request - use a custom transaction request');
+  }
   // Refused here, before the sheet: once approved, the consume would fail at execution with
   // ERR_NOTE_ACTIVE_ACCOUNT_IS_NOT_TARGET_ACCOUNT or ERR_RECLAIM_DISABLED, and nothing before execution asks whether the
   // account can consume the note.

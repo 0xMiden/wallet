@@ -856,6 +856,10 @@
     "message": "Nie udało się załadować Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "Nie udało się sprawdzić salda w systemie Epoch. Spróbuj ponownie.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Funkcja „Earn” nie jest dostępna w tej sieci",
     "englishSource": "Earn is not available on this network"

@@ -289,6 +289,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -308,6 +309,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -328,6 +330,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100000000',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
       }
     ];
@@ -349,6 +352,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -389,6 +393,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -434,6 +439,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -477,6 +483,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -502,6 +509,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -533,6 +541,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -553,6 +562,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -568,6 +578,7 @@ describe('useClaimableNotes (extension mode)', () => {
       amountBaseUnits: '100',
       senderAddress: 's1',
       noteType: 'public',
+      standardPayment: true,
       metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
       carriesMoreAssets
     });
@@ -591,15 +602,39 @@ describe('useClaimableNotes (extension mode)', () => {
       metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
       standardPayment
     });
-    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b', false), synced('c')];
+    const ownTip = {
+      ...synced('own-tip', false),
+      swapOrder: { orderId: '9', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), ownTip];
 
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
 
     expect(result.current.data?.map(note => [note.id, note.standardPayment])).toEqual([
       ['a', true],
-      ['b', false],
-      ['c', undefined]
+      ['own-tip', false]
     ]);
+  });
+
+  it("drops another trader's PSWAP order from a service worker list stored before the rule (#2118)", () => {
+    const synced = (id: string, standardPayment?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      standardPayment
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      synced('payment', true),
+      synced('foreign-order', false),
+      synced('unflagged')
+    ];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => note.id)).toEqual(['payment']);
   });
 
   it('publishes the extension list in the fixed order, however the service worker stored it', () => {
@@ -610,6 +645,7 @@ describe('useClaimableNotes (extension mode)', () => {
       amountBaseUnits: '100',
       senderAddress: 's1',
       noteType: 'public',
+      standardPayment: true,
       receivedAt,
       metadata
     });
@@ -641,6 +677,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata,
         swapOrder: {
           orderId: '77',
@@ -657,6 +694,8 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        // A PSWAP tip is no standard payment; its swap order makes it this account's.
+        standardPayment: false,
         metadata,
         swapOrder: {
           orderId: '78',
@@ -673,6 +712,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata
       }
     ];
@@ -703,7 +743,8 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'f1',
         amountBaseUnits: '100',
         senderAddress: 's',
-        noteType: 'public'
+        noteType: 'public',
+        standardPayment: true
       }
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -719,6 +760,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's',
         noteType: 'public',
+        standardPayment: true,
         // The faucet could not be read, so its scale is unknown and the user's decimals apply.
         metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
       }
@@ -734,7 +776,8 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'unknown',
         amountBaseUnits: '100',
         senderAddress: 's',
-        noteType: 'public'
+        noteType: 'public',
+        standardPayment: true
       }
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -748,6 +791,7 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'f1',
         amountBaseUnits: '100',
         senderAddress: 's',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
         // noteType intentionally omitted -> nullish coalescing fallback
       }
@@ -989,7 +1033,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAccountId: senderId,
       state: 2,
       assets: [{ faucetId, amount }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: true
     };
   }
 
@@ -1340,7 +1385,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAccountId: undefined,
       state: 0,
       assets: [{ faucetId: 'miden-faucet', amount: '42' }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: true
     };
     _g.__cnTest.consumableNotes = [noMetaNote];
     renderHook(() => useClaimableNotes('pk-1'));
@@ -1417,18 +1463,31 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   });
 
   it('keeps whether a note is a standard payment in the list and in the cache (#805)', async () => {
-    _g.__cnTest.consumableNotes = [
-      { ...makeMockNote({ id: 'standard' }), standardPayment: true },
-      { ...makeMockNote({ id: 'custom' }), standardPayment: false }
-    ];
+    _g.__cnTest.consumableNotes = [{ ...makeMockNote({ id: 'standard' }), standardPayment: true }];
     const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     rerender();
 
     const flags = (notes: Array<{ id: string; standardPayment?: boolean }> | undefined) =>
       Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
-    expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
-    await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
+    expect(flags(result.current.data)).toEqual({ standard: true });
+    await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true }));
+  });
+
+  it('drops a note that is neither a payment to this account nor of its own swap order, from the list and the cache (#2118)', async () => {
+    // Another trader's public PSWAP order on a tracked pair tag, and a note whose script could not be read.
+    _g.__cnTest.consumableNotes = [
+      makeMockNote({ id: 'payment' }),
+      { ...makeMockNote({ id: 'foreign-order' }), standardPayment: false },
+      { ...makeMockNote({ id: 'unflagged' }), standardPayment: undefined }
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const ids = (notes: Array<{ id: string }> | undefined) => (notes ?? []).map(note => note.id);
+    expect(ids(result.current.data)).toEqual(['payment']);
+    await waitFor(() => expect(ids(_g.__cnTest.kv[CACHE_KEY])).toEqual(['payment']));
   });
 
   it('live single-asset notes preserve explicit asset knowledge', async () => {

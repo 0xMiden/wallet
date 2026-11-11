@@ -856,6 +856,10 @@
     "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "Не вдалося перевірити ваш баланс за допомогою Epoch. Спробуйте ще раз.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Функція «Earn» недоступна в цій мережі",
     "englishSource": "Earn is not available on this network"

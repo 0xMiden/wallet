@@ -155,6 +155,7 @@
   "earnPositionsTitle": "マイポジション",
   "earnPositionsRegionLabel": "ポジション",
   "earnPositionsLoadError": "ポジションを読み込めませんでした。接続状態を確認して、もう一度お試しください。",
+  "earnPositionsUnavailable": "Epochで残高を確認できませんでした。もう一度お試しください。",
   "earnUnavailableOnNetwork": "このネットワークでは「Earn」機能は利用できません",
   "earnVaultLoadError": "このVaultを読み込めませんでした。接続状態を確認し、もう一度お試しください。",
   "earnPositionsApy": "$apy$ APY",

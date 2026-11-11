@@ -155,6 +155,7 @@
   "earnPositionsTitle": "Мої позиції",
   "earnPositionsRegionLabel": "Позиції",
   "earnPositionsLoadError": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
+  "earnPositionsUnavailable": "Не вдалося перевірити ваш баланс за допомогою Epoch. Спробуйте ще раз.",
   "earnUnavailableOnNetwork": "Функція «Earn» недоступна в цій мережі",
   "earnVaultLoadError": "Не вдалося завантажити це сховище. Перевірте підключення та спробуйте ще раз.",
   "earnPositionsApy": "$apy$ APY",

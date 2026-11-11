@@ -155,6 +155,7 @@
   "earnPositionsTitle": "Moje pozycje",
   "earnPositionsRegionLabel": "Pozycje",
   "earnPositionsLoadError": "Nie udało się załadować Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
+  "earnPositionsUnavailable": "Nie udało się sprawdzić salda w systemie Epoch. Spróbuj ponownie.",
   "earnUnavailableOnNetwork": "Funkcja „Earn” nie jest dostępna w tej sieci",
   "earnVaultLoadError": "Nie udało się załadować tego sejfu. Sprawdź połączenie i spróbuj ponownie.",
   "earnPositionsApy": "$apy$ APY",

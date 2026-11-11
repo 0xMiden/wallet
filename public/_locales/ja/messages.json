@@ -856,6 +856,10 @@
     "message": "ポジションを読み込めませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnPositionsUnavailable": {
+    "message": "Epochで残高を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "このネットワークでは「Earn」機能は利用できません",
     "englishSource": "Earn is not available on this network"
