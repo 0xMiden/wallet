@@ -19,6 +19,7 @@ export interface MainnetSwapCheckpoint {
   recoveredRunId?: string;
   phase: SwapLoopPhase;
   createdAt: string;
+  pricedAt: string;
   updatedAt: string;
   offer: SavedSwapHolding;
   request: SavedSwapHolding;
@@ -63,7 +64,7 @@ function holding(value: unknown): value is SavedSwapHolding {
 function valid(value: unknown): value is MainnetSwapCheckpoint {
   if (!record(value) || value.version !== 1 || value.network !== 'mainnet' || !address(value.account) ||
       typeof value.sourceRunId !== 'string' || !/^\d{1,25}$/.test(value.sourceRunId) ||
-      !timestamp(value.createdAt) || !timestamp(value.updatedAt) ||
+      !timestamp(value.createdAt) || !timestamp(value.pricedAt) || !timestamp(value.updatedAt) ||
       !holding(value.offer) || !holding(value.request) || !holding(value.native) ||
       value.offer.faucetId === value.request.faucetId ||
       !amount(value.baseFee) || BigInt(value.baseFee) <= 0n || !amount(value.principal) || BigInt(value.principal) <= 0n ||
@@ -82,7 +83,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       (!amount(value.forwardOrderId) || !amount(value.forwardReceived) || !amount(value.returnAmount) || !record(value.returnBaseline))) return false;
   if (value.phase === 'complete' && (!amount(value.reverseOrderId) || !amount(value.reverseReceived))) return false;
   return Object.keys(value).every(key => [
-    'version', 'network', 'account', 'sourceRunId', 'authorizationRunId', 'recoveredRunId', 'phase', 'createdAt', 'updatedAt', 'offer', 'request', 'native',
+    'version', 'network', 'account', 'sourceRunId', 'authorizationRunId', 'recoveredRunId', 'phase', 'createdAt', 'pricedAt', 'updatedAt', 'offer', 'request', 'native',
     'baseFee', 'principal', 'forwardMinimum', 'reverseMinimum', 'knownOrderIds', 'feeBudget', 'paidFees',
     'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'forwardRefunded', 'reverseReceived', 'returnAmount', 'returnBaseline'
   ].includes(key));

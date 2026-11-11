@@ -22,7 +22,7 @@ jobs:
       - run: yarn install --frozen-lockfile
         timeout-minutes: 8
       - name: Cost and recovery boundaries
-        run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts --maxWorkers=2 --watch=false
+        run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
       - name: Type check
         if: ${{ !cancelled() }}
         run: yarn tsc --pretty false
@@ -34,3 +34,14 @@ jobs:
         env:
           E2E_NETWORK: mainnet
         run: yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --list
+      - name: Format swap sources
+        if: ${{ !cancelled() }}
+        run: |
+          yarn prettier --write scripts/mainnet-swap-* playwright/e2e/helpers/mainnet-swap-*.ts playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/config/mainnet-nightly.test.ts
+          git diff -- scripts/mainnet-swap-* playwright/e2e/helpers/mainnet-swap-* playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts .github/workflows/e2e-mainnet-nightly.yml playwright/e2e/config/mainnet-nightly.test.ts > "$RUNNER_TEMP/nightly-swap-format.patch"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: nightly-swap-format-${{ github.run_id }}
+          path: ${{ runner.temp }}/nightly-swap-format.patch
+          retention-days: 3

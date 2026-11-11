@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
-import type { SavedSwapHolding } from './mainnet-swap-checkpoint';
+import type { SavedSwapHolding, SwapOrderEvidence } from './mainnet-swap-checkpoint';
 import type { SwapLegBound } from './mainnet-swap-plan';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from '../../../src/lib/miden/swap/slippage-bounds';
 
@@ -129,9 +129,14 @@ export async function prepareMainnetSwapReview(wallet: GuardianAwareWalletPage, 
   });
 }
 
-export async function recoveredSwapAutoAccept(page: Page, rowId: string, orderId: string): Promise<void> {
+export async function recoveredSwapAutoAccept(page: Page, order: SwapOrderEvidence): Promise<void> {
+  await page.evaluate(resumeSwapAutoAcceptInPage, order);
+}
+
+export async function resumeSwapAutoAcceptInPage(identity: SwapOrderEvidence): Promise<void> {
   // Restore this loop's persisted Auto accept intent, never an unrelated recovered order's setting.
-  await page.evaluate(async ({ rowId, orderId }) => {
+  const rowId = identity.id;
+  const orderId = identity.orderId;
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('TridentMain');
       request.onsuccess = () => resolve(request.result);
@@ -155,5 +160,4 @@ export async function recoveredSwapAutoAccept(page: Page, rowId: string, orderId
         tx.onerror = () => reject(tx.error);
       });
     } finally { db.close(); }
-  }, { rowId, orderId });
 }

@@ -5,7 +5,7 @@ import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNative
 import { hexFaucetToBech32 } from '../../helpers/faucet-address';
 import { readTransactionRows, type TransactionRowSnapshot } from '../../helpers/history';
 import { fetchMainnetOneClickUsdPrices } from '../../helpers/mainnet-one-click-prices';
-import { loadMainnetSwapCheckpoint, saveMainnetSwapCheckpoint, matchAuthorizedSwap, swapProceeds,
+import { loadMainnetSwapCheckpoint, saveMainnetSwapCheckpoint, matchAuthorizedSwap, mainnetSwapNextAction, swapProceeds,
   type MainnetSwapCheckpoint, type SavedSwapHolding, type SwapOrderEvidence } from '../../helpers/mainnet-swap-checkpoint';
 import { chooseMainnetSwapLoop, planMainnetSwapLoop, swapSearchAmounts, swapValue, SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE,
   type SwapLoopPlan } from '../../helpers/mainnet-swap-plan';
@@ -96,11 +96,12 @@ async function prepare(wallet: GuardianAwareWalletPage, runId: string, live: Awa
   const chosen = chooseMainnetSwapLoop(candidates.map(candidate => candidate.plan));
   const candidate = candidates.find(entry => entry.plan === chosen);
   if (!chosen || !candidate) throw new Error('No funded two-way mainnet swap fits both $1 minima, reserves and the $2 safety cap');
+  if (Date.now() - Date.parse(live.prices.pricesUpdatedAt) > 5 * 60_000) throw new Error('USD valuations expired during route selection');
   const oldRows = await readTransactionRows(wallet.page);
   const timestamp = new Date().toISOString();
   return {
     version: 1, network: 'mainnet', account: await wallet.getAccountAddress(), sourceRunId: runId, authorizationRunId: runId,
-    phase: 'forward-authorized', createdAt: timestamp, updatedAt: timestamp,
+    phase: 'forward-authorized', createdAt: timestamp, pricedAt: live.prices.pricesUpdatedAt, updatedAt: timestamp,
     offer: candidate.offer, request: candidate.request, native: live.native, baseFee: live.baseFee.toString(),
     principal: chosen.forward.offer.toString(), forwardMinimum: chosen.forward.minimumReceive.toString(),
     reverseMinimum: chosen.reverse.minimumReceive.toString(),
@@ -135,7 +136,7 @@ async function settle(wallet: GuardianAwareWalletPage, state: MainnetSwapCheckpo
   if (leg === 'forward') state.forwardOrderId = matched.orderId;
   else state.reverseOrderId = matched.orderId;
   persist(state);
-  if (recover) await recoveredSwapAutoAccept(wallet.page, matched.id, matched.orderId);
+  if (recover) await recoveredSwapAutoAccept(wallet.page, matched);
   await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/history-details/${matched.id}`);
   const target = leg === 'forward' ? state.request : state.offer;
   let received = 0n;
@@ -256,11 +257,10 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   let state = loadMainnetSwapCheckpoint(STATE_PATH);
   const account = await walletB.getAccountAddress();
   if (state && state.account !== account) throw new Error('The checkpoint belongs to a different Guardian account');
-  const live = await registry(walletB);
   if (mode === 'prepare') {
     if (state?.recoveredRunId === runId || state?.phase === 'reverse-authorized' && state.authorizationRunId === runId) return;
-    if (state && !['complete', 'cancelled', 'unspent'].includes(state.phase)) throw new Error('Previous principal is unresolved; refusing a new forward swap');
-    state = await prepare(walletB, runId, live);
+    if (mainnetSwapNextAction(state) !== 'prepare') throw new Error('Previous principal is unresolved; refusing a new forward swap');
+    state = await prepare(walletB, runId, await registry(walletB));
     persist(state);
     return;
   }
@@ -268,7 +268,8 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     if (mode === 'recover' && process.env.MAINNET_SWAP_BOOTSTRAP === 'true') return;
     throw new Error('Missing durable swap authorization; do not bootstrap over a previous attempt');
   }
-  if (['complete', 'cancelled', 'unspent'].includes(state.phase)) return;
+  if (mainnetSwapNextAction(state) === 'prepare') return;
+  if (mainnetSwapNextAction(state) === 'stop') throw new Error('The checkpoint requires operator recovery before another spend');
   if (mode === 'recover') {
     if (state.phase === 'forward-authorized' && process.env.MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED === 'false') {
       state.phase = 'unspent';
@@ -283,7 +284,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       const current = await balances(walletB, state);
       const baseline = state.returnBaseline;
       if (!baseline || current.offer.toString() !== baseline.offer || current.request.toString() !== baseline.request || current.native.toString() !== baseline.native) throw new Error('Balances changed before return recovery');
-      await authorizeReturn(state, runId, live, { received: BigInt(state.forwardReceived ?? '0'), refunded: BigInt(state.forwardRefunded ?? '0'),
+      await authorizeReturn(state, runId, await registry(walletB), { received: BigInt(state.forwardReceived ?? '0'), refunded: BigInt(state.forwardRefunded ?? '0'),
         fees: BigInt(state.paidFees), now: await balances(walletB, state) });
       return;
     }
@@ -294,13 +295,14 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       state.phase = 'cancelled'; persist(state);
       throw new Error('Unfilled swap principal was fully reclaimed; full-fill acceptance failed');
     }
-    if (leg === 'forward') await authorizeReturn(state, runId, live, result);
+    if (leg === 'forward') await authorizeReturn(state, runId, await registry(walletB), result);
     else completeReturn(state, result);
     return;
   }
   if (mode === 'forward' && state.phase === 'reverse-authorized') return;
   const leg = mode === 'forward' ? 'forward' : 'reverse';
   if (state.phase !== `${leg}-authorized` || state.authorizationRunId !== runId) throw new Error('This run has no authorization to submit that swap leg');
+  const live = await registry(walletB);
   const before = await balances(walletB, state);
   const baseline = leg === 'forward' ? { offer: state.offer.balance, request: state.request.balance, native: state.native.balance } : state.returnBaseline;
   if (!baseline || before.offer.toString() !== baseline.offer || before.request.toString() !== baseline.request || before.native.toString() !== baseline.native) throw new Error('Balances changed since swap authorization');
@@ -310,7 +312,16 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   const requested = leg === 'forward' ? state.request : state.offer;
   const amount = BigInt(leg === 'forward' ? state.principal : state.returnAmount ?? '0');
   const minimum = BigInt(leg === 'forward' ? state.forwardMinimum : state.reverseMinimum);
-  const submit = await prepareMainnetSwapReview(walletB, live.service, offered, requested, amount, minimum);
+  let submit: () => Promise<void>;
+  try {
+    if (leg === 'forward' && Date.now() - Date.parse(state.pricedAt) > 5 * 60_000) throw new Error('Forward authorization USD prices expired');
+    submit = await prepareMainnetSwapReview(walletB, live.service, offered, requested, amount, minimum);
+  } catch (error) {
+    // No submit callback was invoked, so this is positive proof that this authorization spent nothing.
+    state.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
+    persist(state);
+    throw error;
+  }
   await submit();
   const result = await settle(walletB, state, leg, false);
   if (leg === 'forward') await authorizeReturn(state, runId, live, result);

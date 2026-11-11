@@ -23,6 +23,10 @@ on:
         options:
           - ubuntu-latest
           - warp-ubuntu-latest-x64-8x
+      swaps_only:
+        description: Validate only the solver round trip, without paying bridge or send fees.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,6 +44,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 245 || 200 }}
     outputs:
       started: ${{ steps.started.outputs.started }}
+      recovery_only: ${{ steps.swap-recover.outputs.recovery_only }}
     env:
       E2E_NETWORK: mainnet
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
@@ -107,6 +112,90 @@ jobs:
 
       - name: Build the extension for mainnet
         run: yarn test:e2e:blockchain:build
+
+      - name: Find prior swap checkpoint
+        id: swap-prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/mainnet-swap-artifacts.mjs find
+
+      - name: Restore prior swap checkpoint
+        if: steps.swap-prior.outputs.name != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.swap-prior.outputs.run_id }}
+          github-token: ${{ github.token }}
+          name: ${{ steps.swap-prior.outputs.name }}
+          path: test-results/mainnet-swap-state
+
+      - name: Check prior swap submission attempts
+        id: swap-attempts
+        if: steps.swap-prior.outputs.name != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/mainnet-swap-artifacts.mjs attempts
+
+      # Before the native send: it uses the same Guardian account and would change a recovery baseline.
+      - name: Recover prior mainnet swap
+        id: swap-recover
+        env:
+          MAINNET_SWAP_BOOTSTRAP: ${{ steps.swap-prior.outputs.bootstrap }}
+          MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED: ${{ steps.swap-attempts.outputs.forward_attempted }}
+          MAINNET_SWAP_PRIOR_REVERSE_ATTEMPTED: ${{ steps.swap-attempts.outputs.reverse_attempted }}
+        run: MAINNET_SWAP_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-recover xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+
+      - name: Run native mainnet round trip
+        id: native-roundtrip
+        if: ${{ !inputs.swaps_only && steps.swap-recover.outputs.recovery_only != 'true' }}
+        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Prepare mainnet solver swap
+        if: ${{ !cancelled() && steps.swap-recover.outcome == 'success' && (inputs.swaps_only || steps.native-roundtrip.outcome == 'success' || steps.swap-recover.outputs.recovery_only == 'true') }}
+        run: MAINNET_SWAP_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-prepare xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+
+      - name: Upload mainnet swap forward authorization
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-swap-forward-authorized-${{ github.run_id }}
+          path: test-results/mainnet-swap-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Run mainnet swap forward
+        run: MAINNET_SWAP_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-forward xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+
+      - name: Upload mainnet swap reverse authorization
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-swap-reverse-authorized-${{ github.run_id }}
+          path: test-results/mainnet-swap-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Run mainnet swap reverse
+        run: MAINNET_SWAP_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-reverse xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+
+      - name: Retain mainnet swap checkpoint
+        if: always() && hashFiles('test-results/mainnet-swap-state/roundtrip.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-swap-final-${{ github.run_id }}
+          path: test-results/mainnet-swap-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Publish mainnet swap summary
+        if: always()
+        run: |
+          if [ -f test-results/mainnet-swap-summary.md ]; then
+            cat test-results/mainnet-swap-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Report recovery-only coverage
+        if: ${{ !cancelled() && steps.swap-recover.outputs.recovery_only == 'true' }}
+        run: |
+          echo '::error::This run recovered a previous swap instead of starting fresh coverage. Principal is not spent again; the next scheduled run retries the full suite.'
+          exit 1
 
       - name: Find prior mainnet checkpoint run
         id: prior-mainnet
@@ -177,10 +266,10 @@ jobs:
             cp "$prior" "$current"
           fi
 
-      - name: Run mainnet round trip, USDCx bridge loops, and read-only 1Click preflight
+      - name: Run USDCx bridge loops and read-only 1Click preflight
+        if: ${{ !cancelled() && !inputs.swaps_only && steps.native-roundtrip.outcome == 'success' && steps.swap-recover.outputs.recovery_only != 'true' }}
         run: |
           set -e
-          E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
           E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-bridge-loop xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
           if [ "${MAINNET_ONE_CLICK_ENABLED:-}" = true ]; then
             MAINNET_ONE_CLICK_MODE=preflight E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-preflight xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
@@ -282,6 +371,8 @@ jobs:
             test-results/mainnet-1click-execute/
             test-results/mainnet-1click-state/
             test-results/mainnet-spend.json
+            test-results/mainnet-swap-summary.json
+            test-results/mainnet-swap-summary.md
           retention-days: 90
           if-no-files-found: ignore
 
@@ -290,7 +381,7 @@ jobs:
     needs: mainnet-nightly
     # After the main job, failed or not: the two share the plain account and the Ethereum key, so they never overlap.
     # !cancelled() rather than always(), so cancelling the run does not start a funded loop.
-    if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}
+    if: ${{ !cancelled() && !inputs.swaps_only && needs.mainnet-nightly.outputs.started == 'true' && needs.mainnet-nightly.outputs.recovery_only != 'true' }}
     # It mostly waits on the exit: up to 120 minutes for its claim after the bridge-out, inside a 165-minute test.
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}

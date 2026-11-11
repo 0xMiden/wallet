@@ -16,7 +16,7 @@ import {
 export function checkpoint(): MainnetSwapCheckpoint {
   return {
     version: 1, network: 'mainnet', account: 'mm1dedicatedaccount', sourceRunId: '123', phase: 'forward-authorized',
-    createdAt: '2026-11-11T12:00:00.000Z', updatedAt: '2026-11-11T12:00:00.000Z',
+    createdAt: '2026-11-11T12:00:00.000Z', pricedAt: '2026-11-11T12:00:00.000Z', updatedAt: '2026-11-11T12:00:00.000Z',
     offer: { faucetId: 'mm1a', hex: '0x' + '1'.repeat(30), symbol: 'USDCX', decimals: 6, balance: '10000000', usdMicros: '1000000' },
     request: { faucetId: 'mm1b', hex: '0x' + '2'.repeat(30), symbol: 'ETH', decimals: 8, balance: '123', usdMicros: '3000000000' },
     native: { faucetId: 'mm1a', hex: '0x' + '1'.repeat(30), symbol: 'USDCX', decimals: 6, balance: '10000000', usdMicros: '1000000' },
@@ -40,6 +40,14 @@ describe('durable nightly swap authorization', () => {
     expect(loadMainnetSwapCheckpoint(path)).toMatchObject(checkpoint());
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFileSync(path, 'utf8')).not.toContain('key');
+  });
+  it('accepts the routing suffix emitted by the mainnet SDK address formatter', () => {
+    const c = checkpoint();
+    c.account = 'mm1dedicatedaccount_qr7qqq9wr6w';
+    c.offer.faucetId = c.native.faucetId = 'mm1a_qr7qqq9wr6w';
+    const path = join(dir, 'state.json');
+    saveMainnetSwapCheckpoint(path, c);
+    expect(loadMainnetSwapCheckpoint(path)?.account).toBe(c.account);
   });
   it('distinguishes missing from corrupt state', () => {
     const path = join(dir, 'state.json');

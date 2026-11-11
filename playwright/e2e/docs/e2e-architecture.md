@@ -14,6 +14,16 @@ The rest of this page walks through each group of tests: what it verifies, which
 
 ---
 
+## Funded mainnet solver swap loop
+
+`e2e-mainnet-nightly.yml` runs `mainnet-swap-loop.spec.ts` against the live mainnet solver with the existing funded Guardian account. It discovers priced supported pairs, compares funded routes, and tests amounts from $1.00 to $2.00 in eight bounded steps. Both offers must clear the wallet's $1 minimum. The cheapest viable round trip wins; the $2 loss ceiling includes spread and bounded network fees and is not a spending target. The return uses only this loop's claimed proceeds, leaving existing intermediate tokens untouched. Principal is recycled; fees are not replenished automatically.
+
+The stages are **recover -> prepare -> upload authorization -> forward -> upload return authorization -> reverse**. Recovery precedes every other action on the shared Guardian account. Authorizations and final checkpoints are separate 90-day artifacts, including failed runs. Discovery searches every branch's runs of the same workflow and never skips a newer potentially funded run to use an older complete checkpoint. An expired, missing or ambiguous submission record stops spending. No seed, key, browser profile, trace, video or screenshot is uploaded.
+
+A restored order resumes its original Auto accept intent only after its account, pair, amounts and order identity match the checkpoint. Filled paybacks must reconcile with settled vault balances and actual native fees. Unfilled principal can be reclaimed, and sufficiently large partial proceeds can be returned within the remaining budget; a cancellation is not passing swap coverage. Intermediate dust below the $1 minimum, an ambiguous submission or an exhausted recovery budget needs operator intervention. A recovery-only night reports incomplete fresh coverage and does not run unrelated sends or bridges on changing balances.
+
+For a low-cost acceptance run, dispatch the existing workflow on the intended ref with `swaps_only=true`; it keeps the same global concurrency lock and skips send/bridge costs. Never rerun a funded job with `gh run rerun`: create a new workflow dispatch so recovery inspects its prior attempt. To investigate a stop, download that run's `mainnet-swap-final-<run_id>` (or its latest authorization), inspect `roundtrip.json` and the summary, and verify the recorded order and claims on chain before making any manual recovery transaction. Do not delete the checkpoint or replace it with an older successful one to unblock a run.
+
 ## The cast of characters
 
 A short glossary so the diagrams read clearly:
