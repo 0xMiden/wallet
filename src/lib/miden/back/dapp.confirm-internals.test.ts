@@ -32,7 +32,8 @@ _g.__dappConfInternals = {
         senderAccountId: 's1',
         nullifier: 'nf1',
         state: 0,
-        assets: [{ faucetId: 'faucet-1', amount: '50' }]
+        assets: [{ faucetId: 'faucet-1', amount: '50' }],
+        standardPayment: true
       }
     ]),
     getConsumableNotes: jest.fn(async () => []),

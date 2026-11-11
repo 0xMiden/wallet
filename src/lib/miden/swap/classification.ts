@@ -113,8 +113,12 @@ export async function classifySwapOrderSnapshot(
       let depth = currentDepth;
       if (noteId === currentTipNoteId) role = 'tip';
       else {
+        // A payback is a P2ID note, so only a standard payment can be one. The order id is
+        // public (every payback carries it), so anyone can put this attachment on a note.
+        // Without the script check, a note with any script and a copied attachment is
+        // settled unattended, and its script runs against this account's vault (#2118).
         const attached = note.swapAttachment;
-        if (attached?.orderId === orderId && attached.depth <= currentDepth) {
+        if (note.standardPayment === true && attached?.orderId === orderId && attached.depth <= currentDepth) {
           role = 'payback';
           depth = attached.depth;
         }
