@@ -60,14 +60,31 @@ interface OneClickMidenBalance {
   after: bigint;
 }
 
-export function assertOneClickMidenBalances(_evidence: {
+export function assertOneClickMidenBalances(evidence: {
   principal: OneClickMidenBalance;
   native: OneClickMidenBalance;
   sent: bigint;
   received: bigint;
   paidFees: bigint;
 }): void {
-  throw new Error('Miden principal and fee reconciliation is not implemented');
+  const { principal, native, sent, received, paidFees } = evidence;
+  const amounts = [principal.before, principal.after, native.before, native.after, sent, received, paidFees];
+  if (
+    amounts.some(value => typeof value !== 'bigint' || value < 0n) ||
+    [principal.identity, native.identity].some(id => !/^[a-z0-9:_-]{1,160}$/.test(id))
+  ) throw new Error('Invalid Miden principal or fee evidence');
+  const sameAsset = principal.identity === native.identity;
+  if (sameAsset && (principal.before !== native.before || principal.after !== native.after))
+    throw new Error('Conflicting Miden snapshots for the same asset');
+  const principalFees = sameAsset ? paidFees : 0n;
+  const nativeSent = sameAsset ? sent : 0n;
+  const nativeReceived = sameAsset ? received : 0n;
+  if (principal.before < sent + principalFees || native.before < paidFees + nativeSent)
+    throw new Error('The pre-existing Miden balances do not cover principal and fees');
+  if (
+    principal.after !== principal.before - sent + received - principalFees ||
+    native.after !== native.before - nativeSent + nativeReceived - paidFees
+  ) throw new Error('Miden balances do not match correlated principal and actual fee receipts');
 }
 
 export interface OneClickLegBound {
