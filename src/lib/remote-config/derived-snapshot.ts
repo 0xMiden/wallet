@@ -342,9 +342,9 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   }
   const indexer = probe(agglayer.indexer, yes);
   const allocator = probe(epoch.allocator, yes);
-  // A copy stored by a build that read no allocator account has no such probe, so it reads as missing and is derived
-  // again.
-  const allocatorAccountRead = probe(epoch.allocatorAccount, allocatorAccount);
+  // Old builds did not store this optional probe; keep their other reads intact.
+  const allocatorAccountRead: Probe<EpochAllocatorAccount> | null =
+    epoch.allocatorAccount === undefined ? { state: 'absent' } : probe(epoch.allocatorAccount, allocatorAccount);
   const earnMarket = probe(epoch.market, market);
   const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   // A copy stored by a build that read no swap pairs has no such probe, so it reads as missing and is derived again.
