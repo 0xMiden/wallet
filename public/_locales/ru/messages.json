@@ -823,6 +823,10 @@
     "message": "Этот обзор был подготовлен для другого депозитного токена. Вернитесь и введите сумму заново.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "В залоговой note необходимо использовать проверенный токен, проверенную сумму и настроенный аллокатор. Ничего не было отправлено. Вернитесь и попробуйте ещё раз.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"

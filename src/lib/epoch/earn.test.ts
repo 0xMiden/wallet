@@ -2,9 +2,11 @@ import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
-import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
+import { EpochCollateralNoteMismatchError } from './collateral-guard';
 import {
   type OpenEarnPositionArgs,
   openEarnPosition,
@@ -17,9 +19,18 @@ import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
-import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
+import {
+  TEST_ALLOCATOR_ACCOUNT,
+  TEST_ALLOCATOR_URL,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EARN_MARKET,
+  TEST_EVM_CHAIN_ID,
+  TEST_MIDEN_USDC
+} from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { AAVE_V3_LISTING } from './testing/pools-fixtures';
+
+const mockGetBridgeConfigSnapshot = jest.fn<BridgeConfigSnapshot, []>();
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -36,13 +47,47 @@ jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockGetBridgeConfigSnapshot() }));
 jest.mock('lib/remote-config/values', () =>
-  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+  jest
+    .requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config')
+    .remoteConfigValuesMock(() => mockGetBridgeConfigSnapshot())
 );
 
 const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
 const SPONSOR = '0x1111111111111111111111111111111111111111';
+
+function bridgeSnapshot(allocatorUrl: string | undefined, accountId: string | undefined): BridgeConfigSnapshot {
+  const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const config = snapshot.config;
+  const derived = snapshot.derived;
+  if (!config || !derived || !config['bridge-providers'].epoch) throw new Error('incomplete bridge fixture');
+  const epochConfig = { ...config['bridge-providers'].epoch };
+  if (allocatorUrl === undefined) delete epochConfig.allocatorUrl;
+  else epochConfig.allocatorUrl = allocatorUrl;
+  return {
+    ...snapshot,
+    config: {
+      ...config,
+      'bridge-providers': {
+        ...config['bridge-providers'],
+        epoch: epochConfig
+      }
+    },
+    derived: {
+      ...derived,
+      epoch: {
+        ...derived.epoch,
+        allocatorAccount: accountId === undefined ? { state: 'absent' } : { state: 'ok', value: { accountId } }
+      }
+    }
+  };
+}
+
+beforeEach(() => {
+  mockGetBridgeConfigSnapshot.mockReturnValue(TEST_BRIDGE_CONFIG_SNAPSHOT);
+});
 
 /**
  * The gating is asymmetric on purpose: only the DESTINATION leg can declare
@@ -552,6 +597,27 @@ describe('openEarnPosition guards', () => {
     expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, 'https://allocator.test');
   });
 
+  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+    const changedSnapshot = bridgeSnapshot('https://other-allocator.test', '0x0000000000000000000000000000ee');
+    mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        mockGetBridgeConfigSnapshot.mockReturnValue(changedSnapshot);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+
+    await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, TEST_ALLOCATOR_URL);
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ allocatorUrl: TEST_ALLOCATOR_URL, allocatorId: TEST_ALLOCATOR_ACCOUNT })
+    );
+  });
+
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {
     const spendingLimitAuthorization = {
       kind: 'usd' as const,
@@ -578,7 +644,7 @@ describe('openEarnPosition guards', () => {
       getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
       getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
       solveIntent: jest.fn(async options => {
-        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
         return { nonce: 'nonce-1' };
       })
     } as never);
@@ -667,7 +733,7 @@ describe('openEarnPosition guards', () => {
       getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
       getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
       solveIntent: jest.fn(async options => {
-        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
         return { nonce: 'nonce-1' };
       })
     } as never);
@@ -684,17 +750,66 @@ describe('openEarnPosition guards', () => {
     );
   });
 
-  it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {
-    jest.mocked(getEpochAllocatorUrl).mockImplementationOnce(() => {
-      throw new Error('no allocator');
+  describe('the collateral note request', () => {
+    let noteResult: unknown;
+
+    const requestNote = (faucet: string, amount: string, allocatorId: string) => {
+      mockGetSdk.mockResolvedValue({
+        getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+        getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+        solveIntent: jest.fn(async options => {
+          noteResult = await options.createMidenP2IDENote(faucet, amount, allocatorId, 5_000, [1n]);
+          return { nonce: 'nonce-1' };
+        })
+      } as never);
+    };
+
+    beforeEach(() => {
+      noteResult = undefined;
+      mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
     });
 
-    // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
+    it('builds the note for the reviewed collateral, the reviewed amount and the configured allocator', async () => {
+      requestNote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT);
+
+      await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+      expect(noteResult).toEqual({ success: true, noteId: 'note-1' });
+      expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          faucetId: TEST_MIDEN_USDC.faucetId,
+          amount: '1000000',
+          allocatorId: TEST_ALLOCATOR_ACCOUNT
+        })
+      );
+    });
+
+    it.each([
+      ['another faucet', '0x0000000000000000000000000000ff', '1000000', TEST_ALLOCATOR_ACCOUNT, 'faucet'],
+      ['another amount', TEST_MIDEN_USDC.faucetId, '999999', TEST_ALLOCATOR_ACCOUNT, 'amount'],
+      ['another allocator', TEST_MIDEN_USDC.faucetId, '1000000', '0x0000000000000000000000000000ee', 'allocator']
+    ])('builds no note for %s and fails with the named error', async (_label, faucet, amount, allocatorId, field) => {
+      requestNote(faucet, amount, allocatorId);
+
+      const failure = openEarnPosition(baseArgs());
+      await expect(failure).rejects.toBeInstanceOf(EpochCollateralNoteMismatchError);
+      await expect(failure).rejects.toMatchObject({ field });
+
+      expect(noteResult).toEqual({ success: false });
+      expect(mockCreateEarnP2IDENote).not.toHaveBeenCalled();
+      expect(mockUpdateStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {
+    const snapshot = bridgeSnapshot(undefined, TEST_ALLOCATOR_ACCOUNT);
+    expect(snapshot.config?.['bridge-providers'].epoch).not.toHaveProperty('allocatorUrl');
+    mockGetBridgeConfigSnapshot.mockReturnValue(snapshot);
     let pending: Promise<unknown> | undefined;
     expect(() => {
       pending = openEarnPosition(baseArgs());
     }).not.toThrow();
-    await expect(pending).rejects.toThrow('no allocator');
+    await expect(pending).rejects.toMatchObject({ name: 'BridgeConfigUnavailableError', value: 'epoch.allocatorUrl' });
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });
