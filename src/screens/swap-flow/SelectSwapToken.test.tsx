@@ -194,6 +194,25 @@ afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
 
+it.each([undefined, IETH.faucetId])(
+  'shows no $0.00 while the balance read is unresolved and the BTC quote is ready (partnersOf=%s)',
+  partnersOf => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } }, tokenPricesStatus: 'ready' };
+    const unread = { data: [], isLoading: true, isValidating: true, mutate: jest.fn() };
+    mockUseAllBalances.mockReturnValue(unread);
+    const { onSelect } = renderDrawer({ partnersOf });
+
+    const row = tokenButton('IBTC');
+    expect(within(row).queryByText('$0.00')).not.toBeInTheDocument();
+    expect(within(row).getByText('loading')).toBeInTheDocument();
+    expect(within(row).queryByText('0.00 IBTC')).not.toBeInTheDocument();
+    expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(IBTC);
+  }
+);
+
 describe('SelectSwapTokenDrawer', () => {
   it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
     renderDrawer();

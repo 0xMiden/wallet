@@ -224,6 +224,21 @@ afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
 });
 
+it('shows no $0.00 for an unread known-scale row when the quote is ready', () => {
+  mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+  const unread = {
+    data: [{ ...BTC, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+});
+
 describe('SelectTokenDrawer', () => {
   it('disables other tokens when the destination requires USDCx', () => {
     const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };
