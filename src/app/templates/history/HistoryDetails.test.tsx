@@ -3438,6 +3438,17 @@ describe('HistoryDetails', () => {
       });
     });
 
+    // A retry would execute the same request and be refused again (#2147). The real predicate, so this says the
+    // hook hands it the row's refusal.
+    it('withholds Retry for a row whose proposal signing refused', async () => {
+      const { isRequeueableTransaction } = jest.requireActual('lib/miden/transaction/retry');
+      mockIsRequeueableTransaction.mockImplementation(isRequeueableTransaction);
+      setMockRow(failedSendTx({ proposalEffectRefused: true }));
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-retry-button')).toBeNull();
+    });
+
     it('withholds Retry for a row the user cancelled by hand', async () => {
       setMockRow(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
       await renderAndLoad();

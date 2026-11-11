@@ -133,15 +133,19 @@ export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>)
  * behind it to confirm; hence the hard exclusion above.
  *
  * Unconfirmed too: Retry is the exit while no verdict exists (#1081).
+ *
+ * A row whose proposal signing refused for moving more than was approved is excluded too: its retry
+ * would execute the same request and be refused again (#2147).
  */
 export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
   restoredFromBackup?: boolean;
+  proposalEffectRefused?: boolean;
 }): boolean => {
   if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
-  if (tx.restoredFromBackup) return false;
+  if (tx.restoredFromBackup || tx.proposalEffectRefused) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
   return true;

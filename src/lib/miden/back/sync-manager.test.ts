@@ -299,7 +299,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
-import { SyncData, WalletMessageType } from 'lib/shared/types';
+import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 import { startTransactionProcessing } from './transaction-processor';
@@ -317,13 +317,15 @@ function fakeNote({
   faucetId = 'faucet-1',
   amount = '100',
   senderId = 'sender-1',
-  noteType = 0
+  noteType = 0,
+  standardPayment = true
 }: {
   id?: string | null;
   faucetId?: string;
   amount?: string;
   senderId?: string | undefined;
   noteType?: number | undefined;
+  standardPayment?: boolean;
 } = {}): any {
   return {
     noteId: id,
@@ -332,7 +334,8 @@ function fakeNote({
     senderAccountId: senderId,
     state: 2,
     assets: [{ faucetId, amount }],
-    swapAttachment: null
+    swapAttachment: null,
+    standardPayment
   };
 }
 
@@ -1172,10 +1175,12 @@ describe('doSync — note metadata branches', () => {
     ]);
     await doSync();
     const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
-    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([
-      ['standard', true],
-      ['custom', false]
-    ]);
+    // A custom-script note that is no swap order of this wallet is not this account's
+    // to claim (#2118), so the list holds only the standard payment.
+    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([['standard', true]]);
+    expect(
+      mockStorageSet.mock.calls.at(-1)?.[0]?.miden_cached_consumable_notes.map((n: SerializedConsumableNote) => n.id)
+    ).toEqual(['standard']);
   });
 
   it('worker single-asset notes preserve explicit asset knowledge', async () => {
@@ -1752,6 +1757,20 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[1]![1] as { id: string }[]).toHaveLength(8);
     const queued = mockInitiateConsumeBatch.mock.calls.flatMap(call => (call[1] as { id: string }[]).map(n => n.id));
     expect(new Set(queued).size).toBe(16);
+  });
+
+  it("claims only standard payments, never another trader's PSWAP order (#2118)", async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 7;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'payment', faucetId: 'native-faucet', amount: '1000000' }),
+      fakeNote({ id: 'pswap-order', faucetId: 'native-faucet', amount: '1000000', standardPayment: false }),
+      { ...fakeNote({ id: 'unflagged', faucetId: 'native-faucet', amount: '1000000' }), standardPayment: undefined }
+    ]);
+    await doSync();
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'payment' })]);
   });
 
   it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
@@ -2513,6 +2532,78 @@ describe('doSync - expired swap order settlement', () => {
       expect(refusedOrder?.extraInputs).not.toHaveProperty('settledAt');
       expect(refusedOrder?.extraInputs).not.toHaveProperty('reclaimedAt');
       expect(feeContext).toHaveBeenCalledWith('pk-1');
+    } finally {
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  // The order id is public, so anyone can copy a payback's attachment onto a note of their own (#2147).
+  it('takes a copy of a settled payback for the ordinary payment it is, under the native claim floor', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    mockBaseFee = 10000;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    await Repo.transactions.put({
+      ...partFilledOrderRow,
+      extraInputs: { ...partFilledOrderRow.extraInputs, requestedFaucetId: 'native-faucet' }
+    });
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [{ ...partFilledLineage, state: () => 1 }] } }
+    }));
+    const attached = (note: ReturnType<typeof fakeNote>) => ({ ...note, swapAttachment: { orderId: '77', depth: 1 } });
+    const cachedNotes = () =>
+      mockStorageSet.mock.calls.filter(call => 'miden_cached_consumable_notes' in call[0]).at(-1)?.[0]
+        .miden_cached_consumable_notes;
+    try {
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'payback', faucetId: 'native-faucet', amount: '10000' }))
+      ]);
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['payback']);
+      const [claim] = await Repo.transactions.where('noteIds').equals('payback').toArray();
+      expect(claim?.extraInputs).toEqual(
+        expect.objectContaining({
+          swapOrderTxId: 'swap-1',
+          swapSettleKind: 'settle',
+          swapPaybackDepths: { payback: 1 }
+        })
+      );
+      await Repo.transactions.update(claim!.id, { status: ITransactionStatus.Completed });
+
+      // The payback is spent, and copies of its attachment arrive: one on dust of the fee token, one on another token.
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'copy-dust', faucetId: 'native-faucet', amount: '1' })),
+        attached(fakeNote({ id: 'copy-token', faucetId: 'worthless', amount: '1' }))
+      ]);
+      await doSync();
+
+      // Neither settles: the dust is worth less than its fee, and another token is the user's to accept.
+      expect(await queuedClaimNoteIds()).toEqual(['payback']);
+      expect(cachedNotes()).toEqual([
+        expect.objectContaining({ id: 'copy-dust', swapOrder: undefined }),
+        expect.objectContaining({ id: 'copy-token', swapOrder: undefined })
+      ]);
+
+      // Beside enough of the fee token, the native auto-consume claims the copy with it, as a payment.
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'copy-dust', faucetId: 'native-faucet', amount: '1' })),
+        fakeNote({ id: 'payment', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+      await doSync();
+
+      const [autoClaim] = await Repo.transactions.where('noteIds').equals('copy-dust').toArray();
+      expect([...(autoClaim?.noteIds ?? [])].sort()).toEqual(['copy-dust', 'payment']);
+      expect(autoClaim?.extraInputs?.swapOrderTxId).toBeUndefined();
     } finally {
       feeContext.mockReset();
       feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);

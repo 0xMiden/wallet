@@ -1,8 +1,10 @@
 name: Release E2E
 
 # Starts the release E2E jobs: the testnet E2E suites that used to run on every
-# push to main (#1714). Each one queued hours of runner time per merge, so they
-# run here instead, against one ref at a time:
+# push to main (#1714), and e2e-upgrade, which updates a mainnet wallet from the
+# previous full release to the ref and checks its balances (#2086). Each one
+# queued hours of runner time per merge, so they run here instead, against one
+# ref at a time:
 #
 #   schedule            main, nightly
 #   workflow_dispatch   the `ref` input (a branch or a tag; default main)
@@ -19,7 +21,7 @@ name: Release E2E
 # GITHUB_TOKEN can start them: a workflow_dispatch it creates does start a run.
 # The nightly leaves out e2e-resilience and e2e-usdcx-live, whose own crons
 # (05:00 and 03:17 UTC) are main's nightly run; a dispatch or a release runs all
-# fourteen. next's suite has its own nightly, next-e2e-devnet.yml.
+# fifteen. next's suite has its own nightly, next-e2e-devnet.yml.
 #
 # This job only dispatches: a dispatch that fails fails it, naming the suite and
 # the ref. Each suite's own run, on its own workflow page, is the test result and
@@ -70,6 +72,7 @@ jobs:
           e2e-dapp-browser.yml
           e2e-resilience.yml
           e2e-telemetry.yml
+          e2e-upgrade.yml
           e2e-usdcx.yml
           e2e-usdcx-live.yml
           pr-e2e-bridge-guardian.yml

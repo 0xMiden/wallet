@@ -13,7 +13,7 @@ import {
   ITransactionStatus,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
-import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded, someInCauseChain } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -591,6 +591,37 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/**
+ * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
+ * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
+ * and is kept as the row's raw error; `displayMessage` is the localized sentence the row shows. Matched by identity
+ * ahead of every text classifier, so no requeue arm reads it as transient.
+ */
+export class ProposalEffectRefusedError extends Error {
+  constructor(
+    readonly transactionType: string,
+    detail: string,
+    readonly displayMessage: string,
+    options?: { cause?: unknown }
+  ) {
+    super(`Refused to sign this ${transactionType} transaction: ${detail}`, options);
+    this.name = 'ProposalEffectRefusedError';
+  }
+}
+
+/**
+ * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
+ * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
+ * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
+ * marks the failure an outage.
+ */
+export class ProposalFeeUnknownError extends Error {
+  constructor() {
+    super('The chain fee is not known yet, so this proposal was not signed.');
+    this.name = 'ProposalFeeUnknownError';
+  }
+}
+
 // Hedged: the proposal stages call the node as well as the guardian.
 export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
@@ -601,14 +632,17 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
  * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
- * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
- * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
+ * in the cause chain is never an outage. An unknown chain fee anywhere below that is: the next attempt can learn it.
+ * Otherwise a Guardian request timeout anywhere in the chain always is, ahead of the kernel-failure exclusions,
+ * because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
-  if (error instanceof RotationGateConsumeRefusal) return false;
+  if (error instanceof RotationGateConsumeRefusal || error instanceof ProposalEffectRefusedError) return false;
   // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
   // sent (#1313).
   if (isKilledPipeline(error)) return false;
+  // After the kill, so a kill that wraps this class stays a kill. Before the transport text, so the class decides.
+  if (someInCauseChain(error, link => link instanceof ProposalFeeUnknownError)) return true;
   // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
   // below cannot see.
   if (isGuardianRequestTimeout(error)) return true;
@@ -712,6 +746,9 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
   if (isSubmitCrossingUnrecorded(error)) {

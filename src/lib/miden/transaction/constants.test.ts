@@ -35,6 +35,8 @@ import {
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
+  ProposalEffectRefusedError,
+  ProposalFeeUnknownError,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -676,6 +678,37 @@ describe('RotationGateConsumeRefusal', () => {
   it('is never read as a guardian outage, whatever its text (#779)', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
+  });
+});
+
+describe('ProposalEffectRefusedError', () => {
+  // A raw text a classifier would take for an outage or a shortfall, so only the identity check can name it.
+  const refusal = new ProposalEffectRefusedError(
+    'consume',
+    'connection reset; amount of the asset in the vault is less than the amount to remove',
+    'Localized refusal'
+  );
+
+  it('shows its localized sentence at any stage and keeps the type and detail as its raw text', () => {
+    expect(resolveTransactionErrorMessage(refusal, 'creating-proposal')).toBe('Localized refusal');
+    expect(resolveTransactionErrorMessage(refusal, 'proving', true)).toBe('Localized refusal');
+    expect(formatRawTransactionError(refusal)).toContain('Refused to sign this consume transaction: connection reset');
+  });
+
+  it('is never read as a guardian outage, so no requeue arm retries it (#2147)', () => {
+    expect(isGuardianOutage(new ProposalEffectRefusedError('execute', 'connection reset by peer', 'Localized'))).toBe(
+      false
+    );
+  });
+});
+
+describe('ProposalFeeUnknownError', () => {
+  it('is an outage, and a kill wrapping it is not', () => {
+    const unknown = new ProposalFeeUnknownError();
+    const wrapped = Object.assign(new Error('could not read the chain fee'), { cause: unknown });
+    expect(isGuardianOutage(unknown)).toBe(true);
+    expect(isGuardianOutage(wrapped)).toBe(true);
+    expect(isGuardianOutage(new WasmClientPoisonedError('realm-error', unknown))).toBe(false);
   });
 });
 

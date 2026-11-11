@@ -71,6 +71,8 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(), queueNoteImport: jest.fn() }));
+// This proposal carries no summary; the signing-time effect check has its own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({ assertProposalEffectApproved: async () => {} }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: async () => 'usdcx-faucet'
