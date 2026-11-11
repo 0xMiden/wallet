@@ -180,7 +180,7 @@ describe('consume', () => {
       outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
       unlisted: 1
     });
-    expect(refusalOf(claim, nftOut)).toBe('an NFT of bech32:fN leaves (approved none)');
+    expect(refusalOf(claim, nftOut)).toBe('an unapproved NFT of bech32:fN leaves');
     expect(refusalOf(claim, summary({ unlisted: 1 }))).toBe('1 vault change(s) the summary does not list');
   });
 
@@ -228,15 +228,23 @@ describe('execute', () => {
     );
   });
 
-  it('refuses an NFT leaving, since no row records an approved NFT outflow', () => {
-    const nftOut = summary({
-      removed: [fa('usdcx', 2n)],
-      outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
-      unlisted: 1
-    });
-    expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 100n }]), nftOut)).toBe(
-      'an NFT of bech32:fN leaves (approved none)'
-    );
+  // The decoder keys an NFT by its complete identity (`nftKey`), here `fN|n1`.
+  const nftOut = summary({
+    removed: [fa('usdcx', 2n)],
+    outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
+    unlisted: 1
+  });
+  const withNfts = (approvedNftOutflow?: string[]) =>
+    row({ ...execute([{ faucetId: 'bech32:fA', amount: 100n }]), approvedNftOutflow });
+
+  it('passes an NFT its approval showed leaving', () => {
+    expect(refusalOf(withNfts(['fN|n1']), nftOut)).toBeUndefined();
+  });
+
+  it('refuses an NFT its approval did not show, from the same faucet or on a row that recorded none', () => {
+    expect(refusalOf(withNfts(['fN|n2']), nftOut)).toBe('an unapproved NFT of bech32:fN leaves');
+    expect(refusalOf(withNfts([]), nftOut)).toBe('an unapproved NFT of bech32:fN leaves');
+    expect(refusalOf(withNfts(undefined), nftOut)).toBe('an unapproved NFT of bech32:fN leaves');
   });
 
   it('lets a row approved with unknown effects pay only its fee', () => {

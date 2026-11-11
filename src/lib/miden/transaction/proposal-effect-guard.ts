@@ -8,19 +8,31 @@ import { canonicalWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isKilledPipeline } from '../sdk/sdk-error-code';
 
-/**
- * What a row of a checked type may move out of the account beyond the network fee, by faucet. A type with no entry is
- * not checked. No row records an approved NFT outflow, so every checked type allows none.
- */
-const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => AssetAmount[]>> = {
+/** What a row may move out of the account beyond the network fee: amounts by faucet, and NFTs by `nftKey`. */
+interface Allowance {
+  outflow: AssetAmount[];
+  nfts: readonly string[];
+}
+
+/** The allowance of each checked type. A type with no entry is not checked. */
+const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
-    return purchase ? [{ faucetId: purchase.payFaucetId, amount: BigInt(purchase.fillAmount) }] : [];
+    return {
+      outflow: purchase ? [{ faucetId: purchase.payFaucetId, amount: BigInt(purchase.fillAmount) }] : [],
+      nfts: []
+    };
   },
-  // The approval-time dry run's outflow. A dry run that failed recorded none, so such a row may move nothing.
-  execute: transaction =>
-    (transaction.spentAssetTotals ?? []).map(asset => ({ faucetId: asset.faucetId, amount: BigInt(asset.amount) }))
+  // What the approval-time dry run showed leaving. A dry run that failed recorded none, and a row queued before NFTs
+  // were recorded has none, so such a row may move nothing.
+  execute: transaction => ({
+    outflow: (transaction.spentAssetTotals ?? []).map(asset => ({
+      faucetId: asset.faucetId,
+      amount: BigInt(asset.amount)
+    })),
+    nfts: transaction.approvedNftOutflow ?? []
+  })
 };
 
 const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
@@ -29,22 +41,26 @@ const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[typ
  * Why `view` moves more than `transaction` was approved to move, or undefined when it does not (or its type is not
  * checked).
  *
- * The outflow is the summary's NET vault change with the fee taken out (`summaryToView`), and no credit is applied for
- * notes the request brought in: the net change already counts every note the transaction consumed, so crediting them
- * again would let a request that consumes a note it carries send that much more than it showed.
+ * The outflow is the summary's NET vault change with the fee taken out (`summaryToView`), the figure an approval records
+ * for a summary view. No credit is applied for notes the request brought in: the net change already counts every note
+ * the transaction consumed, so crediting them again would let a request send that much more than it showed.
  */
 export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetView): string | undefined {
   const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
   if (allowedOutflow === undefined) return undefined;
+  const allowance = allowedOutflow(transaction);
   const allowed = new Map<string, bigint>();
-  for (const asset of allowedOutflow(transaction)) {
+  for (const asset of allowance.outflow) {
     const faucetId = canonicalWalletAccountId(asset.faucetId);
     allowed.set(faucetId, (allowed.get(faucetId) ?? 0n) + asset.amount);
   }
   const reasons = netOutflowByFaucet(view)
     .filter(asset => asset.amount > (allowed.get(asset.faucetId) ?? 0n))
     .map(asset => `${asset.amount} of ${asset.faucetId} leaves (approved ${allowed.get(asset.faucetId) ?? 0n})`);
-  for (const nft of view.outgoingNfts) reasons.push(`an NFT of ${nft.faucetId} leaves (approved none)`);
+  const allowedNfts = new Set(allowance.nfts);
+  for (const nft of view.outgoingNfts) {
+    if (nft.key === undefined || !allowedNfts.has(nft.key)) reasons.push(`an unapproved NFT of ${nft.faucetId} leaves`);
+  }
   // A vault change the summary cannot list may be an asset leaving, so it is never taken as nothing moving.
   if (view.unlistedAssets > 0) reasons.push(`${view.unlistedAssets} vault change(s) the summary does not list`);
   return reasons.length > 0 ? reasons.join('; ') : undefined;

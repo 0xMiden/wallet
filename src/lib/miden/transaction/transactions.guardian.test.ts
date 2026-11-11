@@ -14950,6 +14950,48 @@ describe('Guardian proposal effect check', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
 
+  // An NFT as the SDK hands it over; the decoder keys it by its faucet and complete value word.
+  const nftAsset = (faucet: string, word: string) => ({
+    faucetId: () => ({ __faucet: faucet }),
+    intoWord: () => ({ toHex: () => word })
+  });
+  const sendsNft = {
+    accountDelta: () => ({
+      id: () => 'guardian-acc',
+      vault: () => ({ removedFungibleAssets: () => [], addedFungibleAssets: () => [], numAssets: () => 1 }),
+      storage: () => ({ isEmpty: () => true })
+    }),
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    outputNotes: () => ({
+      numNotes: () => 1,
+      notes: () => [
+        { assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] }) }
+      ]
+    })
+  };
+
+  it.each([
+    ['the NFT its approval showed', ['fN|0xone'], ITransactionStatus.Completed],
+    ['an NFT its approval did not show', ['fN|0xtwo'], ITransactionStatus.Failed]
+  ])('signs a custom transaction sending %s, and only that one', async (_label, approvedNftOutflow, status) => {
+    mockDeserializeSummary.mockReturnValue(sendsNft);
+    const service = serviceWith({ id: 'prop-nft', nonce: 6, metadata: {}, txSummary: 'bmZ0' });
+
+    const row = await run({
+      id: `execute-nft-${status}`,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [],
+      approvedNftOutflow
+    });
+
+    expect(row.status).toBe(status);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledTimes(
+      status === ITransactionStatus.Completed ? 1 : 0
+    );
+  });
+
   it('flags a refused candidate whose abandon fails for the next proposal to retry (#1317)', async () => {
     mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
     const service = serviceWith(

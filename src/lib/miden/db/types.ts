@@ -876,6 +876,11 @@ export interface ITransaction {
    */
   spentAssetTotals?: IConsumedAssetTotal[];
   /**
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
+   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   */
+  approvedNftOutflow?: string[];
+  /**
    * What this row sent, in micro-dollars, as valued when it was queued.
    *
    * Stamped once and never revalued: the rolling window sums these, so a price move must not
@@ -1216,6 +1221,8 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[];
   spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
