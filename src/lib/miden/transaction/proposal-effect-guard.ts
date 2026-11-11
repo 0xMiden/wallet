@@ -1,8 +1,8 @@
 import { netOutflowByFaucet, summaryBytesToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
 
-import { ProposalEffectRefusedError } from './constants';
+import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, ITransaction, ITransactionType } from '../db/types';
 import { canonicalWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
@@ -89,8 +89,11 @@ export async function assertProposalEffectApproved(
     throw refusal(transaction, 'the proposal carries no transaction summary');
   }
   // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
-  // refuses, so it is looked up first rather than left to whatever this realm cached.
-  await getVerificationBaseFee();
+  // refuses, so it is looked up first rather than left to whatever this realm cached. A null while discovery failed
+  // or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a null
+  // the probe found absent, both continue; the decoder reads the fee the await just filled.
+  const chainFee = await getVerificationBaseFee();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) throw new ProposalFeeUnknownError();
   let view: TxAssetView;
   try {
     // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it.

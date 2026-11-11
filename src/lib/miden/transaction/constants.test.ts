@@ -32,6 +32,7 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   ProposalEffectRefusedError,
+  ProposalFeeUnknownError,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -624,6 +625,16 @@ describe('ProposalEffectRefusedError', () => {
     expect(isGuardianOutage(new ProposalEffectRefusedError('execute', 'connection reset by peer', 'Localized'))).toBe(
       false
     );
+  });
+});
+
+describe('ProposalFeeUnknownError', () => {
+  it('is an outage, and a kill wrapping it is not', () => {
+    const unknown = new ProposalFeeUnknownError();
+    const wrapped = Object.assign(new Error('could not read the chain fee'), { cause: unknown });
+    expect(isGuardianOutage(unknown)).toBe(true);
+    expect(isGuardianOutage(wrapped)).toBe(true);
+    expect(isGuardianOutage(new WasmClientPoisonedError('realm-error', unknown))).toBe(false);
   });
 });
 

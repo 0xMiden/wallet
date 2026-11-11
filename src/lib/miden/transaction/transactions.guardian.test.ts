@@ -366,7 +366,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
   // Unknown, so no output note is set aside as the fee note.
-  getVerificationBaseFeeSync: jest.fn(() => null)
+  getVerificationBaseFeeSync: jest.fn(() => null),
+  isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 
 let mockLegacyFeeIdentity: string | undefined;
@@ -14912,6 +14913,46 @@ describe('Guardian proposal effect check', () => {
       expect(row.proposalEffectRefused).toBe(true);
     }
   );
+
+  it('requeues a claim when the chain fee is not known yet, and fails a custom transaction at once', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    nativeAsset.getVerificationBaseFee.mockResolvedValue(null);
+    nativeAsset.isVerificationBaseFeeKnownAbsent.mockReturnValue(false);
+    try {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('usdcx', 2n)] }));
+      const claimService = serviceWith({ id: 'prop-fee', nonce: 9, metadata: {}, txSummary: 'ZmVl' });
+      const claim = await run({
+        id: 'claim-fee-unknown',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'note-1'
+      });
+      expect(claimService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(claimService.abandonCandidate).toHaveBeenCalledWith(9);
+      expect(claim.status).toBe(ITransactionStatus.Queued);
+      expect(claim.nextEligibleAt).toEqual(expect.any(Number));
+      expect(claim.proposalEffectRefused).toBeUndefined();
+
+      const executeService = serviceWith({ id: 'prop-fee-x', nonce: 3, metadata: {}, txSummary: 'ZmVl' });
+      const executed = await run({
+        id: 'execute-fee-unknown',
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4])
+      });
+      expect(executeService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(executeService.abandonCandidate).toHaveBeenCalledWith(3);
+      expect(executed.status).toBe(ITransactionStatus.Failed);
+      expect(executed.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+      expect(executed.nextEligibleAt).toBeUndefined();
+      expect(executed.proposalEffectRefused).toBeUndefined();
+    } finally {
+      nativeAsset.getVerificationBaseFee.mockReset();
+      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
+    }
+  });
 
   it('fails a custom transaction whose summary moves more than its approval showed, unsigned', async () => {
     mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', 101n)] }));

@@ -2,9 +2,13 @@ import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { summaryToView } from 'app/confirm/decode';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getVerificationBaseFee, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
+import {
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 
-import { ProposalEffectRefusedError } from './constants';
+import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { assertProposalEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -30,7 +34,8 @@ jest.mock('lib/shared/helpers', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
-  getVerificationBaseFee: jest.fn(async () => 2)
+  getVerificationBaseFee: jest.fn(async () => 2),
+  isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 // By the path the guard imports: a root manual mock shadows the `lib/` spelling of this module.
 jest.mock('../sdk/miden-client', () => ({
@@ -139,7 +144,11 @@ const givenSummary = (ts: Summary) => jest.mocked(TransactionSummary.deserialize
 beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(TransactionSummary.deserialize).mockReset();
+  jest.mocked(getVerificationBaseFee).mockReset();
+  jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
+  jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
+  jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
 });
 
 describe('consume', () => {
@@ -353,6 +362,47 @@ describe('assertProposalEffectApproved', () => {
     });
     await assertProposalEffectApproved(claim, 'sum');
     expect(order).toEqual(['fee', 'decode']);
+  });
+
+  it('rejects an unknown fee before it reads the summary', async () => {
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(false);
+    givenSummary(
+      summary({
+        removed: [fa('usdcx', 2n)],
+        added: [fa('fB', 50n)],
+        inputs: [note([fa('fB', 50n)])],
+        outputs: [feeNote(2n)]
+      })
+    );
+    await expect(assertProposalEffectApproved(claim, 'sum')).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('decodes a fee of 0, and refuses a known-absent fee the summary still counts as leaving', async () => {
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(0);
+    jest.mocked(getVerificationBaseFeeSync).mockReturnValue(0);
+    givenSummary(summary({}));
+    await expect(assertProposalEffectApproved(claim, 'sum')).resolves.toBeUndefined();
+    expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(1);
+
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(true);
+    jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+    givenSummary(
+      summary({
+        removed: [fa('usdcx', 2n)],
+        added: [fa('fB', 50n)],
+        inputs: [note([fa('fB', 50n)])],
+        outputs: [feeNote(2n)]
+      })
+    );
+    const refused = await assertProposalEffectApproved(claim, 'sum').catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: 'Refused to sign this consume transaction: 2 of bech32:usdcx leaves (approved 0)'
+    });
+    expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(2);
   });
 
   it('passes a plain claim and a custom transaction within its approval', async () => {
