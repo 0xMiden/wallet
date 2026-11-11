@@ -79,6 +79,7 @@ const note = (id: string, faucetId = 'native-faucet', extra: Record<string, unkn
   isBeingClaimed: false,
   type: 'Public',
   swapOrder: undefined,
+  standardPayment: true,
   ...extra
 });
 

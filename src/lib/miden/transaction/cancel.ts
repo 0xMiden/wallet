@@ -33,6 +33,7 @@ import {
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   PRE_SUBMIT_STAGES,
+  ProposalEffectRefusedError,
   resolveTransactionErrorMessage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -111,7 +112,9 @@ const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
-    : REPORTED_WALLET_REASONS.get(error);
+    : error instanceof ProposalEffectRefusedError
+      ? 'proposal_effect_refused'
+      : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
@@ -228,6 +231,7 @@ export const cancelTransaction = async (
   const failedStage = existing?.stage;
   const { displayError, rawError } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
+  const effectRefused = error instanceof ProposalEffectRefusedError;
   let applied = false;
   let racedTerminal = false;
   let attemptRefused = false;
@@ -255,6 +259,8 @@ export const cancelTransaction = async (
     dbTx.displayIcon = 'FAILED';
     // The node's verdict is recorded in the write that fails the row, so no reader sees it unmarked (#1233).
     if (nodeDiscarded) dbTx.extraInputs = { ...dbTx.extraInputs, nodeDiscarded: true };
+    // Retry is withheld from a refused proposal: the same effect would be refused again (#2147).
+    if (effectRefused) dbTx.proposalEffectRefused = true;
     // Copied from the row this write is committing, not from the `existing` read
     // above it, so a submit stamp that lands between that read and this write is
     // seen by the notice below (#1250).

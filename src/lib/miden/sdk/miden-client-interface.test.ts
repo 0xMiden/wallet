@@ -642,6 +642,7 @@ describe('MidenClientInterface', () => {
 
     const [note] = await client.getInputNoteDetails();
     expect(note?.assets).toEqual([]);
+    expect(note?.standardPayment).toBe(false);
     expect(note?.nonFungibleAssets).toEqual([{ faucetId: 'nft-faucet', assetId: '0xabababab\u2026ababab' }]);
   });
 
