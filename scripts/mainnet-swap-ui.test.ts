@@ -7,7 +7,8 @@ import {
   validateSwapReview,
   submitSwapOnce,
   resumeSwapAutoAcceptInPage,
-  runPreparedSwap
+  runPreparedSwap,
+  cachedSolverRegistry
 } from '../playwright/e2e/helpers/mainnet-swap-ui';
 
 const price = () => ({
@@ -87,6 +88,24 @@ describe('restoring one recovered swap automation setting', () => {
       expect(await setting()).toBe(false);
     }
   );
+});
+
+describe('accepted cached solver registry', () => {
+  const pairs = { tokens: [
+    { faucetId: `0x${'1'.repeat(30)}`, ticker: 'USDCX', decimals: 6, binanceAsset: 'USDC' },
+    { faucetId: `0x${'2'.repeat(30)}`, ticker: 'ETH', decimals: 8, binanceAsset: 'ETH' }
+  ], pairs: [{ faucetIds: [`0x${'1'.repeat(30)}`, `0x${'2'.repeat(30)}`] }] };
+  const config = { body: { network: 'mainnet', version: 18, swap: { etaUrl: 'https://solver.example/base/' } } };
+  const derived = { network: 'mainnet', version: 18, swap: { pairs: { state: 'ok', value: pairs } } };
+  it('uses the accepted registry even when hydration made no new HTTP request', () => {
+    expect(cachedSolverRegistry(config, derived)).toEqual({ service: 'https://solver.example/base', pairs });
+  });
+  it('refuses mismatched versions, networks, failed registry reads and insecure endpoints', () => {
+    expect(() => cachedSolverRegistry(config, { ...derived, version: 17 })).toThrow();
+    expect(() => cachedSolverRegistry(config, { ...derived, network: 'testnet' })).toThrow();
+    expect(() => cachedSolverRegistry(config, { ...derived, swap: { pairs: { state: 'error' } } })).toThrow();
+    expect(() => cachedSolverRegistry({ body: { ...config.body, swap: { etaUrl: 'http://solver.example' } } }, derived)).toThrow();
+  });
 });
 
 describe('read-only preparation versus possibly submitted swaps', () => {

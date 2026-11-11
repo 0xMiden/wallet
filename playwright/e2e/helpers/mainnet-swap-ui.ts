@@ -4,6 +4,7 @@ import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { SavedSwapHolding, SwapOrderEvidence } from './mainnet-swap-checkpoint';
 import type { SwapLegBound } from './mainnet-swap-plan';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from '../../../src/lib/miden/swap/slippage-bounds';
+import { parseSwapPairs, type SwapPairs } from '../../../src/lib/remote-config/swap-pairs';
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^\d{1,40}$/.test(value);
@@ -88,7 +89,15 @@ export function submitSwapOnce<T>(submit: () => Promise<T>): () => Promise<T> {
   };
 }
 
-export async function runPreparedSwap<T>(_prepare: () => Promise<() => Promise<T>>, _unspent: () => void): Promise<T> {
+export async function runPreparedSwap<T>(prepare: () => Promise<() => Promise<T>>, unspent: () => void): Promise<T> {
+  let submit: () => Promise<T>;
+  try { submit = await prepare(); }
+  catch (error) { unspent(); throw error; }
+  // A submission error can mean funds moved; only preparation proves non-submission.
+  return submit();
+}
+
+export function cachedSolverRegistry(_config: unknown, _derived: unknown): { service: string; pairs: SwapPairs } {
   throw new Error('not implemented');
 }
 

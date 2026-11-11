@@ -28,7 +28,7 @@ import {
   SWAP_TX_FEE_MULTIPLE,
   type SwapLoopPlan
 } from '../../helpers/mainnet-swap-plan';
-import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount } from '../../helpers/mainnet-swap-ui';
+import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount, runPreparedSwap } from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
 import { parseSwapPairs } from '../../../../src/lib/remote-config/swap-pairs';
 
@@ -498,42 +498,35 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   const leg = mode === 'forward' ? 'forward' : 'reverse';
   if (state.phase !== `${leg}-authorized` || state.authorizationRunId !== runId)
     throw new Error('This run has no authorization to submit that swap leg');
-  const live = await registry(walletB);
-  const before = await balances(walletB, state);
-  const baseline =
-    leg === 'forward'
-      ? { offer: state.offer.balance, request: state.request.balance, native: state.native.balance }
-      : state.returnBaseline;
-  if (
-    !baseline ||
-    before.offer.toString() !== baseline.offer ||
-    before.request.toString() !== baseline.request ||
-    before.native.toString() !== baseline.native
-  )
-    throw new Error('Balances changed since swap authorization');
-  if (
-    (await evidence(walletB)).orders.some(
-      row => !state!.knownOrderIds.includes(row.orderId) && row.orderId !== state!.forwardOrderId
-    )
-  )
+  const authorized = state;
+  if (leg === 'forward' ? authorized.forwardOrderId !== undefined : authorized.reverseOrderId !== undefined)
+    throw new Error('This swap already has an order; reconcile it instead of submitting again');
+  const observed = await evidence(walletB);
+  if (observed.orders.some(row => row.account === authorized.account &&
+    row.initiatedAt >= Math.floor(Date.parse(authorized.createdAt) / 1000) - 30 &&
+    !authorized.knownOrderIds.includes(row.orderId) && !(leg === 'reverse' && row.orderId === authorized.forwardOrderId)))
     throw new Error('A new unaccounted order exists; refusing to sign');
-  if (live.baseFee > BigInt(state.baseFee)) throw new Error('Native fee increased beyond the authorization');
-  const offered = leg === 'forward' ? state.offer : state.request;
-  const requested = leg === 'forward' ? state.request : state.offer;
-  const amount = BigInt(leg === 'forward' ? state.principal : (state.returnAmount ?? '0'));
-  const minimum = BigInt(leg === 'forward' ? state.forwardMinimum : state.reverseMinimum);
-  let submit: () => Promise<void>;
-  try {
-    if (leg === 'forward' && Date.now() - Date.parse(state.pricedAt) > 5 * 60_000)
+  const live = await runPreparedSwap(async () => {
+    const snapshot = await registry(walletB);
+    const before = await balances(walletB, authorized);
+    const baseline = leg === 'forward'
+      ? { offer: authorized.offer.balance, request: authorized.request.balance, native: authorized.native.balance }
+      : authorized.returnBaseline;
+    if (!baseline || before.offer.toString() !== baseline.offer || before.request.toString() !== baseline.request || before.native.toString() !== baseline.native)
+      throw new Error('Balances changed since swap authorization');
+    if (snapshot.baseFee > BigInt(authorized.baseFee)) throw new Error('Native fee increased beyond the authorization');
+    if (leg === 'forward' && Date.now() - Date.parse(authorized.pricedAt) > 5 * 60_000)
       throw new Error('Forward authorization USD prices expired');
-    submit = await prepareMainnetSwapReview(walletB, live.service, offered, requested, amount, minimum);
-  } catch (error) {
-    // No submit callback was invoked, so this is positive proof that this authorization spent nothing.
-    state.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
-    persist(state);
-    throw error;
-  }
-  await submit();
+    const offered = leg === 'forward' ? authorized.offer : authorized.request;
+    const requested = leg === 'forward' ? authorized.request : authorized.offer;
+    const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
+    const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
+    const submit = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
+    return async () => { await submit(); return snapshot; };
+  }, () => {
+    authorized.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
+    persist(authorized);
+  });
   const result = await settle(walletB, state, leg, false);
   if (leg === 'forward') await authorizeReturn(state, runId, live, result);
   else completeReturn(state, result);

@@ -109,6 +109,10 @@ export function chooseMainnetSwapLoop(candidates: readonly SwapLoopPlan[]): Swap
   })[0];
 }
 
+export function realizedSwapLoss(_samples: readonly { before: SwapHolding; after: bigint }[]): bigint {
+  throw new Error('not implemented');
+}
+
 export function swapSearchAmounts(holding: SwapHolding): bigint[] {
   validateHolding(holding);
   const scale = 10n ** BigInt(holding.decimals);
