@@ -1,3 +1,5 @@
+import type { Server } from 'node:http';
+
 import { Address } from '@miden-sdk/miden-sdk';
 
 import { parseTokenList } from '../../../src/lib/token-list/parse';
@@ -9,6 +11,10 @@ const CHAINS = [
   { name: 'ethereum', blockchain: 'eth', chainId: 1 },
   { name: 'arbitrum', blockchain: 'arb', chainId: 42161 }
 ];
+
+export async function startMainnetLoopConfigServer(_snapshot: unknown): Promise<Server> {
+  throw new Error('Owned mainnet config server is not implemented');
+}
 
 export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, tokenList: unknown): unknown {
   if (
