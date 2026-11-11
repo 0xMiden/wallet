@@ -2370,7 +2370,13 @@ const generatePromisifyTransaction = async (
     const simulatedEffects = await formatSimulatedCustomEffects(simulated);
     try {
       const customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
-      return { transactionMessages: [...declaredMessages, ...simulatedEffects.messages], simulated, customLimit };
+      return {
+        transactionMessages: [...declaredMessages, ...simulatedEffects.messages],
+        simulated,
+        customLimit,
+        approvedOutflow: simulatedEffects.approvedOutflow,
+        approvedNftOutflow: simulatedEffects.outgoingNfts
+      };
     } catch (e) {
       // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
       // user decline, so the notes go back to the claimable list; only a decline earns staying
@@ -2398,7 +2404,7 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit, simulated } = sheetData;
+    const { transactionMessages, customLimit, simulated, approvedOutflow, approvedNftOutflow } = sheetData;
     let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
     try {
       noteFlow = noteFlowFromSimulatedBytes(simulated);
@@ -2447,7 +2453,9 @@ const generatePromisifyTransaction = async (
           recipientAddress || undefined,
           customLimit.totals,
           authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
-          origin
+          origin,
+          approvedNftOutflow,
+          approvedOutflow
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2492,7 +2500,7 @@ const generatePromisifyTransaction = async (
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
-            const { customLimit } = await sheet.data();
+            const { customLimit, approvedOutflow, approvedNftOutflow } = await sheet.data();
             const transactionId = await withUnlocked(async () => {
               const { payload } = req.transaction;
               const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
@@ -2512,7 +2520,9 @@ const generatePromisifyTransaction = async (
                   confirmReq.spendingLimitAuthenticated,
                   customLimit.totals
                 ),
-                origin
+                origin,
+                approvedNftOutflow,
+                approvedOutflow
               );
             });
             // The transaction is queued and will consume these notes —
@@ -3866,12 +3876,20 @@ async function formatCustomTransactionPreview(
  *
  * The lines the signer reads are the GROSS legs - what leaves and what enters, stated separately,
  * because that is what a person checking a transaction wants to see. The figure handed to the
- * spending-limit policy is the NET outflow after crediting only what this request brought in, so
- * the two are deliberately not the same number and the sheet is the more conservative of them.
+ * spending-limit policy is the NET outflow: a summary's vault change as the sheet shows it, or an
+ * executed transaction's output notes less only what this request brought in.
+ *
+ * `approvedOutflow` and `outgoingNfts` are what signing may let leave, recorded on the row for every
+ * decoded dry run: the same net outflow, also when the policy figure is withheld because the
+ * request consumed notes the wallet already held, and the complete identity of each NFT the sheet
+ * lists as leaving.
  */
-async function formatSimulatedCustomEffects(
-  simulated: SimulateCustomTxResult
-): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[] }> {
+async function formatSimulatedCustomEffects(simulated: SimulateCustomTxResult): Promise<{
+  messages: string[];
+  outgoing?: IConsumedAssetTotal[];
+  approvedOutflow?: IConsumedAssetTotal[];
+  outgoingNfts?: string[];
+}> {
   try {
     const view = simulatedBytesToView(simulated);
     if (!view) throw new Error(simulated.error ?? 'no summary was produced');
@@ -3918,15 +3936,16 @@ async function formatSimulatedCustomEffects(
       effects.push('Changes this account’s stored data');
     }
 
+    // A summary's net vault change already counts the notes this request brought in, so only an
+    // executed view's gross outflow is credited with them (see `netOutflowByFaucet`).
+    const credit = simulated.summaryBytes ? [] : simulated.introducedCredit;
+    // Netted and folded per faucet: what actually leaves, once per asset.
+    const outflow = netOutflowByFaucet(view, credit).map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }));
     return {
       messages: ['Simulated effects:', ...effects],
-      // Netted and folded per faucet: the policy charges what actually leaves, once per asset.
-      ...(attributable && {
-        outgoing: netOutflowByFaucet(view, simulated.introducedCredit).map(asset => ({
-          faucetId: asset.faucetId,
-          amount: asset.amount
-        }))
-      })
+      approvedOutflow: outflow,
+      outgoingNfts: view.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
+      ...(attributable && { outgoing: outflow })
     };
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);

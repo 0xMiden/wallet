@@ -438,6 +438,20 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     ).toBe(false);
   });
 
+  // A retry would execute the same request and be refused again (#2147).
+  it('withholds Retry from a claim or custom transaction whose proposal signing refused, and refuses its requeue', async () => {
+    for (const type of ['consume', 'execute'] as const) {
+      expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type })).toBe(true);
+      expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type, proposalEffectRefused: true })).toBe(
+        false
+      );
+    }
+    const row = failedRow({ type: 'consume', stage: 'creating-proposal', proposalEffectRefused: true });
+    wireRow(row);
+    await expect(requeueFailedTransaction(row.id)).rejects.toThrow();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('requeues an Unconfirmed row whose stage still matches (#1081)', async () => {
     const row = failedRow({ type: 'consume', status: ITransactionStatus.Unconfirmed, stage: 'sending' });
     wireRow(row);

@@ -61,8 +61,12 @@ export function paybackClaimStateFrom(
   if (!isCompletedSwap(swap)) return NOT_STUCK;
   const claims = linkedRows.filter(row => isPaybackClaimOf(swap, row));
   if (claims.some(isInFlight)) return NOT_STUCK;
+  // A claim whose signing was refused is not offered: Retry refuses it (`isRequeueableTransaction`, #2147).
   const unclaimed = claims.filter(
-    row => row.status === ITransactionStatus.Failed && noteIdsOf(row).every(noteId => coverage(noteId) === 'open')
+    row =>
+      row.status === ITransactionStatus.Failed &&
+      row.proposalEffectRefused !== true &&
+      noteIdsOf(row).every(noteId => coverage(noteId) === 'open')
   );
   const latest = unclaimed.reduce<ITransaction | undefined>(
     (newest, row) => (newest === undefined || row.initiatedAt > newest.initiatedAt ? row : newest),
