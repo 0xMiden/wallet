@@ -242,7 +242,6 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           <EarnLoading />
         ) : (
           <>
-            {isRefreshing && !loadFailed && <EarnLoading />}
             {loadFailed && (
               <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
             )}

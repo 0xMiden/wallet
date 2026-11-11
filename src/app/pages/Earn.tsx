@@ -64,7 +64,6 @@ const Earn: FC = () => {
         {t('earnTitle')}
       </h1>
       <div className="flex flex-col gap-5">
-        {isRefreshing && !isLoading && !loadFailed && <EarnLoading />}
         <FeatureUnavailableNotice
           feature="earnDeposit"
           availability={earnDeposit}

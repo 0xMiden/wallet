@@ -54,7 +54,6 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
           )
         }
       >
-        {isRefreshing && position && !error && <EarnLoading />}
         {pending ? (
           <EarnLoading />
         ) : !position ? (

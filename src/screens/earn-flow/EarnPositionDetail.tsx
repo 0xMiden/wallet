@@ -64,7 +64,6 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
         )
       }
     >
-      {isRefreshing && !pending && !loadFailed && <EarnLoading />}
       {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
       {loadFailed && !found ? (
         <EarnLoadError

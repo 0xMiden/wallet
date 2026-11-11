@@ -32,7 +32,6 @@ const EarnPositions: FC = () => {
 
   return (
     <SubPageLayout data-testid="earn-positions-page" title={t('earnPositionsTitle')} onBack={goBack}>
-      {isRefreshing && !pending && !loadFailed && <EarnLoading />}
       {showLoadError ? (
         <EarnLoadError
           errorDiagnostics={errorDiagnostics}
