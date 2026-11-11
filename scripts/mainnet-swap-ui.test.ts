@@ -6,7 +6,8 @@ import {
   validateSwapEta,
   validateSwapReview,
   submitSwapOnce,
-  resumeSwapAutoAcceptInPage
+  resumeSwapAutoAcceptInPage,
+  runPreparedSwap
 } from '../playwright/e2e/helpers/mainnet-swap-ui';
 
 const price = () => ({
@@ -86,6 +87,16 @@ describe('restoring one recovered swap automation setting', () => {
       expect(await setting()).toBe(false);
     }
   );
+});
+
+describe('read-only preparation versus possibly submitted swaps', () => {
+  it('records proven non-submission when preparation fails, but not when submitting fails', async () => {
+    let unspent = 0;
+    await expect(runPreparedSwap(async () => { throw new Error('quote outage'); }, () => { unspent++; })).rejects.toThrow('quote outage');
+    expect(unspent).toBe(1);
+    await expect(runPreparedSwap(async () => async () => { throw new Error('submission response lost'); }, () => { unspent++; })).rejects.toThrow('submission response lost');
+    expect(unspent).toBe(1);
+  });
 });
 
 describe('live nightly swap pre-sign boundary', () => {

@@ -88,6 +88,10 @@ export function submitSwapOnce<T>(submit: () => Promise<T>): () => Promise<T> {
   };
 }
 
+export async function runPreparedSwap<T>(_prepare: () => Promise<() => Promise<T>>, _unspent: () => void): Promise<T> {
+  throw new Error('not implemented');
+}
+
 export function swapDisplayAmount(amount: bigint, decimals: number): string {
   const scale = 10n ** BigInt(decimals);
   const fraction = (amount % scale).toString().padStart(decimals, '0').replace(/0+$/, '');

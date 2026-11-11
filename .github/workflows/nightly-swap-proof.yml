@@ -24,13 +24,13 @@ jobs:
       - name: Cost and recovery boundaries
         run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
       - name: Type check
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: yarn tsc --pretty false
       - name: Harness conventions
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: yarn lint:e2e
       - name: Verify funded spec selection without executing it
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         env:
           E2E_NETWORK: mainnet
         run: yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --list
