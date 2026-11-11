@@ -823,6 +823,10 @@
     "message": "Esta revisão foi preparada para um token de depósito diferente. Volte e insira o valor novamente.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "A note de garantia deve usar o token revisado, o valor revisado e o alocador configurado. Nada foi enviado. Volte e tente novamente.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganho",
     "englishSource": "Total earned"

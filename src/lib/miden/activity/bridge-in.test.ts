@@ -82,6 +82,7 @@ const snapshotWith = (
       agglayer: { indexer: { state: 'ok', value: true } },
       epoch: {
         allocator: { state: 'skipped' },
+        allocatorAccount: { state: 'skipped' },
         market: { state: 'skipped' },
         midenUsdcFaucet: { state: 'skipped' },
         vaults: { state: 'skipped' }
