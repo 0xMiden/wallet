@@ -30,6 +30,7 @@ import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { isOneClickDeadlineError } from 'lib/one-click/deadline';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
@@ -430,6 +431,25 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     };
   }, [hasErrors, transactionComplete]);
 
+  // A NEAR Intents send is not requeueable: its deposit quote and funding deadline belong to the first attempt, and
+  // a replay could pay the old deposit address. When its Miden transaction failed for certain (the outcome is
+  // known), no funds moved; the page says so and offers a new send, which gets a new quote. An outcome that is not
+  // known gets the usual not-confirmed copy and no new send, because the first one can still land.
+  const nearIntentsFailureKey = (() => {
+    if (!isNearIntentsSend || !transactionComplete || !hasErrors || unconfirmed || failedRow === undefined) {
+      return undefined;
+    }
+    // The pipeline stores the message of the `OneClickDeadlineError` it throws when the deadline passed before submit.
+    if (isOneClickDeadlineError(failedRow.error) || isOneClickDeadlineError(failedRow.rawError)) {
+      return 'nearIntentsSendQuoteExpired';
+    }
+    // A refusal the submission feedback names keeps its own copy.
+    if (submission !== undefined) return undefined;
+    return 'nearIntentsSendNotSentDescription';
+  })();
+  const offerNewSend = isNearIntentsSend && transactionComplete && hasErrors && !unconfirmed && !canRetry;
+  const onStartNewSend = useCallback(() => navigate('/send'), []);
+
   const stepDurationLabels = useMemo(
     () =>
       getStepDurationsMs(steps, stageTimestamps).map(ms =>
@@ -449,6 +469,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [transactionComplete, hasErrors, unconfirmed, t, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
+    if (nearIntentsFailureKey !== undefined) return t(nearIntentsFailureKey);
     if (transactionComplete && hasErrors) {
       if (submission !== undefined) return submission.rowCopy ?? t(submission.messageKey);
       if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
@@ -466,6 +487,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (guardianBusy) return t('guardianBusyDescription');
     return t(getStageDescriptionKey(activeStage));
   }, [
+    nearIntentsFailureKey,
     transactionComplete,
     hasErrors,
     unconfirmed,
@@ -554,9 +576,26 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 {t('retry')}
               </Button>
             )}
+            {/* A NEAR Intents send has no Retry; a new send asks 1Click for a new deposit address. */}
+            {offerNewSend && (
+              <Button
+                type="button"
+                variant={ButtonVariant.Primary}
+                accent={accent}
+                onClick={onStartNewSend}
+                className="w-full max-w-none"
+                data-testid="near-intents-start-new-send"
+              >
+                {t('nearIntentsSendStartNew')}
+              </Button>
+            )}
             <Button
               type="button"
-              variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+              variant={
+                transactionComplete && hasErrors && (canRetry || offerNewSend)
+                  ? ButtonVariant.Secondary
+                  : ButtonVariant.Primary
+              }
               accent={accent}
               onClick={onDoneClick}
               className="w-full max-w-none"
@@ -669,6 +708,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               details={submission?.details ?? failedRow?.rawError ?? failedRow?.error}
               className="mt-2 w-full items-center"
             />
+          )}
+          {/* The NEAR Intents copy takes the place of the row's own error, so that error stays one tap away. */}
+          {nearIntentsFailureKey === 'nearIntentsSendNotSentDescription' && (
+            <ErrorDetails details={failedRow?.error ?? failedRow?.rawError} className="mt-2 w-full items-center" />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

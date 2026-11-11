@@ -624,6 +624,12 @@ describe('isRequeueableTransaction', () => {
     ).toBe(false);
   });
 
+  it('excludes a NEAR Intents bridged-send, Failed or Unconfirmed: its quote is bound to the old attempt', () => {
+    for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]) {
+      expect(isRequeueableTransaction({ status, type: 'bridged-send', bridgeProvider: 'near-intents' })).toBe(false);
+    }
+  });
+
   it('keeps an Agglayer (Slow) bridged-send retryable', () => {
     // Agglayer rows carry a pre-built, self-contained B2AGG `requestBytes`, so a
     // replay re-runs the same request and is meaningful.
@@ -752,6 +758,19 @@ describe('requeueFailedTransaction', () => {
     // Guards the backend entry point, not just the Retry button: a second
     // collateral note would be locked to the allocator until its reclaim height.
     const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'epoch' } });
+    wireRow(row);
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toContain('not retryable');
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+
+  it('throws for a failed NEAR Intents bridged-send and leaves the row untouched', async () => {
+    // A replay would send to the deposit address of an old quote: after its deadline the deadline check fails it,
+    // and before it the rebuilt note could pay the address twice. The user starts a new send with a new quote.
+    const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'near-intents' } });
     wireRow(row);
     const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
     expect(refusal).toBeInstanceOf(Error);

@@ -140,12 +140,14 @@ describe('detectNearIntentsAddressKind', () => {
     expect(detectNearIntentsAddressKind(value)).toBe(kind);
   });
 
-  it('gives a kind that the destination check accepts', () => {
-    for (const value of [CHECKSUMMED, SOLANA_WALLET, NEAR_IMPLICIT, 'BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ']) {
-      const kind = detectNearIntentsAddressKind(value);
-      expect(kind).toBeDefined();
-      if (kind !== undefined) expect(isValidNearIntentsAddress(kind, value)).toBe(true);
-    }
+  it.each<[string, NearIntentsAddressKind]>([
+    [CHECKSUMMED, 'evm'],
+    [SOLANA_WALLET, 'solana'],
+    [NEAR_IMPLICIT, 'near'],
+    ['BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ', 'bitcoin']
+  ])('reads %s as %s, a kind that the destination check accepts', (value, kind) => {
+    expect(detectNearIntentsAddressKind(value)).toBe(kind);
+    expect(isValidNearIntentsAddress(kind, value)).toBe(true);
   });
 });
 

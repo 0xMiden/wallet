@@ -439,13 +439,7 @@ describe('1Click durable tracking', () => {
     await reconcileOneClickSwaps();
 
     expect(submitDeposit).toHaveBeenCalledTimes(1);
-    expect(submitDeposit).toHaveBeenCalledWith(
-      config,
-      'miden-deposit-address',
-      row.transactionId,
-      undefined,
-      quote
-    );
+    expect(submitDeposit).toHaveBeenCalledWith(config, 'miden-deposit-address', row.transactionId, undefined, quote);
     expect(fetchStatus).toHaveBeenCalledTimes(1);
     expect(row.extraInputs.oneClick).toMatchObject({ phase: 'delivered', providerSubmitted: true });
     // Only a bridged-receive row carries a row-level phase.
@@ -487,7 +481,12 @@ describe('1Click durable tracking', () => {
       initiatedAt: Date.now(),
       status: ITransactionStatus.Completed,
       transactionId: `0x${'aa'.repeat(32)}`,
-      extraInputs: { provider: 'epoch', destinationAddress: '0x1', destinationNetwork: 1, claimStatus: 'not-applicable' }
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0x1',
+        destinationNetwork: 1,
+        claimStatus: 'not-applicable'
+      }
     });
 
     await reconcileOneClickSwaps();

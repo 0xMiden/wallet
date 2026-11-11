@@ -763,16 +763,19 @@ describe('formatNearIntentsAmount', () => {
 });
 
 describe('nearIntentsFeeUsd', () => {
-  it.each<[string, string, number | undefined]>([
+  it.each<[string, string, number]>([
     ['20', '19.65', 0.35],
-    ['19', '19.65', 0],
-    ['', '19.65', undefined],
-    ['20', 'NaN', undefined],
-    ['Infinity', '1', undefined]
+    ['19', '19.65', 0]
   ])('reads %s in and %s out as %s', (amountInUsd, amountOutUsd, fee) => {
-    const result = nearIntentsFeeUsd({ amountInUsd, amountOutUsd });
-    if (fee === undefined) expect(result).toBeUndefined();
-    else expect(result).toBeCloseTo(fee);
+    expect(nearIntentsFeeUsd({ amountInUsd, amountOutUsd })).toBeCloseTo(fee);
+  });
+
+  it.each<[string, string]>([
+    ['', '19.65'],
+    ['20', 'NaN'],
+    ['Infinity', '1']
+  ])('gives no fee for %s in and %s out', (amountInUsd, amountOutUsd) => {
+    expect(nearIntentsFeeUsd({ amountInUsd, amountOutUsd })).toBeUndefined();
   });
 });
 

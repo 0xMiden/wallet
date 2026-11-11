@@ -1735,6 +1735,91 @@ describe('NEAR Intents send steps', () => {
     act(() => root.unmount());
   });
 
+  describe('a failed NEAR Intents send', () => {
+    const woozie: { navigate: jest.Mock } = jest.requireMock('lib/woozie');
+    // The footer actions: the Button stub marks each with its variant.
+    const buttons = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('button[data-variant]')).map(button => [
+        button.textContent,
+        button.getAttribute('data-variant')
+      ]);
+    // The Button stub keeps no test id, so the action is found by its label.
+    const startNewSend = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'nearIntentsSendStartNew');
+
+    beforeEach(() => {
+      woozie.navigate.mockClear();
+    });
+
+    it.each(ROW_SHAPES)(
+      'offers a new send in place of Retry and says no funds moved, for a %s row',
+      async (_shape, shape) => {
+        const { container, root } = await renderPage({
+          ...shape('depositing'),
+          status: ITransactionStatus.Failed,
+          stage: 'proving',
+          error: 'proof failed'
+        });
+
+        expect(container.textContent).not.toContain('retry');
+        expect(container.textContent).toContain('nearIntentsSendNotSentDescription');
+        // The row's own error stays one tap away.
+        expect(container.textContent).toContain('showFullError');
+        expect(buttons(container).slice(0, 2)).toEqual([
+          ['nearIntentsSendStartNew', 'primary'],
+          ['done', 'secondary']
+        ]);
+        act(() => {
+          startNewSend(container)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        expect(woozie.navigate).toHaveBeenCalledWith('/send');
+        act(() => root.unmount());
+      }
+    );
+
+    it('names an expired quote when the deadline passed before submit', async () => {
+      const { container, root } = await renderPage({
+        ...ROW_SHAPES[0]![1]('depositing'),
+        status: ITransactionStatus.Failed,
+        stage: 'sending',
+        error: 'The 1Click quote has expired. Request a new quote before depositing.'
+      });
+
+      expect(container.textContent).toContain('nearIntentsSendQuoteExpired');
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      expect(startNewSend(container)).toBeDefined();
+      act(() => root.unmount());
+    });
+
+    it('offers no new send while the outcome is not known, because the first send can still land', async () => {
+      const { container, root } = await renderPage({
+        ...ROW_SHAPES[0]![1]('depositing'),
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting'
+      });
+
+      expect(startNewSend(container)).toBeUndefined();
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      act(() => root.unmount());
+    });
+
+    it('keeps Retry for a failed Epoch bridged send', async () => {
+      isRequeueableTransactionMock.mockReturnValue(true);
+      const { container, root } = await renderPage({
+        type: 'bridged-send',
+        extraInputs: { provider: 'epoch', destinationAddress: '0x1', destinationNetwork: 1 },
+        status: ITransactionStatus.Failed,
+        stage: 'proving',
+        error: 'proof failed'
+      });
+
+      expect(container.textContent).toContain('retry');
+      expect(startNewSend(container)).toBeUndefined();
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      act(() => root.unmount());
+    });
+  });
+
   it('draws the plain step list for a send restored from a backup, which nothing reconciles', async () => {
     const { container, root, states } = await renderPage({
       ...ROW_SHAPES[1]![1]('processing'),

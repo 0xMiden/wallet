@@ -251,9 +251,10 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { provider: 'epoch', recallBlocks: 10 }
     });
 
-    // Leaf routed through the proxy send with the FULL tx row + the raw signCallback.
+    // Leaf routed through the proxy send with the FULL tx row + the raw signCallback. An Epoch row awaits no
+    // verdict, so it carries no stage stamp.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback, undefined);
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     // The inline SW client leaf is entirely gone.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
@@ -261,6 +262,22 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     // Finalized via the bridged-send completion with the proxy's result.
     expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
     expect(mockComplete.earn).not.toHaveBeenCalled();
+  });
+
+  it('NEAR Intents bridged-send → midenClientProxy.sendTransaction with a stage stamp, completed as a bridged-send', async () => {
+    const tx = await run('tx-bs-near-intents', {
+      type: 'bridged-send',
+      secondaryAccountId: 'mm1deposit_qr7qqq9wr6w',
+      faucetId: 'faucet',
+      amount: 1000n,
+      noteType: 'public',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0x2222222222222222222222222222222222222222' }
+    });
+
+    // The row (with its 1Click tracking) reaches `sendTransaction`, which asserts the quote deadline before submit.
+    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback, expect.any(Function));
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
   });
 
   it.each(['agglayer', 'usdcx'])(

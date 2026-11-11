@@ -20,7 +20,7 @@ import {
   normalizeGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IBridgedSendExtraInputs, IOneClickPhase, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -132,15 +132,38 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status !== ITransactionStatus.Completed) return true;
 
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
-  if (inputs.provider === 'usdcx') {
-    const burn = inputs.usdcxBurn;
-    if (!burn || burn.phase === 'discarded') return false;
-    return burn.phase !== 'confirmed' || isUsdcxDestinationPending(burn);
+  switch (inputs.provider) {
+    case 'usdcx': {
+      const burn = inputs.usdcxBurn;
+      if (!burn || burn.phase === 'discarded') return false;
+      return burn.phase !== 'confirmed' || isUsdcxDestinationPending(burn);
+    }
+    case 'epoch':
+      return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
+    case 'near-intents':
+      // A NEAR Intents send has no claim: 1Click delivers or refunds it, and `reconcileOneClickSwaps` records that
+      // in its tracking. The card stays only while the swap is open.
+      return isOneClickPhaseOpen(inputs.oneClick?.phase);
+    // A row with no provider keeps the Agglayer rule it always had.
+    case 'agglayer':
+    default:
+      // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
+      if (isAgglayerExitUnfindable(inputs)) return false;
+      return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
   }
-  if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
-  // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
-  if (isAgglayerExitUnfindable(inputs)) return false;
-  return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
+}
+
+/** True while a 1Click swap is open. A row with no phase yet is open; the four end phases are not. */
+function isOneClickPhaseOpen(phase: IOneClickPhase | undefined): boolean {
+  switch (phase) {
+    case 'delivered':
+    case 'refunded':
+    case 'failed':
+    case 'expired':
+      return false;
+    default:
+      return true;
+  }
 }
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
@@ -208,6 +231,8 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   // already does: a Failed row with no `extraInputs` at all must not crash the pass.
   const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
   if (!inputs) return;
+  // A NEAR Intents send is followed by its 1Click tracking (`reconcileOneClickSwaps`), never by a bridge service.
+  if (inputs.provider === 'near-intents') return;
 
   if (inputs.provider === 'usdcx') {
     if (!isUsdcxCheckDue(tx, Date.now())) return;

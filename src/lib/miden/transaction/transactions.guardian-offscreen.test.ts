@@ -3046,6 +3046,30 @@ type KillCase = Case & { abandons: number[][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
+  // A NEAR Intents send waits for the verdict too, and a kill never requeues it as a fresh write.
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: '0x2222222222222222222222222222222222222222',
+        destinationNetwork: 1,
+        sourceFaucetId: 'f',
+        claimStatus: 'not-applicable',
+        oneClick: {
+          request: { deadline: new Date(Date.now() + 60 * 60_000).toISOString() },
+          quote: { quoteRequest: {}, quote: { deadline: new Date(Date.now() + 60 * 60_000).toISOString() } }
+        }
+      }
+    },
+    complete: mockComplete.bridged,
+    abandons: [],
+    evidence: KEPT_AT_7
+  },
   {
     ...bridgeEarnCase('earn-deposit'),
     abandons: [[7]],

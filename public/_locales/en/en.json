@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "If the swap fails, NEAR Intents refunds the amount to this Miden account.",
   "transactionStepNearIntentsDepositAddress": "Deposit address generated",
   "transactionStepNearIntentsSend": "Sending to deposit address",
+  "nearIntentsSendStartNew": "Start a new send",
+  "nearIntentsSendNotSentDescription": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address.",
   "nearIntentsSendGeneratingDepositAddress": "Generating deposit address",
   "nearIntentsSendSentDescription": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
   "nearIntentsSendDeliveredDescription": "NEAR Intents delivered the payment on $network$.",

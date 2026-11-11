@@ -16,13 +16,13 @@
  */
 import type { NearIntentsConfig, OneClickAsset } from 'lib/one-click/types';
 
-import { type IOneClickTrackingData, NEAR_INTENTS_NO_EVM_CHAIN_ID, type Transaction } from '../db/types';
+import { type IOneClickTrackingData, type ITransaction, NEAR_INTENTS_NO_EVM_CHAIN_ID } from '../db/types';
 import { MAX_RECALL_BLOCKS } from '../helpers';
+import { initiateNearIntentsSendTransaction, initiateSendTransaction } from './initiate';
 import type { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
-import { initiateNearIntentsSendTransaction, initiateSendTransaction } from './initiate';
 
-const mockAdd = jest.fn(async (_transaction: Transaction) => undefined);
+const mockAdd = jest.fn(async (_transaction: ITransaction) => undefined);
 const mockQueue = jest.fn();
 const mockAssertBinding = jest.fn();
 jest.mock('lib/miden/repo', () => ({
@@ -274,7 +274,9 @@ describe('initiateNearIntentsSendTransaction', () => {
     ['the destination chain', { destinationAsset: { ...evmAsset, blockchain: 'miden' } }],
     ['the stored funding deadline', { fundingDeadline: new Date(Date.now() + 5 * 60_000).toISOString() }]
   ])('rejects metadata that changes %s before queueing', async (_label, patch) => {
-    await expect(initiateNearIntentsSendTransaction(nearIntentsSend, { ...oneClickMetadata, ...patch })).rejects.toThrow();
+    await expect(
+      initiateNearIntentsSendTransaction(nearIntentsSend, { ...oneClickMetadata, ...patch })
+    ).rejects.toThrow();
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
