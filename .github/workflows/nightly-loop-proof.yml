@@ -27,4 +27,7 @@ jobs:
           yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
           yarn lint:e2e
           E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
+          yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
+          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs
           yarn ts
