@@ -19,11 +19,11 @@ import {
   searchSmallestViableAmount,
   tokenValueUsdMicro
 } from '../../helpers/mainnet-one-click-plan';
-import { fetchMainnetOneClickUsdPrices } from '../../helpers/mainnet-one-click-prices';
+import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../helpers/mainnet-one-click-prices';
 import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
 import { confirmMainnetOneClickReview, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
 import { isSameOneClickUnderlyingAsset, ONE_CLICK_EVM_CHAIN_IDS, OneClickHttpError, parseOneClickQuoteResponse, requestOneClickQuote } from '../../../../src/lib/one-click/client';
-import type { OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../../src/lib/one-click/types';
+import type { OneClickAsset, OneClickMidenAssetConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../../src/lib/one-click/types';
 import { createWalletClient, http, isHash, isHex, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
@@ -99,10 +99,11 @@ function quoteLoss(
   quote: OneClickQuoteResponse,
   input: OneClickAsset,
   output: OneClickAsset,
-  prices: Readonly<Record<string, bigint>>
+  prices: Readonly<Record<string, bigint>>,
+  verifiedNative: OneClickMidenAssetConfig
 ): bigint {
-  const inputPrice = input.coingeckoId ? prices[input.coingeckoId] : undefined;
-  const outputPrice = output.coingeckoId ? prices[output.coingeckoId] : undefined;
+  const inputPrice = prices[mainnetOneClickPriceId(input, verifiedNative)];
+  const outputPrice = prices[mainnetOneClickPriceId(output, verifiedNative)];
   if (inputPrice === undefined || outputPrice === undefined) throw new Error(`No pinned USD price for ${input.symbol} or ${output.symbol}`);
   const inputValue = tokenValueUsdMicro(BigInt(quote.quote.amountIn), input.decimals, inputPrice, true);
   const outputValue = tokenValueUsdMicro(BigInt(quote.quote.minAmountOut), output.decimals, outputPrice, false);
@@ -110,23 +111,6 @@ function quoteLoss(
   if (quote.quote.refundFee !== undefined) fees += tokenValueUsdMicro(BigInt(quote.quote.refundFee), input.decimals, inputPrice, true);
   if (quote.quote.withdrawFee !== undefined) fees += tokenValueUsdMicro(BigInt(quote.quote.withdrawFee), output.decimals, outputPrice, true);
   return (inputValue > outputValue ? inputValue - outputValue : 0n) + fees;
-}
-
-async function readMidenTokenPricing(page: GuardianAwareWalletPage['page'], faucetId: string): Promise<{ coingeckoId?: string; decimals?: number }> {
-  return page.evaluate(id => {
-    const isRecord = (value: unknown): value is Record<string, unknown> =>
-      typeof value === 'object' && value !== null && !Array.isArray(value);
-    const store = Reflect.get(window, '__TEST_STORE__');
-    const getState = isRecord(store) ? Reflect.get(store, 'getState') : undefined;
-    if (typeof getState !== 'function') return {};
-    const state: unknown = Reflect.apply(getState, store, []);
-    const metadataById = isRecord(state) ? Reflect.get(state, 'assetsMetadata') : undefined;
-    const metadata = isRecord(metadataById) ? Reflect.get(metadataById, id) : undefined;
-    return {
-      ...(isRecord(metadata) && typeof metadata.coingeckoId === 'string' ? { coingeckoId: metadata.coingeckoId } : {}),
-      ...(isRecord(metadata) && typeof metadata.decimals === 'number' ? { decimals: metadata.decimals } : {})
-    };
-  }, faucetId);
 }
 
 async function connectExternalWallet(wallet: GuardianAwareWalletPage, counterparty: WcCounterparty): Promise<void> {
@@ -223,7 +207,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   }
   const evmAssets = CHAIN_PRIORITY.flatMap(chain =>
     setup.assets.filter(asset =>
-      asset.blockchain === chain && /^(USDC|USDT)$/i.test(asset.symbol) && asset.coingeckoId && asset.chainId &&
+      asset.blockchain === chain && /^(USDC|USDT|USDT0)$/i.test(asset.symbol) && asset.coingeckoId && asset.chainId &&
       !isSameOneClickUnderlyingAsset(asset, midenAsset)
     )
   ).slice(0, MAINNET_ONE_CLICK_MAX_CANDIDATES);
@@ -240,13 +224,19 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   const principalAvailable = await vaultBalanceByFaucetId(walletB.page, midenFaucetId);
   const maximumAmount = principalAvailable - (midenFaucetId.toLowerCase() === nativeFaucet.toLowerCase() ? midenFeeReserveBase : 0n);
   if (maximumAmount <= 0n) throw new Error('The existing Guardian account lacks spendable 1Click principal');
-  const nativeMetadata = await readMidenTokenPricing(walletB.page, nativeFaucet);
-  if (!nativeMetadata.coingeckoId || nativeMetadata.decimals === undefined) {
-    throw new Error('The existing Guardian native fee asset has no pinned USD price metadata');
-  }
-  const priceIds = [...new Set([...evmAssets.map(asset => asset.coingeckoId ?? ''), midenAsset.coingeckoId, nativeMetadata.coingeckoId, 'ethereum'])];
+  const verifiedNative = setup.config.midenAssets.find(asset => asset.faucetId.toLowerCase() === nativeFaucet.toLowerCase());
+  const nativeAsset = setup.assets.find(asset => asset.assetId === verifiedNative?.assetId);
+  if (!verifiedNative || !nativeAsset) throw new Error('The native fee asset has no verified source price identity');
+  const nativeMetadata = {
+    coingeckoId: mainnetOneClickPriceId(nativeAsset, verifiedNative),
+    decimals: nativeAsset.decimals
+  };
+  const priceIds = [...new Set([
+    ...evmAssets.map(asset => mainnetOneClickPriceId(asset, verifiedNative)),
+    mainnetOneClickPriceId(midenAsset, verifiedNative), nativeMetadata.coingeckoId, 'ethereum'
+  ])];
   const prices = await fetchMainnetOneClickUsdPrices(priceIds);
-  const midenPrice = prices.usdMicrosById[midenAsset.coingeckoId];
+  const midenPrice = prices.usdMicrosById[mainnetOneClickPriceId(midenAsset, verifiedNative)];
   const nativePrice = prices.usdMicrosById[nativeMetadata.coingeckoId];
   if (midenPrice === undefined || nativePrice === undefined) throw new Error('The live USD price set is incomplete');
   const amountMaximumByUsd = (MAX_PRINCIPAL_USD_MICROS * 10n ** BigInt(midenAsset.decimals)) / midenPrice;
@@ -288,8 +278,8 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
           const reverseRequest = requestFor(asset, midenAsset, BigInt(forward.quote.minAmountOut), evm.address, midenAddress);
           const reverse = await dryQuote(setup.config, reverseRequest, providerFetcher);
           if (!reverse) return undefined;
-          const forwardLoss = quoteLoss(forward, midenAsset, asset, prices.usdMicrosById);
-          const reverseLoss = quoteLoss(reverse, asset, midenAsset, prices.usdMicrosById);
+          const forwardLoss = quoteLoss(forward, midenAsset, asset, prices.usdMicrosById, verifiedNative);
+          const reverseLoss = quoteLoss(reverse, asset, midenAsset, prices.usdMicrosById, verifiedNative);
           if (forwardLoss + reverseLoss + midenFeeUsd + evmFeeUsd > MAINNET_ONE_CLICK_CAP_MICRO_USD) return undefined;
           const plan = planOneClickRoundTrip({
             routeId: `${asset.blockchain}:${asset.symbol}`,
@@ -333,8 +323,8 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
     throw new Error('The active route uses its principal token for Miden gas, so principal loss and fee cost cannot be bounded separately');
   }
   const preSubmitPrices = await fetchMainnetOneClickUsdPrices(priceIds);
-  const preSubmitForwardCost = quoteLoss(selected.forward, midenAsset, selected.asset, preSubmitPrices.usdMicrosById);
-  const preSubmitReverseCost = quoteLoss(selected.reverse, selected.asset, midenAsset, preSubmitPrices.usdMicrosById);
+  const preSubmitForwardCost = quoteLoss(selected.forward, midenAsset, selected.asset, preSubmitPrices.usdMicrosById, verifiedNative);
+  const preSubmitReverseCost = quoteLoss(selected.reverse, selected.asset, midenAsset, preSubmitPrices.usdMicrosById, verifiedNative);
   const preSubmitNativeFee = tokenValueUsdMicro(midenFeeReserveBase, nativeMetadata.decimals, priceMicros(preSubmitPrices.usdMicrosById, nativeMetadata.coingeckoId), true) +
     tokenValueUsdMicro(selected.holding.gasReserveWei, 18, priceMicros(preSubmitPrices.usdMicrosById, 'ethereum'), true);
   selected.plan = planOneClickRoundTrip({
@@ -407,7 +397,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
     refundTo: midenAddress,
     recipient: evm.address
   });
-  const actualForwardCost = quoteLoss(forwardWet, midenAsset, selected.asset, preSubmitPrices.usdMicrosById);
+  const actualForwardCost = quoteLoss(forwardWet, midenAsset, selected.asset, preSubmitPrices.usdMicrosById, verifiedNative);
   remainingOneClickCostBudget(actualForwardCost, preSubmitReverseCost + selected.plan.nativeFeesUsdMicros);
   expect(forwardWet.quote.amountIn).toBe(selected.amount.toString());
   saveMainnetOneClickCheckpoint(CHECKPOINT_PATH, {
@@ -496,8 +486,8 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   }, true);
   if (!reverseWet.quote.depositAddress) throw new Error('The reverse quote has no EVM deposit address');
   const reversePrices = await fetchMainnetOneClickUsdPrices(priceIds);
-  const actualForwardCostAtReversePrices = quoteLoss(forwardWet, midenAsset, selected.asset, reversePrices.usdMicrosById);
-  const actualReverseCost = quoteLoss(reverseWet, selected.asset, midenAsset, reversePrices.usdMicrosById);
+  const actualForwardCostAtReversePrices = quoteLoss(forwardWet, midenAsset, selected.asset, reversePrices.usdMicrosById, verifiedNative);
+  const actualReverseCost = quoteLoss(reverseWet, selected.asset, midenAsset, reversePrices.usdMicrosById, verifiedNative);
   const realizedCost = actualForwardCostAtReversePrices + actualReverseCost;
   const midenFeeBudgetUsd = tokenValueUsdMicro(
     midenFeeReserveBase,
@@ -582,8 +572,8 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   const finalNativeBalance = await vaultBalanceByFaucetId(walletB.page, nativeFaucet);
   if (finalNativeBalance >= nativeBalance) throw new Error('The Miden transaction fee spend could not be verified');
   const settlementPrices = await fetchMainnetOneClickUsdPrices(priceIds);
-  const finalForwardQuoteLoss = quoteLoss(forwardWet, midenAsset, selected.asset, settlementPrices.usdMicrosById);
-  const finalReverseQuoteLoss = quoteLoss(reverseWet, selected.asset, midenAsset, settlementPrices.usdMicrosById);
+  const finalForwardQuoteLoss = quoteLoss(forwardWet, midenAsset, selected.asset, settlementPrices.usdMicrosById, verifiedNative);
+  const finalReverseQuoteLoss = quoteLoss(reverseWet, selected.asset, midenAsset, settlementPrices.usdMicrosById, verifiedNative);
   const actualMidenFeeUsd = tokenValueUsdMicro(
     nativeBalance - finalNativeBalance,
     nativeMetadata.decimals,
