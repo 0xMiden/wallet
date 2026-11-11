@@ -823,6 +823,10 @@
     "message": "此審核是針對另一種存款代幣所準備的。請返回並重新輸入金額。",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "擔保note必須使用已審核的代幣、已審核的金額以及已設定的分配器。未傳送任何內容。請返回並重新嘗試。",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "總收益",
     "englishSource": "Total earned"

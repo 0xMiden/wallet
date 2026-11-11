@@ -199,6 +199,7 @@ it('refuses an empty registry even when the account exists', () => {
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
+  ['the allocator account', { epoch: { allocatorAccount: ERROR } }, ['earnDeposit', 'fastBridgeOut']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
   ['the EVM token', { epoch: { tokens: { USDC: ERROR } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
