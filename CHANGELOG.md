@@ -4,6 +4,7 @@
 
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+- [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 
 ## 1.17.11 (2026-11-09)
 

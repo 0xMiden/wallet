@@ -57,7 +57,13 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const {
+    data: balanceData,
+    isLoading: balancesLoading,
+    readFailed: balanceReadFailed,
+    balanceReadInFlight,
+    mutate: retryBalanceRead
+  } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
@@ -159,7 +165,15 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               />
             ))}
           <div className="min-h-0 flex-1">
-            {balancesLoading || earnDeposit.state === 'loading' ? (
+            {balanceReadFailed && balancesLoading ? (
+              <EarnLoadError
+                message={t('earnBalanceLoadError')}
+                errorId="earnBalanceLoadError"
+                onRetry={retryBalanceRead}
+                isRetrying={balanceReadInFlight}
+                className="px-4 pt-4"
+              />
+            ) : balancesLoading || earnDeposit.state === 'loading' ? (
               <EarnLoading />
             ) : (
               <SelectAmount

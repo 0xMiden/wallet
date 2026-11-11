@@ -157,6 +157,7 @@
   "earnPositionsRegionLabel": "持仓",
   "earnPositionsLoadError": "无法加载您的持仓。请检查网络连接并重试。",
   "earnPositionsUnavailable": "无法通过 Epoch 查询您的余额。请重试。",
+  "earnBalanceLoadError": "无法加载您的余额。请检查网络连接并重试。",
   "earnUnavailableOnNetwork": "该网络不支持“赚取”功能",
   "earnVaultLoadError": "无法加载此保险库。请检查网络连接并重试。",
   "earnPositionsApy": "$apy$ APY",

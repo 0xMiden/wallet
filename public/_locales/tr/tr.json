@@ -157,6 +157,7 @@
   "earnPositionsRegionLabel": "Pozisyonlar",
   "earnPositionsLoadError": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "earnPositionsUnavailable": "Epoch ile bakiyenizi kontrol edemedik. Lütfen tekrar deneyin.",
+  "earnBalanceLoadError": "Bakiyeniz yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "earnUnavailableOnNetwork": "Bu ağda \"Earn\" özelliği mevcut değildir",
   "earnVaultLoadError": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "earnPositionsApy": "$apy$ APY",

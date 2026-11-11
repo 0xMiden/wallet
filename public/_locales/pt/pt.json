@@ -157,6 +157,7 @@
   "earnPositionsRegionLabel": "Posições",
   "earnPositionsLoadError": "Não foi possível carregar suas posições. Verifique sua conexão e tente novamente.",
   "earnPositionsUnavailable": "Não foi possível verificar seu saldo com a Epoch. Tente novamente.",
+  "earnBalanceLoadError": "Não foi possível carregar seu saldo. Verifique sua conexão e tente novamente.",
   "earnUnavailableOnNetwork": "O recurso “Earn” não está disponível nesta rede",
   "earnVaultLoadError": "Não foi possível carregar este cofre. Verifique sua conexão e tente novamente.",
   "earnPositionsApy": "$apy$ APY",

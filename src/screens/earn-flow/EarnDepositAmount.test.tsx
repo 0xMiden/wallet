@@ -687,6 +687,7 @@ it('shows a spinner until balances load, then shows amount entry', () => {
 it('shows a retry when the first balance read has failed', () => {
   mockBalancesLoading = true;
   mockBalanceReadFailed = true;
+  mockEarnDeposit = { state: 'loading' };
   render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
   expect(screen.getByRole('alert')).toHaveTextContent('earnBalanceLoadError');
