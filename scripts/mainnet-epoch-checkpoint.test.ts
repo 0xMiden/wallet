@@ -6,7 +6,7 @@ import {
   loadMainnetEpochCheckpoint, saveMainnetEpochCheckpoint, parseMainnetEpochCheckpoint,
   mainnetEpochNextAction, matchAuthorizedEpoch, type MainnetEpochCheckpoint, type EpochIntentEvidence
 } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
-import { epochCheckpointFixture } from './helpers/mainnet-epoch-fixture';
+import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
 const nativeHex = '0xe69e6ca6e39df1b10c1e5399399feb';
@@ -23,6 +23,31 @@ function evidence(): EpochIntentEvidence {
     tokenOut: fixture().evm.token, tokenInAmount: '1010000', minTokenOut: '1000000', destinationChainId: 42161,
     recipient: evmAccount };
 }
+
+it('pins a bounded exact reverse compact authority before EVM signing', () => {
+  const reverse = {
+    ...settled(), phase: 'reverse-authorized', reverseNonce: '10', returnAmount: '1000501',
+    evmNonceBefore: 0, reverseAuthority: epochReverseAuthorityFixture()
+  };
+  expect(parseMainnetEpochCheckpoint(reverse)).toEqual(reverse);
+  expect(() => parseMainnetEpochCheckpoint({ ...reverse, reverseAuthority: undefined })).toThrow();
+});
+it.each([
+  { arbiter: `0x${'0'.repeat(40)}` },
+  { arbiter: 'not-an-address' },
+  { lockTag: '0x12' },
+  { preparedAt: '2026-11-10T12:00:00.000Z' },
+  { minimumExpiry: '0' },
+  { maximumExpiry: '1' },
+  { maximumExpiry: (BigInt(epochReverseAuthorityFixture().minimumExpiry) + 301n).toString() },
+  { secret: 'must-not-be-serialized' }
+])('rejects an altered reverse signer authority: %j', changed => {
+  const reverse = {
+    ...settled(), phase: 'reverse-authorized', reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0,
+    reverseAuthority: { ...epochReverseAuthorityFixture(), ...changed }
+  };
+  expect(() => parseMainnetEpochCheckpoint(reverse)).toThrow();
+});
 
 it('pins the live Miden allocator and full reclaim window before authorizing collateral', () => {
   const bound = { ...fixture(), midenAllocator: '0x593c167bec26769178dcbd1f9bcb40', recallBlocks: 6200, minimumRecallBlocks: 5200 };
@@ -80,6 +105,7 @@ it('requires correlated round-trip evidence and an exact unique-portfolio cost',
   expect(() => parseMainnetEpochCheckpoint({ ...settled(), phase: 'complete', realizedCostUsdMicros: '10' })).toThrow();
   const complete = {
     ...settled(), phase: 'complete', reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0,
+    reverseAuthority: epochReverseAuthorityFixture(),
     transactions: [{ kind: 'deposit', nonce: 0, hash, feeWei: '200' }], paidEvmFees: '200', paidMidenFees: '14',
     returnNoteId: hash, returnMidenTxId: hash, reverseReceived: '1000000',
     after: { native: '19989986', evmToken: '3000499', evmNative: '9999999999999800' },

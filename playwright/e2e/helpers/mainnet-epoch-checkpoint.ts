@@ -22,7 +22,15 @@ export interface EpochEvmTransaction {
   hash: string;
   feeWei?: string;
 }
+export interface EpochReverseAuthority {
+  arbiter: string;
+  lockTag: string;
+  preparedAt: string;
+  minimumExpiry: string;
+  maximumExpiry: string;
+}
 export interface MainnetEpochCheckpoint {
+  reverseAuthority?: EpochReverseAuthority;
   version: 1;
   network: 'mainnet';
   account: string;
@@ -91,7 +99,7 @@ const ROOT_KEYS = [
   'midenAllocator', 'recallBlocks', 'minimumRecallBlocks',
   'principal', 'forwardMinimum', 'reverseMinimum', 'lossBudgetUsdMicros', 'feeBudget', 'evmFeeBudget',
   'paidMidenFees', 'paidEvmFees', 'forwardNonce', 'forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash',
-  'forwardReceived', 'reverseNonce', 'returnAmount', 'evmNonceBefore', 'transactions', 'returnNoteId',
+  'forwardReceived', 'reverseNonce', 'returnAmount', 'evmNonceBefore', 'reverseAuthority', 'transactions', 'returnNoteId',
   'returnMidenTxId', 'reverseReceived', 'after', 'realizedCostUsdMicros'
 ];
 

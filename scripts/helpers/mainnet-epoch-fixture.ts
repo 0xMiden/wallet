@@ -1,5 +1,14 @@
 import type { MainnetEpochCheckpoint } from '../../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 
+export function epochReverseAuthorityFixture() {
+  const minimumExpiry = BigInt(Date.parse('2026-11-11T13:00:00.000Z') / 1000);
+  return {
+    arbiter: `0x${'4'.repeat(40)}`, lockTag: `0x${'5'.repeat(24)}`,
+    preparedAt: '2026-11-11T12:10:00.000Z',
+    minimumExpiry: minimumExpiry.toString(), maximumExpiry: (minimumExpiry + 300n).toString()
+  };
+}
+
 export function epochCheckpointFixture(): MainnetEpochCheckpoint {
   return {
     version: 1, network: 'mainnet', account: `mm1${'a'.repeat(38)}`, accountHex: `0x${'12'.repeat(15)}`,
