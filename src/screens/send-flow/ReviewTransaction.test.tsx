@@ -1695,6 +1695,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
