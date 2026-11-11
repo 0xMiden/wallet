@@ -28,6 +28,10 @@ import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnec
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
+jest.mock('./EpochWithdrawalGate', () => ({
+  EpochWithdrawalGate: ({ children }: { children: React.ReactNode }) => children
+}));
+
 // The suite's document unless a case sets another before it renders, or publishes one mid-flow.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 const mockConfigListeners = new Set<() => void>();

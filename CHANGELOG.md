@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [FIX][all] Let users disable forced withdrawal from the Fast bridge-in flow, approve the change in their EVM wallet, and continue with a fresh quote after confirmation.
+
 ## 1.17.11 (TBD)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.

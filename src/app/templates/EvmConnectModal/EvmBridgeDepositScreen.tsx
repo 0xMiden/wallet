@@ -108,6 +108,7 @@ import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types'
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
+import { EpochWithdrawalGate } from './EpochWithdrawalGate';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -2165,7 +2166,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     tokenSymbol
   ]);
 
-  const renderStep = useCallback(
+  const renderDepositStep = useCallback(
     (activeRoute: Route) => {
       switch (activeRoute.name) {
         case ReceiveStep.ShowBridgePageStatus:
@@ -2378,6 +2379,61 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       tokenSymbol,
       tokenLabel,
       arrivingName
+    ]
+  );
+
+  const renderStep = useCallback(
+    (step: Route) => {
+      const content = renderDepositStep(step);
+      const checksWithdrawal =
+        step.name === ReceiveStep.ShowBridgePageRoute || step.name === ReceiveStep.ShowBridgePageReview;
+      if (
+        !checksWithdrawal ||
+        route !== 'epoch' ||
+        fastAvailability.state !== 'available' ||
+        !evmUsdc ||
+        !allocatorUrl
+      ) {
+        return content;
+      }
+      const alternative = (() => {
+        if (token === 'CIRCLE_USDC' && usdcxAvailable) {
+          return { label: t('bridgeWithdrawalUseCircle'), onSelect: () => handleRouteChange('usdcx') };
+        }
+        if (slowAvailability.state === 'available') {
+          return { label: t('bridgeWithdrawalUseSlow'), onSelect: () => handleRouteChange('agglayer') };
+        }
+        return undefined;
+      })();
+      return (
+        <EpochWithdrawalGate
+          key={`${allocatorUrl}:${evmUsdc.chainId}:${evmUsdc.address}:${evmAddress}`}
+          chainId={evmUsdc.chainId}
+          tokenAddress={evmUsdc.address}
+          tokenLabel={tokenLabel}
+          sponsorAddress={evmAddress}
+          allocatorUrl={allocatorUrl}
+          onDisabled={requote}
+          alternative={alternative}
+        >
+          {content}
+        </EpochWithdrawalGate>
+      );
+    },
+    [
+      allocatorUrl,
+      evmAddress,
+      evmUsdc,
+      fastAvailability.state,
+      handleRouteChange,
+      renderDepositStep,
+      requote,
+      route,
+      slowAvailability.state,
+      t,
+      token,
+      tokenLabel,
+      usdcxAvailable
     ]
   );
 

@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
+import { readCompactLockState } from 'lib/epoch/bridge-in-lock-scan';
+import { cancelLockWithdrawal } from 'lib/epoch/bridge-in-recovery';
 import {
   TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -23,6 +25,20 @@ import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt }
 
 import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
+
+jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
+  compactLockId: () => 42n,
+  readCompactLockConfig: jest.fn().mockResolvedValue({
+    allocator: '0x0000000000000000000000000000000000000003',
+    resetPeriod: 2,
+    scope: 0
+  }),
+  readCompactLockState: jest.fn().mockResolvedValue({ withdrawal: { status: 'Disabled' } })
+}));
+jest.mock('lib/epoch/bridge-in-recovery', () => ({
+  LockedDepositError: class extends Error {},
+  cancelLockWithdrawal: jest.fn().mockResolvedValue(undefined)
+}));
 
 let mockBalanceEncodingFailure = false;
 jest.mock('viem', () => {
@@ -738,6 +754,66 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     Object.assign(epochState, idleEpoch);
     mockBridgeSnapshot = undefined;
     mockWebProviderConnected = true;
+  });
+
+  it('disables withdrawal from the Fast route before it permits a new bridge deposit', async () => {
+    quoteFast();
+    jest.mocked(readCompactLockState).mockResolvedValueOnce({ balance: 0n, withdrawal: { status: 'Enabled' } });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    const disable = await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' });
+    const quoteCalls = epochState.quoteEVMToMiden.mock.calls.length;
+
+    expect(screen.queryByTestId('confirm-route')).not.toBeInTheDocument();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    fireEvent.click(disable);
+    await screen.findByTestId('confirm-route');
+
+    expect(cancelLockWithdrawal).toHaveBeenCalledWith({
+      chainId: 11155111,
+      lockId: '42',
+      sponsorAddress: EVM_ADDRESS
+    });
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quoteCalls + 1);
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await screen.findByTestId('confirm-deposit');
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('checks again on Review if withdrawal became active after route selection', async () => {
+    quoteFast();
+    jest
+      .mocked(readCompactLockState)
+      .mockResolvedValueOnce({ withdrawal: { status: 'Disabled' } })
+      .mockResolvedValueOnce({ withdrawal: { status: 'Pending' } });
+    renderScreen();
+    await reachFastReview(false);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+    await screen.findByTestId('confirm-deposit');
+    expect(cancelLockWithdrawal).toHaveBeenCalledWith({
+      chainId: 11155111,
+      lockId: '42',
+      sponsorAddress: EVM_ADDRESS
+    });
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('offers the Slow route without cancelling an active withdrawal', async () => {
+    quoteFast();
+    jest.mocked(readCompactLockState).mockResolvedValueOnce({ withdrawal: { status: 'Enabled' } });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    fireEvent.click(await screen.findByTestId('bridge-withdrawal-alternative'));
+
+    await screen.findByTestId('confirm-route');
+    expect(cancelLockWithdrawal).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
   });
 
   it('routes the deposit submission through the reporter', async () => {

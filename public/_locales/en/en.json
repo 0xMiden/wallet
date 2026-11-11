@@ -1928,7 +1928,17 @@
   "recoverFundsLocked": "Locked",
   "recoverFundsWithdrawal": "Withdrawal",
   "recoverFundsWithdrawOff": "Not requested",
-  "recoverFundsCancelWithdrawal": "Cancel withdrawal",
-  "recoverFundsCancelling": "Cancelling…",
-  "recoverFundsWithdrawBlocksBridge": "While a withdrawal is requested, new Fast bridge-ins of $token$ from $address$ cannot start. Finish or cancel the withdrawal to bridge again."
+  "recoverFundsCancelWithdrawal": "Disable withdrawal",
+  "recoverFundsCancelling": "Disabling…",
+  "recoverFundsWithdrawBlocksBridge": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+  "bridgeWithdrawalTitle": "Check Fast bridge access",
+  "bridgeWithdrawalChecking": "Checking the withdrawal status for this token and wallet.",
+  "bridgeWithdrawalCheckFailed": "Could not check the withdrawal status. Try again before you use the Fast bridge.",
+  "bridgeWithdrawalBody": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+  "bridgeWithdrawalDisable": "Disable withdrawal",
+  "bridgeWithdrawalDisabling": "Disabling…",
+  "bridgeWithdrawalEffect": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee.",
+  "bridgeWithdrawalWalletPrompt": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+  "bridgeWithdrawalUseCircle": "Use Circle instead",
+  "bridgeWithdrawalUseSlow": "Use Slow bridge instead"
 }
