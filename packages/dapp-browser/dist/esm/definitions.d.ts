@@ -798,9 +798,9 @@ export interface InAppBrowserPlugin {
      *
      * This method is inject at runtime in the webview
      *
-     * Miden patch: only the main frame of the page can send a message. The native side
-     * adds `frameOrigin` (the origin of the frame that sent the message, in the form of
-     * `location.origin`) and `mainFrame` (always true) to each message.
+     * The iOS script handler and Android WebMessageListener add `frameOrigin` and
+     * `mainFrame` from platform frame information. The Android JavaScript-interface
+     * fallback forwards page messages without those fields.
      */
     addListener(eventName: 'messageFromWebview', listenerFunc: (event: {
         detail: Record<string, any>;

@@ -8,7 +8,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-// Native messages carry frame identity; the JavaScript-interface fallback does not.
+// bridgeMessage stamps frame identity; the JavaScript-interface fallback is an unstamped forward.
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
 public class WebViewDialogBridgeMessageTest {

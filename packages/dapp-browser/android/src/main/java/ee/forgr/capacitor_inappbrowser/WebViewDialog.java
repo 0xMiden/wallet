@@ -296,10 +296,7 @@ public class WebViewDialog extends Dialog {
         }
     }
 
-    // Miden patch: read the envelope that the injected bridge script sends through
-    // AndroidInterface when the WebMessageListener is not available:
-    // {"origin": location.origin, "top": window === window.top, "message": text}.
-    // Return null when the envelope is not from the main frame or is not valid.
+    // The JavaScript interface cannot identify its caller's frame; envelope fields are untrusted.
     static String fallbackBridgeMessage(String envelope) {
         try {
             JSONObject parsed = new JSONObject(envelope);
@@ -307,7 +304,15 @@ public class WebViewDialog extends Dialog {
             Object origin = parsed.opt("origin");
             Object message = parsed.opt("message");
             if (!Boolean.TRUE.equals(top) || !(origin instanceof String) || !(message instanceof String)) return null;
-            return bridgeMessage((String) message, (String) origin);
+            String body = (String) message;
+            try {
+                JSONObject forwarded = new JSONObject(body);
+                forwarded.remove("frameOrigin");
+                forwarded.remove("mainFrame");
+                return forwarded.toString();
+            } catch (JSONException e) {
+                return body;
+            }
         } catch (JSONException e) {
             return null;
         }
@@ -331,9 +336,7 @@ public class WebViewDialog extends Dialog {
                     return;
                 }
 
-                // Miden patch: when the WebMessageListener carries the bridge, this
-                // interface does not forward messages. Else only an envelope from the
-                // main frame continues (see fallbackBridgeMessage).
+                // The legacy interface forwards page events without frame identity.
                 if (bridgeListenerInstalled) return;
                 String forwarded = fallbackBridgeMessage(message);
                 if (forwarded == null) return;
@@ -1311,8 +1314,7 @@ public class WebViewDialog extends Dialog {
                         postMessage: function(message) {
                           try {
                             var msg = typeof message === 'string' ? message : JSON.stringify(message);
-                            // Miden patch: use the WebMessageListener object when it is available.
-                            // Else send an envelope with the origin and the main-frame flag.
+                            // Use the native listener when available; fallback envelope fields are untrusted.
                             if (window.__midenWalletBridge) {
                               window.__midenWalletBridge.postMessage(msg);
                               return;
