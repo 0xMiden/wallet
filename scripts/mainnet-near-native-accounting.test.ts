@@ -35,9 +35,15 @@ it('checks each native forward and return leg without mistaking principal for a 
 it('values the native loss exactly once after reconciliation', () => {
   const leg = nativeLeg();
   assertOneClickMidenBalances(leg);
-  expect(realizedMainnetLoopLoss([leg.principal, leg.native].map(sample => ({
-    ...sample, decimals: 6, usdMicros: 1_000_000n
-  })))).toBe(103_000n);
+  expect(
+    realizedMainnetLoopLoss(
+      [leg.principal, leg.native].map(sample => ({
+        ...sample,
+        decimals: 6,
+        usdMicros: 1_000_000n
+      }))
+    )
+  ).toBe(103_000n);
 });
 it('rejects an unrelated credit even if the balance still fits the dollar ceiling', () => {
   const leg = nativeLeg();

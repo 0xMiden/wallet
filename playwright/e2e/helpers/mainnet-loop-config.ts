@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 
 import { Address } from '@miden-sdk/miden-sdk';
 
@@ -12,8 +12,44 @@ const CHAINS = [
   { name: 'arbitrum', blockchain: 'arb', chainId: 42161 }
 ];
 
-export async function startMainnetLoopConfigServer(_snapshot: unknown): Promise<Server> {
-  throw new Error('Owned mainnet config server is not implemented');
+export async function startMainnetLoopConfigServer(snapshot: unknown): Promise<Server> {
+  if (
+    !record(snapshot) ||
+    snapshot.network !== 'mainnet' ||
+    typeof snapshot.version !== 'number' ||
+    !Number.isSafeInteger(snapshot.version) ||
+    snapshot.version < 1
+  )
+    throw new Error('Only a versioned mainnet snapshot may be served');
+  const body = JSON.stringify(snapshot);
+  if (Buffer.byteLength(body) > 1_048_576) throw new Error('Mainnet configuration snapshot is too large');
+  const server = createServer((request, response) => {
+    const address = server.address();
+    if (!address || typeof address === 'string' || request.headers.host !== `127.0.0.1:${address.port}`) {
+      response.writeHead(400).end();
+    } else if (request.url !== '/mainnet.json') {
+      response.writeHead(404).end();
+    } else if (request.method !== 'GET') {
+      response.writeHead(405, { Allow: 'GET' }).end();
+    } else {
+      response
+        .writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': Buffer.byteLength(body),
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        })
+        .end(body);
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  return server;
 }
 
 export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, tokenList: unknown): unknown {

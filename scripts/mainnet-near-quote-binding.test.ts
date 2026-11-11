@@ -2,7 +2,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { assertOneClickQuoteBinding, parseOneClickQuoteResponse, requestOneClickQuote } from '../src/lib/one-click/client';
+import {
+  assertOneClickQuoteBinding,
+  parseOneClickQuoteResponse,
+  requestOneClickQuote
+} from '../src/lib/one-click/client';
 import { verifyOneClickQuoteSignature } from '../src/lib/one-click/signature';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest } from '../src/lib/one-click/types';
 

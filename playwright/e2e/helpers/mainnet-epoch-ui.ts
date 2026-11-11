@@ -30,7 +30,11 @@ export async function runGuardedEpochForward<T>(hooks: EpochForwardHooks<T>): Pr
       await hooks.uncertain();
     } else {
       let cancelled = false;
-      try { cancelled = await hooks.cancelQueued(); } catch { /* The held request remains unresolved. */ }
+      try {
+        cancelled = await hooks.cancelQueued();
+      } catch {
+        /* The held request remains unresolved. */
+      }
       if (cancelled) await hooks.unspent();
       else await hooks.uncertain();
     }
@@ -41,7 +45,7 @@ export async function runGuardedEpochForward<T>(hooks: EpochForwardHooks<T>): Pr
 export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: bigint): OneClickRoundTripPlan {
   parseMainnetEpochCheckpoint(state);
   const settled = ['forward-settled', 'reverse-authorized', 'complete'].includes(state.phase);
-  const forward = BigInt(settled ? state.forwardReceived ?? state.forwardMinimum : state.forwardMinimum);
+  const forward = BigInt(settled ? (state.forwardReceived ?? state.forwardMinimum) : state.forwardMinimum);
   if (returnInput <= 0n || returnInput > forward || BigInt(state.evm.nativeBalance) < BigInt(state.evmFeeBudget)) {
     throw new Error('Epoch return exceeds its attributed proceeds or existing gas balance');
   }

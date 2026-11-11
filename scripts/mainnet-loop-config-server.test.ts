@@ -1,10 +1,11 @@
 /** @jest-environment node */
-import type { Server } from 'node:http';
+import { get, type Server } from 'node:http';
 import { startMainnetLoopConfigServer } from '../playwright/e2e/helpers/mainnet-loop-config';
 
 let server: Server | undefined;
 afterEach(async () => {
-  if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+  const active = server;
+  if (active) await new Promise<void>((resolve, reject) => active.close(error => (error ? reject(error) : resolve())));
   server = undefined;
 });
 async function start(snapshot: unknown = { network: 'mainnet', version: 18, features: { nearIntents: true } }) {
@@ -28,7 +29,9 @@ it('does not retarget a build when the caller later mutates its input', async ()
   const url = await start(document);
   document.features.nearIntents = false;
   expect(await (await fetch(`${url}/mainnet.json`)).json()).toEqual({
-    network: 'mainnet', version: 18, features: { nearIntents: true }
+    network: 'mainnet',
+    version: 18,
+    features: { nearIntents: true }
   });
 });
 it.each(['/other.json', '/mainnet.json?source=other'])('does not expose another config path: %s', async path => {
@@ -41,10 +44,22 @@ it('does not accept configuration writes', async () => {
 });
 it('rejects another Host header instead of exposing the owned listener to DNS rebinding', async () => {
   const url = await start();
-  expect((await fetch(`${url}/mainnet.json`, { headers: { Host: 'other.example' } })).status).toBe(400);
+  let observedHost: string | undefined;
+  server?.on('request', request => {
+    observedHost = request.headers.host;
+  });
+  const status = await new Promise<number | undefined>((resolve, reject) => {
+    get(`${url}/mainnet.json`, { headers: { Host: 'other.example' } }, response => {
+      response.resume();
+      resolve(response.statusCode);
+    }).once('error', reject);
+  });
+  expect(observedHost).toBe('other.example');
+  expect(status).toBe(400);
 });
 it.each([{}, { network: 'testnet', version: 18 }, { network: 'mainnet', version: 0 }])(
-  'refuses a non-mainnet or unversioned snapshot before listening: %j', async document => {
+  'refuses a non-mainnet or unversioned snapshot before listening: %j',
+  async document => {
     await expect(startMainnetLoopConfigServer(document)).rejects.toThrow();
   }
 );
