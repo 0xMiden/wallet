@@ -14,6 +14,8 @@ concurrency:
 jobs:
   helpers:
     runs-on: ubuntu-latest
+    env:
+      RAYON_NUM_THREADS: 2
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -30,4 +32,5 @@ jobs:
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
           yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
           node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs
+          node scripts/consume-request-equivalence.mjs
           yarn ts
