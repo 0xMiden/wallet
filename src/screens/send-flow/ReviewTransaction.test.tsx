@@ -998,6 +998,17 @@ describe('ReviewTransaction — rendering', () => {
     expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
   });
 
+  it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, '0'])('cannot submit Epoch without a positive reviewed quote: %s', async amount => {
     mockDetectedChain = 'ethereum';
     mockEpochQuote = { amount, loading: false, error: null, symbol: 'USDC' };

@@ -1,11 +1,16 @@
 /** @jest-environment node */
-import { qualifyMainnetLoopConfig } from '../playwright/e2e/helpers/mainnet-loop-config';
+import { canonicalMainnetLoopFaucet, qualifyMainnetLoopConfig } from '../playwright/e2e/helpers/mainnet-loop-config';
 
 const native = 'mm1arnfum9xuwwlrvgvrefejwvlavn3vk24';
 const hex = '0xe69e6ca6e39df1b10c1e5399399feb';
 const usdc = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
 const nativeAsset = `nep141:miden-${hex}.omft.near`;
 const evmAsset = `nep141:arb-${usdc}.omft.near`;
+const nightlyFeePolicy = {
+  kind: 'partner',
+  platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',
+  minimumPlatformFeeBps: 20
+};
 jest.mock('@miden-sdk/miden-sdk', () => ({
   Address: {
     fromBech32: (value: string) => {
@@ -30,6 +35,15 @@ const catalog = () => [
   { assetId: evmAsset, blockchain: 'arb', symbol: 'USDC', decimals: 6, contractAddress: usdc }
 ];
 
+describe('mainnet faucet identity across config and wallet-cache formats', () => {
+  it.each([native, `${native}_qr7qqq9wr6w`, hex])('uses one canonical identity for %s', id => {
+    expect(canonicalMainnetLoopFaucet(id)).toBe(hex);
+  });
+  it.each(['mtst1other', ` ${native}`, '0x123'])('rejects an invalid or other-network reference: %s', id => {
+    expect(() => canonicalMainnetLoopFaucet(id)).toThrow();
+  });
+});
+
 describe('nightly-only mainnet NEAR configuration', () => {
   it('rejects an insecure provider rather than replacing its URL silently', () => {
     const original = document();
@@ -52,6 +66,7 @@ describe('nightly-only mainnet NEAR configuration', () => {
         ...before.swap,
         oneClick: {
           serviceUrl: 'https://1click.chaindefuser.com',
+          feePolicy: nightlyFeePolicy,
           midenAssets: [{ assetId: nativeAsset, faucetId: native, decimals: 6 }],
           evmAssets: [
             { assetId: evmAsset, blockchain: 'arb', chainId: 42161, contractAddress: usdc, decimals: 6, symbol: 'USDC' }
@@ -67,6 +82,21 @@ describe('nightly-only mainnet NEAR configuration', () => {
     { ...document(), supportedEvmChains: {} }
   ])('refuses an invalid or unsupported mainnet document %#', doc => {
     expect(() => qualifyMainnetLoopConfig(doc, catalog(), tokens())).toThrow();
+  });
+  it('preserves an explicit trusted fee policy instead of learning one from returned fees', () => {
+    const original = document();
+    const oneClick = { serviceUrl: 'https://proxy.example', feePolicy: {
+      kind: 'public', platformRecipient: 'pinned.near', minimumPlatformFeeBps: 25
+    } };
+    expect(qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens()))
+      .toMatchObject({ swap: { oneClick } });
+  });
+  it('rejects an ambiguous fee policy before serving a nightly snapshot', () => {
+    const original = document();
+    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', feePolicy: {
+      ...nightlyFeePolicy, allowExtraFees: true
+    } };
+    expect(() => qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())).toThrow();
   });
   it('requires an unambiguous verified native faucet and exact live asset identity', () => {
     expect(() => qualifyMainnetLoopConfig(document(), catalog(), { tokens: [] })).toThrow();

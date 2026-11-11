@@ -176,7 +176,12 @@ describe('the reviewed Epoch output minimum', () => {
     expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
     expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
   });
-  it.each(['249', '0', '-1', 'not-an-amount', '0.0002499'])('never creates collateral for a worse or invalid fresh quote: %s', async tokenOut => {
+  it('refuses an omitted reviewed minimum at the runtime boundary', async () => {
+    const { minimumOutputBaseUnits: _minimum, ...missing } = args();
+    await expect(Reflect.apply(bridgeEpochSend, undefined, [missing])).rejects.toThrow();
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+  });
+  it.each(['249', '0', '-1', 'not-an-amount', '0.0002499', undefined])('never creates collateral for a worse or invalid fresh quote: %s', async tokenOut => {
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut } });
     await expect(bridgeEpochSend(args())).rejects.toThrow();
     expect(mockBuildCrossChainIntent).not.toHaveBeenCalled();

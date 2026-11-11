@@ -245,6 +245,37 @@ describe('swap section', () => {
   });
 
   it.each([
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 20 },
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 1 },
+    { kind: 'public', platformRecipient: 'platform.near', minimumPlatformFeeBps: 25 }
+  ])('preserves an explicitly pinned 1Click fee schedule: %j', feePolicy => {
+    const oneClick = {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [{ assetId: 'miden:token', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
+      feePolicy
+    };
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+      oneClick: { ...oneClick, evmAssets: [] }
+    });
+  });
+  it.each([
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 25 },
+    { kind: 'public', platformRecipient: 'platform.near', minimumPlatformFeeBps: 20 },
+    { kind: 'partner', platformRecipient: '', minimumPlatformFeeBps: 20 },
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 0 },
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 20.5 },
+    { kind: 'unknown', platformRecipient: 'platform.near', minimumPlatformFeeBps: 20 },
+    { kind: 'partner', platformRecipient: 'platform.near', minimumPlatformFeeBps: 20, allowExtraFees: true }
+  ])('rejects an unapproved or ambiguous 1Click fee schedule: %j', feePolicy => {
+    const oneClick = {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [{ assetId: 'miden:token', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
+      feePolicy
+    };
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+
+  it.each([
     {
       serviceUrl: 'http://swap.example',
       midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }]

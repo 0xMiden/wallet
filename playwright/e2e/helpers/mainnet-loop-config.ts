@@ -12,6 +12,10 @@ const CHAINS = [
   { name: 'arbitrum', blockchain: 'arb', chainId: 42161 }
 ];
 
+export function canonicalMainnetLoopFaucet(faucet: string): string {
+  return faucet.toLowerCase();
+}
+
 export async function startMainnetLoopConfigServer(snapshot: unknown): Promise<Server> {
   if (
     !record(snapshot) ||

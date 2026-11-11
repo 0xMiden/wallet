@@ -55,7 +55,36 @@ const request: OneClickQuoteRequest = {
   slippageTolerance: response.quoteRequest.slippageTolerance
 };
 
+const withPolicy: OneClickConfig = {
+  ...config,
+  feePolicy: { kind: 'partner', platformRecipient: feeRecipient, minimumPlatformFeeBps: 20 }
+};
+
 afterEach(() => jest.useRealTimers());
+it('accepts only the explicitly pinned documented partner transformation', () => {
+  expect(() => assertOneClickQuoteBinding(request, response, true, withPolicy)).not.toThrow();
+});
+it.each([
+  [{ recipient: feeRecipient, fee: 5 }],
+  [{ recipient: feeRecipient, fee: 5 }, { recipient: feeRecipient, fee: 21 }],
+  [{ recipient: feeRecipient, fee: 5 }, { recipient: 'other.near', fee: 20 }],
+  [{ recipient: feeRecipient, fee: 5 }, { recipient: feeRecipient, fee: 20 }, { recipient: feeRecipient, fee: 1 }]
+])('still rejects an unsigned fee-list alteration under the pinned policy: %j', (...appFees) => {
+  const changed = { ...response, quoteRequest: { ...response.quoteRequest, appFees } };
+  expect(verifyOneClickQuoteSignature(changed)).toBe(true);
+  expect(() => assertOneClickQuoteBinding(request, changed, true, withPolicy)).toThrow();
+});
+it('sends nominal app fees, not the transformed platform policy, through the actual request client', async () => {
+  jest.useFakeTimers().setSystemTime(new Date(response.timestamp));
+  let sent: unknown;
+  const fetcher: typeof fetch = async (_url, init) => {
+    sent = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    return new Response(JSON.stringify(raw), { status: 201 });
+  };
+  await expect(requestOneClickQuote(withPolicy, request, true, fetcher)).resolves.toEqual(response);
+  expect(sent).toEqual(expect.objectContaining({ appFees: [{ recipient: feeRecipient, fee: 10 }] }));
+  expect(sent).not.toHaveProperty('feePolicy');
+});
 it('verifies the actual read-only provider quote against the pinned manager key', () => {
   expect(verifyOneClickQuoteSignature(response)).toBe(true);
 });

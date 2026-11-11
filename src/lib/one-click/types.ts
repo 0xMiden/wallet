@@ -31,7 +31,14 @@ export interface OneClickAppFee {
   fee: number;
 }
 
+export interface OneClickFeePolicy {
+  kind: 'partner' | 'public';
+  platformRecipient: string;
+  minimumPlatformFeeBps: number;
+}
+
 export interface OneClickConfig {
+  feePolicy?: OneClickFeePolicy;
   serviceUrl: string;
   midenAssets: OneClickMidenAssetConfig[];
   evmAssets?: OneClickEvmAssetConfig[];
