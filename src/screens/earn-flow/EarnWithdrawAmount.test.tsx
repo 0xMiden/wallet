@@ -24,6 +24,7 @@ jest.mock('./components', () => ({
 let mockAvailable = '10.123456789012345678';
 let mockStale = false;
 let mockPositionFailure: object = {};
+let mockIsRefreshing = false;
 jest.mock('./useEarnPositions', () => ({
   earnItemLoadState: () => ({ loadFailed: false, pending: false }),
   useEarnPositions: () => ({
@@ -39,6 +40,7 @@ jest.mock('./useEarnPositions', () => ({
       }
     ],
     ...mockPositionFailure,
+    isRefreshing: mockIsRefreshing,
     refetch: jest.fn()
   })
 }));
@@ -49,8 +51,18 @@ afterEach(() => {
   mockAvailable = '10.123456789012345678';
   mockStale = false;
   mockPositionFailure = {};
+  mockIsRefreshing = false;
   jest.clearAllMocks();
 });
+it('keeps the amount field in place while positions refresh', () => {
+  mockIsRefreshing = true;
+  render(<EarnWithdrawAmount positionId="p" />);
+
+  expect(screen.getByRole('status', { name: 'loading' })).toHaveClass('absolute', 'pointer-events-none');
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'review' })).toBeInTheDocument();
+});
+
 it('offers exact Max and hands only the selected amount to review', () => {
   render(<EarnWithdrawAmount positionId="p" />);
   const amount = screen.getByRole('textbox', { name: 'earnWithdrawAmount' });

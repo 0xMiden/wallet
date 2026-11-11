@@ -138,10 +138,19 @@ const USDC_ROW = {
 };
 let mockBalanceRows: unknown[] = [USDC_ROW];
 let mockBalancesLoading = false;
+let mockBalanceReadFailed = false;
+let mockBalanceReadInFlight = false;
+const mockBalanceMutate = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
   useAllTokensBaseMetadata: () => ({}),
-  useAllBalances: () => ({ data: mockBalanceRows, isLoading: mockBalancesLoading })
+  useAllBalances: () => ({
+    data: mockBalanceRows,
+    isLoading: mockBalancesLoading,
+    readFailed: mockBalanceReadFailed,
+    balanceReadInFlight: mockBalanceReadInFlight,
+    mutate: mockBalanceMutate
+  })
 }));
 
 const USDC_QUOTE = { USDC: { price: 1.0002, change24h: 0, percentageChange24h: 0 } };
@@ -183,6 +192,9 @@ const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount
 
 beforeEach(() => {
   mockBalancesLoading = false;
+  mockBalanceReadFailed = false;
+  mockBalanceReadInFlight = false;
+  mockBalanceMutate.mockClear();
   mockNavigate.mockClear();
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
@@ -670,4 +682,16 @@ it('shows a spinner until balances load, then shows amount entry', () => {
   rerender(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
   expect(screen.queryByRole('status', { name: 'loading' })).toBeNull();
   expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+});
+
+it('shows a retry when the first balance read has failed', () => {
+  mockBalancesLoading = true;
+  mockBalanceReadFailed = true;
+  render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+  expect(screen.getByRole('alert')).toHaveTextContent('earnBalanceLoadError');
+  expect(screen.queryByRole('status', { name: 'loading' })).toBeNull();
+  expect(screen.queryByTestId('select-amount')).toBeNull();
+  fireEvent.click(screen.getByTestId('earn-positions-retry'));
+  expect(mockBalanceMutate).toHaveBeenCalledTimes(1);
 });
