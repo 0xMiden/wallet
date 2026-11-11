@@ -1,12 +1,14 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
+import { isLiveTransaction, type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
 import type { PswapLineageDto } from '../sdk/pswap-lineage';
+import { holdsNotes } from '../transaction/verdict-rules';
 import type { SwapOrderNoteMetadata } from '../types';
+import { normalizedFaucetId } from './faucet-ids';
 import { isRecoveredReturnOrder } from './recovered-order';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -30,6 +32,26 @@ const lineageState = (state: number): SwapOrderNoteMetadata['lineageState'] => {
 };
 
 export const isSwapTransaction = (tx: ITransaction): tx is SwapTransaction => tx.type === 'swap';
+
+/**
+ * Whether `note` has the shape of a payback of order `orderId`: the P2ID note a fill pays, holding exactly the
+ * requested asset and stamped with the round it filled, 1 for the first (`PswapNote::payback_note` in
+ * miden-standards). The order id is public, since every payback carries it, so anyone can put this attachment on a
+ * note, and a payback is settled unattended. Without the script check a note's script runs against this account's
+ * vault (#2118); without the asset and round checks, dust of any token buys a settlement fee per order.
+ */
+function isPaybackShaped(
+  note: ConsumableNoteDto,
+  orderId: string,
+  lastPaidDepth: number,
+  requestedFaucetId: string
+): boolean {
+  const attached = note.swapAttachment;
+  if (note.standardPayment !== true || attached?.orderId !== orderId) return false;
+  if (attached.depth < 1 || attached.depth > lastPaidDepth) return false;
+  const [asset, ...otherAssets] = note.assets;
+  return asset !== undefined && otherAssets.length === 0 && normalizedFaucetId(asset.faucetId) === requestedFaucetId;
+}
 
 // Optional-chained: persisted rows are plain objects, and a legacy or
 // partially-written swap row without extraInputs must not throw inside the
@@ -73,6 +95,36 @@ export interface SwapOrderSnapshot {
   lineages: Map<string, PswapLineageDto>;
 }
 
+interface PaybackClaims {
+  /** The fill rounds a payback claim of the order holds: queued, generating, completed, or awaiting its verdict. */
+  heldDepths: Set<number>;
+  /** Every note a payback claim of the order named with its round, failed claims included. */
+  namedNoteIds: Set<string>;
+}
+
+/** What each order's payback claims recorded (`swapPaybackDepths`), by order row id. A restored row records nothing. */
+async function paybackClaimsOf(orderTxIds: string[]): Promise<Map<string, PaybackClaims>> {
+  const claims = new Map<string, PaybackClaims>();
+  const rows = await Repo.transactions.where('extraInputs.swapOrderTxId').anyOf(orderTxIds).toArray();
+  for (const row of rows) {
+    const orderTxId = row.extraInputs?.swapOrderTxId;
+    const depths = row.extraInputs?.swapPaybackDepths;
+    if (row.type !== 'consume' || row.restoredFromBackup || typeof orderTxId !== 'string' || !depths) continue;
+    const entry = claims.get(orderTxId) ?? { heldDepths: new Set<number>(), namedNoteIds: new Set<string>() };
+    claims.set(orderTxId, entry);
+    // The claim dedup's rule (`noteClaimCoverage`): such a row covers its notes, so no second claim takes them.
+    const holds = isLiveTransaction(row) || row.status === ITransactionStatus.Completed || holdsNotes(row);
+    // Only the notes the row holds: a partly deduplicated batch records the depths of notes another row took.
+    for (const noteId of row.noteIds ?? (row.noteId ? [row.noteId] : [])) {
+      const depth = depths[noteId];
+      if (typeof depth !== 'number') continue;
+      entry.namedNoteIds.add(noteId);
+      if (holds) entry.heldDepths.add(depth);
+    }
+  }
+  return claims;
+}
+
 /**
  * Classify consumable notes and retain the same bulk lineage snapshot. Settlement
  * also needs the lineage entry when a zero-fill order has no input note at all:
@@ -94,6 +146,7 @@ export async function classifySwapOrderSnapshot(
   const snapshot = await midenClientProxy.getPswapLineages(assertLive);
   assertLive();
   const lineages = new Map(snapshot.map(lineage => [lineage.orderId, lineage]));
+  const paybacksByOrder = new Map<string, string[]>();
   for (const order of orders) {
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = lineages.get(orderId);
@@ -102,6 +155,9 @@ export async function classifySwapOrderSnapshot(
     const currentTipNoteId = lineage.currentTipNoteId;
     const currentDepth = lineage.currentDepth;
     const state = lineageState(lineage.state);
+    // A reclaim is a round of its own that pays nothing, so a reclaimed order's last payback is one round back.
+    const lastPaidDepth = state === 'reclaimed' ? currentDepth - 1 : currentDepth;
+    const requestedFaucetId = normalizedFaucetId(order.extraInputs.requestedFaucetId);
     const expiresAt =
       order.extraInputs.expiresAt ??
       (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);
@@ -112,16 +168,10 @@ export async function classifySwapOrderSnapshot(
       let role: SwapOrderNoteMetadata['role'] | undefined;
       let depth = currentDepth;
       if (noteId === currentTipNoteId) role = 'tip';
-      else {
-        // A payback is a P2ID note, so only a standard payment can be one. The order id is
-        // public (every payback carries it), so anyone can put this attachment on a note.
-        // Without the script check, a note with any script and a copied attachment is
-        // settled unattended, and its script runs against this account's vault (#2118).
-        const attached = note.swapAttachment;
-        if (note.standardPayment === true && attached?.orderId === orderId && attached.depth <= currentDepth) {
-          role = 'payback';
-          depth = attached.depth;
-        }
+      else if (note.swapAttachment && isPaybackShaped(note, orderId, lastPaidDepth, requestedFaucetId)) {
+        role = 'payback';
+        depth = note.swapAttachment.depth;
+        paybacksByOrder.set(order.id, [...(paybacksByOrder.get(order.id) ?? []), noteId]);
       }
       if (!role) continue;
       result.set(noteId, {
@@ -133,6 +183,24 @@ export async function classifySwapOrderSnapshot(
         expiryTriggeredAt: order.extraInputs.expiryTriggeredAt,
         autoConsume: order.extraInputs.autoConsume ?? true
       });
+    }
+  }
+
+  // One fill pays one payback, so a second note at a round a claim already holds is a copy. Refused, it is an ordinary
+  // payment under the ordinary claim rules. A note a claim of the order once named keeps its role, so a forger cannot
+  // take the round of a payback whose claim failed.
+  if (paybacksByOrder.size > 0) {
+    const claims = await paybackClaimsOf([...paybacksByOrder.keys()]);
+    assertLive();
+    for (const [orderTxId, noteIds] of paybacksByOrder) {
+      const claim = claims.get(orderTxId);
+      if (!claim) continue;
+      for (const noteId of noteIds) {
+        const depth = result.get(noteId)?.depth;
+        if (depth !== undefined && claim.heldDepths.has(depth) && !claim.namedNoteIds.has(noteId)) {
+          result.delete(noteId);
+        }
+      }
     }
   }
   return { notes: result, lineages };

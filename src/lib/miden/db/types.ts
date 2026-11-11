@@ -673,6 +673,11 @@ export interface IConsumeSwapSettleExtraInputs {
    * the order is left to claim.
    */
   swapSettlePartial?: boolean;
+  /**
+   * The fill round of each payback this claim covers, by note id. One fill pays one payback, so classification
+   * refuses a further note at a round such a claim holds: a copied payback attachment never buys a claim of its own.
+   */
+  swapPaybackDepths?: Record<string, number>;
 }
 
 /**
