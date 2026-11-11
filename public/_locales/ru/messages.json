@@ -52,6 +52,151 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ секунд",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ минут",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Вы получаете $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents не предлагает этот токен в данной сети.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Эта сумма слишком мала для NEAR Intents. Введите более крупную сумму.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents не может выполнить доставку на этот адрес. Проверьте адрес и сеть.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Котировка изменилась и теперь предлагает меньшую сумму, чем та, которую вы рассматривали. Ознакомьтесь с новой котировкой, а затем подтвердите ещё раз.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Срок действия котировки истек до начала платежа. Просмотрите новую котировку, а затем подтвердите её заново.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Если своп не удался, NEAR Intents возвращает сумму на этот счёт Miden.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Адрес депозита сгенерирован",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Отправка на адрес депозита",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Генерация адреса для пополнения счета",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Средства отправляются в NEAR Intents. Доставка в $network$ продолжается. Отслеживайте её статус в разделе «Активность».",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents осуществил платеж в сети $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Получатель получает (оценка)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Статус доставки",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Отправка в NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Доставлено получателю",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Истекший срок действия",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Возврат платежа",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents не смог завершить обмен и вернул сумму на ваш счёт Miden.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Доставка не удалась",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents не смог осуществить этот платеж. Откройте «Активность» для просмотра подробностей.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Срок доставки истек",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents не обработала этот платеж вовремя. Откройте «Активность» для просмотра подробностей.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Получатель получил",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Просмотреть в браузере $network$",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "Этот маршрут недоступен для данного перевода. Вы можете продолжить, выбрав другой доступный маршрут. С этого экрана не было отправлено ни одной транзакции.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -1160,10 +1305,6 @@
     "message": "Назад",
     "englishSource": "Back"
   },
-  "backToSwap": {
-    "message": "Вернуться к свопу",
-    "englishSource": "Back to swap"
-  },
   "skip": {
     "message": "Пропустить",
     "englishSource": "Skip"
@@ -2226,8 +2367,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Введите адрес Miden или Ethereum",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Введите адрес",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Этот кошелек не может отправлять средства на этот адрес",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Биткойн",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Выберите сумму",
@@ -2273,10 +2430,6 @@
   "swap": {
     "message": "Обмен",
     "englishSource": "Swap"
-  },
-  "confirmSwap": {
-    "message": "Подтвердить своп",
-    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Через In Protocol Dex",
@@ -7912,100 +8065,13 @@
     "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "oneClickSelectAsset": {
-    "message": "Выберите токен в $network$",
-    "englishSource": "Select a token on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickNoAssets": {
-    "message": "В этой сети отсутствуют верифицированные токены.",
-    "englishSource": "No verified tokens are available on this network."
-  },
-  "oneClickRecipientSection": {
-    "message": "Получатель",
-    "englishSource": "Recipient"
-  },
-  "oneClickRefundSection": {
-    "message": "Счёт для возврата средств",
-    "englishSource": "Refund account"
-  },
-  "oneClickRecipientAddress": {
-    "message": "Адрес получателя",
-    "englishSource": "Recipient address"
-  },
-  "oneClickRefundAddress": {
-    "message": "Адрес возврата средств в исходной сети",
-    "englishSource": "Refund address on the origin network"
-  },
-  "oneClickRefundAccount": {
-    "message": "Счёт для возврата средств",
-    "englishSource": "Refund account"
-  },
-  "oneClickConnectOriginWallet": {
-    "message": "Подключить кошелек $network$",
-    "englishSource": "Connect $network$ wallet",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickChooseForeignNetwork": {
-    "message": "Выберите сеть отправления или назначения за пределами Miden.",
-    "englishSource": "Choose an origin or destination network outside Miden."
-  },
-  "oneClickDifferentNetworksRequired": {
-    "message": "Выберите две разные сети.",
-    "englishSource": "Choose two different networks."
-  },
-  "oneClickMidenAssetRequired": {
-    "message": "Выберите проверенный токен Miden для одной из сторон этого маршрута.",
-    "englishSource": "Choose a verified Miden token for one side of this route."
-  },
-  "oneClickSameUnderlyingBridge": {
-    "message": "Это перевод через мост. Используйте существующий поток моста для данного актива.",
-    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
-  },
   "oneClickQuoteUnavailable": {
     "message": "Котировка для этого маршрута недоступна. Проверьте адреса и попробуйте ещё раз.",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
-  "oneClickQuoteExpiresAt": {
-    "message": "Срок действия котировки истек",
-    "englishSource": "Quote expires"
-  },
-  "oneClickQuoteExpired": {
-    "message": "Срок действия истек. Обновите страницу, прежде чем продолжить.",
-    "englishSource": "Expired. Refresh before continuing."
-  },
-  "oneClickConfirmMidenDeposit": {
-    "message": "Подтвердите этот депозит в Miden",
-    "englishSource": "Confirm this Miden deposit"
-  },
   "oneClickSubmitFailed": {
     "message": "Не удалось отправить депозит. Проверьте маршрут и попробуйте ещё раз.",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
-  },
-  "oneClickRouteChanged": {
-    "message": "Маршрут изменился. Перед продолжением запросите новую котировку.",
-    "englishSource": "The route changed. Request a new quote before continuing."
-  },
-  "oneClickArrivalEstimate": {
-    "message": "Около $minutes$ минут",
-    "englishSource": "About $minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefreshQuote": {
-    "message": "Обновить котировку",
-    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "Минимальная сумма поступления",
@@ -8019,108 +8085,13 @@
     "message": "Сумма возврата",
     "englishSource": "Refund amount"
   },
-  "oneClickNativeFee": {
-    "message": "Ориентировочная комиссия сети Miden",
-    "englishSource": "Estimated Miden network fee"
-  },
-  "oneClickAvailableBalance": {
-    "message": "Доступный внешний баланс",
-    "englishSource": "Available external balance"
-  },
-  "oneClickBalanceChecking": {
-    "message": "Проверка внешнего баланса",
-    "englishSource": "Checking external balance"
-  },
-  "oneClickBalanceCheckingBody": {
-    "message": "Проверка подключённого счёта и резервирование суммы, достаточной для оплаты сетевой комиссии.",
-    "englishSource": "Checking the connected account and reserving enough for the network fee."
-  },
-  "oneClickBalanceUnavailable": {
-    "message": "Внешний баланс недоступен",
-    "englishSource": "External balance unavailable"
-  },
-  "oneClickBalanceUnavailableBody": {
-    "message": "Кошелек не смог проверить баланс подключённого счёта и сетевую комиссию. Перед продолжением попробуйте подключиться заново или повторите попытку.",
-    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
-  },
-  "oneClickGasReserve": {
-    "message": "Зарезервировано для сетевых комиссий: $amount$ $symbol$",
-    "englishSource": "Reserved for network fees: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "oneClickInsufficientTokenBalance": {
-    "message": "Недостаточный баланс токенов",
-    "englishSource": "Insufficient token balance"
-  },
-  "oneClickInsufficientTokenBalanceBody": {
-    "message": "На связанном счёте недостаточно данного токена для указанного депозита.",
-    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
-  },
-  "oneClickInsufficientGasBalance": {
-    "message": "Недостаточный баланс комиссии за сетевые операции",
-    "englishSource": "Insufficient network fee balance"
-  },
-  "oneClickInsufficientGasBalanceBody": {
-    "message": "На связанном счёте требуется больше $symbol$ для покрытия предполагаемой комиссии сети.",
-    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
-    "placeholders": {
-      "symbol": {
-        "content": "$1"
-      }
-    }
-  },
   "oneClickArrival": {
     "message": "Ориентировочное время прибытия",
     "englishSource": "Estimated arrival"
   },
-  "oneClickRecipient": {
-    "message": "Получатель",
-    "englishSource": "Recipient"
-  },
-  "oneClickRoute": {
-    "message": "Маршрут",
-    "englishSource": "Route"
-  },
-  "oneClickYouPayFrom": {
-    "message": "Вы платите в $network$",
-    "englishSource": "You pay on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickYouReceiveOn": {
-    "message": "Вы получаете на $network$",
-    "englishSource": "You receive on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefundFee": {
-    "message": "Комиссия за возврат средств",
-    "englishSource": "Refund fee"
-  },
-  "oneClickWithdrawFee": {
-    "message": "Комиссия за снятие средств",
-    "englishSource": "Withdrawal fee"
-  },
   "oneClickDepositInstructions": {
     "message": "Инструкции по депозиту",
     "englishSource": "Deposit instructions"
-  },
-  "oneClickManualDepositNotice": {
-    "message": "Отправьте точно указанную ниже сумму через выбранную сеть. Обмен начнется только после того, как перевод поступит на адрес пополнения.",
-    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "Сеть",
@@ -8149,42 +8120,6 @@
   "oneClickOriginTransaction": {
     "message": "Транзакция-источник",
     "englishSource": "Origin transaction"
-  },
-  "oneClickTrackingSaved": {
-    "message": "Этот маршрут сохраняется в разделе «Активность», чтобы вы могли отследить его позже.",
-    "englishSource": "This route is saved in Activity so you can track it later."
-  },
-  "oneClickBroadcastTrackingPending": {
-    "message": "Кошелек отправил этот депозит, но пока не смог сохранить транзакцию. Не отправляйте её повторно. Хеш транзакции указан ниже.",
-    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
-  },
-  "oneClickRefreshingExpiredQuote": {
-    "message": "Обновление просроченной котировки",
-    "englishSource": "Refreshing expired quote"
-  },
-  "oneClickRecoveryUnavailable": {
-    "message": "Этот маршрут не может быть обновлён",
-    "englishSource": "This route cannot be refreshed"
-  },
-  "oneClickRecoveryUnavailableBody": {
-    "message": "Изменился аккаунт, сеть или проверенный маршрут. Вернитесь к транзакции и при необходимости запустите новый маршрут.",
-    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
-  },
-  "oneClickExpiredRefreshFailed": {
-    "message": "Котировка с истекшим сроком не может быть обновлена. Попытайтесь получить новую котировку перед отправкой.",
-    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
-  },
-  "oneClickQuoteRefreshed": {
-    "message": "Котировка обновлена",
-    "englishSource": "Quote refreshed"
-  },
-  "oneClickExpiredRefreshNotice": {
-    "message": "Срок действия предыдущей котировки истек до отправки вашего депозита. Ознакомьтесь с этим обновлённым маршрутом и подтвердите, чтобы продолжить.",
-    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
-  },
-  "oneClickDepositSubmitted": {
-    "message": "Депозит отправлен",
-    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "Обнаружена транзакция по депозиту",
@@ -8569,18 +8504,6 @@
   "nearIntentsNoLiquidity": {
     "message": "Недостаточная ликвидность для этой суммы. Попробуйте указать другую сумму.",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
-  },
-  "availableAmount": {
-    "message": "Доступно: $amount$ $symbol$",
-    "englishSource": "Available: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
   },
   "amountExceedsTokenDecimals": {
     "message": "В этой сумме больше десятичных знаков, чем допускает данный токен.",

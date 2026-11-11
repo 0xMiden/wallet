@@ -52,6 +52,151 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ секунд",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ хвилин",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Ви отримуєте $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents не пропонує цей токен у цій мережі.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Ця сума занадто мала для NEAR Intents. Введіть більшу суму.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents не може здійснити доставку на цю адресу. Перевірте адресу та мережу.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Котирування змінилося, і тепер воно пропонує суму, меншу за ту, яку ви переглянули. Перегляньте нове котирування, а потім підтвердьте ще раз.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Термін дії котирування закінчився до початку платежу. Перегляньте нове котирування, а потім підтвердьте його ще раз.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Якщо своп не відбувся, NEAR Intents повертає суму на цей рахунок Miden.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Адреса депозиту згенерована",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Відправлення на адресу депозиту",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Генерування адреси для депозиту",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Кошти надсилаються до NEAR Intents. Передача до $network$ триває. Слідкуйте за її статусом у розділі «Активність».",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents здійснив платіж у мережі $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Одержувач отримує (орієнтовно)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Статус доставки",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Відправлення до NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Доставлено одержувачу",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Термін дії закінчився",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Повернення платежу",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents не зміг завершити обмін і повернув суму на ваш рахунок Miden.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Помилка під час доставки",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents не зміг здійснити цей платіж. Відкрийте «Активність» для детальної інформації.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Термін доставки минув",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents не встиг вчасно обробити цей платіж. Деталі дивіться у розділі «Open Activity».",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Одержувач отримав",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Переглянути в експлорері $network$",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "Цей маршрут недоступний для цього переказу. Ви можете продовжити, вибравши інший доступний маршрут. З цього екрана не було подано жодної транзакції.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -1160,10 +1305,6 @@
     "message": "Назад",
     "englishSource": "Back"
   },
-  "backToSwap": {
-    "message": "Назад до свопу",
-    "englishSource": "Back to swap"
-  },
   "skip": {
     "message": "Пропустити",
     "englishSource": "Skip"
@@ -2226,8 +2367,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Введіть адресу Miden або Ethereum",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Введіть адресу",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Цей гаманець не може надсилати кошти на цю адресу",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Біткойн",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Виберіть суму",
@@ -2273,10 +2430,6 @@
   "swap": {
     "message": "Обмін",
     "englishSource": "Swap"
-  },
-  "confirmSwap": {
-    "message": "Підтвердити своп",
-    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Через In Protocol Dex",
@@ -7910,100 +8063,13 @@
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "oneClickSelectAsset": {
-    "message": "Виберіть токен у мережі $network$",
-    "englishSource": "Select a token on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickNoAssets": {
-    "message": "У цій мережі немає перевірених токенів.",
-    "englishSource": "No verified tokens are available on this network."
-  },
-  "oneClickRecipientSection": {
-    "message": "Одержувач",
-    "englishSource": "Recipient"
-  },
-  "oneClickRefundSection": {
-    "message": "Рахунок для повернення коштів",
-    "englishSource": "Refund account"
-  },
-  "oneClickRecipientAddress": {
-    "message": "Адреса одержувача",
-    "englishSource": "Recipient address"
-  },
-  "oneClickRefundAddress": {
-    "message": "Адреса для повернення коштів у вихідній мережі",
-    "englishSource": "Refund address on the origin network"
-  },
-  "oneClickRefundAccount": {
-    "message": "Рахунок для повернення коштів",
-    "englishSource": "Refund account"
-  },
-  "oneClickConnectOriginWallet": {
-    "message": "Підключити гаманець $network$",
-    "englishSource": "Connect $network$ wallet",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickChooseForeignNetwork": {
-    "message": "Оберіть мережу відправлення або призначення поза межами Miden.",
-    "englishSource": "Choose an origin or destination network outside Miden."
-  },
-  "oneClickDifferentNetworksRequired": {
-    "message": "Оберіть дві різні мережі.",
-    "englishSource": "Choose two different networks."
-  },
-  "oneClickMidenAssetRequired": {
-    "message": "Оберіть перевірений токен Miden для однієї зі сторін цього маршруту.",
-    "englishSource": "Choose a verified Miden token for one side of this route."
-  },
-  "oneClickSameUnderlyingBridge": {
-    "message": "Це переказ через міст. Використовуйте існуючий потік переказу через міст для цього активу.",
-    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
-  },
   "oneClickQuoteUnavailable": {
     "message": "Ціна для цього маршруту недоступна. Перевірте адреси та спробуйте ще раз.",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
-  "oneClickQuoteExpiresAt": {
-    "message": "Термін дії котирування закінчується",
-    "englishSource": "Quote expires"
-  },
-  "oneClickQuoteExpired": {
-    "message": "Термін дії закінчився. Оновіть сторінку, перш ніж продовжувати.",
-    "englishSource": "Expired. Refresh before continuing."
-  },
-  "oneClickConfirmMidenDeposit": {
-    "message": "Підтвердіть цей депозит у Miden",
-    "englishSource": "Confirm this Miden deposit"
-  },
   "oneClickSubmitFailed": {
     "message": "Не вдалося подати депозит. Перевірте маршрут і спробуйте ще раз.",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
-  },
-  "oneClickRouteChanged": {
-    "message": "Маршрут змінився. Запитайте нову пропозицію, перш ніж продовжувати.",
-    "englishSource": "The route changed. Request a new quote before continuing."
-  },
-  "oneClickArrivalEstimate": {
-    "message": "Приблизно $minutes$ хвилин",
-    "englishSource": "About $minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefreshQuote": {
-    "message": "Оновити котирування",
-    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "Мінімальна отримана сума",
@@ -8017,108 +8083,13 @@
     "message": "Сума повернення коштів",
     "englishSource": "Refund amount"
   },
-  "oneClickNativeFee": {
-    "message": "Орієнтовна комісія мережі Miden",
-    "englishSource": "Estimated Miden network fee"
-  },
-  "oneClickAvailableBalance": {
-    "message": "Доступний зовнішній баланс",
-    "englishSource": "Available external balance"
-  },
-  "oneClickBalanceChecking": {
-    "message": "Перевірка зовнішнього балансу",
-    "englishSource": "Checking external balance"
-  },
-  "oneClickBalanceCheckingBody": {
-    "message": "Перевірка підключеного рахунку та резервування достатньої суми для оплати комісії мережі.",
-    "englishSource": "Checking the connected account and reserving enough for the network fee."
-  },
-  "oneClickBalanceUnavailable": {
-    "message": "Зовнішній баланс недоступний",
-    "englishSource": "External balance unavailable"
-  },
-  "oneClickBalanceUnavailableBody": {
-    "message": "Гаманець не зміг перевірити баланс підключеного рахунку та комісію мережі. Перед продовженням підключіться знову або спробуйте ще раз.",
-    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
-  },
-  "oneClickGasReserve": {
-    "message": "Зарезервовано для мережевих комісій: $amount$ $symbol$",
-    "englishSource": "Reserved for network fees: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "oneClickInsufficientTokenBalance": {
-    "message": "Недостатній баланс токенів",
-    "englishSource": "Insufficient token balance"
-  },
-  "oneClickInsufficientTokenBalanceBody": {
-    "message": "На пов’язаному рахунку недостатньо цього токена для зазначеного депозиту.",
-    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
-  },
-  "oneClickInsufficientGasBalance": {
-    "message": "Недостатній баланс комісії за мережу",
-    "englishSource": "Insufficient network fee balance"
-  },
-  "oneClickInsufficientGasBalanceBody": {
-    "message": "Для покриття передбачуваної комісії мережі на пов’язаному рахунку потрібно більше $symbol$.",
-    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
-    "placeholders": {
-      "symbol": {
-        "content": "$1"
-      }
-    }
-  },
   "oneClickArrival": {
     "message": "Орієнтовний час прибуття",
     "englishSource": "Estimated arrival"
   },
-  "oneClickRecipient": {
-    "message": "Одержувач",
-    "englishSource": "Recipient"
-  },
-  "oneClickRoute": {
-    "message": "Маршрут",
-    "englishSource": "Route"
-  },
-  "oneClickYouPayFrom": {
-    "message": "Ви платите в $network$",
-    "englishSource": "You pay on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickYouReceiveOn": {
-    "message": "Ви отримуєте на $network$",
-    "englishSource": "You receive on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefundFee": {
-    "message": "Комісія за повернення коштів",
-    "englishSource": "Refund fee"
-  },
-  "oneClickWithdrawFee": {
-    "message": "Комісія за зняття коштів",
-    "englishSource": "Withdrawal fee"
-  },
   "oneClickDepositInstructions": {
     "message": "Інструкції щодо депозиту",
     "englishSource": "Deposit instructions"
-  },
-  "oneClickManualDepositNotice": {
-    "message": "Надішліть точну суму, вказану нижче, через обрану мережу. Обмін розпочнеться лише після того, як переказ надійде на адресу депозиту.",
-    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "Мережа",
@@ -8147,42 +8118,6 @@
   "oneClickOriginTransaction": {
     "message": "Транзакція-джерело",
     "englishSource": "Origin transaction"
-  },
-  "oneClickTrackingSaved": {
-    "message": "Цей маршрут зберігається в розділі «Активність», щоб ви могли відстежити його пізніше.",
-    "englishSource": "This route is saved in Activity so you can track it later."
-  },
-  "oneClickBroadcastTrackingPending": {
-    "message": "Гаманець надіслав цей депозит, але поки що не зміг зберегти транзакцію. Не надсилайте її знову. Хеш транзакції наведено нижче.",
-    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
-  },
-  "oneClickRefreshingExpiredQuote": {
-    "message": "Оновлення котирування, термін дії якого закінчився",
-    "englishSource": "Refreshing expired quote"
-  },
-  "oneClickRecoveryUnavailable": {
-    "message": "Цей маршрут не можна оновити",
-    "englishSource": "This route cannot be refreshed"
-  },
-  "oneClickRecoveryUnavailableBody": {
-    "message": "Змінився рахунок, мережа або перевірений маршрут. Поверніться до транзакції та, за потреби, розпочніть новий маршрут.",
-    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
-  },
-  "oneClickExpiredRefreshFailed": {
-    "message": "Котирування, термін дії якого закінчився, не вдалося оновити. Спробуйте отримати нове котирування перед відправленням.",
-    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
-  },
-  "oneClickQuoteRefreshed": {
-    "message": "Цитата оновлена",
-    "englishSource": "Quote refreshed"
-  },
-  "oneClickExpiredRefreshNotice": {
-    "message": "Попередня пропозиція втратила чинність до того, як ваш депозит був відправлений. Ознайомтеся з цим оновленим маршрутом та підтвердьте, щоб продовжити.",
-    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
-  },
-  "oneClickDepositSubmitted": {
-    "message": "Депозит подано",
-    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "Знайдено транзакцію депозиту",
@@ -8567,18 +8502,6 @@
   "nearIntentsNoLiquidity": {
     "message": "Недостатньо ліквідності для цієї суми. Спробуйте вказати іншу суму.",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
-  },
-  "availableAmount": {
-    "message": "Доступно: $amount$ $symbol$",
-    "englishSource": "Available: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
   },
   "amountExceedsTokenDecimals": {
     "message": "Ця сума має більше знаків після коми, ніж дозволяє цей токен.",

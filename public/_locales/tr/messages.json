@@ -52,6 +52,151 @@
     "message": "Yavaş · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Niyetleri",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ saniye",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ dakika",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "$amount$ $symbol$ tutarında alırsınız",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents, bu ağda bu tokeni sunmamaktadır.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Bu tutar, NEAR Intents için çok düşüktür. Daha yüksek bir tutar girin.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents bu adrese teslimat yapamaz. Adresi ve ağı kontrol edin.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Teklif değişti ve artık incelediğinizden daha az bir tutar sunuyor. Yeni teklifi inceleyin, ardından tekrar onaylayın.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Ödeme başlamadan önce teklifin süresi doldu. Yeni teklifi inceleyin, ardından tekrar onaylayın.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Takas başarısız olursa, NEAR Intents tutarı bu Miden hesabına iade eder.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Yatırma adresi oluşturuldu",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Para yatırma adresine gönderme",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Para yatırma adresi oluşturma",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Fonlar NEAR Intents'e gönderilir. $network$'ye teslimat devam eder. Durumunu Activity'den takip edin.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents, ödemeyi $network$ üzerinden gerçekleştirdi.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Alıcı (tahmini) alır",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Teslimat durumu",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "NEAR Intents'e Gönderme",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Alıcıya teslim edildi",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Süresi dolmuş",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Ödeme iadesi",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents takası tamamlayamadı ve tutarı Miden hesabınıza iade etti.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Teslimat başarısız",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents bu ödemeyi gerçekleştiremedi. Ayrıntılar için Etkinliği açın.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Teslimat süresi doldu",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents bu ödemeyi zamanında işleme almadı. Ayrıntılar için Etkinliği açın.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Alıcı aldı",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "$network$ gezgininde görüntüle",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -1160,10 +1305,6 @@
     "message": "Geri",
     "englishSource": "Back"
   },
-  "backToSwap": {
-    "message": "Takas sayfasına geri dön",
-    "englishSource": "Back to swap"
-  },
   "skip": {
     "message": "Atla",
     "englishSource": "Skip"
@@ -2226,8 +2367,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden veya Ethereum adresi girin",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Adresi girin",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Bu cüzdan bu adrese gönderim yapamaz",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Tutar Seç",
@@ -2273,10 +2430,6 @@
   "swap": {
     "message": "Değiştir",
     "englishSource": "Swap"
-  },
-  "confirmSwap": {
-    "message": "Takas işlemini onayla",
-    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex aracılığıyla",
@@ -7909,100 +8062,13 @@
     "message": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "oneClickSelectAsset": {
-    "message": "$network$ üzerinde bir token seçin",
-    "englishSource": "Select a token on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickNoAssets": {
-    "message": "Bu ağda doğrulanmış token bulunmamaktadır.",
-    "englishSource": "No verified tokens are available on this network."
-  },
-  "oneClickRecipientSection": {
-    "message": "Alıcı",
-    "englishSource": "Recipient"
-  },
-  "oneClickRefundSection": {
-    "message": "Geri ödeme hesabı",
-    "englishSource": "Refund account"
-  },
-  "oneClickRecipientAddress": {
-    "message": "Alıcı adresi",
-    "englishSource": "Recipient address"
-  },
-  "oneClickRefundAddress": {
-    "message": "Kaynak ağdaki geri ödeme adresi",
-    "englishSource": "Refund address on the origin network"
-  },
-  "oneClickRefundAccount": {
-    "message": "Geri ödeme hesabı",
-    "englishSource": "Refund account"
-  },
-  "oneClickConnectOriginWallet": {
-    "message": "$network$ cüzdanını bağla",
-    "englishSource": "Connect $network$ wallet",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickChooseForeignNetwork": {
-    "message": "Miden dışındaki bir kaynak veya hedef ağ seçin.",
-    "englishSource": "Choose an origin or destination network outside Miden."
-  },
-  "oneClickDifferentNetworksRequired": {
-    "message": "İki farklı ağ seçin.",
-    "englishSource": "Choose two different networks."
-  },
-  "oneClickMidenAssetRequired": {
-    "message": "Bu yolun bir tarafı için doğrulanmış bir Miden token'ı seçin.",
-    "englishSource": "Choose a verified Miden token for one side of this route."
-  },
-  "oneClickSameUnderlyingBridge": {
-    "message": "Bu bir köprü transferidir. Bu varlık için mevcut köprü akışını kullanın.",
-    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
-  },
   "oneClickQuoteUnavailable": {
     "message": "Bu rota için fiyat teklifi mevcut değil. Adresleri kontrol edin ve tekrar deneyin.",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
-  "oneClickQuoteExpiresAt": {
-    "message": "Fiyat teklifi süresi doldu",
-    "englishSource": "Quote expires"
-  },
-  "oneClickQuoteExpired": {
-    "message": "Süresi doldu. Devam etmeden önce sayfayı yenileyin.",
-    "englishSource": "Expired. Refresh before continuing."
-  },
-  "oneClickConfirmMidenDeposit": {
-    "message": "Bu Miden yatırımını onaylayın",
-    "englishSource": "Confirm this Miden deposit"
-  },
   "oneClickSubmitFailed": {
     "message": "Para yatırma işlemi gönderilemedi. İşlem yolunu gözden geçirip tekrar deneyin.",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
-  },
-  "oneClickRouteChanged": {
-    "message": "Güzergâh değişti. Devam etmeden önce yeni bir fiyat teklifi isteyin.",
-    "englishSource": "The route changed. Request a new quote before continuing."
-  },
-  "oneClickArrivalEstimate": {
-    "message": "$minutes$ dakika civarında",
-    "englishSource": "About $minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefreshQuote": {
-    "message": "Fiyatı yenile",
-    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "Alınan minimum miktar",
@@ -8016,108 +8082,13 @@
     "message": "Geri ödeme tutarı",
     "englishSource": "Refund amount"
   },
-  "oneClickNativeFee": {
-    "message": "Tahmini Miden ağ ücreti",
-    "englishSource": "Estimated Miden network fee"
-  },
-  "oneClickAvailableBalance": {
-    "message": "Kullanılabilir harici bakiye",
-    "englishSource": "Available external balance"
-  },
-  "oneClickBalanceChecking": {
-    "message": "Dış bakiyeyi kontrol etme",
-    "englishSource": "Checking external balance"
-  },
-  "oneClickBalanceCheckingBody": {
-    "message": "Bağlı hesabı kontrol etmek ve ağ ücreti için yeterli miktarı ayırmak.",
-    "englishSource": "Checking the connected account and reserving enough for the network fee."
-  },
-  "oneClickBalanceUnavailable": {
-    "message": "Dış bakiye mevcut değil",
-    "englishSource": "External balance unavailable"
-  },
-  "oneClickBalanceUnavailableBody": {
-    "message": "Cüzdan, bağlı hesabın bakiyesini ve ağ ücretini doğrulayamadı. Devam etmeden önce yeniden bağlanın veya tekrar deneyin.",
-    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
-  },
-  "oneClickGasReserve": {
-    "message": "Ağ ücretleri için ayrılan tutar: $amount$ $symbol$",
-    "englishSource": "Reserved for network fees: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "oneClickInsufficientTokenBalance": {
-    "message": "Yetersiz token bakiyesi",
-    "englishSource": "Insufficient token balance"
-  },
-  "oneClickInsufficientTokenBalanceBody": {
-    "message": "Bağlı hesapta, belirtilen para yatırma tutarı için yeterli miktarda bu token bulunmamaktadır.",
-    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
-  },
-  "oneClickInsufficientGasBalance": {
-    "message": "Yetersiz ağ ücreti bakiyesi",
-    "englishSource": "Insufficient network fee balance"
-  },
-  "oneClickInsufficientGasBalanceBody": {
-    "message": "Bağlı hesabın, tahmini ağ ücretini karşılamak için daha fazla $symbol$'a ihtiyacı var.",
-    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
-    "placeholders": {
-      "symbol": {
-        "content": "$1"
-      }
-    }
-  },
   "oneClickArrival": {
     "message": "Tahmini varış",
     "englishSource": "Estimated arrival"
   },
-  "oneClickRecipient": {
-    "message": "Alıcı",
-    "englishSource": "Recipient"
-  },
-  "oneClickRoute": {
-    "message": "Yol",
-    "englishSource": "Route"
-  },
-  "oneClickYouPayFrom": {
-    "message": "$network$ üzerinden ödeme yaparsınız",
-    "englishSource": "You pay on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickYouReceiveOn": {
-    "message": "$network$ üzerinden alırsınız",
-    "englishSource": "You receive on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefundFee": {
-    "message": "İade ücreti",
-    "englishSource": "Refund fee"
-  },
-  "oneClickWithdrawFee": {
-    "message": "Para çekme ücreti",
-    "englishSource": "Withdrawal fee"
-  },
   "oneClickDepositInstructions": {
     "message": "Para yatırma talimatları",
     "englishSource": "Deposit instructions"
-  },
-  "oneClickManualDepositNotice": {
-    "message": "Seçilen ağ üzerinden aşağıda belirtilen tam tutarı gönderin. Takas işlemi, transferin para yatırma adresine ulaşmasından sonra başlar.",
-    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "Ağ",
@@ -8146,42 +8117,6 @@
   "oneClickOriginTransaction": {
     "message": "Kaynak işlem",
     "englishSource": "Origin transaction"
-  },
-  "oneClickTrackingSaved": {
-    "message": "Bu yol, daha sonra takip edebilmeniz için Etkinlik bölümüne kaydedilir.",
-    "englishSource": "This route is saved in Activity so you can track it later."
-  },
-  "oneClickBroadcastTrackingPending": {
-    "message": "Cüzdan bu yatırımı gönderdi, ancak işlemi henüz kaydedemedi. Tekrar göndermeyin. İşlem hash'i aşağıda gösterilmiştir.",
-    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
-  },
-  "oneClickRefreshingExpiredQuote": {
-    "message": "Süresi dolmuş fiyat teklifini yenileme",
-    "englishSource": "Refreshing expired quote"
-  },
-  "oneClickRecoveryUnavailable": {
-    "message": "Bu rota yenilenemez",
-    "englishSource": "This route cannot be refreshed"
-  },
-  "oneClickRecoveryUnavailableBody": {
-    "message": "Hesap, ağ veya doğrulanmış rota değişti. İşleme geri dönün ve gerekirse yeni bir rota başlatın.",
-    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
-  },
-  "oneClickExpiredRefreshFailed": {
-    "message": "Süresi dolmuş fiyat teklifi yenilenemedi. Göndermeden önce yeni bir fiyat teklifi almak için lütfen tekrar deneyin.",
-    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
-  },
-  "oneClickQuoteRefreshed": {
-    "message": "Fiyat teklifi güncellendi",
-    "englishSource": "Quote refreshed"
-  },
-  "oneClickExpiredRefreshNotice": {
-    "message": "Önceki teklif, para yatırma işleminiz gönderilmeden önce geçerliliğini yitirmiştir. Güncellenen bu yolu inceleyin ve devam etmek için onaylayın.",
-    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
-  },
-  "oneClickDepositSubmitted": {
-    "message": "Para yatırma işlemi gönderildi",
-    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "Para yatırma işlemi bulundu",
@@ -8566,18 +8501,6 @@
   "nearIntentsNoLiquidity": {
     "message": "Bu tutar için yeterli likidite yok. Farklı bir tutar deneyin.",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
-  },
-  "availableAmount": {
-    "message": "Mevcut: $amount$ $symbol$",
-    "englishSource": "Available: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
   },
   "amountExceedsTokenDecimals": {
     "message": "Bu tutarın ondalık basamak sayısı, bu tokenin izin verdiği sayıdan fazladır.",
