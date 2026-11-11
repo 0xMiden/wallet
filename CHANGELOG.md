@@ -3,6 +3,7 @@
 ## 1.17.12 (TBD)
 
 - [CHANGE][ci] Add a funded mainnet solver swap-and-swap-back to the nightly, reusing the Guardian account with minimum viable principal, a $2 loss budget and durable recovery checkpoints.
+- [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 
 ## 1.17.11 (2026-11-09)
 
