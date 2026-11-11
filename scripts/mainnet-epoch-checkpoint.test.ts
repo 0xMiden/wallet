@@ -24,6 +24,16 @@ function evidence(): EpochIntentEvidence {
     recipient: evmAccount };
 }
 
+it('pins the live Miden allocator and full reclaim window before authorizing collateral', () => {
+  const bound = { ...fixture(), midenAllocator: '0x593c167bec26769178dcbd1f9bcb40', recallBlocks: 6200, minimumRecallBlocks: 5200 };
+  expect(parseMainnetEpochCheckpoint(bound)).toEqual(bound);
+  for (const bad of [
+    { ...bound, midenAllocator: undefined }, { ...bound, midenAllocator: evmAccount },
+    { ...bound, midenAllocator: bound.accountHex }, { ...bound, recallBlocks: 5199 },
+    { ...bound, recallBlocks: 0 }, { ...bound, minimumRecallBlocks: -1 }
+  ]) expect(() => parseMainnetEpochCheckpoint(bad)).toThrow();
+});
+
 it('round-trips a valid durable authorization atomically and never treats corrupt state as fresh', () => {
   const dir = mkdtempSync(join(tmpdir(), 'epoch-checkpoint-'));
   const path = join(dir, 'roundtrip.json');
