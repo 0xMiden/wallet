@@ -67,8 +67,6 @@ jest.mock('lib/remote-config/values', () => {
     'lib/epoch/testing/bridge-config'
   );
   const values = fixtures.remoteConfigValuesMock();
-  values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
-  values.findEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
   return values;
 });
 
@@ -282,6 +280,7 @@ async function pastFailure() {
     evmAddress: PREPARED_OWNER,
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
+    underlyingSymbol: mockPosition.asset,
     amount: '10',
     underlyingDecimals: 6,
     protocol: 'dummy-lending',

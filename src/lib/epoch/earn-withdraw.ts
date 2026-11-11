@@ -21,13 +21,7 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import {
-  type EvmUsdc,
-  findEpochUsdcAddress,
-  findEvmUsdc,
-  getEpochAllocatorUrl,
-  getEvmUsdc
-} from 'lib/remote-config/values';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { epochChain } from './client';
@@ -44,6 +38,7 @@ import {
 import {
   assertWithdrawalReviewCurrent,
   assertWithdrawalReviewContext,
+  extendWithdrawalReview,
   assertWithdrawalAllocations,
   quoteEarnWithdrawal,
   type EarnWithdrawalQuote
@@ -72,6 +67,7 @@ const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup - this withdrawal
 /** The review screen translates these refusal keys; a saved row error and an Activity retry show the sentence. */
 const REFUSAL_SENTENCES = new Map([
   ['earnWithdrawRefresh', 'The balance or quote changed - start a new withdrawal to review it again.'],
+  ['earnPositionsUnavailable', "Couldn't check your balance with Epoch - try again."],
   ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
   ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
   ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
@@ -84,6 +80,7 @@ export interface GaslessEarnWithdrawalArgs {
   evmAddress: string;
   marketUid: string;
   underlyingAddress: string;
+  underlyingSymbol: string;
   /** Human-decimal withdrawable amount returned by the positions API. */
   amount: string;
   underlyingDecimals: number;
@@ -117,6 +114,7 @@ interface GaslessEarnWithdrawalDeps {
   markNotSent?: typeof markEarnWithdrawNotSent;
   markAccepted?: typeof markEarnWithdrawAccepted;
   ensureSmartAccount?: typeof ensureEpochSmartAccount;
+  extendReview?: typeof extendWithdrawalReview;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   initiateRow?: typeof initiateEarnWithdrawTransaction;
   updatePhase?: typeof updateEarnWithdrawPhase;
@@ -182,7 +180,6 @@ export function buildEarnWithdrawTaskDataParams(args: {
 }
 
 const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
-const UNSUPPORTED_CHAIN = 'Gasless withdrawal only supports a chain the wallet configuration names an Epoch route on.';
 
 const isEpochProtocol = (value: unknown): value is '1delta' | 'dummy-lending' =>
   value === '1delta' || value === 'dummy-lending';
@@ -210,7 +207,7 @@ async function withdrawalInFlight(owner: string, marketUid: string): Promise<boo
 
 /**
  * Submit one withdrawal attempt while recovery can observe its active ownership. A new withdrawal proceeds only
- * for the Epoch USDC market the document configures on the market's own chain.
+ * when its token is the token of its market uid.
  */
 export function gaslessEarnWithdrawalToMiden(
   args: GaslessEarnWithdrawalArgs,
@@ -230,24 +227,11 @@ async function submitEarnWithdrawal(
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
-  // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
-  // are checked against the market chain's USDC when that read is known; otherwise the position's own stand.
+  // Withdraw is a recovery action. The market's own uid gives its chain and token. The position (or the row) gives
+  // the token's decimals. The Epoch bridge routes do not limit the market.
   const chainId = Number(args.marketUid.split(':')[1]);
   if (args.chainId !== undefined && args.chainId !== chainId) throw new Error(UNSUPPORTED_MARKET);
-  const usdc = findEvmUsdc(chainId);
-  if (
-    (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) ||
-    (usdc !== null &&
-      usdc.address.toLowerCase() === underlyingAddress.toLowerCase() &&
-      args.underlyingDecimals !== usdc.decimals)
-  ) {
-    throw new Error(UNSUPPORTED_MARKET);
-  }
-  // The market's chain must be an Epoch route the document names: the solver fills the withdrawal there, and the
-  // wallet knows no USDC to pay out on any other chain. The chain is never fixed in the code.
-  const routeUsdc = findEpochUsdcAddress(chainId);
-  if (routeUsdc === null) throw new Error(UNSUPPORTED_CHAIN);
-  if (verifyMarket && routeUsdc.toLowerCase() !== underlyingAddress.toLowerCase()) {
+  if (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) {
     throw new Error(UNSUPPORTED_MARKET);
   }
   // The lender key is not a protocol. An unresolved one, or a chain this wallet cannot sign on, refuses
@@ -264,9 +248,12 @@ async function submitEarnWithdrawal(
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
+  // The review signing is checked against: `args.review`, until the smart-account setup outlasts it and a fresh quote
+  // with at least the reviewed floor extends it (`extendWithdrawalReview`).
+  let currentReview = args.review;
   const assertReviewedContext = () => {
-    if (!args.review) return;
-    assertWithdrawalReviewContext(args.review);
+    if (!currentReview) return;
+    assertWithdrawalReviewContext(currentReview);
     // Persisted recovery remains bound to its saved owner, independently of the currently viewed account.
     if (verifyMarket) assertVaultEvmAccountCurrent(args.midenAccountPublicKey, sponsorAddress);
   };
@@ -308,7 +295,7 @@ async function submitEarnWithdrawal(
       args.marketUid,
       destinationFaucetId,
       args.amount,
-      'USDC',
+      args.underlyingSymbol,
       attemptId,
       attemptStartedAt,
       args.underlyingDecimals,
@@ -333,7 +320,7 @@ async function submitEarnWithdrawal(
     const bridgeInfo = (nonce: string): IBridgeInInfo => ({
       provider: 'epoch',
       sourceAmount: args.amount,
-      sourceSymbol: 'USDC',
+      sourceSymbol: args.underlyingSymbol,
       intentOwner: sponsorAddress,
       intentNonce: nonce,
       earnWithdrawTxId: txId,
@@ -362,6 +349,8 @@ async function submitEarnWithdrawal(
       const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
       const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
       await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk, executionChain.id);
+      assertCurrent();
+      if (currentReview) currentReview = await (deps.extendReview ?? extendWithdrawalReview)(currentReview);
       assertBeforeSigning();
       const status = await sdk.getWalletGaslessStatus(executionChain.id);
       assertBeforeSigning();
@@ -397,13 +386,14 @@ async function submitEarnWithdrawal(
           };
           const selected = selectEarnWithdrawPreparedExecution(execution, identity);
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
-          if (args.review) {
-            await assertWithdrawalReviewCurrent(args.review);
+          const review = currentReview;
+          if (review) {
+            await assertWithdrawalReviewCurrent(review);
             assertBeforeSigning();
             const validated = validateEarnWithdrawPreparedExecution(selected, identity);
             if (!validated) throw new Error('earnWithdrawRefresh');
             assertWithdrawalAllocations(
-              args.review,
+              review,
               validated.allocationRequests.map(request => request.compact.mandate),
               selected.delivery.allocationIndex
             );
@@ -836,19 +826,12 @@ type ResubmitDeps = Omit<GaslessEarnWithdrawalDeps, 'initiateRow'>;
 const MISSING_RETRY_DETAILS = 'This withdrawal is missing the market details needed to retry - start a new withdrawal.';
 
 /**
- * A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
- * decimals stand in while that read fails or the market's chain now names another token. A row from before they were
- * recorded refuses, through the getter while the read fails.
+ * A retry recovers funds, so it uses the decimals that the row recorded for its token. It does not read them again.
+ * A row from before the wallet recorded them refuses.
  */
-function retryDecimals(chainId: number, underlying: string, sourceDecimals: number | undefined): number {
-  const isRowToken = (token: EvmUsdc | null): token is EvmUsdc =>
-    token?.address.toLowerCase() === underlying.toLowerCase();
-  const live = findEvmUsdc(chainId);
-  if (isRowToken(live)) return live.decimals;
-  if (sourceDecimals !== undefined) return sourceDecimals;
-  const usdc = getEvmUsdc(chainId);
-  if (isRowToken(usdc)) return usdc.decimals;
-  throw new Error(MISSING_RETRY_DETAILS);
+function retryDecimals(sourceDecimals: number | undefined): number {
+  if (sourceDecimals === undefined) throw new Error(MISSING_RETRY_DETAILS);
+  return sourceDecimals;
 }
 
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
@@ -883,19 +866,25 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
   const [, marketChain, marketUnderlying] = ei.marketUid.split(':');
   const marketChainId = Number(marketChain);
   const chainId = ei.chainId ?? marketChainId;
-  const underlyingAddress = ei.underlyingAddress ?? marketUnderlying ?? findEpochUsdcAddress(marketChainId);
+  const underlyingAddress = ei.underlyingAddress ?? marketUnderlying;
   if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
+  const underlyingDecimals = retryDecimals(ei.sourceDecimals);
   let review: EarnWithdrawalQuote | undefined;
   if (ei.reviewedMinimumReceivedAtomic !== undefined) {
     // Source retries get fresh availability and a fresh quote for the saved selected amount.
     // Retain the original floor; a worse route requires the user to start another review.
     if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
-    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner] });
+    const fresh = await fetchEarnPositions({
+      accountId: row.accountId,
+      owners: [ei.evmOwner],
+      markets: [ei.marketUid]
+    });
+    if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
     const position = fresh.positions.find(
       p =>
         p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()
     );
-    if (fresh.errors.length || !position) throw new Error('earnWithdrawRefresh');
+    if (!position) throw new Error('earnWithdrawRefresh');
     review = await quoteEarnWithdrawal({ position, amount: ei.sourceAmount, accountId: row.accountId });
     if (BigInt(review.minimumAtomic) < BigInt(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
   }
@@ -905,9 +894,10 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
       underlyingAddress,
+      underlyingSymbol: ei.sourceSymbol,
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
-      underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals),
+      underlyingDecimals,
       protocol,
       chainId,
       ...(review ? { review } : {})
