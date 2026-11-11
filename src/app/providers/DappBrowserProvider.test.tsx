@@ -663,6 +663,7 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
   it.each([
     ['a frame that is not the main frame', { frameOrigin: 'https://dapp-a.test', mainFrame: false }],
     ['a message without the main-frame flag', { frameOrigin: 'https://dapp-a.test' }],
+    ['a message without native frame metadata', {}],
     ['a frame of another origin', { frameOrigin: 'https://other.example', mainFrame: true }],
     ['a message without a frame origin', { mainFrame: true }]
   ])('ignores a bridge message from %s', async (_label, frame) => {
@@ -709,6 +710,72 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     });
 
     expect(mockHandleWebViewMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a main-frame PING whose frame origin the session has not caught up to', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    mockHandleWebViewMessage.mockClear();
+    mockHandleWebViewMessage.mockResolvedValueOnce({ type: 'MIDEN_PAGE_RESPONSE', payload: 'PONG', reqId: 'p1' });
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: true,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).toHaveBeenCalledTimes(1);
+    expect(mockHandleWebViewMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' }),
+      'https://dapp-a.test',
+      'dapp-a'
+    );
+    expect(mockExecuteScript.mock.calls.map(c => String(c[1])).join('\n')).toContain('PONG');
+
+    mockHandleWebViewMessage.mockClear();
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: true,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({
+          type: 'MIDEN_PAGE_REQUEST',
+          payload: { type: 'PRIVATE_NOTES_REQUEST' },
+          reqId: 'r1'
+        })
+      });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: false,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p2' })
+      });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await onMessage({ id: 'dapp-a', mainFrame: true, frameOrigin: 'https://redirected.example', detail: '{' });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
   });
 
   it('handles the request once urlChangeEvent confirms it, and moves url + origin together', async () => {

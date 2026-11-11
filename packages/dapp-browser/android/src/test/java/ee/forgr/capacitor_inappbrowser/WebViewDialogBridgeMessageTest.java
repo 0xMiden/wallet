@@ -8,7 +8,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-// The wallet bridge forwards only main-frame messages, each with the origin of its frame.
+// Native messages carry frame identity; the JavaScript-interface fallback does not.
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
 public class WebViewDialogBridgeMessageTest {
@@ -39,16 +39,54 @@ public class WebViewDialogBridgeMessageTest {
     }
 
     @Test
-    public void theFallbackForwardsAnEnvelopeFromTheMainFrame() throws Exception {
+    public void theFallbackForwardsAGenericEventWithoutFrameIdentity() throws Exception {
         String envelope = new JSONObject()
             .put("origin", "https://dapp.test")
             .put("top", true)
-            .put("message", "{\"type\":\"T\"}")
+            .put(
+                "message",
+                new JSONObject()
+                    .put("detail", new JSONObject().put("type", "DOWNLOAD_FILE").put("filename", "note.mno"))
+                    .toString()
+            )
             .toString();
         JSONObject out = new JSONObject(WebViewDialog.fallbackBridgeMessage(envelope));
-        assertEquals("T", out.getString("type"));
-        assertEquals("https://dapp.test", out.getString("frameOrigin"));
-        assertTrue(out.getBoolean("mainFrame"));
+        assertNull(out.opt("mainFrame"));
+        assertNull(out.opt("frameOrigin"));
+        assertEquals("DOWNLOAD_FILE", out.getJSONObject("detail").getString("type"));
+        assertEquals("note.mno", out.getJSONObject("detail").getString("filename"));
+
+        envelope = new JSONObject()
+            .put("origin", "https://dapp.test")
+            .put("top", true)
+            .put("message", new JSONObject().put("detail", new JSONObject().put("type", "PUBLIC_NOTE_SUCCESS")).toString())
+            .toString();
+        out = new JSONObject(WebViewDialog.fallbackBridgeMessage(envelope));
+        assertNull(out.opt("mainFrame"));
+        assertNull(out.opt("frameOrigin"));
+        assertEquals("PUBLIC_NOTE_SUCCESS", out.getJSONObject("detail").getString("type"));
+
+        String walletRequest = new JSONObject()
+            .put("mainFrame", true)
+            .put("frameOrigin", "https://dapp.test")
+            .put("type", "MIDEN_PAGE_REQUEST")
+            .put("payload", "PING")
+            .put("reqId", "p1")
+            .toString();
+        envelope = new JSONObject()
+            .put("origin", "https://evil.example")
+            .put("top", true)
+            .put("message", walletRequest)
+            .toString();
+        out = new JSONObject(WebViewDialog.fallbackBridgeMessage(envelope));
+        assertNull(out.opt("mainFrame"));
+        assertNull(out.opt("frameOrigin"));
+        assertEquals("MIDEN_PAGE_REQUEST", out.getString("type"));
+        assertEquals("p1", out.getString("reqId"));
+        assertFalse(out.toString().contains("https://evil.example"));
+
+        envelope = new JSONObject().put("origin", "https://dapp.test").put("top", true).put("message", "hello").toString();
+        assertEquals("hello", WebViewDialog.fallbackBridgeMessage(envelope));
     }
 
     @Test

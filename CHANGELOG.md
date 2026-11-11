@@ -2,7 +2,7 @@
 
 ## 1.17.12 (TBD)
 
-- [CHANGE][mobile] Mobile dApp browser: the wallet bridge accepts messages from the dApp's main frame only, and each message carries the origin of its sender, which must be the session origin.
+- [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity and the wallet bridge accepts wallet requests only from the session main frame. Android fallback messages still reach page listeners without frame identity, so wallet requests are refused; a verified main-frame availability PING is answered while the session origin catches up to the document.
 
 ## 1.17.11 (2026-11-09)
 
