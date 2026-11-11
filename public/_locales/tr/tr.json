@@ -887,6 +887,7 @@
   "usdcxBurnFeeUnavailable": "Bu yakma işleminin ağ ücretini ölçemediğimiz için tutar kontrol edilemiyor. Tekrar denemek için başka bir hedef seçin.",
   "insufficientFeeAsset": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
+  "proposalEffectRefused": "Cüzdan, işlemin yalnızca sizin onayladığınız tutarı aktardığını doğrulayamadığı için, imzalamadan önce bu işlemi durdurdu. Hiçbir fon aktarılmadı.",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
   "autoConsumeSettings": "USDCX transferlerini otomatik kabul et",
   "autoConsumeSettingsDescription": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",

@@ -172,6 +172,8 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
+// These proposals carry no summary; the signing-time effect check has its own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({ assertProposalEffectApproved: async () => {} }));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }

@@ -887,6 +887,7 @@
   "usdcxBurnFeeUnavailable": "Nie można zmierzyć opłaty sieciowej za to spalenie, więc kwota nie może zostać sprawdzona. Wybierz inne miejsce docelowe, aby spróbować ponownie.",
   "insufficientFeeAsset": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
+  "proposalEffectRefused": "Portfel zatrzymał tę transakcję przed jej podpisaniem, ponieważ nie mógł potwierdzić, że transakcja przenosi wyłącznie to, na co wyraziłeś zgodę. Żadne środki nie zostały przeniesione.",
   "amountMustBeLessThanBalance": "Kwota musi być mniejsza niż saldo",
   "autoConsumeSettings": "Automatycznie akceptuj transfery USDCX",
   "autoConsumeSettingsDescription": "Automatycznie akceptuje przychodzące transfery USDCX do Twojego salda - tak samo jak dotknięcie Akceptuj. Nie akceptuje częściej ani nie kosztuje więcej opłat niż samodzielne dotknięcie Akceptuj.",

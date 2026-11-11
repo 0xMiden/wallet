@@ -887,6 +887,7 @@
   "usdcxBurnFeeUnavailable": "今回のバーンにかかるネットワーク手数料を測定できないため、金額を確認できません。別の宛先を選択して、再度お試しください。",
   "insufficientFeeAsset": "ネットワーク手数料の支払いにUSDCXが必要です。続行するには、USDCXを受け取ってください。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
+  "proposalEffectRefused": "ウォレットは、この取引があなたが承認した分のみを移動させるものであることを確認できなかったため、署名する前にこの取引を停止しました。資金の移動は一切行われませんでした。",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",
   "autoConsumeSettings": "USDCX の送金を自動で受け取る",
   "autoConsumeSettingsDescription": "受信した USDCX の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",

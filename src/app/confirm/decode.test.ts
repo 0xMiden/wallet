@@ -603,8 +603,12 @@ describe('NFTs on the approval view (#1600)', () => {
     const view = declaredRequestToView('reqB64', ['imported']);
 
     expect(view.outgoing).toEqual([]);
-    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22…cc33dd' }]);
-    expect(view.incomingNfts).toEqual([{ faucetId: 'bech32:otherFaucet', assetId: '0x01020304…050607' }]);
+    expect(view.outgoingNfts).toEqual([
+      { faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22…cc33dd', key: 'bech32:nftFaucet|0xaa11bb22…cc33dd' }
+    ]);
+    expect(view.incomingNfts).toEqual([
+      { faucetId: 'bech32:otherFaucet', assetId: '0x01020304…050607', key: 'bech32:otherFaucet|0x01020304…050607' }
+    ]);
   });
 
   it('executed view lists the NFT of a created note and of a consumed note', () => {
@@ -620,8 +624,20 @@ describe('NFTs on the approval view (#1600)', () => {
     const view = executedBytesToView('execB64');
 
     expect(view.outgoing).toEqual([]);
-    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
-    expect(view.incomingNfts).toEqual([{ faucetId: 'bech32:otherFaucet', assetId: '0x01020304\u2026050607' }]);
+    expect(view.outgoingNfts).toEqual([
+      {
+        faucetId: 'bech32:nftFaucet',
+        assetId: '0xaa11bb22\u2026cc33dd',
+        key: 'bech32:nftFaucet|0xaa11bb22\u2026cc33dd'
+      }
+    ]);
+    expect(view.incomingNfts).toEqual([
+      {
+        faucetId: 'bech32:otherFaucet',
+        assetId: '0x01020304\u2026050607',
+        key: 'bech32:otherFaucet|0x01020304\u2026050607'
+      }
+    ]);
     expect(view.unlistedAssets).toBe(0);
   });
 
@@ -656,7 +672,13 @@ describe('NFTs on the approval view (#1600)', () => {
 
     const view = summaryToView(ts as any);
 
-    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
+    expect(view.outgoingNfts).toEqual([
+      {
+        faucetId: 'bech32:nftFaucet',
+        assetId: '0xaa11bb22\u2026cc33dd',
+        key: 'bech32:nftFaucet|0xaa11bb22\u2026cc33dd'
+      }
+    ]);
     expect(view.unlistedAssets).toBe(0);
   });
 
@@ -711,8 +733,9 @@ describe('NFTs on the approval view (#1600)', () => {
 
     const view = summaryToView(ts as any);
 
-    expect(view.outgoingNfts).toHaveLength(1);
-    expect(view.incomingNfts).toHaveLength(1);
+    // Each keeps its complete identity, which the short id the sheet shows cannot tell apart.
+    expect(view.outgoingNfts.map(listed => listed.key)).toEqual(['word-one']);
+    expect(view.incomingNfts.map(listed => listed.key)).toEqual(['word-two']);
     expect(view.unlistedAssets).toBe(0);
   });
 

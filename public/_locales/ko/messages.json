@@ -4032,6 +4032,10 @@
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
   },
+  "proposalEffectRefused": {
+    "message": "지갑은 이 거래가 귀하가 승인한 금액만 이동하는지 확인할 수 없었기 때문에, 서명하기 전에 이 거래를 중단했습니다. 자금은 이동되지 않았습니다.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
