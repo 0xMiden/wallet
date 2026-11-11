@@ -6,6 +6,7 @@ import {
   type HistoryPage
 } from '@openzeppelin/guardian-client';
 
+import { badgesFromHistory } from 'lib/badges/backfill';
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { WalletAccount } from 'lib/shared/types';
@@ -616,6 +617,100 @@ it('clears checkpoints on import and retains recovered records in backups', asyn
   );
   await run();
   expect(await transactions.count()).toBe(3);
+});
+
+it.each([{ proven: 'mainnet' }, { proven: undefined }])(
+  'replaces forged recovered badge facts when provenance is $proven',
+  async ({ proven }) => {
+    await run();
+    const canonical = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+    if (!canonical) throw new Error('Missing canonical receipt');
+    await transactions.put({ ...canonical, type: 'send', amount: 999n, secondaryAccountId: 'foreign' });
+    await importDb(await exportDb());
+    mockProvenBadgeNetwork.mockReturnValue(proven);
+    source('https://one', [{ entries: [entry(2)] }]);
+    source('https://two', []);
+
+    await run();
+
+    const restored = (await transactions.get(canonical.id))!;
+    expect(restored).toMatchObject({ type: 'swap', amount: 7n, recoveredBadgeNetwork: proven ?? '' });
+    expect(restored.secondaryAccountId).toBe(canonical.secondaryAccountId);
+    expect(badgesFromHistory([restored], [account.publicKey], ['first-send'])).toEqual([]);
+  }
+);
+
+it.each(['import', 'completed-checkpoint'])('restores canonical send facts after %s recovery', async mode => {
+  const serve = () => {
+    const client = source('https://one', [{ entries: [entry(2)] }]);
+    jest.spyOn(client, 'getDelta').mockImplementation(async (_accountId, nonce) => ({
+      ...delta(nonce),
+      metadata: { proposal: { proposalType: 'p2id', recipientId: 'foreign' } }
+    }));
+    source('https://two', []);
+  };
+  serve();
+  await run();
+  const canonical = (await transactions.toArray())[0];
+  if (!canonical?.recovery) throw new Error('Missing canonical send');
+  await transactions.put({ ...canonical, type: 'execute', amount: 999n, secondaryAccountId: 'other' });
+  if (mode === 'import') {
+    await importDb(await exportDb());
+  } else {
+    await transactions.update(canonical.id, { recovery: { ...canonical.recovery, version: 5 } });
+    await clearGuardianHistoryCheckpoints();
+    await saveGuardianHistoryCheckpoint(await storedGeneration(), {
+      id: JSON.stringify(['testnet', 'account', 'https://one', 5]),
+      network: 'testnet',
+      accountId: 'account',
+      operator: 'https://one',
+      version: 5,
+      seenCursors: ['old'],
+      completed: true,
+      restored: 1,
+      entryCount: 1
+    });
+  }
+  mockProvenBadgeNetwork.mockReturnValue('mainnet');
+  serve();
+
+  await run();
+
+  const restored = (await transactions.get(canonical.id))!;
+  expect(restored).toMatchObject({
+    type: 'send',
+    amount: 7n,
+    secondaryAccountId: 'foreign',
+    recoveredBadgeNetwork: 'mainnet'
+  });
+  expect(badgesFromHistory([restored], [account.publicKey], ['first-send'])).toEqual(['first-send']);
+  expect(await transactions.count()).toBe(1);
+  expect(await operatorCheckpoint('https://one')).toMatchObject({
+    version: GUARDIAN_HISTORY_VERSION,
+    completed: true
+  });
+  createClient.mockClear();
+  await run();
+  expect(createClient).not.toHaveBeenCalled();
+});
+
+it('refreshes a same-version recovered swap amount while preserving its settlement stamp', async () => {
+  await run();
+  const canonical = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!canonical) throw new Error('Missing canonical swap');
+  await transactions.put({ ...canonical, amount: 999n, extraInputs: { ...canonical.extraInputs, settledAt: 160 } });
+  await clearGuardianHistoryCheckpoints();
+  mockProvenBadgeNetwork.mockReturnValue('mainnet');
+  source('https://one', [{ entries: [entry(2)] }]);
+  source('https://two', []);
+
+  await run();
+
+  expect(await transactions.get(canonical.id)).toMatchObject({
+    amount: 7n,
+    recoveredBadgeNetwork: 'mainnet',
+    extraInputs: { settledAt: 160 }
+  });
 });
 
 it.each([
