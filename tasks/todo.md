@@ -5,14 +5,15 @@
 - [x] Confirm the implementation plan and native execution approach.
 - [x] Implement and unit-test cost planning, checkpoint recovery and real UI submission guards.
 - [x] Wire the serial nightly stages and recovery artifacts; update architecture docs and changelog.
-- [ ] Complete finished-code review, current-head verification and funded workflow acceptance when authorized.
+- [x] Qualify a real funded solver swap and return without unrelated sends or bridges.
+- [ ] Complete finished-code review and current-head verification of the combined scope.
 - [x] Verify the Epoch mainnet coverage gap, enabled routes, real flow and read-only quote availability.
-- [ ] Confirm Epoch coverage scope: one cheapest funded route or the full enabled-chain matrix.
+- [x] Confirm Epoch scope: one cheapest funded route nightly.
 - [ ] Implement and test the approved Epoch loop with durable authorization and recovery.
 - [ ] Qualify Epoch with real settlement.
 - [x] Verify NEAR Intents now lists Miden assets and inspect the existing disabled 1Click loop.
 - [x] Verify real NEAR dry-quote parsing/signatures and identify the existing nightly-only configuration override.
-- [ ] Confirm the shared Epoch/NEAR route and loss-budget scope without changing public rollout flags.
+- [x] Approve the shared $2 added-loop loss ceiling and nightly-only NEAR enablement; continue inline.
 - [ ] Reuse and qualify the 1Click loop with actual out/back settlement and durable recovery.
 
 ## Verification
@@ -26,11 +27,12 @@
 - CI `43029057782` passed 298 tests, full type-check, harness conventions and nonzero mainnet spec discovery at `602b79c01de320535c4f799954b10b7a30d387a1`.
 - Push permission is explicit (`push at will`). Funded run `43030108324` stopped during read-only preparation; the cached-registry correction passed CI `43035197496` with 303 tests, types, harness checks and nonzero spec selection.
 - Second swaps-only run `43036590393` at `ab391bd` stopped in xvfb setup before wallet execution. Ubuntu mirror DNS failed even though xvfb was installed; no swap signature occurred in either attempt.
+- Funded swaps-only run `43053422637` at `b03e844f3f09606f997799d0e1c99f76f0111edc` passed on the existing alternate runner. The retained checkpoint is complete: USDCX -> USDT -> USDCX; 1,010,464 base units offered, 1,010,091 returned, 532 native fee units paid, and $0.000905 realized loss at the pinned price. Both durable authorizations and both settled order identities are retained. No top-up or new account was needed.
 - Draft PR #2149 is open. CI `43039871550` at `0370ed4f6` observed the intended xvfb assertion failure: 1 failed, 33,306 passed, 4 skipped. A guarded local RED/GREEN proves the skip-if-installed correction (7 tests pass). The mock-browser job independently failed fetching required fonts because Ubuntu mirrors did not resolve.
-- Verified-price regression CI `43046060955` at `f7d2782e7` observed the intended 2 failures with 305 tests passing. The correction uses the same validated token-list cache as wallet valuation, bound by faucet id, and adds USDT/SOL/NEAR/PAXG to the quote search. All 63 helper tests pass locally through the guard; current-head CI is next.
+- Verified-price regression CI `43046060955` at `f7d2782e7` observed the intended 2 failures with 305 tests passing. The correction uses the same validated token-list cache as wallet valuation, bound by faucet id, and adds USDT/SOL/NEAR/PAXG to the quote search. The current-head CI passes 307 focused tests, harness conventions, nonzero discovery (8 tests), lint and types. The full unit job passes 33,309 tests, with 4 skips; all coverage shards and the unchanged 95% gate pass. Remaining setup failures are confirmed Ubuntu DNS failures, not passing checks; only failed non-funding jobs have been retried.
 - Epoch is enabled on Ethereum, Base, Arbitrum, Polygon and Robinhood. A read-only Base quote requested 1,000,501 USDC base units for 1,000,000 USDCX, before gas and claim fees. This is quote evidence, not funded acceptance. No Epoch code or spending has started while its coverage scope awaits the user's choice.
 - NEAR's live token API lists five Miden assets. Read-only quote API responses succeeded both ways for USDCX/Arbitrum ETH at about $10 and USDCX/Base USDC at $5; the $1.01 Arbitrum ETH probe returned no liquidity. These are independent dry probes, not funded round trips. All four responses pass the actual wallet parser and pinned-key signature verification in a guarded local check. The published wallet config remains `nearIntents: false` with no `swap.oneClick`, and no global flag or repository variable was changed.
-- Final independent review, current-head gates and funded swap/Epoch/NEAR settlement remain pending. No merge performed.
+- Funded solver swaps are accepted at `b03e844f3`. Epoch/NEAR implementation is in progress after the user's explicit proceed; settlement remains unverified. Independent review and remaining current-head CI gates remain pending. No merge performed.
 
 # Follow-up to #1790: describe wallet-file contents accurately
 
