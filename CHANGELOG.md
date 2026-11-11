@@ -3,6 +3,7 @@
 ## 1.17.12 (TBD)
 
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
+- [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 
 ## 1.17.11 (2026-11-09)
 
