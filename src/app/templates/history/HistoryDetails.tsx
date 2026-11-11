@@ -35,6 +35,7 @@ import {
   ITransactionStatus,
   ITransactionType,
   ISwitchGuardianExtraInputs,
+  IOneClickPhase,
   IOneClickTrackingData
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
@@ -74,6 +75,7 @@ import {
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+import { formatNearIntentsAmount } from 'screens/send-flow/near-intents-format';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -173,6 +175,54 @@ function isOpenNearIntentsDeposit(tracking: IOneClickTrackingData): boolean {
       return false;
     default:
       return true;
+  }
+}
+
+/**
+ * The amount and token of a 1Click row, from its own tracking: what a deposit into Miden delivers, or what a NEAR
+ * Intents send took from Miden (the row's quote and Miden asset, as the wallet can have no metadata for the faucet).
+ * Undefined when the stored amount is not a base-unit amount, so the row's own amount stands.
+ */
+function oneClickEntryAmount(tracking: IOneClickTrackingData): { amount: string; token: string } | undefined {
+  switch (tracking.direction) {
+    case 'evm-to-miden':
+      return /^[0-9]{1,78}$/.test(tracking.amount)
+        ? {
+            amount: formatAmount(BigInt(tracking.amount), tracking.destinationAsset.decimals),
+            token: tracking.destinationAsset.symbol
+          }
+        : undefined;
+    case 'miden-to-evm': {
+      const amount = formatNearIntentsAmount(tracking.quote.quote.amountIn, tracking.originAsset.decimals);
+      return amount === undefined ? undefined : { amount, token: tracking.originAsset.symbol };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The live status line of a NEAR Intents send, by its 1Click phase. */
+function nearIntentsSendStatus(t: TFunction, phase: IOneClickPhase): string {
+  switch (phase) {
+    case 'depositing':
+      return t('nearIntentsSendStatusSending');
+    case 'known-deposit-tx':
+      return t('oneClickStatusKnownDepositTx');
+    case 'pending-deposit':
+      return t('oneClickStatusPendingDeposit');
+    case 'incomplete-deposit':
+      return t('oneClickStatusIncompleteDeposit');
+    case 'processing':
+      return t('oneClickStatusProcessing');
+    case 'arriving':
+    case 'delivered':
+      return t('nearIntentsSendStatusDelivered');
+    case 'refunded':
+      return t('oneClickStatusRefunded');
+    case 'failed':
+      return t('oneClickStatusFailed');
+    case 'expired':
+      return t('nearIntentsSendStatusExpired');
   }
 }
 
@@ -468,6 +518,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
         const oneClickTracking: IOneClickTrackingData | undefined = tx.extraInputs?.oneClick;
+        const oneClickAmount = oneClickTracking ? oneClickEntryAmount(oneClickTracking) : undefined;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
         const consumedBridge = consumeExtra?.bridgeIn;
@@ -495,15 +546,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : oneClickTracking?.direction === 'evm-to-miden' && /^[0-9]{1,78}$/.test(oneClickTracking.amount)
-              ? formatAmount(BigInt(oneClickTracking.amount), oneClickTracking.destinationAsset.decimals)
+            : oneClickAmount
+              ? oneClickAmount.amount
               : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
                 ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
                 : undefined,
           token: earnWithdrawFields
             ? earnWithdrawFields.token
-            : oneClickTracking?.direction === 'evm-to-miden'
-              ? oneClickTracking.destinationAsset.symbol
+            : oneClickAmount
+              ? oneClickAmount.token
               : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
@@ -685,8 +736,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
   // may have landed, so it reads through the section's own unconfirmed rule like any
   // other unconfirmed bridge-out (#1250).
+  // A NEAR Intents send is a `bridged-send` too, but it has no Epoch or Agglayer claim: its 1Click section shows the
+  // recipient and the delivery, and the Miden transfer reads as a send to the deposit address.
   const isBridgeOut =
-    entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true) && !transaction?.recovered;
+    entry?.txType === 'bridged-send' &&
+    entry.bridgeProvider !== 'near-intents' &&
+    (!entry.isCancelled || entry.isUnconfirmed === true) &&
+    !transaction?.recovered;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -1315,6 +1371,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('oneClickProviderStatus')}>
                       {oneClickProviderStatus(t, entry.oneClickTracking.providerStatus)}
                     </DetailRow>
+                    {/* A NEAR Intents send: what 1Click reports now, kept current by the app-root watcher. */}
+                    {entry.oneClickTracking.direction === 'miden-to-evm' && (
+                      <>
+                        <DetailRow label={t('nearIntentsSendDeliveryStatus')}>
+                          <span data-testid="near-intents-send-status">
+                            {nearIntentsSendStatus(t, entry.oneClickTracking.phase)}
+                          </span>
+                        </DetailRow>
+                        <DetailRow label={t('to')}>
+                          <span className="select-text break-all" data-testid="near-intents-send-recipient">
+                            {entry.oneClickTracking.request.recipient}
+                          </span>
+                        </DetailRow>
+                      </>
+                    )}
                     {entry.oneClickTracking.direction === 'evm-to-miden' &&
                       (entry.oneClickTracking.phase === 'arriving' || entry.oneClickTracking.phase === 'delivered') && (
                         <DetailRow label={t('oneClickDeliveryStatus')}>

@@ -1,7 +1,3 @@
-import { useEffect, useState } from 'react';
-
-import { liveQuery } from 'dexie';
-
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   ITransactionStatus,
@@ -15,7 +11,6 @@ import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
   OneClickHttpError,
@@ -44,10 +39,10 @@ export const NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS = 24 * 60 * 60_000;
  * How long after 1Click reports the delivery the wallet looks for the delivered note. After this time the row
  * closes as delivered, so a note that the wallet cannot match does not keep the row open.
  */
-export const NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS = 60 * 60_000;
+const NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS = 60 * 60_000;
 export const NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR = 'No deposit reached the 1Click address before the quote deadline.';
 
-export interface OneClickTrackingInput {
+interface OneClickTrackingInput {
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
   config: NearIntentsConfig;
@@ -59,7 +54,7 @@ export interface OneClickTrackingInput {
   faucetId: string;
 }
 
-export interface OneClickMidenDepositDetails extends OneClickTrackingInput {
+interface OneClickMidenDepositDetails extends OneClickTrackingInput {
   accountId: string;
   accountAddress: string;
 }
@@ -72,28 +67,18 @@ function oneClickOf(transaction: ITransaction): IOneClickTrackingData | undefine
   return tracking;
 }
 
-export const isOneClickTransaction = (transaction: ITransaction): boolean => oneClickOf(transaction) !== undefined;
+const isOneClickTransaction = (transaction: ITransaction): boolean => oneClickOf(transaction) !== undefined;
 
-export async function getOneClickTransactions(): Promise<ITransaction[]> {
-  const [sends, receives] = await Promise.all([
+async function getOneClickTransactions(): Promise<ITransaction[]> {
+  // A send from Miden is a `bridged-send` row; an older build wrote it as a `send` row.
+  const [sends, bridgedSends, receives] = await Promise.all([
     Repo.transactions.where('type').equals('send').toArray(),
+    Repo.transactions.where('type').equals('bridged-send').toArray(),
     Repo.transactions.where('type').equals('bridged-receive').toArray()
   ]);
-  return [...sends, ...receives]
+  return [...sends, ...bridgedSends, ...receives]
     .filter(isOneClickTransaction)
     .sort((left, right) => right.initiatedAt - left.initiatedAt);
-}
-
-export function useOneClickTransactions(): ITransaction[] {
-  const [rows, setRows] = useState<ITransaction[]>([]);
-  useEffect(() => {
-    const subscription = liveQuery(getOneClickTransactions).subscribe({
-      next: setRows,
-      error: error => console.warn('[one-click-tracking] transaction query failed', error)
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-  return rows;
 }
 
 function validateTrackingInput(input: OneClickTrackingInput): string {
@@ -184,18 +169,17 @@ export async function initiateOneClickMidenDeposit(
     throw new Error('A 1Click Miden deposit requires a Miden-to-EVM quote.');
   }
   const tracking = trackingData(input, 'miden-to-evm');
-  const { initiateSendTransaction } = await import('lib/miden/activity');
-  return initiateSendTransaction(
-    input.accountId,
-    tracking.depositAddress ?? '',
-    input.faucetId,
-    NoteTypeEnum.Public,
-    BigInt(tracking.amount),
-    undefined,
-    undefined,
-    authorization,
-    undefined,
-    tracking
+  // A `bridged-send` row with `provider: 'near-intents'`; `initiateNearIntentsSendTransaction` checks the quote again.
+  const { initiateNearIntentsSendTransaction } = await import('lib/miden/activity');
+  return initiateNearIntentsSendTransaction(
+    {
+      senderAccountId: input.accountId,
+      depositAddress: tracking.depositAddress ?? '',
+      faucetId: input.faucetId,
+      amount: BigInt(tracking.amount)
+    },
+    tracking,
+    authorization
   );
 }
 
@@ -210,22 +194,6 @@ function rowPhaseForOneClick(phase: IOneClickPhase): 'received' | 'failed' | 'de
     default:
       return 'delivering';
   }
-}
-
-export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickPhase): Promise<void> {
-  await Repo.transactions
-    .where('id')
-    .equals(rowId)
-    .modify(transaction => {
-      const tracking = oneClickOf(transaction);
-      if (!tracking) return false;
-      transaction.extraInputs = {
-        ...transaction.extraInputs,
-        ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(phase) } : {}),
-        oneClick: { ...tracking, phase, updatedAt: Date.now() }
-      };
-      return undefined;
-    });
 }
 
 const TERMINAL_PHASES: ReadonlySet<IOneClickPhase> = new Set(['delivered', 'refunded', 'failed', 'expired']);
@@ -281,14 +249,24 @@ async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingDat
     });
 }
 
+/**
+ * True while a send from Miden has no landed Miden transaction to give 1Click: the row is not Completed or has no
+ * `transactionId`. A deposit into Miden (`bridged-receive`) never waits for one.
+ */
+function waitsForMidenSend(transaction: ITransaction): boolean {
+  switch (transaction.type) {
+    case 'send':
+    case 'bridged-send':
+      return transaction.status !== ITransactionStatus.Completed || !transaction.transactionId;
+    default:
+      return false;
+  }
+}
+
 async function reconcileRow(transaction: ITransaction): Promise<void> {
   const tracking = oneClickOf(transaction);
   if (!tracking || transaction.restoredFromBackup || isTerminal(tracking.phase)) return;
-  if (
-    transaction.type === 'send' &&
-    (transaction.status !== ITransactionStatus.Completed || !transaction.transactionId)
-  )
-    return;
+  if (waitsForMidenSend(transaction)) return;
 
   const depositAddress = tracking.depositAddress;
   if (!depositAddress) return;

@@ -1,4 +1,4 @@
-export type OneClickBlockchain = 'eth' | 'base' | 'arb' | 'op' | 'arc' | 'miden' | (string & {});
+export type OneClickBlockchain = 'eth' | 'miden' | (string & {});
 
 export interface OneClickAsset {
   assetId: string;
@@ -8,7 +8,6 @@ export interface OneClickAsset {
   coingeckoId?: string;
   contractAddress?: string;
   faucetId?: string;
-  chainId?: number;
 }
 
 export interface OneClickAppFee {
@@ -174,20 +173,7 @@ export interface OneClickStatusResponse {
 
 export type OneClickOnchainMetadataResolver = (asset: OneClickAsset) => Promise<{ decimals: number; symbol?: string }>;
 
-export interface OneClickQuoteBinding {
-  request: OneClickQuoteRequest;
-  quote: OneClickQuoteResponse;
-}
-
 export interface OneClickDestinationReceipt {
   transactionHash: string;
   noteIds: string[];
-}
-
-export interface OneClickDepositResult {
-  transactionHash: string;
-}
-
-export interface OneClickReceiptAdapterConfig {
-  enabled: boolean;
 }

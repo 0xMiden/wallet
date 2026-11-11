@@ -2,6 +2,9 @@ import { mainnet, sepolia } from 'viem/chains';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { getNearIntentsConfig } from 'lib/one-click/config';
+import { nearIntentsSendChains } from 'lib/one-click/send';
+import type { NearIntentsAddressKind } from 'lib/one-click/types';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { evmChainSlug } from 'lib/remote-config/chains';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -86,4 +89,95 @@ export function sendBridgeNetworks(usdcxWithdrawals: boolean): readonly BridgeNe
   );
   sendNetworksCache.set(usdcxWithdrawals, { snapshot, networks });
   return networks;
+}
+
+/** One destination network of a send: an EVM bridge network, a NEAR Intents chain, or the two merged. */
+export interface SendNetwork {
+  /** EVM: the bridge slug. Non-EVM: 'solana', 'bitcoin' or 'near' (the `NetworkLogo` slugs). */
+  id: string;
+  name: string;
+  kind: NearIntentsAddressKind;
+  /** The EVM chain id, when the wallet knows the chain. */
+  chainId?: number;
+  /** The 1Click blockchain name ('eth', 'sol', 'btc', 'near') when NEAR Intents offers the chain. */
+  nearIntentsChainId?: string;
+  /** True when Epoch, Agglayer or USDCx offers this network (the routes that existed before). */
+  bridge: boolean;
+}
+
+function evmSendNetwork(network: BridgeNetwork, bridge: boolean, nearIntentsChainId?: string): SendNetwork {
+  return {
+    id: network.id,
+    name: network.name,
+    kind: 'evm',
+    chainId: network.chainId,
+    bridge,
+    ...(nearIntentsChainId === undefined ? {} : { nearIntentsChainId })
+  };
+}
+
+/** Every EVM network the wallet knows, as send networks with no route data. A contact picks its network from these. */
+export const EVM_SEND_NETWORKS: readonly SendNetwork[] = BRIDGE_NETWORKS.map(network => evmSendNetwork(network, false));
+
+// Same rule as `sendNetworksCache`: the list is an effect dependency, so keep one array per snapshot.
+const unionNetworksCache = new Map<boolean, { snapshot: BridgeConfigSnapshot; networks: readonly SendNetwork[] }>();
+
+/**
+ * Union of the bridge networks (`sendBridgeNetworks`) and the NEAR Intents chains. A NEAR Intents EVM chain merges
+ * into the bridge network with the same chain id. A NEAR Intents EVM chain that no bridge offers is its own entry
+ * when the wallet knows the chain, else it is not in the list. Stable identity while the config snapshot is the same.
+ */
+export function sendNetworks(usdcxWithdrawals: boolean): readonly SendNetwork[] {
+  const snapshot = getBridgeConfigSnapshot();
+  const cached = unionNetworksCache.get(usdcxWithdrawals);
+  if (cached?.snapshot === snapshot) return cached.networks;
+  const networks = sendBridgeNetworks(usdcxWithdrawals).map(network => evmSendNetwork(network, true));
+  for (const chain of nearIntentsSendChains(getNearIntentsConfig(snapshot))) {
+    switch (chain.addressKind) {
+      case 'evm': {
+        const chainId = chain.evmChainId;
+        if (chainId === undefined) break;
+        const index = networks.findIndex(network => network.chainId === chainId);
+        const merged = networks[index];
+        if (merged) {
+          networks[index] = { ...merged, nearIntentsChainId: merged.nearIntentsChainId ?? chain.id };
+          break;
+        }
+        const known = getBridgeNetworkByChainId(chainId);
+        if (known) networks.push(evmSendNetwork(known, false, chain.id));
+        break;
+      }
+      case 'solana':
+      case 'bitcoin':
+      case 'near': {
+        // The id is the address kind, which is also the `NetworkLogo` slug (`chainLogoNetwork` of 'sol', 'btc',
+        // 'near'). So the id does not change when the 1Click name of the chain changes.
+        const id = chain.addressKind;
+        if (networks.some(network => network.id === id)) break;
+        networks.push({ id, name: chain.name, kind: chain.addressKind, nearIntentsChainId: chain.id, bridge: false });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  unionNetworksCache.set(usdcxWithdrawals, { snapshot, networks });
+  return networks;
+}
+
+/**
+ * A destination network by id, for its name, logo, kind and NEAR Intents chain. It looks in the union list with the
+ * USDCx destinations; a known EVM network that no route offers now (for example from an old draft or contact) comes
+ * back with `bridge: false`, so its name and logo still show.
+ */
+export function getSendNetwork(id: string | undefined): SendNetwork | undefined {
+  if (!id) return undefined;
+  const offered = sendNetworks(true).find(network => network.id === id);
+  if (offered) return offered;
+  const known = getBridgeNetwork(id);
+  return known ? evmSendNetwork(known, false) : undefined;
+}
+
+export function isSendNetworkId(value: string | null | undefined): value is string {
+  return getSendNetwork(value ?? undefined) !== undefined;
 }

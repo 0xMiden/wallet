@@ -513,6 +513,37 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  const nearIntentsTracking = {
+    direction: 'miden-to-evm',
+    phase: 'processing',
+    quote: { quote: { amountIn: '962490256881558', amountOut: '1600000000' } },
+    config: { serviceUrl: 'https://one-click.example', midenAssets: [], chains: [] },
+    originAsset: { assetId: 'miden-eth', blockchain: 'miden', symbol: 'ETH', decimals: 18, faucetId: 'faucet-eth' },
+    destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 }
+  };
+
+  it.each<[string, Partial<ITransaction>]>([
+    [
+      'bridged-send',
+      { type: 'bridged-send', extraInputs: { provider: 'near-intents', oneClick: nearIntentsTracking } }
+    ],
+    ['send', { type: 'send', extraInputs: { oneClick: nearIntentsTracking } }]
+  ])('names both sides of a NEAR Intents %s row from its own quote', async (_shape, row) => {
+    // The wallet has no metadata for the faucet yet: the pill must not read "Unknown".
+    mockState.assetsMetadata = {};
+    const { container, root } = await renderProbe(
+      baseTransaction({ amount: 962490256881558n, faucetId: 'faucet-eth', secondaryAccountId: 'mm1deposit', ...row })
+    );
+
+    // Rounded down to 6 decimal places, never the 18 that the token has.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000962 ETH');
+    expect(container.textContent).toContain('1600 USDC');
+    expect(container.textContent).not.toContain('Unknown');
+    expect(container.textContent).not.toContain('mm1deposit');
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
+    act(() => root.unmount());
+  });
+
   it('names a claim and a send of the testnet bridge faucet by its label', async () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };

@@ -54,6 +54,8 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
@@ -2564,6 +2566,97 @@ describe('guardian leaf records the submit crossing', () => {
     expect(finalRow.mayHaveSubmitted).toBeUndefined();
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
+  const nearIntentsBridgedSend = (fundingDeadline: string, providerDeadline: string) => ({
+    type: 'bridged-send' as const,
+    secondaryAccountId: 'deposit-address',
+    faucetId: 'f',
+    amount: '1',
+    noteType: 'public',
+    extraInputs: {
+      provider: 'near-intents',
+      destinationAddress: '0x2222222222222222222222222222222222222222',
+      destinationNetwork: 1,
+      sourceFaucetId: 'f',
+      claimStatus: 'not-applicable',
+      oneClick: {
+        fundingDeadline,
+        request: { deadline: fundingDeadline },
+        quote: {
+          quoteRequest: { deadline: fundingDeadline },
+          quote: { deadline: providerDeadline }
+        }
+      }
+    }
+  });
+
+  it('proposes a NEAR Intents bridged-send as a public P2ID to the deposit address and completes it', async () => {
+    const live = new Date(Date.now() + 60_000).toISOString();
+    const row = nearIntentsBridgedSend(live, live);
+    const { service } = arrange('near-intents-send', row);
+
+    await generateTransaction(buildTx('near-intents-send', row) as never, signCallback, false, provider as never);
+
+    expect(service.createSendProposal).toHaveBeenCalledWith('deposit-address', 'f', 1n, NoteType.Public);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+    expect(mockComplete.send).not.toHaveBeenCalled();
+  });
+
+  it('refuses an expired NEAR Intents bridged-send after proving and before submit', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = nearIntentsBridgedSend(fundingDeadline, new Date(now + 60_000).toISOString());
+    const { inline } = arrange('near-intents-expired-inline', row, makeResult(), () => {
+      now = Date.parse(fundingDeadline);
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('near-intents-expired-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'near-intents-expired-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('flag ON: hands the NEAR Intents bridged-send deadline to the offscreen pipeline as required', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const fundingDeadline = new Date(Date.now() + 60_000).toISOString();
+    const row = nearIntentsBridgedSend(fundingDeadline, new Date(Date.now() + 120_000).toISOString());
+    arrange('near-intents-offscreen', row);
+
+    await generateTransaction(buildTx('near-intents-offscreen', row) as never, signCallback, false, provider as never);
+
+    const args = mockDispatchGuardianPipeline.mock.calls.at(0) ?? [];
+    expect(args.at(-2)).toBe(fundingDeadline);
+    expect(args.at(-1)).toBe(true);
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  it('flag ON: an Agglayer bridged-send carries no 1Click deadline', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const { row } = bridgeEarnCase('agglayer');
+    arrange('agglayer-no-deadline', row);
+
+    await generateTransaction(buildTx('agglayer-no-deadline', row) as never, signCallback, false, provider as never);
+
+    const args = mockDispatchGuardianPipeline.mock.calls.at(0) ?? [];
+    expect(args.at(-1)).toBe(false);
   });
 
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {

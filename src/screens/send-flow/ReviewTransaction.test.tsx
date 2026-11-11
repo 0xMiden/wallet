@@ -17,6 +17,12 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { isValidNearIntentsAddress } from 'lib/one-click/address';
+import { OneClickHttpError } from 'lib/one-click/client';
+import { OneClickDeadlineError } from 'lib/one-click/deadline';
+import { NearIntentsSendQuoteChangedError, startNearIntentsSend } from 'lib/one-click/send';
+import type { NearIntentsSendPair } from 'lib/one-click/send';
+import type { NearIntentsConfig, OneClickQuoteResponse } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -29,9 +35,10 @@ import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
-import { ReviewTransaction } from './ReviewTransaction';
+import { nearIntentsSendFailureId, ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, settleSendFlow } from './send-telemetry';
+import type { NearIntentsSendQuote, NearIntentsSendQuoteParams } from './useNearIntentsSendQuote';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
 const mockVerifiedPriceAssets = new Map<string, string>();
@@ -59,7 +66,7 @@ let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
-let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+let mockDetectedChain: 'miden' | 'ethereum' | 'solana' = 'miden';
 let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string } = {
   amount: undefined,
   loading: false,
@@ -341,6 +348,7 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
+  formatBigInt: jest.requireActual('lib/i18n/numbers').formatBigInt,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
@@ -462,6 +470,39 @@ jest.mock('lib/telemetry', () => ({
   beginFlow: (flow: string) => beginFlowMock(flow),
   classifyError: (error: unknown) => classifyErrorMock(error)
 }));
+
+// NEAR Intents: the quote hook, the send start and the Solana network are stand-ins; their own suites test them.
+let mockNearIntentsQuote: NearIntentsSendQuote = { status: 'idle' };
+let mockNearIntentsQuoteArgs: NearIntentsSendQuoteParams | undefined;
+let mockNearIntentsConfig: NearIntentsConfig | null = null;
+jest.mock('./useNearIntentsSendQuote', () => ({
+  ...jest.requireActual<typeof import('./useNearIntentsSendQuote')>('./useNearIntentsSendQuote'),
+  useNearIntentsSendQuote: (args: NearIntentsSendQuoteParams) => {
+    mockNearIntentsQuoteArgs = args;
+    return mockNearIntentsQuote;
+  }
+}));
+jest.mock('lib/one-click/send', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/send')>('lib/one-click/send'),
+  startNearIntentsSend: jest.fn()
+}));
+jest.mock('lib/one-click/config', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/config')>('lib/one-click/config'),
+  useNearIntentsConfig: () => mockNearIntentsConfig
+}));
+jest.mock('lib/one-click/address', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/address')>('lib/one-click/address'),
+  isValidNearIntentsAddress: jest.fn(() => true)
+}));
+jest.mock('./bridge-networks', () => {
+  const actual = jest.requireActual<typeof import('./bridge-networks')>('./bridge-networks');
+  const solana = { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false };
+  return {
+    ...actual,
+    getSendNetwork: (id: string | undefined) => (id === 'solana' ? solana : actual.getSendNetwork(id)),
+    isSendNetworkId: (id: string | null | undefined) => id === 'solana' || actual.isSendNetworkId(id)
+  };
+});
 
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: { amount?: bigint }) => {
@@ -586,6 +627,10 @@ beforeEach(() => {
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
   mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
+  mockNearIntentsQuote = { status: 'idle' };
+  mockNearIntentsQuoteArgs = undefined;
+  mockNearIntentsConfig = null;
+  jest.mocked(isValidNearIntentsAddress).mockReturnValue(true);
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -2447,5 +2492,254 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     await expectReport('unknownTokenScale');
+  });
+});
+
+describe('ReviewTransaction — NEAR Intents', () => {
+  const RECIPIENT = '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV';
+  const CONFIG: NearIntentsConfig = { serviceUrl: 'https://one-click.example', chains: [], midenAssets: [] };
+  const PAIR: NearIntentsSendPair = {
+    chain: { id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] },
+    origin: { assetId: 'miden-mdn', blockchain: 'miden', symbol: 'MDN', decimals: 8, faucetId: 'tok1' },
+    destination: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 }
+  };
+  const QUOTE: OneClickQuoteResponse = {
+    correlationId: 'correlation',
+    timestamp: '2026-11-11T00:00:00.000Z',
+    signature: 'signed',
+    quoteRequest: {
+      dry: true,
+      swapType: 'EXACT_INPUT',
+      slippageTolerance: 100,
+      originAsset: 'miden-mdn',
+      depositType: 'ORIGIN_CHAIN',
+      destinationAsset: 'sol-usdc',
+      amount: '12345',
+      refundTo: 'pubkey-1',
+      refundType: 'ORIGIN_CHAIN',
+      recipient: RECIPIENT,
+      recipientType: 'DESTINATION_CHAIN',
+      deadline: '2026-11-11T00:05:00.000Z'
+    },
+    quote: {
+      amountIn: '12345',
+      amountInFormatted: '0.00012345',
+      amountInUsd: '20',
+      minAmountIn: '12345',
+      amountOut: '19650000',
+      amountOutFormatted: '19.65',
+      amountOutUsd: '19.65',
+      minAmountOut: '19400000',
+      timeEstimate: 22
+    }
+  };
+  const READY: NearIntentsSendQuote = { status: 'ready', pair: PAIR, quote: QUOTE };
+
+  const setNearIntentsRoute = (network = 'solana') => {
+    mockDetectedChain = 'solana';
+    mockSearch = `amount=5&to=${RECIPIENT}&tokenId=tok1&network=${network}&route=near-intents`;
+    mockBalanceData = [VALID_TOKEN];
+    mockNearIntentsConfig = CONFIG;
+    mockNearIntentsQuote = READY;
+  };
+  const rowText = (testId: string) => within(screen.getByTestId(testId)).getByTestId('row-children').textContent;
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    jest.mocked(startNearIntentsSend).mockResolvedValue('tx-near');
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('asks for the quote of the token, the chain and the recipient', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockNearIntentsQuoteArgs).toEqual({
+      chainId: 'sol',
+      faucetId: 'tok1',
+      amount: 12345n,
+      recipient: RECIPIENT,
+      enabled: true
+    });
+  });
+
+  it('shows the quote, the minimum, the arrival estimate, the route and the refund note, with no Miden options', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(rowText('review-row-you-receive')).toBe('≈ 19.65 USDC');
+    expect(rowText('review-row-minimum-received')).toBe('19.4 USDC');
+    expect(rowText('review-row-arrival')).toBe('nearIntentsSendArrivalSeconds');
+    expect(screen.getByText('bridgeRouteNearIntents')).toBeInTheDocument();
+    // The network row and the second story hop both name the destination network.
+    expect(screen.getAllByText('Solana')).toHaveLength(2);
+    expect(screen.getByTestId('near-intents-refund-note')).toHaveTextContent('nearIntentsSendRefundNote');
+    expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it.each<NearIntentsSendQuote>([
+    { status: 'loading', pair: PAIR },
+    { status: 'error', pair: PAIR, errorCode: 'no_liquidity' },
+    { status: 'unsupported' }
+  ])('keeps the send disabled while the quote is $status', async quote => {
+    setNearIntentsRoute();
+    mockNearIntentsQuote = quote;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it('says why when 1Click has no liquidity for the amount', async () => {
+    setNearIntentsRoute();
+    mockNearIntentsQuote = { status: 'error', pair: PAIR, errorCode: 'no_liquidity' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('near-intents-route-error')).toHaveTextContent('nearIntentsSendNoLiquidity');
+  });
+
+  it('ignores the Epoch and Agglayer features', async () => {
+    setNearIntentsRoute();
+    mockBridgeAvailability = { state: 'unavailable', reason: 'service-down', detail: 'down' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('redirects to the send form for a network that NEAR Intents does not serve', async () => {
+    setNearIntentsRoute('sepolia');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toHaveTextContent('redirect:/send');
+  });
+
+  it('redirects to the send form for an address that is not valid on the network', async () => {
+    setNearIntentsRoute();
+    jest.mocked(isValidNearIntentsAddress).mockReturnValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toHaveTextContent('redirect:/send');
+  });
+
+  it('runs the spending-limit check, starts the send with the reviewed minimum, and opens the progress page', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
+    expect(startNearIntentsSend).toHaveBeenCalledWith({
+      config: CONFIG,
+      pair: PAIR,
+      amount: 12345n,
+      recipient: RECIPIENT,
+      refundTo: 'pubkey-1',
+      network: expect.any(String),
+      accountId: 'pubkey-1',
+      accountAddress: 'pubkey-1',
+      reviewedMinAmountOut: 19_400_000n,
+      authorization: undefined
+    });
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it('names the wait for the deposit address on the button while 1Click makes it', async () => {
+    setNearIntentsRoute();
+    const pending = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValue(pending.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPayment');
+
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    await act(async () => {
+      pending.resolve('tx-near');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+  });
+
+  it('gives the button its label back when the deposit address request fails', async () => {
+    setNearIntentsRoute();
+    jest.mocked(startNearIntentsSend).mockRejectedValue(new Error('1Click request failed (502)'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPayment');
+    expect(screen.getByTestId('review-error')).toHaveTextContent('oneClickSubmitFailed');
+  });
+
+  it('passes the spending-limit authorization to the send', async () => {
+    setNearIntentsRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(startNearIntentsSend).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByText('authorize-limit'));
+    });
+    await flush();
+
+    expect(startNearIntentsSend).toHaveBeenCalledWith(
+      expect.objectContaining({ authorization: expect.objectContaining({ id: 'authorization-1' }) })
+    );
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+  });
+
+  it.each<[string, unknown, string]>([
+    [
+      'a lower deposit quote',
+      new NearIntentsSendQuoteChangedError(19_400_000n, 18_000_000n),
+      'nearIntentsSendQuoteChanged'
+    ],
+    ['an expired quote', new OneClickDeadlineError('expired'), 'nearIntentsSendQuoteExpired'],
+    ['no liquidity', new OneClickHttpError(400, 'no_liquidity'), 'nearIntentsSendNoLiquidity'],
+    ['a refused recipient', new OneClickHttpError(400, 'invalid_recipient'), 'nearIntentsSendInvalidRecipient'],
+    ['any other failure', new Error('1Click request failed (502)'), 'oneClickSubmitFailed']
+  ])('shows an inline message for %s', async (_case, error, message) => {
+    setNearIntentsRoute();
+    jest.mocked(startNearIntentsSend).mockRejectedValue(error);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('maps every failure to a registered user-visible error id', () => {
+    expect(nearIntentsSendFailureId(new Error('x'))).toBe('oneClickSubmitFailed');
+    expect(nearIntentsSendFailureId(new OneClickHttpError(500))).toBe('oneClickSubmitFailed');
   });
 });

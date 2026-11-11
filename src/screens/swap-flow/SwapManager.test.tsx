@@ -852,14 +852,6 @@ describe('SwapFlow / SwapManager', () => {
     expect(drawer).toHaveAttribute('data-current', 'faucet-A');
   });
 
-  it('shows no network picker on the amounts step', () => {
-    mockRealSwapAmounts = true;
-    renderFlow();
-
-    expect(screen.queryByTestId('one-click-pay-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
-  });
-
   it('keeps Swap closed when the DEX has no pair to offer', async () => {
     mockGetSwapTokens.mockReturnValue([]);
     renderFlow();

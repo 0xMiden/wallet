@@ -39,7 +39,7 @@ jest.mock('lib/one-click/client', () => ({
     mockRequestQuote(config, request, dry)
 }));
 jest.mock('lib/one-click/address', () => ({
-  isValidNearIntentsAddress: (kind: string, value: string) =>
+  isValidNearIntentsRefundAddress: (kind: string, value: string) =>
     kind === 'evm' ? /^0x[0-9a-fA-F]{40}$/.test(value) : value.length > 20
 }));
 const mockPersist = jest.fn<Promise<string>, [unknown]>();
@@ -59,8 +59,7 @@ const usdc: OneClickAsset = {
   blockchain: 'eth',
   symbol: 'USDC',
   decimals: 6,
-  contractAddress: '0x2222222222222222222222222222222222222222',
-  chainId: 1
+  contractAddress: '0x2222222222222222222222222222222222222222'
 };
 const usdt: OneClickAsset = { ...usdc, assetId: 'nep141:eth-usdt', symbol: 'USDT' };
 const sol: OneClickAsset = { assetId: 'nep141:sol', blockchain: 'sol', symbol: 'SOL', decimals: 9 };

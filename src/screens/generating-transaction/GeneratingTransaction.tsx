@@ -39,7 +39,14 @@ import { navigate, Redirect } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
-import { EXPLORER_TITLE, stepsForFlow, SUCCESS_RECEIPT_DELAY_MS, TRANSACTION_LOOP_INTERVAL_MS } from './constants';
+import {
+  EXPLORER_TITLE,
+  NEAR_INTENTS_DEPOSIT_ADDRESS_STEP,
+  NEAR_INTENTS_SEND_STEP,
+  stepsForFlow,
+  SUCCESS_RECEIPT_DELAY_MS,
+  TRANSACTION_LOOP_INTERVAL_MS
+} from './constants';
 import {
   getActiveStepIndex,
   getProcessingTitleKey,
@@ -49,6 +56,8 @@ import {
   getTransactionStepState,
   isDirectGuardianSwitch,
   isUnconfirmedGuardianSwitch,
+  getNearIntentsSendStepState,
+  nearIntentsSendTracking,
   waitsToDeliverNote
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
@@ -158,7 +167,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [status]);
 
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
-  // row to the receipt (#1081).
+  // row to the receipt (#1081). A NEAR Intents send is done here when its Miden transaction completes: its delivery
+  // on the destination chain continues in Activity.
   const transactionComplete =
     status === ITransactionStatus.Completed ||
     status === ITransactionStatus.Failed ||
@@ -387,6 +397,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     () => stepsForFlow(isGuardian, signedLocally, deliversNote),
     [isGuardian, signedLocally, deliversNote]
   );
+  // A NEAR Intents send shows two steps: the deposit address (asked for on the review page, before the row
+  // existed, so always complete here) and the send to it, whose sub-steps are the Miden steps above.
+  const isNearIntentsSend = nearIntentsSendTracking(activeTransaction ?? completedTransaction) !== undefined;
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
@@ -477,7 +490,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // During processing the title is type-based ("Sending Payment") rather than
   // stage-based, matching the redesign. `send` and `swap` have bespoke titles;
   // other types fall back to the generic label.
-  const processingTitleKey = getProcessingTitleKey(activeType);
+  const processingTitleKey = getProcessingTitleKey(activeType, activeTransaction ?? completedTransaction);
   const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const footerDescription =
@@ -611,6 +624,23 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               accent === 'earn' ? classNames(outlineSurfaceClassName, 'face-heading') : 'bg-fill'
             )}
           >
+            {isNearIntentsSend && (
+              <>
+                <TransactionStepRow
+                  step={NEAR_INTENTS_DEPOSIT_ADDRESS_STEP}
+                  state="complete"
+                  accent={accent}
+                  isLast={false}
+                />
+                <TransactionStepRow
+                  step={NEAR_INTENTS_SEND_STEP}
+                  state={getNearIntentsSendStepState(transactionComplete, hasErrors, unconfirmed)}
+                  accent={accent}
+                  isLast={false}
+                />
+              </>
+            )}
+            {/* For a NEAR Intents send these are the sub-steps of "Sending to deposit address". */}
             {steps.map((step, index) => {
               const waitingOnGuardian = guardianBusy && index === 0;
               const state = waitingOnGuardian
@@ -625,6 +655,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                   accent={accent}
                   isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
+                  nested={isNearIntentsSend}
                 />
               );
             })}

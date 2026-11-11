@@ -172,6 +172,31 @@ export const STANDARD_TRANSACTION_STEPS = [
   }
 ] as const satisfies readonly TransactionStepDef[];
 
+/** The label of a step that no stage of the row drives, so it has no stage boundaries. */
+export type TransactionStepLabel = Pick<TransactionStepDef, 'id' | 'labelKey' | 'defaultLabel'>;
+
+/**
+ * The first step of a NEAR Intents send. The review page asks 1Click for the deposit address before the row exists,
+ * so on this screen the step is always complete. The row keeps no time for that request, so the step shows no
+ * duration.
+ */
+export const NEAR_INTENTS_DEPOSIT_ADDRESS_STEP: TransactionStepLabel = {
+  id: 'near-intents-deposit-address',
+  labelKey: 'transactionStepNearIntentsDepositAddress',
+  defaultLabel: 'Deposit address generated'
+};
+
+/**
+ * The second step of a NEAR Intents send: the Miden transaction to the deposit address. Its sub-steps are the Miden
+ * steps of the row (`stepsForFlow`), timed from the stage stamps as usual. It is complete when the Miden
+ * transaction completes; the delivery on the destination chain continues in Activity.
+ */
+export const NEAR_INTENTS_SEND_STEP: TransactionStepLabel = {
+  id: 'near-intents-send',
+  labelKey: 'transactionStepNearIntentsSend',
+  defaultLabel: 'Sending to deposit address'
+};
+
 /** Backwards-compatible alias: the full (Guardian) step tuple. */
 export const TRANSACTION_STEPS = GUARDIAN_TRANSACTION_STEPS;
 

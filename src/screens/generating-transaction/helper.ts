@@ -1,6 +1,16 @@
-import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type {
+  IBridgedSendExtraInputs,
+  IOneClickPhase,
+  IOneClickTrackingData,
+  ISendExtraInputs,
+  ITransaction,
+  ITransactionStage,
+  ITransactionType
+} from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { isPrivateNoteType } from 'lib/miden/helpers';
+import type { OneClickAsset } from 'lib/one-click/types';
+import { formatNearIntentsAmount } from 'screens/send-flow/near-intents-format';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -118,6 +128,133 @@ export const waitsToDeliverNote = (tx: ITransaction | undefined): boolean => {
   return DELIVERY_STAGES.some(stage => tx.stage === stage || tx.stageTimestamps?.[stage] !== undefined);
 };
 
+/** The 1Click tracking on a row, read through the `extraInputs` type of the row's own type. */
+const oneClickOfRow = (tx: ITransaction): IOneClickTrackingData | undefined => {
+  switch (tx.type) {
+    // A row that an older build stored.
+    case 'send': {
+      const inputs: ISendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.oneClick;
+    }
+    case 'bridged-send': {
+      const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+      switch (inputs?.provider) {
+        case 'near-intents':
+          return inputs.oneClick;
+        default:
+          return undefined;
+      }
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * The 1Click tracking of a NEAR Intents send from Miden: a `bridged-send` row with provider `near-intents`, or a
+ * `send` row that an older build stored, whose `extraInputs.oneClick` goes from Miden to another chain. A row
+ * restored from a backup is not reconciled (`reconcileOneClickSwaps` skips it), so it gets none here.
+ */
+export const nearIntentsSendTracking = (tx: ITransaction | undefined): IOneClickTrackingData | undefined => {
+  if (!tx || tx.restoredFromBackup) return undefined;
+  const tracking = oneClickOfRow(tx);
+  return tracking?.direction === 'miden-to-evm' ? tracking : undefined;
+};
+
+/**
+ * The state of the "Sending to deposit address" step of a NEAR Intents send: it runs while any of its sub-steps (the
+ * Miden steps) runs, and ends when the Miden transaction ends. An outcome that is not known stays pending.
+ */
+export const getNearIntentsSendStepState = (
+  transactionComplete: boolean,
+  hasErrors: boolean,
+  unconfirmed: boolean
+): TransactionStepState => {
+  if (!transactionComplete) return 'active';
+  if (!hasErrors) return 'complete';
+  return unconfirmed ? 'pending' : 'failed';
+};
+
+/**
+ * The delivery of a NEAR Intents send after its Miden transaction: still on its way, delivered, or not delivered.
+ * The progress screen does not wait for it; the success view and Activity show it.
+ */
+export type NearIntentsDeliveryOutcome = 'pending' | 'delivered' | 'failed';
+
+/**
+ * The delivery outcome of a 1Click phase. For a send from Miden, 1Click `SUCCESS` means the destination chain got
+ * the funds, so `arriving` counts as delivered. `refunded`, `failed` and `expired` are the terminal failures.
+ */
+export const nearIntentsDeliveryOutcome = (phase: IOneClickPhase): NearIntentsDeliveryOutcome => {
+  switch (phase) {
+    case 'delivered':
+    case 'arriving':
+      return 'delivered';
+    case 'refunded':
+    case 'failed':
+    case 'expired':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+};
+
+/** The i18n keys of the title and the description of a NEAR Intents send that was not delivered. */
+export const nearIntentsDeliveryFailureKeys = (phase: IOneClickPhase): { title: string; description: string } => {
+  switch (phase) {
+    case 'refunded':
+      return { title: 'nearIntentsSendRefundedTitle', description: 'nearIntentsSendRefundedDescription' };
+    case 'expired':
+      return { title: 'nearIntentsSendExpiredTitle', description: 'nearIntentsSendExpiredDescription' };
+    default:
+      return { title: 'nearIntentsSendFailedTitle', description: 'nearIntentsSendFailedDescription' };
+  }
+};
+
+/** The reason that 1Click gives for a failed or refunded delivery, or undefined. */
+export const nearIntentsDeliveryReason = (tracking: IOneClickTrackingData): string | undefined => {
+  const reason = tracking.error ?? tracking.statusResponse?.swapDetails.refundReason;
+  return reason && reason.trim().length > 0 ? reason : undefined;
+};
+
+/**
+ * A 1Click base-unit amount of `asset` as "amount symbol", with the same rounding as the route card and the review
+ * page (at most 6 decimal places). Undefined when the value is not a base-unit amount.
+ */
+const nearIntentsAmountText = (value: string | undefined, asset: OneClickAsset): string | undefined => {
+  const amount = formatNearIntentsAmount(value, asset.decimals);
+  return amount === undefined ? undefined : `${amount} ${asset.symbol}`;
+};
+
+/**
+ * What a NEAR Intents send took from Miden, from the row's own quote and Miden asset. The wallet can have no
+ * metadata for the faucet yet, so the screens do not read `assetsMetadata` for this row (as for a GC purchase).
+ */
+export const nearIntentsSentText = (tracking: IOneClickTrackingData): string | undefined =>
+  nearIntentsAmountText(tracking.quote.quote.amountIn, tracking.originAsset);
+
+/** What the recipient got, when 1Click has reported it; else undefined. */
+export const nearIntentsDeliveredText = (tracking: IOneClickTrackingData): string | undefined =>
+  nearIntentsAmountText(tracking.statusResponse?.swapDetails.amountOut, tracking.destinationAsset);
+
+/** What the quote said that the recipient gets: an estimate until 1Click reports the delivery. */
+export const nearIntentsQuotedText = (tracking: IOneClickTrackingData): string | undefined =>
+  nearIntentsAmountText(tracking.quote.quote.amountOut, tracking.destinationAsset);
+
+/** The minimum that the quote guarantees to the recipient. */
+export const nearIntentsMinimumText = (tracking: IOneClickTrackingData): string | undefined =>
+  nearIntentsAmountText(tracking.quote.quote.minAmountOut, tracking.destinationAsset);
+
+/** The output of a NEAR Intents send: the delivered amount when 1Click reports it, else the quoted amount. */
+export const nearIntentsOutputText = (tracking: IOneClickTrackingData): string | undefined =>
+  nearIntentsDeliveredText(tracking) ?? nearIntentsQuotedText(tracking);
+
+/** The name of the destination chain of a NEAR Intents send, from the config stored on the row. */
+export const nearIntentsDestinationName = (tracking: IOneClickTrackingData): string => {
+  const blockchain = tracking.destinationAsset.blockchain;
+  return (tracking.config.chains ?? []).find(chain => chain.id === blockchain)?.name ?? blockchain;
+};
+
 /**
  * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that
  * the rotation committed. The row still completes — it is not a failure, and
@@ -192,7 +329,12 @@ export const getStageDescriptionKey = (stage?: ITransactionStage): string => {
   return 'transactionStageSendingDescription';
 };
 
-export const getProcessingTitleKey = (type?: ITransactionType): string => {
+/**
+ * The title while the row is processed. A NEAR Intents send (a `bridged-send` row or an older `send` row) is a
+ * payment to a recipient, so it reads as a send whatever its row type.
+ */
+export const getProcessingTitleKey = (type?: ITransactionType, tx?: ITransaction): string => {
+  if (nearIntentsSendTracking(tx) !== undefined) return 'transactionTitleSend';
   if (type === 'send') return 'transactionTitleSend';
   if (type === 'swap') return 'transactionTitleSwap';
   return 'generatingTransaction';

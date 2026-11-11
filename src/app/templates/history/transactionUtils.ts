@@ -7,9 +7,11 @@ import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-preci
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  IOneClickPhase,
   ITransaction,
   ITransactionStatus,
-  ITransactionType
+  ITransactionType,
+  nearIntentsSendTrackingOf
 } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -284,6 +286,50 @@ export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetada
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
+ * The status of a NEAR Intents send from its 1Click phase: Confirmed once 1Click delivered it, Failed when 1Click
+ * refunded it, failed it or nobody paid the deposit address in time, and Pending before that.
+ */
+const nearIntentsSendStatusOf = (phase: IOneClickPhase | undefined): BridgeStatus => {
+  switch (phase) {
+    case 'delivered':
+      return 'confirmed';
+    case 'refunded':
+    case 'failed':
+    case 'expired':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+};
+
+/**
+ * The history fields of a NEAR Intents send from Miden (a `bridged-send` row, or a `send` row of an older build): the
+ * sent amount and symbol from the row's own 1Click tracking, so a faucet the wallet has no metadata for never reads
+ * "Unknown", the real recipient, the 1Click phase and the destination chain name. Empty for every other row.
+ */
+export const nearIntentsSendHistoryFields = (
+  tx: Pick<ITransaction, 'type' | 'extraInputs' | 'amount'>
+): Pick<
+  IHistoryEntry,
+  'amount' | 'token' | 'secondaryAddress' | 'bridgeOneClickPhase' | 'bridgeDestinationChainName'
+> => {
+  const tracking = nearIntentsSendTrackingOf(tx);
+  if (!tracking || tracking.direction !== 'miden-to-evm') return {};
+  const chainId = tracking.destinationAsset.blockchain;
+  const chainName = Array.isArray(tracking.config.chains)
+    ? tracking.config.chains.find(chain => chain.id === chainId)?.name
+    : undefined;
+  return {
+    ...(tx.amount === undefined ? {} : { amount: formatAmount(tx.amount, tracking.originAsset.decimals) }),
+    token: tracking.originAsset.symbol,
+    // The recipient the user chose, never the 1Click deposit address, which is used once.
+    secondaryAddress: tracking.request.recipient,
+    bridgeOneClickPhase: tracking.phase,
+    bridgeDestinationChainName: chainName ?? chainId
+  };
+};
+
+/**
  * Normalize a `bridged-send` row to a single Pending/Confirmed/Failed status
  * across both routes: Agglayer derives it from the L1 claim lifecycle, Epoch from
  * the polled intent fill status.
@@ -300,6 +346,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
     return 'pending';
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'near-intents') return nearIntentsSendStatusOf(entry.bridgeOneClickPhase);
   if (entry.bridgeProvider === 'usdcx') {
     if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
     if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
@@ -357,10 +404,35 @@ export interface BridgeRowDisplay {
    * while in flight, then the credited amount rounded down once received.
    */
   outAmount?: string;
+  /**
+   * The label shown after `outAmount`: `outLabel`, except on a NEAR Intents send, whose row shows the amount it sent
+   * (`inLabel`), since 1Click reports the delivered amount only after the swap.
+   */
+  amountLabel: string;
   providerLabel: string;
   network: string;
   status: BridgeStatus;
 }
+
+/** The display fields of a NEAR Intents send from Miden: "Bridge IN → OUT", "Via NEAR Intents → <chain>". */
+const nearIntentsSendRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = entry.token ?? '—';
+  const outSymbol = entry.bridgeOutputSymbol ?? inSymbol;
+  const inLabel = midenTokenLabel(snapshot, entry.faucetId, inSymbol);
+  const evmNetwork =
+    entry.bridgeDestinationNetwork === undefined ? undefined : getChain(entry.bridgeDestinationNetwork)?.name;
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel,
+    outLabel: outSymbol,
+    outAmount: formatMoneyAmount(entry.amount, 'typed'),
+    amountLabel: inLabel,
+    providerLabel: 'NEAR Intents',
+    network: entry.bridgeDestinationChainName ?? evmNetwork ?? '—',
+    status: bridgeStatusOf(entry)
+  };
+};
 
 /**
  * Shared display fields for a `bridged-send` activity entry, so the summary row
@@ -368,6 +440,7 @@ export interface BridgeRowDisplay {
  * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
  */
 export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
+  if (entry.bridgeProvider === 'near-intents') return nearIntentsSendRowDisplay(snapshot, entry);
   const inSymbol = entry.token ?? '—';
   // Agglayer stores a bridge network ID separately from the EVM chain ID in its saved route.
   const destinationChainId =
@@ -382,6 +455,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       inLabel: inSymbol,
       outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
+      amountLabel: inSymbol,
       providerLabel: 'Circle xReserve',
       network,
       status: bridgeStatusOf(entry)
@@ -403,6 +477,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
     outLabel,
     outAmount,
+    amountLabel: outLabel,
     providerLabel,
     network,
     status: bridgeStatusOf(entry)
@@ -463,12 +538,14 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
     symbol: inSymbol,
     sourceToken: entry.bridgeInSourceToken
   });
+  const outLabel = midenTokenLabel(snapshot, entry.faucetId, outSymbol);
   return {
     inSymbol,
     outSymbol,
     inLabel,
-    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
+    outLabel,
     outAmount,
+    amountLabel: outLabel,
     providerLabel,
     network: 'Miden',
     status: bridgeStatusOf(entry)

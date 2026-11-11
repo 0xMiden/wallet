@@ -26,7 +26,7 @@ import { truncateAddress } from 'utils/string';
 
 import { balanceFormatterFor, formatBalance } from './amount-format';
 import { AmountShortcuts } from './AmountShortcuts';
-import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { getSendNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
@@ -107,7 +107,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
   useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
 
-  const bridgeNetwork = network && network !== 'miden' ? getBridgeNetwork(network) : undefined;
+  // An EVM network or a NEAR Intents chain (Solana, Bitcoin, NEAR). `NetworkLogo` finds each mark by its id.
+  const bridgeNetwork = network && network !== 'miden' ? getSendNetwork(network) : undefined;
 
   return (
     <SendStepLayout

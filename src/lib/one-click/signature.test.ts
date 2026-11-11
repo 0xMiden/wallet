@@ -78,16 +78,14 @@ describe('OneClick quote signature', () => {
         blockchain: 'eth',
         symbol: 'USDC',
         decimals: 6,
-        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        chainId: 1
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
       },
       destinationAsset: {
         assetId: 'nep141:base.omft.near',
         blockchain: 'base',
         symbol: 'ETH',
         decimals: 18,
-        contractAddress: 'native',
-        chainId: 8453
+        contractAddress: 'native'
       },
       refundTo: '0x1111111111111111111111111111111111111111',
       recipient: '0x2222222222222222222222222222222222222222',
@@ -130,16 +128,14 @@ describe('OneClick quote signature', () => {
         blockchain: 'eth',
         symbol: 'USDC',
         decimals: 6,
-        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        chainId: 1
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
       },
       destinationAsset: {
         assetId: 'nep141:base.omft.near',
         blockchain: 'base',
         symbol: 'ETH',
         decimals: 18,
-        contractAddress: 'native',
-        chainId: 8453
+        contractAddress: 'native'
       },
       refundTo: '0x1111111111111111111111111111111111111111',
       recipient: '0x2222222222222222222222222222222222222222',

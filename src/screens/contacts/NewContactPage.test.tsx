@@ -64,6 +64,7 @@ jest.mock('components/NetworkChip', () => ({
 }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
+  EVM_SEND_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 1, bridge: false }],
   defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 jest.mock('screens/send-flow/ScanQrDrawer', () => ({ ScanQrDrawer: () => null }));
@@ -71,8 +72,8 @@ jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false), isExtension: 
 jest.mock('lib/qr', () => ({ isScanAvailable: jest.fn(() => false), scanQRCode: jest.fn() }));
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('utils/miden', () => ({
-  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden'),
-  isValidRecipientAddress: (a: string) => a.startsWith('0x') || a.startsWith('mtst1good')
+  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : a.endsWith('.near') ? 'near' : 'miden'),
+  isValidRecipientAddress: (a: string) => a.startsWith('0x') || a.startsWith('mtst1good') || a.endsWith('.near')
 }));
 
 const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
@@ -137,6 +138,16 @@ it('saves a Miden contact without a network', async () => {
   const saved = addContactMock.mock.calls[0][0];
   expect(saved).toEqual(expect.objectContaining({ address: 'mtst1goodbob', name: 'Bob' }));
   expect(saved).not.toHaveProperty('network');
+});
+
+it('refuses a NEAR address: a send can go there, but the address book has no network for it', () => {
+  render(<NewContactPage />);
+  typeAddress('alice.near');
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+
+  expect(screen.getByTestId('contact-address-error')).toHaveTextContent('invalidAddress');
+  expect(screen.queryByTestId('new-contact-network-options')).not.toBeInTheDocument();
+  expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
 });
 
 it('flags an invalid address once the field is left', () => {

@@ -54,6 +54,10 @@ jest.mock('./bridge-networks', () => ({
     { id: 'sepolia', name: 'Sepolia', chainId: 1 },
     { id: 'base', name: 'Base', chainId: 2 }
   ],
+  EVM_SEND_NETWORKS: [
+    { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 1, bridge: false },
+    { id: 'base', name: 'Base', kind: 'evm', chainId: 2, bridge: false }
+  ],
   defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 

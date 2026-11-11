@@ -8,7 +8,7 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IOneClickPhase, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -22,6 +22,7 @@ import {
   bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  BridgeStatus,
   bridgeStatusOf,
   claimAccentColor,
   creditedAmount,
@@ -39,6 +40,7 @@ import {
   isReceiveEntry,
   labelHistoryEntry,
   MoneyKind,
+  nearIntentsSendHistoryFields,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -913,6 +915,7 @@ describe('bridgeRowDisplay', () => {
       outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
+      amountLabel: 'USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -945,6 +948,7 @@ describe('bridgeRowDisplay', () => {
         inLabel: token,
         outLabel: token,
         outAmount: '1.2',
+        amountLabel: token,
         providerLabel: 'Agglayer',
         network: 'Sepolia',
         status: 'confirmed'
@@ -965,6 +969,7 @@ describe('bridgeRowDisplay', () => {
       inLabel: NO_TOKEN,
       outLabel: 'USDC',
       outAmount: undefined,
+      amountLabel: 'USDC',
       providerLabel: 'Bridge',
       network: 'Sepolia',
       status: 'pending'
@@ -1015,6 +1020,7 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'ETH',
       outLabel: 'MIDEN',
       outAmount: '3',
+      amountLabel: 'MIDEN',
       providerLabel: 'Agglayer',
       network: 'Miden',
       status: 'confirmed'
@@ -1144,6 +1150,7 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'USDC',
       outLabel: NO_TOKEN,
       outAmount: undefined,
+      amountLabel: NO_TOKEN,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
@@ -1169,6 +1176,7 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'USDC',
       outLabel: 'USDCx',
       outAmount: '5',
+      amountLabel: 'USDCx',
       providerLabel: 'Circle xReserve',
       network: 'Miden',
       status: 'pending'
@@ -1623,5 +1631,108 @@ describe('earn deposit settlement helpers', () => {
     expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))).toBe(
       'failed'
     );
+  });
+});
+
+describe('NEAR Intents send rows', () => {
+  const nearIntentsEntry = (overrides: Partial<IHistoryEntry> = {}): IHistoryEntry =>
+    bridgeEntry({
+      status: ITransactionStatus.Completed,
+      token: 'ETH',
+      amount: '0.0105',
+      faucetId: '0x0123456789abcdef0123456789abcd',
+      bridgeProvider: 'near-intents',
+      bridgeDestinationNetwork: -1,
+      bridgeDestinationChainName: 'Solana',
+      bridgeOutputSymbol: 'SOL',
+      bridgeOutputAmount: '0.12',
+      bridgeClaimStatus: 'not-applicable',
+      ...overrides
+    });
+
+  it('reads "Bridge ETH → SOL", "Via NEAR Intents → Solana" with the sent amount', () => {
+    const display = bridgeRowDisplay(UNLOADED, nearIntentsEntry({ bridgeOneClickPhase: 'processing' }));
+
+    expect(display).toMatchObject({
+      inLabel: 'ETH',
+      outLabel: 'SOL',
+      outAmount: '0.0105',
+      amountLabel: 'ETH',
+      providerLabel: 'NEAR Intents',
+      network: 'Solana',
+      status: 'pending'
+    });
+  });
+
+  it('names an EVM destination by its chain id when the row has no chain name', () => {
+    const display = bridgeRowDisplay(
+      UNLOADED,
+      nearIntentsEntry({ bridgeDestinationNetwork: 1, bridgeDestinationChainName: undefined })
+    );
+
+    expect(display.network).toBe('Ethereum');
+  });
+
+  it.each<[IOneClickPhase | undefined, BridgeStatus]>([
+    ['depositing', 'pending'],
+    ['pending-deposit', 'pending'],
+    ['known-deposit-tx', 'pending'],
+    ['processing', 'pending'],
+    ['incomplete-deposit', 'pending'],
+    ['delivered', 'confirmed'],
+    ['refunded', 'failed'],
+    ['failed', 'failed'],
+    ['expired', 'failed'],
+    [undefined, 'pending']
+  ])('maps the 1Click phase %s to %s', (phase, status) => {
+    expect(bridgeStatusOf(nearIntentsEntry({ bridgeOneClickPhase: phase }))).toBe(status);
+  });
+
+  it('reads Failed when the Miden send failed, whatever the 1Click phase', () => {
+    expect(
+      bridgeStatusOf(nearIntentsEntry({ status: ITransactionStatus.Failed, bridgeOneClickPhase: 'depositing' }))
+    ).toBe('failed');
+  });
+
+  const tracking = {
+    direction: 'miden-to-evm',
+    request: { recipient: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+    originAsset: { symbol: 'ETH', decimals: 18 },
+    destinationAsset: { blockchain: 'sol', symbol: 'SOL' },
+    config: { chains: [{ id: 'sol', name: 'Solana' }] },
+    phase: 'processing'
+  };
+
+  type HistoryRow = Pick<ITransaction, 'type' | 'extraInputs' | 'amount'>;
+  const amount = 10_500_000_000_000_000n;
+  const bridgedSend: HistoryRow = {
+    type: 'bridged-send',
+    amount,
+    extraInputs: { provider: 'near-intents', oneClick: tracking }
+  };
+  const legacySend: HistoryRow = { type: 'send', amount, extraInputs: { oneClick: tracking } };
+
+  it.each([
+    ['a NEAR Intents bridged-send row', bridgedSend],
+    ['a legacy send row', legacySend]
+  ])('takes the amount, symbol and real recipient of %s from its tracking', (_label, row) => {
+    expect(nearIntentsSendHistoryFields(row)).toEqual({
+      amount: 'fmt(10500000000000000,18)',
+      token: 'ETH',
+      secondaryAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+      bridgeOneClickPhase: 'processing',
+      bridgeDestinationChainName: 'Solana'
+    });
+  });
+
+  it('gives nothing for an Epoch bridged-send or a plain send', () => {
+    const epoch: HistoryRow = {
+      type: 'bridged-send',
+      amount: 1n,
+      extraInputs: { provider: 'epoch', oneClick: tracking }
+    };
+    const plain: HistoryRow = { type: 'send', amount: 1n, extraInputs: {} };
+    expect(nearIntentsSendHistoryFields(epoch)).toEqual({});
+    expect(nearIntentsSendHistoryFields(plain)).toEqual({});
   });
 });

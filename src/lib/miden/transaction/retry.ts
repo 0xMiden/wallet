@@ -96,8 +96,23 @@ import {
  */
 const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'execute'];
 
-/** `bridged-send` route whose failed row must NOT be re-queued (see above). */
-const NON_REQUEUEABLE_BRIDGE_PROVIDER: IBridgeProvider = 'epoch';
+/**
+ * Whether a failed `bridged-send` of this route may be re-queued. Not Epoch (see above). Not NEAR Intents: its row
+ * carries a 1Click deposit quote with a deadline of minutes, so a replay after it fails on the deadline check, and a
+ * replay before it could pay the deposit address a second time (the request is rebuilt with a new note serial). The
+ * user starts a new send, which asks for a new quote.
+ */
+const isRequeueableBridgeProvider = (provider: IBridgeProvider | undefined): boolean => {
+  switch (provider) {
+    case 'epoch':
+    case 'near-intents':
+      return false;
+    case 'agglayer':
+    case 'usdcx':
+    case undefined:
+      return true;
+  }
+};
 
 /** Reads `provider` off a `bridged-send` row; `undefined` for every other type. */
 export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): IBridgeProvider | undefined => {
@@ -142,7 +157,7 @@ export const isRequeueableTransaction = (tx: {
   if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
   if (tx.restoredFromBackup) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
-  if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
+  if (tx.type === 'bridged-send' && !isRequeueableBridgeProvider(tx.bridgeProvider)) return false;
   return true;
 };
 
