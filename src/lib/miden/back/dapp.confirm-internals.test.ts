@@ -155,6 +155,17 @@ jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
 
+// A case that needs a decoded dry run supplies its view; every other case keeps the real decoder.
+let mockSimulatedView: unknown;
+jest.mock('app/confirm/decode', () => {
+  const actual = jest.requireActual('app/confirm/decode');
+  return {
+    ...actual,
+    simulatedBytesToView: (...args: unknown[]) =>
+      mockSimulatedView === undefined ? actual.simulatedBytesToView(...args) : mockSimulatedView
+  };
+});
+
 const mockReleaseNoteIds = jest.fn(async (_ids: string[]) => undefined);
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map((n: string) => `id:${n}`)),
@@ -326,6 +337,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
 
   afterEach(() => {
     requestCustomTransaction.mockReset().mockResolvedValue('tx-2');
+    mockSimulatedView = undefined;
   });
 
   const openTransaction = async () => {
@@ -351,6 +363,31 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     };
     return { answer, listener, port, confirmation };
   };
+
+  // The extension arm queues what the dry run showed leaving, NFTs by their complete key (#2147).
+  it('queues the approved outflow and the NFTs the sheet showed leaving', async () => {
+    mockSimulatedView = {
+      account: 'a1',
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      incoming: [],
+      outgoingNfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa\u2026dd', key: 'nft-key-1' }],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    };
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    await listener(confirmation, port);
+    await answer;
+
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    const args = requestCustomTransaction.mock.calls[0] as unknown[];
+    expect(args[6]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(args[9]).toEqual(['nft-key-1']);
+    expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+  });
 
   it('runs the action once when the popup confirms twice while it runs', async () => {
     let release: (transactionId: string) => void = () => undefined;
