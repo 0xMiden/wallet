@@ -425,8 +425,12 @@ describe('the Earn vault catalogue', () => {
 });
 
 it('reads a copy with no allocator account, as a build before it stored it, as missing', () => {
-  const { allocatorAccount: _account, ...before } = whole().epoch;
-  expect(parseStoredDerived({ ...whole(), epoch: before }, 'testnet', 4)).toBeNull();
+  const stored = whole();
+  const { allocatorAccount: _account, ...before } = stored.epoch;
+  expect(parseStoredDerived({ ...stored, epoch: before }, 'testnet', 4)).toStrictEqual({
+    ...stored,
+    epoch: { ...stored.epoch, allocatorAccount: { state: 'absent' } }
+  });
 });
 
 it.each([

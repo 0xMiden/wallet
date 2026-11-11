@@ -6,6 +6,14 @@ const mockGetEpochReadOnlySdk = jest.fn();
 const mockGetCurrentMidenBlock = jest.fn();
 const mockMarkBridgedSendFailed = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn();
+const defaultAllocatorSnapshot: { allocatorUrl: string | undefined; accountId: string | null } = {
+  allocatorUrl: 'https://allocator.test',
+  accountId: '0xallocator'
+};
+const mockGetBridgeConfigSnapshot = jest.fn(() => defaultAllocatorSnapshot);
+const mockSelectEpochAllocator = jest.fn((snapshot: { allocatorUrl?: string; accountId?: string | null }) =>
+  snapshot.allocatorUrl ? { allocatorUrl: snapshot.allocatorUrl, accountId: snapshot.accountId ?? null } : null
+);
 // The suites below were written against a 6-decimal output token; the config now supplies it.
 const mockUsdc = {
   address: '0x2222222222222222222222222222222222222222',
@@ -21,14 +29,23 @@ jest.mock('./bridge', () => ({
   // Idempotent, as the real conversion is: a hex id stays the same id.
   normalizeMidenIdToHex: (id: string) => (id.startsWith('hex:') ? id : `hex:${id}`)
 }));
-// The allocator account that the configuration names for the test allocator.
-const mockFindEpochAllocatorAccount = jest.fn((url: string): string | null =>
-  url === 'https://allocator.test' ? '0xallocator' : null
-);
+const mockFindEpochAllocatorAccount = jest.fn((url: string): string | null => {
+  const selected = mockSelectEpochAllocator(mockGetBridgeConfigSnapshot());
+  return selected?.allocatorUrl === url ? selected.accountId : null;
+});
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => mockGetBridgeConfigSnapshot()
+}));
 jest.mock('lib/remote-config/values', () => ({
   getEpochOutputToken: (chainId: number, faucetId: string) => mockGetEvmUsdc(chainId, faucetId),
   getEvmChainId: () => 11155111,
-  getEpochAllocatorUrl: () => 'https://allocator.test',
+  getEpochAllocatorUrl: () => {
+    const selected = mockSelectEpochAllocator(mockGetBridgeConfigSnapshot());
+    if (!selected) throw new Error('no allocator');
+    return selected.allocatorUrl;
+  },
+  selectEpochAllocator: (snapshot: { allocatorUrl?: string; accountId?: string | null }) =>
+    mockSelectEpochAllocator(snapshot),
   findEpochAllocatorAccount: (url: string) => mockFindEpochAllocatorAccount(url)
 }));
 jest.mock('./chain', () => ({
@@ -48,6 +65,10 @@ jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({ CollateralType: { Miden:
 
 import { EpochCollateralNoteMismatchError } from './collateral-guard';
 import { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
+
+beforeEach(() => {
+  mockGetBridgeConfigSnapshot.mockReturnValue(defaultAllocatorSnapshot);
+});
 
 const authorization = {
   kind: 'usd' as const,
@@ -251,7 +272,20 @@ describe('the collateral note request', () => {
     expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(
       expect.objectContaining({ faucetId: 'hex:mtst1faucet', amount: '250', allocatorId: '0xallocator' })
     );
-    expect(mockFindEpochAllocatorAccount).toHaveBeenCalledWith('https://allocator.test');
+  });
+
+  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+    mockGetCrossChainQuote.mockImplementationOnce(async () => {
+      mockGetBridgeConfigSnapshot.mockReturnValue({ allocatorUrl: 'https://other-allocator.test', accountId: '0xother' });
+      return { quoteResult: { tokenOut: '250' } };
+    });
+
+    await expect(bridgeEpochSend(args())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(args().destinationAddress, 'https://allocator.test');
+    expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ allocatorUrl: 'https://allocator.test', allocatorId: '0xallocator' })
+    );
   });
 
   it.each([
@@ -273,7 +307,7 @@ describe('the collateral note request', () => {
   });
 
   it('builds no note while the configuration names no allocator account', async () => {
-    mockFindEpochAllocatorAccount.mockReturnValueOnce(null);
+    mockGetBridgeConfigSnapshot.mockReturnValue({ allocatorUrl: 'https://allocator.test', accountId: null });
     requestNote('hex:mtst1faucet', '250', '0xallocator');
 
     await expect(bridgeEpochSend(args())).rejects.toMatchObject({ field: 'allocator' });

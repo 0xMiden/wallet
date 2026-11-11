@@ -3,6 +3,7 @@ import { keccak256, toBytes } from 'viem';
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
 import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { getCurrentMidenBlock } from './chain';
 import { EpochCollateralNoteMismatchError } from './collateral-guard';
@@ -18,9 +19,18 @@ import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
-import { TEST_ALLOCATOR_ACCOUNT, TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
+import {
+  TEST_ALLOCATOR_ACCOUNT,
+  TEST_ALLOCATOR_URL,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EARN_MARKET,
+  TEST_EVM_CHAIN_ID,
+  TEST_MIDEN_USDC
+} from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { AAVE_V3_LISTING } from './testing/pools-fixtures';
+
+const mockGetBridgeConfigSnapshot = jest.fn<BridgeConfigSnapshot, []>();
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -37,13 +47,41 @@ jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockGetBridgeConfigSnapshot() }));
 jest.mock('lib/remote-config/values', () =>
-  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+  jest
+    .requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config')
+    .remoteConfigValuesMock(() => mockGetBridgeConfigSnapshot())
 );
 
 const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
 const SPONSOR = '0x1111111111111111111111111111111111111111';
+
+function bridgeSnapshot(allocatorUrl: string, accountId: string): BridgeConfigSnapshot {
+  const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const config = snapshot.config;
+  const derived = snapshot.derived;
+  if (!config || !derived || !config['bridge-providers'].epoch) throw new Error('incomplete bridge fixture');
+  return {
+    ...snapshot,
+    config: {
+      ...config,
+      'bridge-providers': {
+        ...config['bridge-providers'],
+        epoch: { ...config['bridge-providers'].epoch, allocatorUrl }
+      }
+    },
+    derived: {
+      ...derived,
+      epoch: { ...derived.epoch, allocatorAccount: { state: 'ok', value: { allocatorUrl, accountId } } }
+    }
+  };
+}
+
+beforeEach(() => {
+  mockGetBridgeConfigSnapshot.mockReturnValue(TEST_BRIDGE_CONFIG_SNAPSHOT);
+});
 
 /**
  * The gating is asymmetric on purpose: only the DESTINATION leg can declare
@@ -551,6 +589,27 @@ describe('openEarnPosition guards', () => {
     await expect(openEarnPosition(args)).rejects.toThrow('stop');
 
     expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, 'https://allocator.test');
+  });
+
+  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+    const changedSnapshot = bridgeSnapshot('https://other-allocator.test', '0x0000000000000000000000000000ee');
+    mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        mockGetBridgeConfigSnapshot.mockReturnValue(changedSnapshot);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+
+    await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, TEST_ALLOCATOR_URL);
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ allocatorUrl: TEST_ALLOCATOR_URL, allocatorId: TEST_ALLOCATOR_ACCOUNT })
+    );
   });
 
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {

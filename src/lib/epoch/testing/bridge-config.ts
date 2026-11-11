@@ -72,12 +72,25 @@ export const TEST_EVM_NETWORK_ID = 0;
  * re-stub. Install it with
  * `jest.mock('lib/remote-config/values', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigValuesMock())`.
  */
-export function remoteConfigValuesMock() {
+function selectedEpochAllocator(snapshot: BridgeConfigSnapshot) {
+  const allocatorUrl = snapshot.config?.['bridge-providers'].epoch?.allocatorUrl;
+  if (!allocatorUrl) return null;
+  const account = snapshot.derived?.epoch.allocatorAccount;
+  return { allocatorUrl, accountId: account?.state === 'ok' ? account.value.accountId : null };
+}
+
+export function remoteConfigValuesMock(readSnapshot: () => BridgeConfigSnapshot = () => TEST_BRIDGE_CONFIG_SNAPSHOT) {
   return {
-    getEpochAllocatorUrl: jest.fn(() => TEST_ALLOCATOR_URL),
-    findEpochAllocatorAccount: jest.fn((allocatorUrl: string): string | null =>
-      allocatorUrl === TEST_ALLOCATOR_URL ? TEST_ALLOCATOR_ACCOUNT : null
-    ),
+    getEpochAllocatorUrl: jest.fn(() => {
+      const selected = selectedEpochAllocator(readSnapshot());
+      if (!selected) throw new Error('no allocator');
+      return selected.allocatorUrl;
+    }),
+    findEpochAllocatorAccount: jest.fn((allocatorUrl: string): string | null => {
+      const selected = selectedEpochAllocator(readSnapshot());
+      return selected?.allocatorUrl === allocatorUrl ? selected.accountId : null;
+    }),
+    selectEpochAllocator: jest.fn((snapshot: BridgeConfigSnapshot) => selectedEpochAllocator(snapshot)),
     getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
     getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
     getSupportedEvmChainIds: jest.fn((): number[] => [TEST_EVM_CHAIN_ID]),
