@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.12 (TBD)
+
+- [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+
 ## 1.17.11 (2026-11-09)
 
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
