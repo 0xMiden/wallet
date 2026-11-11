@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  DEFAULT_SAMPLE_INTERVAL_MS,
-  sampleResources,
-  startResourceSampler,
-} from './coverage-resource-sampler.mjs';
+import { DEFAULT_SAMPLE_INTERVAL_MS, sampleResources, startResourceSampler } from './coverage-resource-sampler.mjs';
 
 test('samples memory and workspace disk with a shard and UTC timestamp', () => {
   const commands = [];
@@ -20,15 +16,15 @@ test('samples memory and workspace disk with a shard and UTC timestamp', () => {
       return {
         status: 0,
         stdout: command === 'free' ? 'Mem: 1000 300 700\n' : 'Filesystem Size Used Avail Use% Mounted on\n',
-        stderr: '',
+        stderr: ''
       };
     },
-    output: { write: (chunk) => logs.push(chunk) },
+    output: { write: chunk => logs.push(chunk) }
   });
 
   assert.deepEqual(commands, [
     ['free', '-m'],
-    ['df', '-h', '/runner/work/wallet'],
+    ['df', '-h', '/runner/work/wallet']
   ]);
   assert.match(logs.join(''), /coverage-resource-sample shard=2 timestamp=2026-11-01T16:00:00\.000Z/);
   assert.match(logs.join(''), /Mem: 1000 300 700/);
@@ -44,7 +40,7 @@ test('resource command failures are logged without throwing', () => {
       workspace: '/runner/work/wallet',
       now: () => new Date('2026-11-01T16:00:00.000Z'),
       run: () => ({ status: 127, stdout: '', stderr: 'not found', error: new Error('not found') }),
-      output: { write: (chunk) => logs.push(chunk) },
+      output: { write: chunk => logs.push(chunk) }
     });
   });
 
@@ -69,9 +65,9 @@ test('starts with an immediate sample and a stoppable 30-second interval', () =>
       delay = intervalMs;
       return handle;
     },
-    clearIntervalFn: (intervalHandle) => {
+    clearIntervalFn: intervalHandle => {
       cleared = intervalHandle;
-    },
+    }
   });
 
   assert.equal(DEFAULT_SAMPLE_INTERVAL_MS, 30_000);
