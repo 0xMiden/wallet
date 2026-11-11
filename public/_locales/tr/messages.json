@@ -118,6 +118,14 @@
     "message": "Para yatırma adresine gönderme",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Yeni bir gönderim başlatın",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Para yatırma adresine yapılan ödeme başarısız oldu, bu nedenle herhangi bir para transferi gerçekleşmedi. Yeni bir para yatırma adresi almak için yeni bir gönderim işlemi başlatın.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Para yatırma adresi oluşturma",
     "englishSource": "Generating deposit address"

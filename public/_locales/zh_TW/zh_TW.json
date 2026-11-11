@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "若交換失敗，NEAR Intents 將向此 Miden 帳戶退還該筆金額。",
   "transactionStepNearIntentsDepositAddress": "已產生存款地址",
   "transactionStepNearIntentsSend": "發送至存款地址",
+  "nearIntentsSendStartNew": "開始新的轉帳",
+  "nearIntentsSendNotSentDescription": "支付至存款地址的交易失敗，因此資金並未轉移。請重新發起一筆轉帳以取得新的存款地址。",
   "nearIntentsSendGeneratingDepositAddress": "生成存款地址",
   "nearIntentsSendSentDescription": "資金已發送至 NEAR Intents。發送至 $network$ 的過程仍在進行中。請在「活動」中追蹤其狀態。",
   "nearIntentsSendDeliveredDescription": "NEAR Intents 已透過 $network$ 完成付款。",

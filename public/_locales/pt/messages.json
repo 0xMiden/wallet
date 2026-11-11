@@ -118,6 +118,14 @@
     "message": "Envio para o endereço de depósito",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Iniciar um novo envio",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "O pagamento para o endereço de depósito falhou, portanto, nenhum valor foi transferido. Inicie um novo envio para obter um novo endereço de depósito.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Geração de endereço de depósito",
     "englishSource": "Generating deposit address"

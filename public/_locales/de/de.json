@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "Wenn der Swap fehlschlägt, erstattet NEAR Intents den Betrag auf dieses Miden-Konto zurück.",
   "transactionStepNearIntentsDepositAddress": "Einzahlungsadresse generiert",
   "transactionStepNearIntentsSend": "Senden an die Einzahlungsadresse",
+  "nearIntentsSendStartNew": "Eine neue Überweisung starten",
+  "nearIntentsSendNotSentDescription": "Die Zahlung an die Einzahlungsadresse ist fehlgeschlagen, daher wurden keine Gelder überwiesen. Starten Sie eine neue Überweisung, um eine neue Einzahlungsadresse zu erhalten.",
   "nearIntentsSendGeneratingDepositAddress": "Einzahlungsadresse generieren",
   "nearIntentsSendSentDescription": "Die Gelder werden an NEAR Intents gesendet. Die Überweisung an $network$ wird fortgesetzt. Verfolgen Sie den Status unter „Activity“.",
   "nearIntentsSendDeliveredDescription": "NEAR Intents hat die Zahlung über $network$ abgewickelt.",

@@ -118,6 +118,14 @@
     "message": "預入アドレスへの送金",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "新しい送金を開始する",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "入金先アドレスへの支払いが失敗したため、資金は移動しませんでした。新しい入金先アドレスを取得するには、送金をやり直してください。",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "入金アドレスの生成",
     "englishSource": "Generating deposit address"

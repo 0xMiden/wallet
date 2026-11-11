@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "スワップが失敗した場合、NEAR IntentsはこのMidenアカウントに金額を返金します。",
   "transactionStepNearIntentsDepositAddress": "生成された入金アドレス",
   "transactionStepNearIntentsSend": "預入アドレスへの送金",
+  "nearIntentsSendStartNew": "新しい送金を開始する",
+  "nearIntentsSendNotSentDescription": "入金先アドレスへの支払いが失敗したため、資金は移動しませんでした。新しい入金先アドレスを取得するには、送金をやり直してください。",
   "nearIntentsSendGeneratingDepositAddress": "入金アドレスの生成",
   "nearIntentsSendSentDescription": "資金はNEAR Intentsに送金されます。$network$への送金は継続中です。「アクティビティ」でそのステータスを確認してください。",
   "nearIntentsSendDeliveredDescription": "NEAR Intentsは$network$上で支払いを完了しました。",

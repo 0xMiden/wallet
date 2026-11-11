@@ -118,6 +118,14 @@
     "message": "Senden an die Einzahlungsadresse",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Eine neue Überweisung starten",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Die Zahlung an die Einzahlungsadresse ist fehlgeschlagen, daher wurden keine Gelder überwiesen. Starten Sie eine neue Überweisung, um eine neue Einzahlungsadresse zu erhalten.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Einzahlungsadresse generieren",
     "englishSource": "Generating deposit address"

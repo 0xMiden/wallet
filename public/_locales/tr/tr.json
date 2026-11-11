@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "Takas başarısız olursa, NEAR Intents tutarı bu Miden hesabına iade eder.",
   "transactionStepNearIntentsDepositAddress": "Yatırma adresi oluşturuldu",
   "transactionStepNearIntentsSend": "Para yatırma adresine gönderme",
+  "nearIntentsSendStartNew": "Yeni bir gönderim başlatın",
+  "nearIntentsSendNotSentDescription": "Para yatırma adresine yapılan ödeme başarısız oldu, bu nedenle herhangi bir para transferi gerçekleşmedi. Yeni bir para yatırma adresi almak için yeni bir gönderim işlemi başlatın.",
   "nearIntentsSendGeneratingDepositAddress": "Para yatırma adresi oluşturma",
   "nearIntentsSendSentDescription": "Fonlar NEAR Intents'e gönderilir. $network$'ye teslimat devam eder. Durumunu Activity'den takip edin.",
   "nearIntentsSendDeliveredDescription": "NEAR Intents, ödemeyi $network$ üzerinden gerçekleştirdi.",

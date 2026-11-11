@@ -118,6 +118,14 @@
     "message": "发送至存款地址",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "开始新的转账",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "向存款地址的支付失败，因此资金未转移。请发起新的转账以获取新的存款地址。",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "生成存款地址",
     "englishSource": "Generating deposit address"

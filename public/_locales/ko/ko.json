@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "스왑이 실패할 경우, NEAR Intents는 해당 금액을 이 Miden 계정으로 환불합니다.",
   "transactionStepNearIntentsDepositAddress": "생성된 입금 주소",
   "transactionStepNearIntentsSend": "입금 주소로 전송",
+  "nearIntentsSendStartNew": "새로운 송금 시작",
+  "nearIntentsSendNotSentDescription": "입금 주소로의 결제가 실패했으므로 자금이 이체되지 않았습니다. 새로운 입금 주소를 받으려면 송금을 다시 시작하십시오.",
   "nearIntentsSendGeneratingDepositAddress": "입금 주소 생성",
   "nearIntentsSendSentDescription": "자금은 NEAR Intents로 전송됩니다. $network$로의 전송이 계속 진행 중입니다. Activity에서 진행 상황을 확인하세요.",
   "nearIntentsSendDeliveredDescription": "NEAR Intents가 $network$를 통해 결제를 처리했습니다.",

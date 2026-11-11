@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "Якщо своп не відбувся, NEAR Intents повертає суму на цей рахунок Miden.",
   "transactionStepNearIntentsDepositAddress": "Адреса депозиту згенерована",
   "transactionStepNearIntentsSend": "Відправлення на адресу депозиту",
+  "nearIntentsSendStartNew": "Почати нове відправлення",
+  "nearIntentsSendNotSentDescription": "Платіж на адресу депозиту не відбувся, тому кошти не були перераховані. Почніть нову операцію відправлення, щоб отримати нову адресу депозиту.",
   "nearIntentsSendGeneratingDepositAddress": "Генерування адреси для депозиту",
   "nearIntentsSendSentDescription": "Кошти надсилаються до NEAR Intents. Передача до $network$ триває. Слідкуйте за її статусом у розділі «Активність».",
   "nearIntentsSendDeliveredDescription": "NEAR Intents здійснив платіж у мережі $network$.",

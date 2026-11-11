@@ -118,6 +118,14 @@
     "message": "Відправлення на адресу депозиту",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Почати нове відправлення",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Платіж на адресу депозиту не відбувся, тому кошти не були перераховані. Почніть нову операцію відправлення, щоб отримати нову адресу депозиту.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Генерування адреси для депозиту",
     "englishSource": "Generating deposit address"

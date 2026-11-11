@@ -118,6 +118,14 @@
     "message": "Sending to deposit address",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Start a new send",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Generating deposit address",
     "englishSource": "Generating deposit address"

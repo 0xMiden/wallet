@@ -118,6 +118,14 @@
     "message": "Wysyłanie na adres depozytowy",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "Rozpocznij nową transakcję wysyłania",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Płatność na adres depozytowy nie powiodła się, więc środki nie zostały przelane. Rozpocznij nową transakcję wysyłania, aby uzyskać nowy adres depozytowy.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "Generowanie adresu depozytowego",
     "englishSource": "Generating deposit address"

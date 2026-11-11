@@ -118,6 +118,14 @@
     "message": "입금 주소로 전송",
     "englishSource": "Sending to deposit address"
   },
+  "nearIntentsSendStartNew": {
+    "message": "새로운 송금 시작",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "입금 주소로의 결제가 실패했으므로 자금이 이체되지 않았습니다. 새로운 입금 주소를 받으려면 송금을 다시 시작하십시오.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
   "nearIntentsSendGeneratingDepositAddress": {
     "message": "입금 주소 생성",
     "englishSource": "Generating deposit address"

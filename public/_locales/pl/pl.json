@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "Jeśli swap się nie powiedzie, NEAR Intents zwraca kwotę na to konto Miden.",
   "transactionStepNearIntentsDepositAddress": "Wygenerowany adres depozytowy",
   "transactionStepNearIntentsSend": "Wysyłanie na adres depozytowy",
+  "nearIntentsSendStartNew": "Rozpocznij nową transakcję wysyłania",
+  "nearIntentsSendNotSentDescription": "Płatność na adres depozytowy nie powiodła się, więc środki nie zostały przelane. Rozpocznij nową transakcję wysyłania, aby uzyskać nowy adres depozytowy.",
   "nearIntentsSendGeneratingDepositAddress": "Generowanie adresu depozytowego",
   "nearIntentsSendSentDescription": "Środki są wysyłane do NEAR Intents. Trwa dostarczanie do $network$. Śledź status tej operacji w sekcji „Aktywność”.",
   "nearIntentsSendDeliveredDescription": "NEAR Intents zrealizowało płatność w sieci $network$.",

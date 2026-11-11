@@ -23,6 +23,8 @@
   "nearIntentsSendRefundNote": "Si el intercambio falla, NEAR Intents reembolsa el importe a esta cuenta de Miden.",
   "transactionStepNearIntentsDepositAddress": "Dirección de depósito generada",
   "transactionStepNearIntentsSend": "Envío a la dirección de depósito",
+  "nearIntentsSendStartNew": "Iniciar un nuevo envío",
+  "nearIntentsSendNotSentDescription": "El pago a la dirección de depósito ha fallado, por lo que no se han transferido fondos. Inicia un nuevo envío para obtener una nueva dirección de depósito.",
   "nearIntentsSendGeneratingDepositAddress": "Generación de una dirección de depósito",
   "nearIntentsSendSentDescription": "Los fondos se envían a NEAR Intents. La entrega a $network$ continúa. Sigue su estado en «Actividad».",
   "nearIntentsSendDeliveredDescription": "NEAR Intents realizó el pago en $network$.",
