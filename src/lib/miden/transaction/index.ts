@@ -133,6 +133,7 @@ import {
   stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
+import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
   pruneQueueAdmission,
@@ -3423,6 +3424,35 @@ const recordUnabandonedCandidate = (
   });
 
 /**
+ * The signing-time effect check (#2147), run before this attempt keeps its candidate or the hot key signs it, so the
+ * summary it checks is the one that would land. On any failure the unsigned candidate is abandoned under the outgoing
+ * deadline, as after a pre-submit failure, and flagged for the next proposal's retry when that abandon fails (#1317);
+ * nothing was kept on the row yet, so there is no candidate to forget. The check's error is rethrown as it is: a
+ * refusal fails the row, and no requeue arm takes it.
+ */
+const assertProposalEffectBeforeSigning = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  try {
+    await assertProposalEffectApproved(transaction, proposal.txSummary);
+  } catch (error) {
+    try {
+      await withOutgoingGuardianDeadline(
+        () => service.abandonCandidate(proposal.nonce),
+        'abandoning a guardian candidate whose effect was refused'
+      );
+    } catch (abandonError) {
+      console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
+      recordUnabandonedCandidate(transaction.accountId, service, proposal.nonce, proposalStamps);
+    }
+    throw error;
+  }
+};
+
+/**
  * Flag the record of a candidate whose abandon failed or could not even be attempted, so the account's next
  * proposal retries it (#1317). Only the record of that nonce: a later write's record is kept. The record keeps
  * its proposal's stamps, so the retry window still closes where the Guardian's hold does.
@@ -4106,6 +4136,8 @@ const generateGuardianTransaction = async (
       break;
     }
   }
+
+  await assertProposalEffectBeforeSigning(transaction, service, proposalResult, proposalStamps);
 
   // Sign and execute the proposal. The proposal already exists if this write fails.
   await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
