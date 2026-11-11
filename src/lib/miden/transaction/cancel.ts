@@ -33,6 +33,7 @@ import {
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   PRE_SUBMIT_STAGES,
+  ProposalEffectRefusedError,
   resolveTransactionErrorMessage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -111,7 +112,9 @@ const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
-    : REPORTED_WALLET_REASONS.get(error);
+    : error instanceof ProposalEffectRefusedError
+      ? 'proposal_effect_refused'
+      : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
