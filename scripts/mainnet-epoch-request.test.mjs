@@ -24,7 +24,7 @@ function request(options = {}) {
   const asset = new sdk.FungibleAsset(faucet, options.amount ?? 1_010_000n);
   const felts = [...bindingFelts];
   if (options.wrongBinding) felts[0] += 1n;
-  const attachment = new sdk.NoteAttachment(BigUint64Array.from(felts));
+  const attachment = new sdk.NoteAttachment(felts);
   const note = options.p2id
     ? sdk.Note.createP2IDNote(from, to, new sdk.NoteAssets([asset]), sdk.NoteType.Public, attachment)
     : sdk.Note.createP2IDENote(from, to, new sdk.NoteAssets([asset]), options.reclaimHeight ?? 7200, null, sdk.NoteType.Public, attachment);
@@ -33,7 +33,7 @@ function request(options = {}) {
   if (options.extraOutput) {
     notes.push(sdk.Note.createP2IDENote(sender(), sdk.AccountId.fromHex(snapshot.midenAllocator),
       new sdk.NoteAssets([new sdk.FungibleAsset(sdk.AccountId.fromHex(snapshot.native.hex), 1n)]),
-      7200, null, sdk.NoteType.Public, new sdk.NoteAttachment(BigUint64Array.from(bindingFelts))));
+      7200, null, sdk.NoteType.Public, new sdk.NoteAttachment([...bindingFelts])));
   }
   let builder = new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray(notes));
   if (options.expiration) builder = builder.withExpirationDelta(600);
@@ -41,12 +41,12 @@ function request(options = {}) {
   return { state: snapshot, bytes: builder.build().serialize(), noteId };
 }
 
-test('inspects real SDK collateral bytes, including a declared fee salt, without submitting anything', () => {
-  for (const options of [{}, { feeSalt: true }]) {
+for (const options of [{}, { feeSalt: true }]) {
+  test(`inspects real SDK collateral bytes${options.feeSalt ? ' with declared fee salt' : ''} without submitting`, () => {
     const input = request(options);
     assert.deepEqual(inspectEpochCollateralRequest(input.state, input.bytes, review), { noteId: input.noteId, reclaimHeight: 7200 });
-  }
-});
+  });
+}
 for (const [name, options] of [
   ['wrong sender', { wrongSender: true }], ['self recipient', { selfRecipient: true }],
   ['wrong asset', { wrongFaucet: true }], ['one extra principal unit', { amount: 1_010_001n }],
