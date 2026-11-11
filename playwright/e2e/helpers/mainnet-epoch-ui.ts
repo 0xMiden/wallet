@@ -1,6 +1,34 @@
-import type { MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
-import type { OneClickRoundTripPlan } from './mainnet-one-click-plan';
+import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
+import { planOneClickRoundTrip, tokenValueUsdMicro, type OneClickRoundTripPlan } from './mainnet-one-click-plan';
 
-export function planEpochRoundTrip(_state: MainnetEpochCheckpoint, _returnInput: bigint): OneClickRoundTripPlan | undefined {
-  return undefined;
+export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: bigint): OneClickRoundTripPlan {
+  parseMainnetEpochCheckpoint(state);
+  const settled = ['forward-settled', 'reverse-authorized', 'complete'].includes(state.phase);
+  const forward = BigInt(settled ? state.forwardReceived ?? state.forwardMinimum : state.forwardMinimum);
+  if (returnInput <= 0n || returnInput > forward || BigInt(state.evm.nativeBalance) < BigInt(state.evmFeeBudget)) {
+    throw new Error('Epoch return exceeds its attributed proceeds or existing gas balance');
+  }
+  const nativePrice = BigInt(state.native.usdMicros);
+  const tokenPrice = BigInt(state.evm.tokenUsdMicros);
+  const feeBudget = BigInt(state.feeBudget);
+  const plan = planOneClickRoundTrip({
+    routeId: `epoch:${state.evm.chainId}:${state.evm.token}`,
+    symbol: state.native.symbol,
+    amountBaseUnits: BigInt(state.principal),
+    availableBaseUnits: BigInt(state.native.balance) - feeBudget,
+    forward: {
+      inputUsdMicros: tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true),
+      minimumOutputUsdMicros: tokenValueUsdMicro(forward, 6, tokenPrice, false),
+      nativeFeeUsdMicros: tokenValueUsdMicro(feeBudget, 6, nativePrice, true)
+    },
+    reverse: {
+      inputUsdMicros: tokenValueUsdMicro(returnInput, 6, tokenPrice, true),
+      minimumOutputUsdMicros: tokenValueUsdMicro(BigInt(state.reverseMinimum), 6, nativePrice, false),
+      nativeFeeUsdMicros: tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(state.evm.nativeUsdMicros), true)
+    }
+  });
+  if (plan.worstCaseCostUsdMicros > BigInt(state.lossBudgetUsdMicros)) {
+    throw new Error('Epoch quote exceeds the shared remaining mainnet loss allowance');
+  }
+  return plan;
 }
