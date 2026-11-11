@@ -8,14 +8,19 @@ import {
   type BasketSource,
   type BasketVault
 } from './basket-nav';
-import type { TokenPrices } from './binance';
+import type { TokenPriceInfo, TokenPrices } from './binance';
 
 const mockGetAccountDetails = jest.fn();
 const mockFree = jest.fn();
-const mockFromAccountStorage = jest.fn();
+const mockGetAccountProof = jest.fn();
+const mockProofFree = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails, free: mockFree })),
-  BasicFungibleFaucetComponent: { fromAccountStorage: (storage: unknown) => mockFromAccountStorage(storage) }
+  RpcClient: jest.fn(() => ({
+    getAccountDetails: mockGetAccountDetails,
+    getAccountProof: mockGetAccountProof,
+    free: mockFree
+  })),
+  Word: jest.fn((limbs: BigUint64Array) => ({ limbs }))
 }));
 jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(async () => undefined),
@@ -24,7 +29,7 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (id: string) => `sdk:${id}` }));
 jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => id.toLowerCase() }));
 
-const quote = (price: number, extra: Record<string, unknown> = {}) => ({
+const quote = (price: number, extra: Partial<TokenPriceInfo> = {}) => ({
   price,
   change24h: 0,
   percentageChange24h: 0,
@@ -132,31 +137,89 @@ describe('fetchBasketPrices', () => {
   });
 });
 
+const TOKEN_CONFIG = [VAULT.supply, VAULT.supply * 2n, 8n, 8765514n];
+const holding = (id: string, amount: bigint) => ({
+  faucetId: () => `sdk:${id}`,
+  amount: () => amount
+});
+const HOLDINGS = [holding('mm1eth', 5_000_000n), holding('mm1btc', 100_000n), holding('mm1fee', 999_999n)];
+const vaultProof = (config: readonly bigint[] | null = TOKEN_CONFIG, holdings = HOLDINGS) => ({
+  accountHeader: () => ({}),
+  getStorageSlotValue: jest.fn((slot: string) => {
+    if (slot !== 'miden::standards::faucets::fungible::token_config' || config === null) return undefined;
+    return { toU64s: () => new BigUint64Array(config) };
+  }),
+  vaultFungibleAssets: () => holdings,
+  free: mockProofFree
+});
+
 describe('readBasketVault', () => {
   beforeEach(() => {
     mockGetAccountDetails.mockReset();
+    mockGetAccountDetails.mockRejectedValue(new Error('storage map exceeds the node inline limit'));
+    mockGetAccountProof.mockReset();
     mockFree.mockReset();
-    mockFromAccountStorage.mockReset();
+    mockProofFree.mockReset();
   });
 
-  it("reads the faucet's supply and decimals and each constituent's balance from the node, then frees the client", async () => {
-    const storage = {};
-    const getBalance = jest.fn((id: string) => (id === 'sdk:mm1btc' ? 100_000n : 5_000_000n));
-    mockGetAccountDetails.mockResolvedValue({
-      account: () => ({ storage: () => storage, vault: () => ({ getBalance }) })
-    });
-    mockFromAccountStorage.mockReturnValue({ tokenSupply: () => ({ asInt: () => VAULT.supply }), decimals: () => 8 });
+  it('reads supply and holdings from one proof when a full-account read would fail for a large storage map', async () => {
+    const proof = vaultProof();
+    mockGetAccountProof.mockResolvedValue(proof);
 
     await expect(readBasketVault(SOURCE)).resolves.toEqual(VAULT);
-    expect(mockGetAccountDetails).toHaveBeenCalledWith('sdk:mm1basket');
-    expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
+    expect(mockGetAccountProof).toHaveBeenCalledWith('sdk:mm1basket', undefined, undefined, {
+      limbs: new BigUint64Array(4)
+    });
+    expect(mockGetAccountDetails).not.toHaveBeenCalled();
+    expect(proof.getStorageSlotValue).toHaveBeenCalledTimes(1);
+    expect(proof.getStorageSlotValue).toHaveBeenCalledWith('miden::standards::faucets::fungible::token_config');
+    expect(mockProofFree).toHaveBeenCalledTimes(1);
     expect(mockFree).toHaveBeenCalledTimes(1);
   });
 
-  it('fails for an account with no public state, and still frees the client', async () => {
-    mockGetAccountDetails.mockResolvedValue({ account: () => undefined });
+  it('uses zero for an absent constituent and ignores other vault assets', async () => {
+    mockGetAccountProof.mockResolvedValue(vaultProof(TOKEN_CONFIG, [HOLDINGS[0]!, HOLDINGS[2]!]));
+    await expect(readBasketVault(SOURCE)).resolves.toEqual({ ...VAULT, balances: [0n, 5_000_000n] });
+  });
+
+  it('accepts an empty vault as zero holdings', async () => {
+    mockGetAccountProof.mockResolvedValue(vaultProof(TOKEN_CONFIG, []));
+    await expect(readBasketVault(SOURCE)).resolves.toEqual({ ...VAULT, balances: [0n, 0n] });
+  });
+
+  it('fails for an account with no public state and frees the proof and client', async () => {
+    mockGetAccountProof.mockResolvedValue({ ...vaultProof(), accountHeader: () => undefined });
     await expect(readBasketVault(SOURCE)).rejects.toThrow('has no public state');
+    expect(mockProofFree).toHaveBeenCalledTimes(1);
     expect(mockFree).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a proof with no vault data instead of using zero holdings', async () => {
+    mockGetAccountProof.mockResolvedValue({ ...vaultProof(), vaultFungibleAssets: () => undefined });
+    await expect(readBasketVault(SOURCE)).rejects.toThrow('has no vault data');
+    expect(mockProofFree).toHaveBeenCalledTimes(1);
+    expect(mockFree).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { config: null, message: 'Missing faucet metadata slot' },
+    { config: [2n, 1n, 8n, 8765514n], message: 'Invalid faucet supply' },
+    { config: [1n << 63n, 1n << 63n, 8n, 8765514n], message: 'Invalid faucet supply' },
+    { config: [1n, 2n, 13n, 8765514n], message: 'Invalid faucet decimals' },
+    { config: [1n, 2n, 8n, 0n], message: 'Invalid faucet symbol' }
+  ])('rejects invalid token configuration: $message', async ({ config, message }) => {
+    mockGetAccountProof.mockResolvedValue(vaultProof(config));
+    await expect(readBasketVault(SOURCE)).rejects.toThrow(message);
+    expect(mockProofFree).toHaveBeenCalledTimes(1);
+    expect(mockFree).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a basket unpriced when its proof is unavailable and frees the client after retries', async () => {
+    mockGetAccountProof.mockRejectedValue(new Error('rpc unavailable'));
+    await expect(fetchBasketPrices([SOURCE], PRICES)).resolves.toEqual({});
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    expect(mockFree).toHaveBeenCalledTimes(1);
+    expect(mockProofFree).not.toHaveBeenCalled();
   });
 });
 

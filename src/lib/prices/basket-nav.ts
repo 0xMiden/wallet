@@ -1,5 +1,6 @@
-import { BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { RpcClient, Word } from '@miden-sdk/miden-sdk/lazy';
 
+import { readFaucetProofTokenConfig } from 'lib/miden/metadata/faucet-proof';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { normalizedFaucetId } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
@@ -66,25 +67,32 @@ export function basketPriceSources(
 
 const VAULT_READ_TIMEOUT_MS = 10_000;
 
-/** Reads a basket's public vault from the node: the faucet's supply and decimals, and each constituent's balance. */
+/** Reads supply and holdings from one account proof without loading unrelated storage maps. */
 export async function readBasketVault(source: BasketSource): Promise<BasketVault> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(getRpcEndpoint());
   try {
-    const fetched = await withRpcTimeout(
-      () => rpc.getAccountDetails(accountRefToSdk(source.faucetId)),
+    const proof = await withRpcTimeout(
+      // A zero commitment requests vault data on every attempt. The SDK consumes these arguments.
+      () =>
+        rpc.getAccountProof(accountRefToSdk(source.faucetId), undefined, undefined, new Word(new BigUint64Array(4))),
       'basket vault',
       { timeoutMs: VAULT_READ_TIMEOUT_MS }
     );
-    const account = fetched.account();
-    if (!account) throw new Error(`${source.faucetId} has no public state`);
-    const faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
-    const vault = account.vault();
-    return {
-      supply: faucet.tokenSupply().asInt(),
-      decimals: faucet.decimals(),
-      balances: source.constituents.map(c => vault.getBalance(accountRefToSdk(c.faucetId)))
-    };
+    try {
+      if (!proof.accountHeader()) throw new Error(`${source.faucetId} has no public state`);
+      const { supply, decimals } = readFaucetProofTokenConfig(proof);
+      const assets = proof.vaultFungibleAssets();
+      if (!assets) throw new Error(`${source.faucetId} has no vault data`);
+      const balances = new Map(assets.map(asset => [asset.faucetId().toString(), asset.amount()]));
+      return {
+        supply,
+        decimals,
+        balances: source.constituents.map(c => balances.get(accountRefToSdk(c.faucetId).toString()) ?? 0n)
+      };
+    } finally {
+      proof.free();
+    }
   } finally {
     rpc.free();
   }
