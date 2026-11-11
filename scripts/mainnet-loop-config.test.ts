@@ -31,6 +31,17 @@ const catalog = () => [
 ];
 
 describe('nightly-only mainnet NEAR configuration', () => {
+  it('rejects an insecure provider rather than replacing its URL silently', () => {
+    const original = document();
+    const unsafe = { ...original, swap: { ...original.swap, oneClick: { serviceUrl: 'http://insecure.example' } } };
+    expect(() => qualifyMainnetLoopConfig(unsafe, catalog(), tokens())).toThrow();
+  });
+  it('preserves explicitly configured provider fees and the real HTTPS service', () => {
+    const original = document();
+    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', appFees: [{ recipient: 'configured.near', fee: 20 }] };
+    expect(qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens()))
+      .toMatchObject({ swap: { oneClick } });
+  });
   it('enables real NEAR bindings without mutating the public document or unrelated routes', () => {
     const original = document();
     const before = structuredClone(original);
