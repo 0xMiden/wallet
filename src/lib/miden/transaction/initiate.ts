@@ -28,6 +28,11 @@ import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import {
+  ForeignNoteClaimRefusedError,
+  isOwnClaimableNote,
+  requiresOwnClaimableNotes
+} from '../claimable-note-ownership';
+import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
   ConsumeTransaction,
@@ -630,6 +635,13 @@ const queueConsumeRows = async (
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
+  }
+  // A claim from the claim list takes only this account's notes, whatever list the
+  // caller read: a stale or older list can still name another trader's PSWAP order,
+  // and consuming it fills that order from this account's balance (#2118).
+  if (requiresOwnClaimableNotes(entryPoint)) {
+    const foreign = notes.filter(note => !isOwnClaimableNote(note)).map(note => note.id);
+    if (foreign.length > 0) throw new ForeignNoteClaimRefusedError(foreign);
   }
 
   // This pre-pass saves a WASM probe only; the rw transaction still decides what may be written.

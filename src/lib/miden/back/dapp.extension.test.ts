@@ -229,6 +229,11 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
+jest.mock('lib/miden/helpers', () => ({
+  ...jest.requireActual('lib/miden/helpers'),
+  standardPaymentScriptRoots: () => new Set(['0xp2id', '0xp2ide'])
+}));
+
 jest.mock('lib/miden/sdk/helpers', () => ({
   // Real module underneath: `requestSendTransaction` binds the request's
   // senderAddress to the session account through `sameWalletAccountId`, and a
@@ -322,7 +327,8 @@ beforeEach(() => {
       nullifier: 'nf1',
       state: 0,
       assets: [{ faucetId: 'faucet-1', amount: '50' }],
-      nonFungibleAssets: []
+      nonFungibleAssets: [],
+      standardPayment: true
     }
   ]);
   // No record has a consume request's id as its details commitment unless a test says so (#1389).
@@ -1918,6 +1924,7 @@ describe('Full confirmation cycles in extension mode', () => {
       deserialize: () => ({
         id: () => ({ toString: () => 'note-1' }),
         metadata: () => undefined,
+        recipient: () => ({ script: () => ({ root: () => ({ toHex: () => '0xp2id' }) }) }),
         assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
       })
     };
@@ -1960,6 +1967,7 @@ describe('Full confirmation cycles in extension mode', () => {
     const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
     const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
     const sdkNote = (id: string) => ({
+      recipient: () => ({ script: () => ({ root: () => ({ toHex: () => '0xp2id' }) }) }),
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
       assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
@@ -2924,7 +2932,8 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     nullifier: 'nf-real',
     state: 2,
     assets: [{ faucetId: 'faucet-1', amount: '45' }],
-    nonFungibleAssets: []
+    nonFungibleAssets: [],
+    standardPayment: true
   };
 
   beforeEach(() => {
@@ -2938,6 +2947,19 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
   });
 
+  it.each([false, undefined])(
+    'refuses a stored note with standardPayment %s before the popup',
+    async standardPayment => {
+      _g.__dappExtTest.midenClient.getInputNoteDetails.mockResolvedValueOnce([{ ...importedNote, standardPayment }]);
+
+      await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toThrow(
+        'Only standard payment notes'
+      );
+      expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+      expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    }
+  );
+
   it.each([false, true])(
     'consumes bare Note bytes by commitment when decoding after unlock is %s',
     async decodeAfterUnlock => {
@@ -2949,7 +2971,10 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
       const note = {
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
-        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        recipient: () => ({
+          digest: () => Word.fromHex(COMMITMENT),
+          script: () => ({ root: () => ({ toHex: () => '0xp2id' }) })
+        }),
         assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
