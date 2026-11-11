@@ -823,6 +823,10 @@
     "message": "This review was prepared for a different deposit token. Go back and enter the amount again.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total earned",
     "englishSource": "Total earned"
@@ -855,6 +859,10 @@
   "earnPositionsLoadError": {
     "message": "Couldn't load your positions. Check your connection and try again.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Couldn't check your balance with Epoch. Try again.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "Earn is not available on this network",

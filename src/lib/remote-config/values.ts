@@ -104,22 +104,6 @@ export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
 }
 
 /** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
-/** One Epoch route the document names: a chain and its USDC contract, checksummed, as the positions service keys markets. */
-export interface EpochRoute {
-  chainId: number;
-  usdc: `0x${string}`;
-}
-
-/**
- * Every Epoch route the document names (`supportedEvmChains.<chain>.bridges.epoch` with a USDC token), in document
- * order. Positions live on any of them, whatever the default market, so a positions read asks for all of them.
- */
-export function selectEpochRoutes(s: BridgeConfigSnapshot): EpochRoute[] {
-  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain => {
-    const address = chain.bridges.epoch?.tokens.USDC?.contractAddress;
-    return address ? [{ chainId: chain.chainId, usdc: getAddress(address) }] : [];
-  });
-}
 
 export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
   return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
@@ -179,6 +163,26 @@ export function selectEpochOutputToken(
 /** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
+}
+
+/**
+ * The Miden account (lowercase hex) that the derivation read from the Epoch allocator at `allocatorUrl`
+ * (`derived.epoch.allocatorAccount`). Null while no derivation holds one for that allocator, or while its read failed.
+ */
+export function selectEpochAllocatorAccount(s: BridgeConfigSnapshot): string | null {
+  return okValue(s.derived?.epoch.allocatorAccount)?.accountId ?? null;
+}
+
+/**
+ * The Epoch allocator the snapshot's document names, with the account the derivation read for it. Null while the
+ * document names no `epoch.allocatorUrl`. The account is null while its probe is not `ok`.
+ */
+export function selectEpochAllocator(
+  s: BridgeConfigSnapshot
+): { allocatorUrl: string; accountId: string | null } | null {
+  const allocatorUrl = s.config?.['bridge-providers'].epoch.allocatorUrl ?? null;
+  if (allocatorUrl === null) return null;
+  return { allocatorUrl, accountId: selectEpochAllocatorAccount(s) };
 }
 
 /**
@@ -354,36 +358,14 @@ export function getMidenUsdc(): MidenUsdc {
   return getValue('Earn collateral faucet', selectMidenUsdc);
 }
 
-export function getEvmUsdc(chainId?: number): EvmUsdc {
-  return getValue('EVM USDC', s => selectEvmUsdc(s, chainId));
-}
-
 /** The token a Fast send of `midenFaucetId` (lowercase hex) arrives as on `chainId` (`selectEpochOutputToken`). */
 export function getEpochOutputToken(chainId: number, midenFaucetId: string): EpochToken {
   return getValue('Epoch output token', s => selectEpochOutputToken(s, chainId, midenFaucetId));
 }
 
-/** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */
-export function getEvmUsdcAddress(): `0x${string}` {
-  return getValue('epoch.evmUsdc', s => {
-    const address = selectEpochChain(s)?.bridges.epoch?.tokens.USDC?.contractAddress;
-    return address ? getAddress(address) : null;
-  });
-}
-
-/** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
-export function findEvmUsdc(chainId?: number): EvmUsdc | null {
-  return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
-}
-
-/** Every Epoch route the accepted document names (`selectEpochRoutes`); empty with no document. Never throws. */
-export function getEpochRoutes(): EpochRoute[] {
-  return selectEpochRoutes(getBridgeConfigSnapshot());
-}
-
-/** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
-export function findEpochUsdcAddress(chainId: number): string | null {
-  return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
+/** The chain ids of the accepted document's `supportedEvmChains`, in document order. Empty with no document. */
+export function getSupportedEvmChainIds(): number[] {
+  return Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).map(chain => chain.chainId);
 }
 
 export function getEarnMarket(): EarnMarket {

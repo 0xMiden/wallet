@@ -51,7 +51,9 @@ describe('useHasUnclaimedNotes', () => {
 
   it('ignores native notes the wallet will auto-consume (#811)', () => {
     mockAutoConsume = true;
-    mockUseClaimableNotes.mockReturnValue({ data: [{ id: 'note-1', faucetId: 'faucet-native' }] });
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ id: 'note-1', faucetId: 'faucet-native', standardPayment: true }]
+    });
 
     const { result } = renderHook(() => useHasUnclaimedNotes());
 
