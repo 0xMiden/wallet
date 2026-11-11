@@ -48,6 +48,7 @@ const RELEASE_SUITES = [
   'e2e-dapp-browser.yml',
   'e2e-resilience.yml',
   'e2e-telemetry.yml',
+  'e2e-upgrade.yml',
   'e2e-usdcx.yml',
   'e2e-usdcx-live.yml',
   'pr-e2e-bridge-guardian.yml',
@@ -66,7 +67,7 @@ describe('Release E2E', () => {
     expect(RELEASE).toContain("REF: ${{ github.event.release.tag_name || inputs.ref || 'main' }}");
   });
 
-  it('dispatches each of the fourteen release suites once, on the ref, and fails naming one it could not start', () => {
+  it('dispatches each of the fifteen release suites once, on the ref, and fails naming one it could not start', () => {
     expect(listed.map(line => line.split(' ')[0])).toEqual(RELEASE_SUITES);
     expect(RELEASE).toContain('gh workflow run "$file" --repo "$GITHUB_REPOSITORY" --ref "$REF" $args');
     expect(RELEASE).toMatch(/::error title=Release E2E::could not dispatch \$\{file\} on \$\{REF\}/);

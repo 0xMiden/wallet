@@ -584,6 +584,14 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Bind amount edits and assertions to their existing pay/receive side containers.
 - [ ] Verify focused green CI and hand off for normal review and full Swap integration.
 
+# Issue #2100 - diagnose coverage runner shutdowns
+
+- [x] Add tests for timestamped memory and workspace-disk sampling, interval, cleanup, and non-fatal sampler errors; CI run 41327233660 confirmed the intended assertion failures against the no-op stub on all three shards.
+- [x] Add a 30-second resource sampler to each coverage shard without changing Jest, shard count, workers, or the 95% gate.
+- [x] Run guarded Node tests (3/3), badge Jest tests (33/33), Prettier on implementation files, and diff-check.
+- [ ] Complete a current-source Review Council loop and apply every actionable finding.
+- [ ] Push the reviewed implementation and verify exact-head CI logs include samples and pass the unchanged coverage gate.
+
 # Issue #1936 - readable transaction notes
 
 ## Plan

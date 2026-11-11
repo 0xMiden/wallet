@@ -76,7 +76,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
-import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { buildGcSaleRequest } from './gc-sale-request';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -109,6 +109,7 @@ import {
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit
 } from './sdk-error-code';
+import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
@@ -242,6 +243,8 @@ export type InputNoteDetails = {
   state: InputNoteState;
   /** Who alone can consume the note, when its script settles that; read by the dApp consume guard, never sent to a dApp. */
   restriction?: ConsumeRestriction;
+  /** True only for a standard P2ID or P2IDE script. Used by the wallet consume guard. */
+  standardPayment?: boolean;
 };
 
 export type FungibleAssetDetails = {
@@ -285,6 +288,7 @@ function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
       state: note.state(),
       assets,
       nonFungibleAssets: note.details().assets().nonFungibleAssets().map(toNft),
+      standardPayment: isStandardPayment(note.details()),
       ...(restriction !== undefined && { restriction })
     }
   ];
@@ -595,15 +599,9 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
     generation,
     rpcUrl,
     feeFaucetId,
-    client: WasmWebClient.createClient(
-      rpcUrl,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      undefined,
-      feeFaucetId
+    // The 4th parameter is the store: the reader reads the same store as the realm's client.
+    client: sdkStoreNameFor(rpcUrl).then(storeName =>
+      WasmWebClient.createClient(rpcUrl, undefined, undefined, storeName, undefined, false, undefined, feeFaucetId)
     ),
     failures: cached && sameKey ? cached.failures : 0
   };
@@ -681,9 +679,16 @@ export class MidenClientInterface {
       // watchdog pause off - see wrapSignWithWatchdogPause.
       const liveness: ClientLiveness = { disposed: false };
 
+      // Every endpoint is read before the store check awaits, so one build never mixes two networks' endpoints.
+      const rpcUrl = getEffectiveRpcUrl();
+      const noteTransportUrl = getEffectiveNoteTransportUrl();
+      const feeFaucetId = getEffectiveFeeFaucetId();
+      const proverUrl = getEffectiveProverUrl();
+      const storeName = await sdkStoreNameFor(rpcUrl);
       const midenClient = await MidenClient.create({
-        rpcUrl: getEffectiveRpcUrl(),
-        noteTransportUrl: getEffectiveNoteTransportUrl(),
+        rpcUrl,
+        ...(storeName ? { storeName } : {}),
+        noteTransportUrl,
         noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
         seed: options.seed,
         keystore: hasKeystore
@@ -700,8 +705,8 @@ export class MidenClientInterface {
                 : refuseKeystoreMember('sign')
             }
           : undefined,
-        feeFaucetId: getEffectiveFeeFaucetId(),
-        proverUrl: getEffectiveProverUrl(),
+        feeFaucetId,
+        proverUrl,
         // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
         // of the SDK's Web-Worker shim. Two independent reasons:
         //
