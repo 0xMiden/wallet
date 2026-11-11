@@ -823,6 +823,10 @@
     "message": "이 검토는 다른 예치 토큰을 위해 작성되었습니다. 돌아가서 금액을 다시 입력하십시오.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "담보 note에는 검토된 토큰, 검토된 금액 및 구성된 할당기를 사용해야 합니다. 아무것도 전송되지 않았습니다. 돌아가서 다시 시도하십시오.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "총 수익",
     "englishSource": "Total earned"
