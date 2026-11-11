@@ -40,7 +40,16 @@ import {
 import { readLineage } from '../../helpers/swap';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
-const PRICE_IDS: Record<string, string> = { ETH: 'ethereum', BTC: 'bitcoin', USDC: 'usd-coin' };
+const PRICE_IDS: Record<string, string> = {
+  ETH: 'ethereum',
+  BTC: 'bitcoin',
+  USDC: 'usd-coin',
+  USDCX: 'usd-coin',
+  USDT: 'tether',
+  SOL: 'solana',
+  NEAR: 'near',
+  PAXG: 'pax-gold'
+};
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -91,17 +100,26 @@ async function registry(wallet: GuardianAwareWalletPage) {
       async () => {
         const stored = await wallet.page.evaluate(
           () =>
-            new Promise<{ config: unknown; derived: unknown }>(resolve => {
-              chrome.storage.local.get(['bridge_config_v1:mainnet', 'bridge_config_derived_v2:mainnet'], items => {
-                resolve({
-                  config: items['bridge_config_v1:mainnet'],
-                  derived: items['bridge_config_derived_v2:mainnet']
-                });
-              });
+            new Promise<{ config: unknown; derived: unknown; tokenLists: unknown[] }>(resolve => {
+              chrome.storage.local.get(
+                [
+                  'bridge_config_v1:mainnet',
+                  'bridge_config_derived_v2:mainnet',
+                  'token_list_cache_v2:mainnet',
+                  'token_list_cache_v1:mainnet'
+                ],
+                items => {
+                  resolve({
+                    config: items['bridge_config_v1:mainnet'],
+                    derived: items['bridge_config_derived_v2:mainnet'],
+                    tokenLists: [items['token_list_cache_v2:mainnet'], items['token_list_cache_v1:mainnet']]
+                  });
+                }
+              );
             })
         );
         try {
-          accepted = cachedSolverRegistry(stored.config, stored.derived);
+          accepted = cachedSolverRegistry(stored.config, stored.derived, stored.tokenLists);
           return true;
         } catch {
           return false;
@@ -111,21 +129,20 @@ async function registry(wallet: GuardianAwareWalletPage) {
     )
     .toBe(true);
   if (!accepted) throw new Error('No accepted mainnet solver registry');
-  const { pairs, service } = accepted;
-  const ids = [
-    ...new Set(
-      pairs.tokens.flatMap(token =>
-        token.binanceAsset && PRICE_IDS[token.binanceAsset] ? [PRICE_IDS[token.binanceAsset]!] : []
-      )
-    )
+  const { pairs, service, priceAssets } = accepted;
+  const assets = [
+    ...pairs.tokens.flatMap(token => (token.binanceAsset ? [token.binanceAsset] : [])),
+    ...priceAssets.values()
   ];
+  const ids = [...new Set(assets.flatMap(asset => (PRICE_IDS[asset] ? [PRICE_IDS[asset]!] : [])))];
   const prices = await fetchMainnetOneClickUsdPrices(ids);
   const tokens: SavedSwapHolding[] = [];
   for (const token of pairs.tokens) {
-    const priceId = token.binanceAsset ? PRICE_IDS[token.binanceAsset] : undefined;
+    const faucetId = await hexFaucetToBech32(wallet, token.faucetId);
+    const asset = priceAssets.get(faucetId.split('_')[0]!) ?? token.binanceAsset;
+    const priceId = asset ? PRICE_IDS[asset] : undefined;
     const usdMicros = priceId ? prices.usdMicrosById[priceId] : undefined;
     if (!usdMicros) continue;
-    const faucetId = await hexFaucetToBech32(wallet, token.faucetId);
     tokens.push({
       faucetId,
       hex: token.faucetId,

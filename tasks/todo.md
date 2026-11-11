@@ -1,3 +1,37 @@
+# Nightly mainnet solver swap, Epoch and NEAR loops (2026-11-11)
+
+- [x] Inspect current mainnet nightly, live solver registry, wallet minimum and recovery paths.
+- [x] Record the approved design and implementation plan in `docs/superpowers/`.
+- [x] Confirm the implementation plan and native execution approach.
+- [x] Implement and unit-test cost planning, checkpoint recovery and real UI submission guards.
+- [x] Wire the serial nightly stages and recovery artifacts; update architecture docs and changelog.
+- [ ] Complete finished-code review, current-head verification and funded workflow acceptance when authorized.
+- [x] Verify the Epoch mainnet coverage gap, enabled routes, real flow and read-only quote availability.
+- [ ] Confirm Epoch coverage scope: one cheapest funded route or the full enabled-chain matrix.
+- [ ] Implement and test the approved Epoch loop with durable authorization and recovery.
+- [ ] Qualify Epoch with real settlement.
+- [x] Verify NEAR Intents now lists Miden assets and inspect the existing disabled 1Click loop.
+- [x] Verify real NEAR dry-quote parsing/signatures and identify the existing nightly-only configuration override.
+- [ ] Confirm the shared Epoch/NEAR route and loss-budget scope without changing public rollout flags.
+- [ ] Reuse and qualify the 1Click loop with actual out/back settlement and durable recovery.
+
+## Verification
+
+- Current mainnet nightly run `42966766471` passed without native solver swaps; optional funded 1Click was skipped.
+- Read-only live registry and price queries succeeded; no funds moved.
+- Browser-free helper tests are in `scripts/` so the guarded runner can distinguish them from browser execution.
+- Cost planner: 16 tests passed after observed functional red. Checkpoint and pre-sign boundary checks: 36 tests passed across three suites before the subsequent native-intermediate-fee regression was added.
+- Checkpoint and quote boundary tests were observed failing before their implementations. The live swap spec is wired into the serial nightly stages.
+- CI regression runs `43022109772`, `43022545803`, `43023136856`, `43024272405`, and `43027642754` confirmed the intended native-fee, recovery, workflow, address-format and exact-order guards. Intermediate fixture setup errors were corrected before accepting clean functional red evidence.
+- CI `43029057782` passed 298 tests, full type-check, harness conventions and nonzero mainnet spec discovery at `602b79c01de320535c4f799954b10b7a30d387a1`.
+- Push permission is explicit (`push at will`). Funded run `43030108324` stopped during read-only preparation; the cached-registry correction passed CI `43035197496` with 303 tests, types, harness checks and nonzero spec selection.
+- Second swaps-only run `43036590393` at `ab391bd` stopped in xvfb setup before wallet execution. Ubuntu mirror DNS failed even though xvfb was installed; no swap signature occurred in either attempt.
+- Draft PR #2149 is open. CI `43039871550` at `0370ed4f6` observed the intended xvfb assertion failure: 1 failed, 33,306 passed, 4 skipped. A guarded local RED/GREEN proves the skip-if-installed correction (7 tests pass). The mock-browser job independently failed fetching required fonts because Ubuntu mirrors did not resolve.
+- Verified-price regression CI `43046060955` at `f7d2782e7` observed the intended 2 failures with 305 tests passing. The correction uses the same validated token-list cache as wallet valuation, bound by faucet id, and adds USDT/SOL/NEAR/PAXG to the quote search. All 63 helper tests pass locally through the guard; current-head CI is next.
+- Epoch is enabled on Ethereum, Base, Arbitrum, Polygon and Robinhood. A read-only Base quote requested 1,000,501 USDC base units for 1,000,000 USDCX, before gas and claim fees. This is quote evidence, not funded acceptance. No Epoch code or spending has started while its coverage scope awaits the user's choice.
+- NEAR's live token API lists five Miden assets. Read-only quote API responses succeeded both ways for USDCX/Arbitrum ETH at about $10 and USDCX/Base USDC at $5; the $1.01 Arbitrum ETH probe returned no liquidity. These are independent dry probes, not funded round trips. All four responses pass the actual wallet parser and pinned-key signature verification in a guarded local check. The published wallet config remains `nearIntents: false` with no `swap.oneClick`, and no global flag or repository variable was changed.
+- Final independent review, current-head gates and funded swap/Epoch/NEAR settlement remain pending. No merge performed.
+
 # Follow-up to #1790: describe wallet-file contents accurately
 
 ## Plan

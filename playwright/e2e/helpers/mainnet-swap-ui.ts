@@ -5,6 +5,8 @@ import type { SavedSwapHolding, SwapOrderEvidence } from './mainnet-swap-checkpo
 import type { SwapLegBound } from './mainnet-swap-plan';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from '../../../src/lib/miden/swap/slippage-bounds';
 import { parseSwapPairs, type SwapPairs } from '../../../src/lib/remote-config/swap-pairs';
+import { readTimestampedEntry } from '../../../src/lib/remote-json';
+import { parseTokenList } from '../../../src/lib/token-list/parse';
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^\d{1,40}$/.test(value);
@@ -101,7 +103,11 @@ export async function runPreparedSwap<T>(prepare: () => Promise<() => Promise<T>
   return submit();
 }
 
-export function cachedSolverRegistry(config: unknown, derived: unknown): { service: string; pairs: SwapPairs } {
+export function cachedSolverRegistry(
+  config: unknown,
+  derived: unknown,
+  tokenLists: unknown[] = []
+): { service: string; pairs: SwapPairs; priceAssets: Map<string, string> } {
   if (!record(config) || !record(config.body) || !record(derived)) throw new Error('Mainnet config has not hydrated');
   const body = config.body;
   const swap = record(body.swap) ? body.swap : undefined;
@@ -121,7 +127,16 @@ export function cachedSolverRegistry(config: unknown, derived: unknown): { servi
   const url = new URL(swap.etaUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('The accepted solver endpoint is not a public HTTPS API');
-  return { service: url.href.replace(/\/+$/, ''), pairs };
+  let priceAssets = new Map<string, string>();
+  for (const entry of tokenLists) {
+    const cached = readTimestampedEntry(entry);
+    const list = cached ? parseTokenList(cached.body, 'mainnet') : null;
+    if (list) {
+      priceAssets = list.priceAssets;
+      break;
+    }
+  }
+  return { service: url.href.replace(/\/+$/, ''), pairs, priceAssets };
 }
 
 export function swapDisplayAmount(amount: bigint, decimals: number): string {
