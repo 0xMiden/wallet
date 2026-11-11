@@ -446,10 +446,9 @@ export async function reconcileSwapOrderNotes(
       // The floor's griefing vector, dust notes that each cost the victim a fee, is closed in classification
       // instead. The order id is public, so anyone can copy a payback's attachment, but a note settles here only
       // as a standard payment of exactly the order's requested asset, at a round a fill reached, and not at a round
-      // a claim of the order already holds (`swapPaybackDepths`). A copy costs the forger the requested asset; it
-      // joins the consume of its round's real payback while that is unclaimed, and is refused once a claim holds the
-      // round, after which it is an ordinary incoming payment. Only a round no claim here holds (its payback settled
-      // on another device or before rounds were recorded, or its claim failed) lets a copy buy one claim of its own.
+      // a claim of the order already holds (`swapPaybackDepths`). A pass admits at most one unnamed note of a round,
+      // and the other copies are ordinary incoming payments. Only a round no claim here holds (its payback settled on
+      // another device or before rounds were recorded) lets a copy buy one claim of its own.
       // A solver CAN partial-fill into many small paybacks, but every payback of one order goes into one consume,
       // so a trickle of fills costs one fee per lap rather than one per note. One lap's fee can still exceed a very
       // small fill, which is the price of settling promptly on funds the user is owed.

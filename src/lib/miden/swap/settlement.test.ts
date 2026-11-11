@@ -335,6 +335,27 @@ describe('swap order note settlement', () => {
     expect(paybackIds(result)).toEqual(paidDepths.map(depth => `round-${depth}`));
   });
 
+  it('keeps one unnamed payback per round: the largest requested amount, the lowest note id on a tie', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledLineage({ currentDepth: 1 })]);
+    const shaped = (id: string, amount: string) => ({
+      ...note(id, [5n, 77n, 1n, 0n]),
+      assets: [{ faucetId: 'requested', amount }]
+    });
+    // Nine notes at one round and no claim. '10' is the largest; a string compare would pick '9' over it.
+    const nine = ['3', '10', '1', '8', '4', '7', '2', '6', '9'].map((amount, index) => shaped(`copy-${index}`, amount));
+
+    expect(paybackIds(await classify(nine))).toEqual(['copy-1']);
+
+    // Among equal amounts the lowest note id wins: 'payback-10' sorts before 'payback-2' and 'payback-9'.
+    const tied = [
+      shaped('payback-2', '5'),
+      shaped('payback-10', '5'),
+      shaped('payback-9', '5'),
+      shaped('payback-1', '4')
+    ];
+    expect(paybackIds(await classify(tied))).toEqual(['payback-10']);
+  });
+
   // One fill pays one payback: once a claim holds a round, any other note at that round is a copy.
   const claimRow = (id: string, status: ITransactionStatus, depths: Record<string, number>, extra = {}) => ({
     id,
@@ -373,16 +394,16 @@ describe('swap order note settlement', () => {
     expect(paybackIds(result).sort()).toEqual(['payback-2', 'payback-3', 'payback-5']);
   });
 
-  it('holds no round for a failed claim, and keeps its note once another claim holds that round', async () => {
+  it('keeps the note a failed claim named, and both named notes once another claim holds that round', async () => {
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledLineage({ currentDepth: 1 })]);
     const failed = claimRow('failed', ITransactionStatus.Failed, { 'payback-1': 1 });
     claimRows.mockResolvedValue([failed]);
     const notes = [note('payback-1', [5n, 77n, 1n, 0n]), note('copy-1', [1n, 77n, 1n, 0n])];
 
-    // The failed claim left its note open to a new claim, so nothing holds round 1 and both join that claim.
-    expect(paybackIds(await classify(notes)).sort()).toEqual(['copy-1', 'payback-1']);
+    // The failed claim named payback-1, so that note stays and the unnamed copy is an ordinary payment.
+    expect(paybackIds(await classify(notes))).toEqual(['payback-1']);
 
-    // Its retry backing off, a claim of the copy alone took round 1; the real payback still settles.
+    // A later claim named the copy as well. Both named notes stay; the new unnamed copy does not.
     claimRows.mockResolvedValue([failed, claimRow('copy-claim', ITransactionStatus.Queued, { 'copy-1': 1 })]);
     const later = [...notes, note('copy-1b', [1n, 77n, 1n, 0n])];
 

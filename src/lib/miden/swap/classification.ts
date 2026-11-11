@@ -147,6 +147,7 @@ export async function classifySwapOrderSnapshot(
   assertLive();
   const lineages = new Map(snapshot.map(lineage => [lineage.orderId, lineage]));
   const paybacksByOrder = new Map<string, string[]>();
+  const paybackAmountByNote = new Map<string, bigint>();
   for (const order of orders) {
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = lineages.get(orderId);
@@ -172,6 +173,8 @@ export async function classifySwapOrderSnapshot(
         role = 'payback';
         depth = note.swapAttachment.depth;
         paybacksByOrder.set(order.id, [...(paybacksByOrder.get(order.id) ?? []), noteId]);
+        const paid = note.assets.find(asset => normalizedFaucetId(asset.faucetId) === requestedFaucetId);
+        paybackAmountByNote.set(noteId, BigInt(paid?.amount ?? '0'));
       }
       if (!role) continue;
       result.set(noteId, {
@@ -186,20 +189,49 @@ export async function classifySwapOrderSnapshot(
     }
   }
 
-  // One fill pays one payback, so a second note at a round a claim already holds is a copy. Refused, it is an ordinary
-  // payment under the ordinary claim rules. A note a claim of the order once named keeps its role, so a forger cannot
-  // take the round of a payback whose claim failed.
+  // One fill pays one payback. A pass admits at most one unnamed note of a round: the largest amount of the requested
+  // asset, the lowest note id breaking a tie. The other copies are ordinary incoming payments. A note a claim named
+  // stays, so a failed claim's note is not displaced, and a round a claim already holds admits no unnamed note.
   if (paybacksByOrder.size > 0) {
     const claims = await paybackClaimsOf([...paybacksByOrder.keys()]);
     assertLive();
     for (const [orderTxId, noteIds] of paybacksByOrder) {
       const claim = claims.get(orderTxId);
-      if (!claim) continue;
+      const namedNoteIds = claim?.namedNoteIds ?? new Set<string>();
+      const heldDepths = claim?.heldDepths ?? new Set<number>();
+      const byDepth = new Map<number, string[]>();
+      const seen = new Set<string>();
       for (const noteId of noteIds) {
-        const depth = result.get(noteId)?.depth;
-        if (depth !== undefined && claim.heldDepths.has(depth) && !claim.namedNoteIds.has(noteId)) {
-          result.delete(noteId);
+        if (seen.has(noteId)) continue;
+        seen.add(noteId);
+        const meta = result.get(noteId);
+        if (meta?.role !== 'payback') continue;
+        const atDepth = byDepth.get(meta.depth);
+        if (atDepth) atDepth.push(noteId);
+        else byDepth.set(meta.depth, [noteId]);
+      }
+      for (const [depth, idsAtDepth] of byDepth) {
+        if (idsAtDepth.some(noteId => namedNoteIds.has(noteId))) {
+          for (const noteId of idsAtDepth) {
+            if (!namedNoteIds.has(noteId)) result.delete(noteId);
+          }
+          continue;
         }
+        const first = idsAtDepth[0];
+        if (first === undefined) continue;
+        let keeper = first;
+        let keeperAmount = paybackAmountByNote.get(keeper) ?? 0n;
+        for (const noteId of idsAtDepth) {
+          const amount = paybackAmountByNote.get(noteId) ?? 0n;
+          if (amount > keeperAmount || (amount === keeperAmount && noteId < keeper)) {
+            keeper = noteId;
+            keeperAmount = amount;
+          }
+        }
+        for (const noteId of idsAtDepth) {
+          if (noteId !== keeper) result.delete(noteId);
+        }
+        if (heldDepths.has(depth)) result.delete(keeper);
       }
     }
   }
