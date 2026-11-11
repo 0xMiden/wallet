@@ -8,8 +8,7 @@ import type {
   NearIntentsChainConfig,
   NearIntentsConfig,
   NearIntentsMidenAssetConfig,
-  NearIntentsTokenConfig,
-  OneClickAppFee
+  NearIntentsTokenConfig
 } from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
@@ -277,7 +276,6 @@ const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 // The `nearIntents` key rules: a Miden asset id, and an origin chain as the 1Click API names its blockchain.
 const NEAR_INTENTS_MIDEN_ASSET_KEY = /^[a-z][a-z0-9-]*$/;
 const NEAR_INTENTS_CHAIN_KEY = /^[a-z][a-z0-9-]{0,31}$/;
-const ONE_CLICK_APP_FEE_RECIPIENT = /^[a-z0-9._-]+$/;
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
@@ -346,25 +344,6 @@ function tokenDecimals(value: unknown): number {
 function keyedEntries(value: unknown, max: number): [string, unknown][] {
   const entries = Object.entries(record(value));
   return entries.length === 0 || entries.length > max ? invalid() : entries;
-}
-
-// At most three fees, each 0 to 1000 basis points, and together at most 1000.
-function oneClickAppFees(value: unknown): OneClickAppFee[] {
-  if (!Array.isArray(value) || value.length > 3) return invalid();
-  const appFees = value.map((entry: unknown) => {
-    const fee = record(entry);
-    const recipient = fee.recipient;
-    if (
-      typeof recipient !== 'string' ||
-      recipient.length < 2 ||
-      recipient.length > 64 ||
-      !ONE_CLICK_APP_FEE_RECIPIENT.test(recipient)
-    )
-      return invalid();
-    const amount = fee.fee;
-    return isSafeIntegerInRange(amount, 0, 1000) ? { recipient, fee: amount } : invalid();
-  });
-  return appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000 ? invalid() : appFees;
 }
 
 // The Miden tokens a deposit can deliver, keyed by the id that a chain token refers to. No asset id or faucet twice.
@@ -437,10 +416,11 @@ function nearIntents(
   const config = record(value);
   const serviceUrl = baseUrl(config.serviceUrl, localE2E && allowLocalHttp);
   if (localE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname)) return invalid();
-  const appFees = read(config, 'appFees', oneClickAppFees);
+  // A document that still names `appFees` is accepted and the list is not read: NEAR sets the fees up on the
+  // partner key.
   const midenAssets = nearIntentsMidenAssets(config.midenAssets);
   const chains = nearIntentsChains(config.chains, midenAssets);
-  return { serviceUrl, ...(appFees === undefined ? {} : { appFees }), chains, midenAssets };
+  return { serviceUrl, chains, midenAssets };
 }
 
 function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {

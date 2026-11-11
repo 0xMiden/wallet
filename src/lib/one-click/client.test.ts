@@ -56,10 +56,10 @@ const secondFixtureFee: OneClickAppFee = { recipient: 'partner-two.near', fee: 7
 const wetDepositAddress = '0xe5E9d98Ee5e8E8d379fa7bEb302f33E94261f21B';
 const submitTransactionHash = `0x${'1'.repeat(64)}`;
 
-// The pinned production fixtures are a chain-to-chain route (Ethereum USDC to Base ETH). The fee checks run before
-// the pair check, so a fixture with matching fees stops only at the pair check.
-function configWithFees(appFees: OneClickAppFee[] = []): NearIntentsConfig {
-  return { serviceUrl: 'https://proxy.example', midenAssets: [], chains: [], appFees };
+// The pinned production fixtures are a chain-to-chain route (Ethereum USDC to Base ETH), so a fixture quote passes
+// every other check and stops only at the pair check.
+function fixtureConfig(): NearIntentsConfig {
+  return { serviceUrl: 'https://proxy.example', midenAssets: [], chains: [] };
 }
 
 function quoteWithFees(quote: OneClickQuoteResponse, appFees: OneClickAppFee[]): OneClickQuoteResponse {
@@ -218,54 +218,23 @@ describe('1Click client', () => {
     );
   });
 
-  it('quote boundary rejects unsigned pinned-fixture fee edits while preserving signature and hash', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
-    const request = requestForFixture(pinnedDryQuote);
-    const matchingConfig = configWithFees([fixtureFee]);
-    const matchingQuote = quoteWithFees(pinnedDryQuote, [fixtureFee]);
-    fetchMock.mockResolvedValue(Response.json(matchingQuote));
-
-    // Matching fees pass the fee check. The chain-to-chain fixture then stops at the pair check.
-    await expect(requestOneClickQuote(matchingConfig, request)).rejects.toThrow('configured NEAR Intents pair');
-
-    const editedQuote = quoteWithFees(pinnedDryQuote, [{ ...fixtureFee, recipient: 'attacker.near' }]);
-    expect(verifyOneClickQuoteSignature(editedQuote)).toBe(true);
-    expect(hashOneClickQuote(editedQuote)).toBe(hashOneClickQuote(pinnedDryQuote));
-    fetchMock.mockResolvedValue(Response.json(editedQuote));
-    await expect(requestOneClickQuote(matchingConfig, request)).rejects.toThrow(
-      '1Click quote is missing a configured app fee'
-    );
-  });
-
   it.each([
-    { name: 'unconfigured provider fee', configured: [], actual: [fixtureFee] },
-    { name: 'configured fee plus an extra fee', configured: [fixtureFee], actual: [fixtureFee, secondFixtureFee] },
-    { name: 'missing configured fee', configured: [fixtureFee], actual: [] },
-    { name: 'altered configured fee amount', configured: [fixtureFee], actual: [{ ...fixtureFee, fee: 21 }] },
-    { name: 'duplicate fee multiplicity', configured: [fixtureFee, fixtureFee], actual: [fixtureFee] }
-  ])('quote boundary rejects $name', async ({ configured, actual }) => {
+    { name: 'no fee', fees: [] },
+    { name: "the partner key's fee", fees: [fixtureFee] },
+    { name: 'two fees', fees: [fixtureFee, secondFixtureFee] }
+  ])('quote boundary passes a quote with $name on to the pair check', async ({ fees }) => {
     jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
-    const response = quoteWithFees(pinnedDryQuote, actual);
+    // NEAR sets the fees up on the partner key. They are unsigned fields, and the signed amounts include them.
+    const response = quoteWithFees(pinnedDryQuote, fees);
     expect(verifyOneClickQuoteSignature(response)).toBe(true);
     expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedDryQuote));
     fetchMock.mockResolvedValue(Response.json(response));
 
-    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).rejects.toThrow(
-      '1Click quote is missing a configured app fee'
-    );
-  });
-
-  it('quote boundary passes an order-insensitive configured fee match on to the pair check', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
-    const configured = [fixtureFee, secondFixtureFee];
-    const response = quoteWithFees(pinnedDryQuote, [secondFixtureFee, fixtureFee]);
-    expect(verifyOneClickQuoteSignature(response)).toBe(true);
-    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedDryQuote));
-    fetchMock.mockResolvedValue(Response.json(response));
-
-    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).rejects.toThrow(
+    await expect(requestOneClickQuote(fixtureConfig(), requestForFixture(pinnedDryQuote))).rejects.toThrow(
       'configured NEAR Intents pair'
     );
+    const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(sent).not.toHaveProperty('appFees');
   });
 
   it.each([
@@ -293,126 +262,27 @@ describe('1Click client', () => {
 
       const outcome =
         boundary === 'quote'
-          ? requestOneClickQuote(configWithFees([]), requestForFixture(pinnedWetQuote), false)
+          ? requestOneClickQuote(fixtureConfig(), requestForFixture(pinnedWetQuote), false)
           : boundary === 'status'
-            ? callStatusBoundary(configWithFees([]), response)
-            : callSubmitBoundary(configWithFees([]), response);
+            ? callStatusBoundary(fixtureConfig(), response)
+            : callSubmitBoundary(fixtureConfig(), response);
       await expect(outcome).rejects.toThrow('Invalid 1Click quote response');
     }
   );
 
   it.each([
-    {
-      boundary: 'status',
-      name: 'unsigned extra fee against empty configuration',
-      configured: [],
-      actual: [fixtureFee]
-    },
-    {
-      boundary: 'submit',
-      name: 'unsigned extra fee against empty configuration',
-      configured: [],
-      actual: [fixtureFee]
-    },
-    {
-      boundary: 'status',
-      name: 'altered configured fee recipient',
-      configured: [fixtureFee],
-      actual: [{ ...fixtureFee, recipient: 'attacker.near' }]
-    },
-    {
-      boundary: 'submit',
-      name: 'altered configured fee recipient',
-      configured: [fixtureFee],
-      actual: [{ ...fixtureFee, recipient: 'attacker.near' }]
-    },
-    {
-      boundary: 'status',
-      name: 'altered configured fee amount',
-      configured: [fixtureFee],
-      actual: [{ ...fixtureFee, fee: 21 }]
-    },
-    {
-      boundary: 'submit',
-      name: 'altered configured fee amount',
-      configured: [fixtureFee],
-      actual: [{ ...fixtureFee, fee: 21 }]
+    { boundary: 'status', call: callStatusBoundary },
+    { boundary: 'submit', call: callSubmitBoundary }
+  ])('$boundary boundary accepts the fees 1Click attaches, with and without an expected quote', async ({ call }) => {
+    for (const fees of [[], [fixtureFee], [secondFixtureFee, fixtureFee]]) {
+      const response = quoteWithFees(pinnedWetQuote, fees);
+      expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
+
+      await expect(call(fixtureConfig(), response, pinnedWetQuote)).resolves.toMatchObject({
+        quoteResponse: response
+      });
+      await expect(call(fixtureConfig(), response)).resolves.toMatchObject({ quoteResponse: response });
     }
-  ])('$boundary boundary rejects $name without an expected quote', async ({ boundary, configured, actual }) => {
-    const response = quoteWithFees(pinnedWetQuote, actual);
-    expect(verifyOneClickQuoteSignature(response)).toBe(true);
-    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
-    const request =
-      boundary === 'status'
-        ? callStatusBoundary(configWithFees(configured), response)
-        : callSubmitBoundary(configWithFees(configured), response);
-
-    await expect(request).rejects.toThrow('1Click quote is missing a configured app fee');
-  });
-
-  it.each([
-    { boundary: 'status', name: 'missing configured fees', configured: [fixtureFee], actual: [] },
-    { boundary: 'submit', name: 'missing configured fees', configured: [fixtureFee], actual: [] },
-    {
-      boundary: 'status',
-      name: 'duplicate fee multiplicity',
-      configured: [fixtureFee, fixtureFee],
-      actual: [fixtureFee]
-    },
-    {
-      boundary: 'submit',
-      name: 'duplicate fee multiplicity',
-      configured: [fixtureFee, fixtureFee],
-      actual: [fixtureFee]
-    }
-  ])('$boundary boundary rejects $name without an expected quote', async ({ boundary, configured, actual }) => {
-    const response = quoteWithFees(pinnedWetQuote, actual);
-    expect(verifyOneClickQuoteSignature(response)).toBe(true);
-    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
-    const request =
-      boundary === 'status'
-        ? callStatusBoundary(configWithFees(configured), response)
-        : callSubmitBoundary(configWithFees(configured), response);
-
-    await expect(request).rejects.toThrow('1Click quote is missing a configured app fee');
-  });
-
-  it.each([
-    { boundary: 'status', call: callStatusBoundary },
-    { boundary: 'submit', call: callSubmitBoundary }
-  ])('$boundary boundary rejects an unsigned fee addition with an expected quote hash unchanged', async ({ call }) => {
-    const response = quoteWithFees(pinnedWetQuote, [fixtureFee, secondFixtureFee]);
-    expect(verifyOneClickQuoteSignature(response)).toBe(true);
-    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
-
-    await expect(call(configWithFees([fixtureFee]), response, pinnedWetQuote)).rejects.toThrow(
-      '1Click quote is missing a configured app fee'
-    );
-  });
-
-  it.each([
-    { boundary: 'status', call: callStatusBoundary },
-    { boundary: 'submit', call: callSubmitBoundary }
-  ])('$boundary boundary accepts matching fees with and without an expected quote', async ({ call }) => {
-    const response = quoteWithFees(pinnedWetQuote, [fixtureFee]);
-
-    await expect(call(configWithFees([fixtureFee]), response, pinnedWetQuote)).resolves.toMatchObject({
-      quoteResponse: response
-    });
-    await expect(call(configWithFees([fixtureFee]), response)).resolves.toMatchObject({ quoteResponse: response });
-  });
-
-  it.each([
-    { boundary: 'status', call: callStatusBoundary },
-    { boundary: 'submit', call: callSubmitBoundary }
-  ])('$boundary boundary accepts reordered fees with and without an expected quote', async ({ call }) => {
-    const configured = [fixtureFee, secondFixtureFee];
-    const response = quoteWithFees(pinnedWetQuote, [secondFixtureFee, fixtureFee]);
-
-    await expect(call(configWithFees(configured), response, pinnedWetQuote)).resolves.toMatchObject({
-      quoteResponse: response
-    });
-    await expect(call(configWithFees(configured), response)).resolves.toMatchObject({ quoteResponse: response });
   });
 
   it('exposes only the HTTP status for quote-unavailable dry probes', async () => {
@@ -426,7 +296,7 @@ describe('1Click client', () => {
     });
   });
 
-  it('rejects invalid config mappings and fees before any request', async () => {
+  it('rejects invalid config mappings before any request', async () => {
     const midenAsset = config.midenAssets[0]!;
     await expect(
       requestOneClickQuote(
@@ -434,9 +304,6 @@ describe('1Click client', () => {
         input
       )
     ).rejects.toThrow('asset configuration');
-    await expect(
-      requestOneClickQuote({ ...config, appFees: [{ recipient: 'wallet.near', fee: 1001 }] }, input)
-    ).rejects.toThrow('fee configuration');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -461,7 +328,7 @@ describe('1Click client', () => {
     const { correlationId, ...quoteWithoutId } = response;
     fetchMock.mockResolvedValue(Response.json({ ...statusResponse(response), quoteResponse: quoteWithoutId }));
 
-    const status = await fetchOneClickStatus(configWithFees([]), wetDepositAddress, undefined, pinnedWetQuote);
+    const status = await fetchOneClickStatus(fixtureConfig(), wetDepositAddress, undefined, pinnedWetQuote);
 
     expect(status.status).toBe('PROCESSING');
     expect(status.quoteResponse.correlationId).toBe(correlationId);

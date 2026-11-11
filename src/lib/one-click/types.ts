@@ -47,7 +47,6 @@ export interface NearIntentsChainConfig {
 /** The parsed `nearIntents` section of the wallet-config document. `chains` keeps the order of the document. */
 export interface NearIntentsConfig {
   serviceUrl: string;
-  appFees?: OneClickAppFee[];
   chains: NearIntentsChainConfig[];
   midenAssets: NearIntentsMidenAssetConfig[];
 }

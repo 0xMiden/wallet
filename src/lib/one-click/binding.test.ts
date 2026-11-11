@@ -221,16 +221,13 @@ describe('1Click quote binding to a configured NEAR Intents pair', () => {
     );
   });
 
-  it('accepts configured fees in any order and refuses an extra fee', () => {
-    const first = { recipient: 'wallet.near', fee: 20 };
-    const second = { recipient: 'partner.near', fee: 7 };
-    const withFees = { ...config, appFees: [first, second] };
-    const reordered = signed(ethUsdc, midenUsdc, [second, first]);
-    expect(() => assertOneClickQuoteBinding(reordered.request, reordered.quote, false, withFees)).not.toThrow();
-    const extra = signed(ethUsdc, midenUsdc, [first, second, { recipient: 'attacker.near', fee: 1 }]);
-    expect(() => assertOneClickQuoteBinding(extra.request, extra.quote, false, withFees)).toThrow(
-      'missing a configured app fee'
-    );
+  it('accepts the fees that 1Click attaches for the partner key', () => {
+    const fees = [
+      { recipient: 'wallet.near', fee: 20 },
+      { recipient: 'partner.near', fee: 7 }
+    ];
+    const withFees = signed(ethUsdc, midenUsdc, fees);
+    expect(() => assertOneClickQuoteBinding(withFees.request, withFees.quote, false, config)).not.toThrow();
   });
 
   it('refuses a deposit quote checked as a dry quote', () => {

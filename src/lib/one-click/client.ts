@@ -156,24 +156,6 @@ function validateConfig(config: NearIntentsConfig): string {
   // A tracking row written before NEAR Intents moved to the Receive page keeps a config with no `chains`. Its status
   // can still be read; a new quote for it cannot pass `assertOneClickQuoteBinding`, which needs a configured pair.
   if (config.chains !== undefined) validateChains(config.chains, config.midenAssets);
-  if (config.appFees !== undefined) {
-    if (
-      !Array.isArray(config.appFees) ||
-      config.appFees.length > 3 ||
-      config.appFees.some(
-        fee =>
-          !fee ||
-          typeof fee.recipient !== 'string' ||
-          fee.recipient.length < 2 ||
-          fee.recipient.length > 128 ||
-          !Number.isSafeInteger(fee.fee) ||
-          fee.fee < 0 ||
-          fee.fee > 1000
-      ) ||
-      config.appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000
-    )
-      throw new Error('Invalid 1Click app fee configuration');
-  }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
@@ -384,35 +366,6 @@ function parseAppFees(value: unknown[]): { recipient: string; fee: number }[] {
   });
 }
 
-function validateProviderFees(
-  actual: { recipient: string; fee: number }[],
-  configured: { recipient: string; fee: number }[]
-): void {
-  if (
-    actual.length > 3 ||
-    actual.some(
-      fee =>
-        fee.recipient.length < 2 ||
-        fee.recipient.length > 128 ||
-        !Number.isSafeInteger(fee.fee) ||
-        fee.fee < 0 ||
-        fee.fee > 1000
-    ) ||
-    actual.reduce((sum, fee) => sum + fee.fee, 0) > 1000
-  ) {
-    throw new Error('1Click provider fees are invalid');
-  }
-  const remaining = [...actual];
-  for (const expected of configured) {
-    const matchedIndex = remaining.findIndex(fee => fee.recipient === expected.recipient && fee.fee === expected.fee);
-    if (matchedIndex < 0) {
-      throw new Error('1Click quote is missing a configured app fee');
-    }
-    remaining.splice(matchedIndex, 1);
-  }
-  if (remaining.length > 0) throw new Error('1Click quote is missing a configured app fee');
-}
-
 export function assertOneClickQuoteBinding(
   request: OneClickQuoteRequest,
   response: OneClickQuoteResponse,
@@ -438,7 +391,6 @@ export function assertOneClickQuoteBinding(
   ) {
     throw new Error('1Click quote does not match the requested route');
   }
-  validateProviderFees(signed.appFees ?? [], config.appFees ?? []);
   if (response.quote.amountIn !== request.amount) throw new Error('1Click quote changed the exact input amount');
   if (!dry) {
     assertOneClickDeadline(request.deadline);
@@ -476,9 +428,9 @@ export async function requestOneClickQuote(
     recipientType: 'DESTINATION_CHAIN',
     deadline: request.deadline
   };
-  // The request names no fees. The proxy and the partner key decide the fees that 1Click attaches, and
-  // `config.appFees` is the exact list that the signed quote must carry (`assertOneClickQuoteBinding`).
-  // A fee that the wallet sent as well was added a second time by 1Click.
+  // The request names no fees: NEAR set them up on the partner key, and 1Click adds them to the quote. A fee that
+  // the wallet sent as well was added a second time. The signed amounts include the fees, so the wallet does not
+  // check the quote's unsigned fee fields.
   const raw = await requestOneClickJson(config, '/v0/quote', { method: 'POST', body: JSON.stringify(body) }, fetcher);
   const response = parseOneClickQuoteResponse(raw);
   assertOneClickQuoteBinding(request, response, dry, config);
@@ -605,7 +557,6 @@ export async function fetchOneClickStatus(
   const query = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
   const raw = await requestOneClickJson(config, `/v0/status?${query.toString()}`);
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     status.quoteResponse.quote.depositMemo !== depositMemo ||
@@ -636,7 +587,6 @@ export async function submitOneClickDeposit(
     body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
   });
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     (expectedQuote && hashOneClickQuote(status.quoteResponse) !== hashOneClickQuote(expectedQuote))

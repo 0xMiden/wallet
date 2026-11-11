@@ -20,18 +20,6 @@ function validOrigins(env) {
   return new Set(origins);
 }
 
-function validFees(env) {
-  if (!env.APP_FEES) return [];
-  const fees = JSON.parse(env.APP_FEES);
-  if (!Array.isArray(fees) || fees.length > 3 || fees.some(fee => !record(fee) ||
-      typeof fee.recipient !== 'string' || fee.recipient.length < 2 || fee.recipient.length > 64 ||
-      !/^[a-z0-9._-]+$/.test(fee.recipient) || !Number.isSafeInteger(fee.fee) || fee.fee < 0 || fee.fee > 1000) ||
-      fees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) {
-    throw new Error('Invalid app fee configuration');
-  }
-  return fees;
-}
-
 async function readJson(request, maxBytes = MAX_BODY_BYTES, timeoutMs = MAX_TIMEOUT_MS) {
   const declaredLength = Number(request.headers.get('Content-Length'));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw new Error('Request too large');
@@ -67,9 +55,10 @@ async function readJson(request, maxBytes = MAX_BODY_BYTES, timeoutMs = MAX_TIME
   return value;
 }
 
-function quoteBody(value, fees) {
+// The request names no fees: 1Click attaches the fees that NEAR set up for the partner key.
+function quoteBody(value) {
   const required = ['dry', 'swapType', 'slippageTolerance', 'originAsset', 'depositType', 'destinationAsset', 'amount', 'refundTo', 'refundType', 'recipient', 'recipientType', 'deadline'];
-  const allowed = new Set([...required, 'appFees']);
+  const allowed = new Set(required);
   if (Object.keys(value).some(key => !allowed.has(key)) || required.some(key => !(key in value)) ||
       typeof value.dry !== 'boolean' || value.swapType !== 'EXACT_INPUT' || value.depositType !== 'ORIGIN_CHAIN' ||
       value.refundType !== 'ORIGIN_CHAIN' || value.recipientType !== 'DESTINATION_CHAIN' ||
@@ -79,8 +68,7 @@ function quoteBody(value, fees) {
       !boundedString(value.refundTo, 256) || !boundedString(value.recipient, 256) || !validDeadline(value.deadline)) {
     throw new Error('Invalid quote request');
   }
-  if (value.appFees !== undefined && JSON.stringify(value.appFees) !== JSON.stringify(fees)) throw new Error('App fees differ from service configuration');
-  return { ...value, ...(fees.length ? { appFees: fees } : {}) };
+  return value;
 }
 
 function boundedString(value, limit) {
@@ -156,10 +144,8 @@ export function createService({ fetchImpl = fetch, timeoutMs = MAX_TIMEOUT_MS } 
   return {
     async fetch(request, env) {
       let origins;
-      let fees;
       try {
         origins = validOrigins(env);
-        fees = validFees(env);
       } catch {
         return json({ error: 'service_unavailable' }, 503);
       }
@@ -177,7 +163,7 @@ export function createService({ fetchImpl = fetch, timeoutMs = MAX_TIMEOUT_MS } 
         } else if (url.pathname === '/v0/quote' && request.method === 'POST' && url.search === '') {
           let body;
           try {
-            body = quoteBody(await readJson(request, MAX_BODY_BYTES, timeoutMs), fees);
+            body = quoteBody(await readJson(request, MAX_BODY_BYTES, timeoutMs));
           } catch {
             return json({ error: 'invalid_quote_request' }, 400, cors(origin));
           }

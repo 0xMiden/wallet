@@ -11,7 +11,6 @@ The wallet shows the tab only when `features.nearIntents` is exactly `true` and 
 ```json
 "nearIntents": {
   "serviceUrl": "https://<worker host>",
-  "appFees": [{ "recipient": "wallet.near", "fee": 25 }],
   "midenAssets": {
     "usdcx": { "assetId": "nep141:miden-0x….omft.near", "faucetId": "0x…", "decimals": 6 }
   },
@@ -29,7 +28,7 @@ The wallet shows the tab only when `features.nearIntents` is exactly `true` and 
 
 The order of the keys is the display order. The rules (an invalid section rejects the whole document):
 
-- `serviceUrl`: HTTPS base URL of this Worker, with no credentials, query or fragment. `appFees`: at most 3 entries, each 0 to 1000 basis points, 1000 in total at most.
+- `serviceUrl`: HTTPS base URL of this Worker, with no credentials, query or fragment.
 - `midenAssets`: 1 to 64 entries. Key `^[a-z][a-z0-9-]*$`. `assetId` 1 to 256 characters, no control character. `faucetId` a 15-byte hex account id. `decimals` 0 to 38. No asset id or faucet twice.
 - `chains`: 1 to 32 entries. Key is the 1Click blockchain name, `^[a-z][a-z0-9-]{0,31}$`, never `miden`. `name` 1 to 64 characters, no control character. `addressKind` is `evm`, `solana`, `bitcoin` or `near`.
 - `tokens`: 1 to 64 per chain. Key is the symbol, 1 to 32 characters, no control character. `assetId` 1 to 256 characters, unique in the section and different from every Miden asset id. `decimals` 0 to 38. `contractAddress` optional, 1 to 256 characters. `miden`: 1 to 8 different keys of `midenAssets`.
@@ -54,11 +53,10 @@ All responses use `Cache-Control: private, no-store`; logs and traces are disabl
 | --- | --- | --- |
 | `ONE_CLICK_PARTNER_KEY` | Worker secret | Bearer credential for the official 1Click API |
 | `ALLOWED_ORIGINS` | Worker variable | JSON array of exact wallet origins |
-| `APP_FEES` | Worker variable | Fixed JSON array of `{ "recipient": "...", "fee": 25 }` values, or `[]` |
 | `MIDEN_RECEIPT_ADAPTER_URL` | Worker variable | Optional fixed HTTPS adapter URL for exact destination note resolution |
 | `MIDEN_RECEIPT_ADAPTER_TOKEN` | Worker secret | Optional bearer credential for that adapter |
 
-Provider app fees are unsigned fields in the 1Click quote signature, so the wallet checks them itself: the `appFees` list of the wallet config is the exact list that a signed quote must carry, and the wallet refuses a quote with another list. The wallet sends no fee list in its request. `APP_FEES` is the list that the proxy adds to a quote request; a partner key can also make 1Click add a fee on its own. A fee that is both sent and added by the key is charged twice, so leave `APP_FEES` empty for such a key and put the fee that the key adds in the wallet config. Never treat the provider's fee fields as proof of payment authorization.
+App fees are set up by NEAR on the partner key, and 1Click adds them to every quote of that key. The wallet and this proxy send no fee list: the proxy refuses a quote request that names `appFees`, because a fee that is both sent and set up on the key is charged twice. The signed quote amounts already include the fees. The wallet does not check the unsigned fee fields of a quote, and never treats them as proof of payment authorization.
 
 A refused request returns `upstream_request_failed`, without the provider's text. One reason has its own code: `no_liquidity`, which the wallet shows to the user.
 

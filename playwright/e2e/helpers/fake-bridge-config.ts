@@ -21,7 +21,6 @@ const FAKE_POSITIONS_URL = 'http://127.0.0.1:8549';
 const SEPOLIA_CHAIN_ID = 11155111;
 
 type ParsedBridgeConfig = import('../../../src/lib/remote-config/schema').BridgeConfig;
-type OneClickAppFee = import('../../../src/lib/one-click/types').OneClickAppFee;
 type NearIntentsAddressKind = import('../../../src/lib/one-click/types').NearIntentsAddressKind;
 
 /**
@@ -31,7 +30,6 @@ type NearIntentsAddressKind = import('../../../src/lib/one-click/types').NearInt
  */
 export interface NearIntentsDocumentSection {
   serviceUrl: string;
-  appFees?: OneClickAppFee[];
   midenAssets: Record<string, { assetId: string; faucetId: string; decimals: number }>;
   chains: Record<
     string,

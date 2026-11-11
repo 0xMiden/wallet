@@ -6,8 +6,7 @@ import { createService } from './worker.mjs';
 const origin = 'chrome-extension://wallet-extension-id';
 const env = {
   ONE_CLICK_PARTNER_KEY: 'server-only-secret',
-  ALLOWED_ORIGINS: JSON.stringify([origin]),
-  APP_FEES: JSON.stringify([{ recipient: 'wallet.near', fee: 25 }])
+  ALLOWED_ORIGINS: JSON.stringify([origin])
 };
 const quoteRequest = {
   dry: false,
@@ -21,8 +20,7 @@ const quoteRequest = {
   refundType: 'ORIGIN_CHAIN',
   recipient: 'miden-account',
   recipientType: 'DESTINATION_CHAIN',
-  deadline: new Date(Date.now() + 60 * 60_000).toISOString(),
-  appFees: [{ recipient: 'wallet.near', fee: 25 }]
+  deadline: new Date(Date.now() + 60 * 60_000).toISOString()
 };
 
 function request(path, method = 'GET', body, requestOrigin = origin) {
@@ -105,14 +103,15 @@ test('enforces the fixed fee list and forwards only exact-input origin-chain rou
   assert.equal(response.status, 200);
   assert.equal(await response.text(), '{"signature":"preserved"}');
   assert.equal(forwarded.url, 'https://1click.chaindefuser.com/v0/quote');
-  assert.deepEqual(forwarded.body.appFees, env.APP_FEES ? JSON.parse(env.APP_FEES) : []);
+  // 1Click attaches the partner key's fees itself, so the proxy forwards none.
+  assert.equal(forwarded.body.appFees, undefined);
   assert.equal(forwarded.body.swapType, 'EXACT_INPUT');
   assert.equal(forwarded.body.depositType, 'ORIGIN_CHAIN');
   assert.equal(forwarded.body.refundType, 'ORIGIN_CHAIN');
   assert.equal(forwarded.body.recipientType, 'DESTINATION_CHAIN');
 });
 
-test('rejects arbitrary fields, unsafe amounts and altered app fees', async () => {
+test('rejects arbitrary fields, unsafe amounts and app fees', async () => {
   let calls = 0;
   const service = createService({
     fetchImpl: async () => {
@@ -239,21 +238,6 @@ test('rejects more than 64 destination note IDs from the receipt adapter', async
   assert.deepEqual(await response.json(), { error: 'invalid_receipt_response' });
 });
 
-test('injects configured appFees when the quote request omits them', async () => {
-  let forwarded;
-  const service = createService({
-    fetchImpl: async (_url, init) => {
-      forwarded = JSON.parse(init.body);
-      return Response.json({ signature: 'preserved' });
-    }
-  });
-  const requestWithoutFees = { ...quoteRequest };
-  delete requestWithoutFees.appFees;
-  const response = await service.fetch(request('/v0/quote', 'POST', requestWithoutFees), env);
-  assert.equal(response.status, 200);
-  assert.deepEqual(forwarded.appFees, JSON.parse(env.APP_FEES));
-});
-
 test('does not enable destination note resolution without a trusted adapter', async () => {
   const service = createService({
     fetchImpl: async () => {
@@ -263,18 +247,6 @@ test('does not enable destination note resolution without a trusted adapter', as
   const response = await service.fetch(request('/v1/receipts/resolve', 'POST', { transactionHashes: ['0xabc'] }), env);
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'receipt_adapter_not_configured' });
-});
-
-test('rejects a fixed app fee total above the wallet bound', async () => {
-  const service = createService({ fetchImpl: async () => Response.json([]) });
-  const response = await service.fetch(request('/v0/tokens'), {
-    ...env,
-    APP_FEES: JSON.stringify([
-      { recipient: 'wallet.near', fee: 600 },
-      { recipient: 'wallet2.near', fee: 500 }
-    ])
-  });
-  assert.equal(response.status, 503);
 });
 
 test('stops reading and cancels a streamed request as soon as it exceeds the body limit', async () => {

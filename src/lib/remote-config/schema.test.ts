@@ -266,7 +266,6 @@ describe('nearIntents section', () => {
   };
   const section = (overrides: Section = {}): Section => ({
     serviceUrl: 'https://intents.example/',
-    appFees: [{ recipient: 'wallet.near', fee: 25 }],
     midenAssets: {
       usdcx: { assetId: USDCX, faucetId: '0xE69E6CA6E39DF1B10C1E5399399FEB', decimals: 6 },
       eth: { assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
@@ -314,7 +313,6 @@ describe('nearIntents section', () => {
   it('parses the keyed maps into lists in document order, with the key as id or symbol', () => {
     expect(parse(section())?.nearIntents).toStrictEqual({
       serviceUrl: 'https://intents.example',
-      appFees: [{ recipient: 'wallet.near', fee: 25 }],
       midenAssets: [
         { id: 'usdcx', assetId: USDCX, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', decimals: 6 },
         { id: 'eth', assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
@@ -362,9 +360,10 @@ describe('nearIntents section', () => {
     expect(parse(reordered)?.nearIntents?.chains.map(chain => chain.id)).toEqual(['sol', 'eth']);
   });
 
-  it('leaves out appFees when the document does not set them', () => {
-    const { appFees: _appFees, ...withoutFees } = section();
-    expect(parse(withoutFees)?.nearIntents).not.toHaveProperty('appFees');
+  it('accepts a section that still names appFees and does not read them', () => {
+    const withFees = section({ appFees: [{ recipient: 'wallet.near', fee: 25 }] });
+    expect(parse(withFees)?.nearIntents).toStrictEqual(parse(section())?.nearIntents);
+    expect(parse(withFees)?.nearIntents).not.toHaveProperty('appFees');
   });
 
   it('is absent when the document has no section', () => {
@@ -406,18 +405,6 @@ describe('nearIntents section', () => {
     ['a section that is not an object', []],
     ['an http service', section({ serviceUrl: 'http://intents.example' })],
     ['a service with a query', section({ serviceUrl: 'https://intents.example/?key=x' })],
-    ['a fee above 1000', section({ appFees: [{ recipient: 'wallet.near', fee: 1001 }] })],
-    [
-      'fees that add up to more than 1000',
-      section({
-        appFees: [
-          { recipient: 'wallet.near', fee: 600 },
-          { recipient: 'wallet2.near', fee: 500 }
-        ]
-      })
-    ],
-    ['a fee recipient in upper case', section({ appFees: [{ recipient: 'Wallet.near', fee: 25 }] })],
-    ['more than three fees', section({ appFees: Array.from({ length: 4 }, () => ({ recipient: 'ab', fee: 1 })) })],
     ['no Miden asset', section({ midenAssets: {} })],
     ['Miden assets as a list', section({ midenAssets: [{ assetId: USDCX, faucetId: FAUCET_1, decimals: 6 }] })],
     ['more than 64 Miden assets', section({ midenAssets: manyMidenAssets(65) })],
