@@ -1,5 +1,5 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
-import { formatUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
@@ -106,7 +106,7 @@ export async function quoteEpochSendOutput(args: {
 export interface EpochSendArgs {
   /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
-  minimumOutputBaseUnits?: bigint;
+  minimumOutputBaseUnits: bigint;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
@@ -139,6 +139,9 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
+  if (typeof args.minimumOutputBaseUnits !== 'bigint' || args.minimumOutputBaseUnits <= 0n ||
+      args.minimumOutputBaseUnits >= (1n << 256n))
+    throw new Error('Epoch requires a positive reviewed output minimum');
   const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
   const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
@@ -152,6 +155,8 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     currentBlock
   );
 
+  params.minTokenOut = args.minimumOutputBaseUnits.toString();
+
   // Forward quote (input → output), then solve. `createMidenP2IDENote` blocks until
   // the P2IDE `bridged-send` row is committed on Miden before the intent is
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
@@ -159,6 +164,13 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   let bridgeTxId: string | undefined;
   let spendingLimitError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
+  const output = quote.quoteResult.tokenOut;
+  if (typeof output !== 'string' || !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(output) ||
+      (output.includes('.') && (output.split('.')[1]?.length ?? 0) > usdc.decimals))
+    throw new Error('Epoch returned an invalid output quote');
+  const outputBaseUnits = output.includes('.') ? parseUnits(output, usdc.decimals) : BigInt(output);
+  if (outputBaseUnits < args.minimumOutputBaseUnits)
+    throw new Error('Epoch output is below the reviewed minimum');
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
     preFetchedQuote: quote,

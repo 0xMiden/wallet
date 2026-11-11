@@ -5,6 +5,7 @@ import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { fromBaseUnits, pendingNoteTotal, vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from '../../helpers/balance-truth';
 import { waitForSendRow, TxStatus } from '../../helpers/history';
 import { mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
+import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
 import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
 import { assertMainnetOneClickMayStart, loadMainnetOneClickCheckpoint, saveMainnetOneClickCheckpoint } from '../../helpers/mainnet-one-click-checkpoint';
 import { assertMainnetEvmFunding, createMainnetOneClickEvmSender, readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
@@ -217,14 +218,16 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   const nativeFaucet = await walletDiscoveredNativeFaucetId(walletB.page);
   const baseFee = await walletDiscoveredBaseFee(walletB.page);
   if (!nativeFaucet || baseFee === null || baseFee < 1) throw new Error('The existing Guardian account has not discovered its Miden fee reserve');
+  const nativeIdentity = canonicalMainnetLoopFaucet(nativeFaucet);
   const nativeBalance = await vaultBalanceByFaucetId(walletB.page, nativeFaucet);
   const midenFeeReserveBase = BigInt(baseFee) * TX_FEE_MULTIPLE * MIDEN_FEE_TXS;
   if (nativeBalance < midenFeeReserveBase) throw new Error('The existing Guardian account cannot cover the Miden fee reserve');
   const midenFaucetId = midenAsset.faucetId;
+  const principalIsNative = canonicalMainnetLoopFaucet(midenFaucetId) === nativeIdentity;
   const principalAvailable = await vaultBalanceByFaucetId(walletB.page, midenFaucetId);
-  const maximumAmount = principalAvailable - (midenFaucetId.toLowerCase() === nativeFaucet.toLowerCase() ? midenFeeReserveBase : 0n);
+  const maximumAmount = principalAvailable - (principalIsNative ? midenFeeReserveBase : 0n);
   if (maximumAmount <= 0n) throw new Error('The existing Guardian account lacks spendable 1Click principal');
-  const verifiedNative = setup.config.midenAssets.find(asset => asset.faucetId.toLowerCase() === nativeFaucet.toLowerCase());
+  const verifiedNative = setup.config.midenAssets.find(asset => canonicalMainnetLoopFaucet(asset.faucetId) === nativeIdentity);
   const nativeAsset = setup.assets.find(asset => asset.assetId === verifiedNative?.assetId);
   if (!verifiedNative || !nativeAsset) throw new Error('The native fee asset has no verified source price identity');
   const nativeMetadata = {
@@ -319,7 +322,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   if (!selectedRoute) throw new Error('No funded 1Click route produced verified dry quotes within the $2.00 round-trip cap');
   const selected = selectedRoute.candidate;
   assertMainnetEvmFunding(selected.holding, 0n);
-  if (nativeFaucet.toLowerCase() === midenFaucetId.toLowerCase()) {
+  if (principalIsNative) {
     throw new Error('The active route uses its principal token for Miden gas, so principal loss and fee cost cannot be bounded separately');
   }
   const preSubmitPrices = await fetchMainnetOneClickUsdPrices(priceIds);

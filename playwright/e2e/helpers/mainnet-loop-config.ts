@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { Address } from '@miden-sdk/miden-sdk';
 
 import { parseTokenList } from '../../../src/lib/token-list/parse';
+import { parseOneClickFeePolicy } from '../../../src/lib/one-click/fees';
 
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -13,7 +14,12 @@ const CHAINS = [
 ];
 
 export function canonicalMainnetLoopFaucet(faucet: string): string {
-  return faucet.toLowerCase();
+  const ref = faucet.split('_')[0] ?? '';
+  if (!/^mm1/.test(ref) && !/^0x[0-9a-f]{30}$/i.test(ref))
+    throw new Error('Invalid mainnet faucet identity');
+  const hex = ref.startsWith('0x') ? ref.toLowerCase() : Address.fromBech32(ref).accountId().toString().toLowerCase();
+  if (!/^0x[0-9a-f]{30}$/.test(hex)) throw new Error('Invalid canonical mainnet faucet');
+  return hex;
 }
 
 export async function startMainnetLoopConfigServer(snapshot: unknown): Promise<Server> {
@@ -95,10 +101,7 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
   ) {
     throw new Error('No unique verified mainnet USDCX faucet');
   }
-  const ref = native.faucetId.split('_')[0] ?? '';
-  if (!/^mm1/.test(ref) && !/^0x[0-9a-f]{30}$/.test(ref)) throw new Error('Invalid verified mainnet faucet address');
-  const hex = ref.startsWith('0x') ? ref : Address.fromBech32(ref).accountId().toString().toLowerCase();
-  if (!/^0x[0-9a-f]{30}$/.test(hex)) throw new Error('Invalid canonical native faucet');
+  const hex = canonicalMainnetLoopFaucet(native.faucetId);
   const nativeAssetId = `nep141:miden-${hex}.omft.near`;
   const listedNative = catalog.find(asset => asset.assetId === nativeAssetId);
   if (
@@ -161,6 +164,12 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
   const url = new URL(serviceUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('Invalid real 1Click service');
+  const configuredPolicy = parseOneClickFeePolicy(previous.feePolicy);
+  const feePolicy = configuredPolicy ?? (
+    url.origin === 'https://1click.chaindefuser.com' && url.pathname.replace(/\/+$/, '') === ''
+      ? { kind: 'partner', platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', minimumPlatformFeeBps: 20 }
+      : undefined
+  );
   return {
     ...document,
     features: { ...document.features, nearIntents: true },
@@ -169,6 +178,7 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
       oneClick: {
         ...previous,
         serviceUrl,
+        ...(feePolicy === undefined ? {} : { feePolicy }),
         midenAssets: [{ assetId: nativeAssetId, faucetId: native.faucetId, decimals: native.decimals }],
         evmAssets
       }

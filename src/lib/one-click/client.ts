@@ -1,6 +1,7 @@
 import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
+import { expectedOneClickFees } from './fees';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
 import {
   assertOneClickAssetIdentity,
@@ -101,6 +102,7 @@ function validateConfig(config: OneClickConfig): string {
     )
       throw new Error('Invalid 1Click app fee configuration');
   }
+  expectedOneClickFees(config.appFees ?? [], config.feePolicy);
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
@@ -366,7 +368,7 @@ export function assertOneClickQuoteBinding(
   );
   assertOneClickAssetIdentity(request.originAsset, trustedEvmAssets);
   assertOneClickAssetIdentity(request.destinationAsset, trustedEvmAssets);
-  validateProviderFees(signed.appFees ?? [], config.appFees ?? []);
+  validateProviderFees(signed.appFees ?? [], expectedOneClickFees(config.appFees ?? [], config.feePolicy));
   if (response.quote.amountIn !== request.amount) throw new Error('1Click quote changed the exact input amount');
   if (!dry) {
     assertOneClickDeadline(request.deadline);
@@ -631,7 +633,7 @@ export async function fetchOneClickStatus(
   const query = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
   const raw = await requestJson(config, `/v0/status?${query.toString()}`);
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
+  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], expectedOneClickFees(config.appFees ?? [], config.feePolicy));
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     status.quoteResponse.quote.depositMemo !== depositMemo ||
@@ -662,7 +664,7 @@ export async function submitOneClickDeposit(
     body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
   });
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
+  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], expectedOneClickFees(config.appFees ?? [], config.feePolicy));
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     (expectedQuote && hashOneClickQuote(status.quoteResponse) !== hashOneClickQuote(expectedQuote))
