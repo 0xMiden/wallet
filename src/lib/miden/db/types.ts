@@ -876,6 +876,13 @@ export interface ITransaction {
    */
   spentAssetTotals?: IConsumedAssetTotal[];
   /**
+   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
+   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
+   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * `spentAssetTotals`.
+   */
+  approvedOutflow?: IConsumedAssetTotal[];
+  /**
    * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
    * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
    */
@@ -1223,6 +1230,8 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[];
   /** See `ITransaction.approvedNftOutflow`. */
   approvedNftOutflow?: string[];
   spentUsd?: bigint;

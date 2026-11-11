@@ -386,6 +386,7 @@ describe('requestConfirm runs an approval once (#1584)', () => {
     const args = requestCustomTransaction.mock.calls[0] as unknown[];
     expect(args[6]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(args[9]).toEqual(['nft-key-1']);
+    expect(args[10]).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
   });
 
   it('runs the action once when the popup confirms twice while it runs', async () => {

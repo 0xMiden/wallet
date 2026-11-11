@@ -24,10 +24,11 @@ const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransacti
       nfts: []
     };
   },
-  // What the approval-time dry run showed leaving. A dry run that failed recorded none, and a row queued before NFTs
-  // were recorded has none, so such a row may move nothing.
+  // What the approval-time dry run showed leaving; a row queued before that was recorded falls back to its policy
+  // totals. A dry run that failed recorded neither, and a row queued before NFTs were recorded has none, so such a row
+  // may move nothing.
   execute: transaction => ({
-    outflow: (transaction.spentAssetTotals ?? []).map(asset => ({
+    outflow: (transaction.approvedOutflow ?? transaction.spentAssetTotals ?? []).map(asset => ({
       faucetId: asset.faucetId,
       amount: BigInt(asset.amount)
     })),

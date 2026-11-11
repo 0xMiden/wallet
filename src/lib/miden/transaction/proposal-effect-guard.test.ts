@@ -264,6 +264,25 @@ describe('execute', () => {
     expect(refusalOf(execute([{ faucetId: 'bech32:fA', amount: 50n }]), carried)).toBeUndefined();
     expect(refusalOf(execute([]), carried)).toBe('50 of bech32:fA leaves (approved 0)');
   });
+
+  // A request that consumed a note the wallet already held: the policy withheld its totals, and signing reads the
+  // outflow the sheet showed instead.
+  const heldNoteApproval = row({
+    ...execute([]),
+    approvedOutflow: [{ faucetId: 'bech32:fA', amount: 50n }]
+  });
+
+  it('allows the outflow the sheet showed when the policy totals were withheld, and refuses one unit more', () => {
+    expect(refusalOf(heldNoteApproval, sends(fa('fA', 50n)))).toBeUndefined();
+    expect(refusalOf(heldNoteApproval, sends(fa('fA', 51n)))).toBe('51 of bech32:fA leaves (approved 50)');
+  });
+
+  it('reads the policy totals on a row queued before the approved outflow was recorded', () => {
+    const legacy = execute([{ faucetId: 'bech32:fA', amount: 50n }]);
+    expect(legacy.approvedOutflow).toBeUndefined();
+    expect(refusalOf(legacy, sends(fa('fA', 50n)))).toBeUndefined();
+    expect(refusalOf(legacy, sends(fa('fA', 51n)))).toBe('51 of bech32:fA leaves (approved 50)');
+  });
 });
 
 describe('assertProposalEffectApproved', () => {

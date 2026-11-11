@@ -477,7 +477,7 @@ describe('the outflow an approval records', () => {
   const recorded = () => {
     expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
     const args = mockRequestCustomTransaction.mock.calls[0] as unknown[];
-    return { spentAssetTotals: args[6], approvedNftOutflow: args[9] };
+    return { spentAssetTotals: args[6], approvedNftOutflow: args[9], approvedOutflow: args[10] };
   };
 
   it('records a summary view’s net outflow as the sheet shows it, without crediting the carried note again', async () => {
@@ -493,6 +493,7 @@ describe('the outflow an approval records', () => {
 
     expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
     expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     // The spending-limit admission is charged the same net outflow.
     expect(mockAssessOutgoing).toHaveBeenCalledWith({
       accountId: 'miden-account-1',
@@ -513,10 +514,30 @@ describe('the outflow an approval records', () => {
     await raiseSheet(true);
 
     expect(recorded().spentAssetTotals).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
     expect(mockAssessOutgoing).toHaveBeenCalledWith({
       accountId: 'miden-account-1',
       spends: [{ faucetId: 'faucet-x', amount: 50n }]
     });
+  });
+
+  // The request consumes a note the wallet already held besides the one it carries, so the policy cannot attribute
+  // the net figure and withholds it, as before; signing still gets the outflow the sheet showed.
+  it('records the outflow the sheet showed for a summary that consumed a held note, leaving the policy charge as it was', async () => {
+    mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64', ...carried });
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoing: [{ faucetId: 'faucet-x', amount: 50n }],
+      inputNotesConsumed: 2,
+      outputNotesCreated: 1
+    });
+
+    await raiseSheet(true);
+
+    expect(sheetMessages()).toContain('Leaves this account, -0.00005 MIDEN');
+    expect(recorded().spentAssetTotals).toEqual([]);
+    expect(recorded().approvedOutflow).toEqual([{ faucetId: 'faucet-x', amount: 50n }]);
+    expect(mockAssessOutgoing).not.toHaveBeenCalled();
   });
 
   it('records each NFT the sheet lists as leaving by its complete key', async () => {
@@ -531,11 +552,12 @@ describe('the outflow an approval records', () => {
     expect(recorded().approvedNftOutflow).toEqual(['nft-key-1']);
   });
 
-  it('records no NFT when the dry run failed, so signing lets none leave', async () => {
+  it('records no NFT and no outflow when the dry run failed, so signing lets nothing leave', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
     await raiseSheet(true);
 
     expect(recorded().approvedNftOutflow).toBeUndefined();
+    expect(recorded().approvedOutflow).toBeUndefined();
   });
 });

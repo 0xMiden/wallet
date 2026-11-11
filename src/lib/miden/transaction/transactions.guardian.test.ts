@@ -14993,6 +14993,33 @@ describe('Guardian proposal effect check', () => {
     );
   });
 
+  // The approval consumed a note the wallet already held, so its policy totals were withheld; signing reads the
+  // outflow the sheet showed.
+  it.each([
+    ['what the sheet showed', 100n, ITransactionStatus.Completed],
+    ['one unit more', 101n, ITransactionStatus.Failed]
+  ])(
+    'signs a custom transaction approved with withheld totals that moves %s, and no more',
+    async (_l, sent, status) => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', sent)] }));
+      const service = serviceWith({ id: 'prop-held', nonce: 8, metadata: {}, txSummary: 'aGVsZA==' });
+
+      const row = await run({
+        id: `execute-held-${sent}`,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        spentAssetTotals: [],
+        approvedOutflow: [{ faucetId: 'fA', amount: 100n }]
+      });
+
+      expect(row.status).toBe(status);
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledTimes(
+        status === ITransactionStatus.Completed ? 1 : 0
+      );
+    }
+  );
+
   it('flags a refused candidate whose abandon fails for the next proposal to retry (#1317)', async () => {
     mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
     const service = serviceWith(

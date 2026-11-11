@@ -2374,6 +2374,7 @@ const generatePromisifyTransaction = async (
         transactionMessages: [...declaredMessages, ...simulatedEffects.messages],
         simulated,
         customLimit,
+        approvedOutflow: simulatedEffects.approvedOutflow,
         approvedNftOutflow: simulatedEffects.outgoingNfts
       };
     } catch (e) {
@@ -2403,7 +2404,7 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit, simulated, approvedNftOutflow } = sheetData;
+    const { transactionMessages, customLimit, simulated, approvedOutflow, approvedNftOutflow } = sheetData;
     let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
     try {
       noteFlow = noteFlowFromSimulatedBytes(simulated);
@@ -2453,7 +2454,8 @@ const generatePromisifyTransaction = async (
           customLimit.totals,
           authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
           origin,
-          approvedNftOutflow
+          approvedNftOutflow,
+          approvedOutflow
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2498,7 +2500,7 @@ const generatePromisifyTransaction = async (
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
-            const { customLimit, approvedNftOutflow } = await sheet.data();
+            const { customLimit, approvedOutflow, approvedNftOutflow } = await sheet.data();
             const transactionId = await withUnlocked(async () => {
               const { payload } = req.transaction;
               const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
@@ -2519,7 +2521,8 @@ const generatePromisifyTransaction = async (
                   customLimit.totals
                 ),
                 origin,
-                approvedNftOutflow
+                approvedNftOutflow,
+                approvedOutflow
               );
             });
             // The transaction is queued and will consume these notes —
@@ -3876,12 +3879,17 @@ async function formatCustomTransactionPreview(
  * spending-limit policy is the NET outflow: a summary's vault change as the sheet shows it, or an
  * executed transaction's output notes less only what this request brought in.
  *
- * `outgoingNfts` is the complete identity of each NFT the sheet lists as leaving, recorded on the
- * row so that signing lets exactly those leave.
+ * `approvedOutflow` and `outgoingNfts` are what signing may let leave, recorded on the row for every
+ * decoded dry run: the same net outflow, also when the policy figure is withheld because the
+ * request consumed notes the wallet already held, and the complete identity of each NFT the sheet
+ * lists as leaving.
  */
-async function formatSimulatedCustomEffects(
-  simulated: SimulateCustomTxResult
-): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[]; outgoingNfts?: string[] }> {
+async function formatSimulatedCustomEffects(simulated: SimulateCustomTxResult): Promise<{
+  messages: string[];
+  outgoing?: IConsumedAssetTotal[];
+  approvedOutflow?: IConsumedAssetTotal[];
+  outgoingNfts?: string[];
+}> {
   try {
     const view = simulatedBytesToView(simulated);
     if (!view) throw new Error(simulated.error ?? 'no summary was produced');
@@ -3931,16 +3939,13 @@ async function formatSimulatedCustomEffects(
     // A summary's net vault change already counts the notes this request brought in, so only an
     // executed view's gross outflow is credited with them (see `netOutflowByFaucet`).
     const credit = simulated.summaryBytes ? [] : simulated.introducedCredit;
+    // Netted and folded per faucet: what actually leaves, once per asset.
+    const outflow = netOutflowByFaucet(view, credit).map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }));
     return {
       messages: ['Simulated effects:', ...effects],
+      approvedOutflow: outflow,
       outgoingNfts: view.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
-      // Netted and folded per faucet: the policy charges what actually leaves, once per asset.
-      ...(attributable && {
-        outgoing: netOutflowByFaucet(view, credit).map(asset => ({
-          faucetId: asset.faucetId,
-          amount: asset.amount
-        }))
-      })
+      ...(attributable && { outgoing: outflow })
     };
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);
