@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
@@ -10,7 +11,6 @@
 
 ## 1.17.11 (2026-11-09)
 
-- [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
