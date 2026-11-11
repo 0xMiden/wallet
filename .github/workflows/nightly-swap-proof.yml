@@ -22,4 +22,15 @@ jobs:
       - run: yarn install --frozen-lockfile
         timeout-minutes: 8
       - name: Cost and recovery boundaries
-        run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts scripts/mainnet-swap-artifacts.test.ts --maxWorkers=2 --watch=false
+        run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts scripts/mainnet-swap-artifacts.test.ts scripts/mainnet-swap-workflow.test.ts --maxWorkers=2 --watch=false
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: yarn tsc --pretty false
+      - name: Harness conventions
+        if: ${{ !cancelled() }}
+        run: yarn lint:e2e
+      - name: Verify funded spec selection without executing it
+        if: ${{ !cancelled() }}
+        env:
+          E2E_NETWORK: mainnet
+        run: yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --list

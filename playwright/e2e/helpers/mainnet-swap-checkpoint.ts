@@ -9,7 +9,7 @@ export interface SavedSwapHolding {
   balance: string;
   usdMicros: string;
 }
-export type SwapLoopPhase = 'forward-authorized' | 'forward-settled' | 'reverse-authorized' | 'complete' | 'recovery-required';
+export type SwapLoopPhase = 'forward-authorized' | 'forward-settled' | 'reverse-authorized' | 'complete' | 'cancelled' | 'unspent' | 'recovery-required';
 export interface MainnetSwapCheckpoint {
   version: 1;
   network: 'mainnet';
@@ -33,6 +33,7 @@ export interface MainnetSwapCheckpoint {
   forwardOrderId?: string;
   reverseOrderId?: string;
   forwardReceived?: string;
+  forwardRefunded?: string;
   reverseReceived?: string;
   returnAmount?: string;
   returnBaseline?: { offer: string; request: string; native: string };
@@ -70,8 +71,9 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       !amount(value.reverseMinimum) || BigInt(value.reverseMinimum) <= 0n ||
       !amount(value.feeBudget) || !amount(value.paidFees) || BigInt(value.paidFees) > BigInt(value.feeBudget) ||
       !Array.isArray(value.knownOrderIds) || value.knownOrderIds.length > 4096 || !value.knownOrderIds.every(amount)) return false;
-  if (!['forward-authorized', 'forward-settled', 'reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase))) return false;
-  for (const key of ['authorizationRunId', 'recoveredRunId', 'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'reverseReceived', 'returnAmount']) {
+  if (!['forward-authorized', 'forward-settled', 'reverse-authorized', 'complete', 'cancelled', 'unspent', 'recovery-required'].includes(String(value.phase))) return false;
+  if (value.phase === 'cancelled' && (value.forwardRefunded !== value.principal || value.forwardReceived !== '0' || !amount(value.forwardOrderId))) return false;
+  for (const key of ['authorizationRunId', 'recoveredRunId', 'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'forwardRefunded', 'reverseReceived', 'returnAmount']) {
     if (value[key] !== undefined && !amount(value[key])) return false;
   }
   if (value.returnBaseline !== undefined && (!record(value.returnBaseline) ||
@@ -82,7 +84,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   return Object.keys(value).every(key => [
     'version', 'network', 'account', 'sourceRunId', 'authorizationRunId', 'recoveredRunId', 'phase', 'createdAt', 'updatedAt', 'offer', 'request', 'native',
     'baseFee', 'principal', 'forwardMinimum', 'reverseMinimum', 'knownOrderIds', 'feeBudget', 'paidFees',
-    'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'reverseReceived', 'returnAmount', 'returnBaseline'
+    'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'forwardRefunded', 'reverseReceived', 'returnAmount', 'returnBaseline'
   ].includes(key));
 }
 
@@ -101,7 +103,7 @@ export function saveMainnetSwapCheckpoint(path: string, state: MainnetSwapCheckp
   renameSync(`${path}.tmp`, path);
 }
 export function mainnetSwapNextAction(state: MainnetSwapCheckpoint | undefined): 'prepare' | 'reconcile-forward' | 'return' | 'reconcile-reverse' | 'stop' {
-  if (!state || state.phase === 'complete') return 'prepare';
+  if (!state || state.phase === 'complete' || state.phase === 'cancelled' || state.phase === 'unspent') return 'prepare';
   if (state.phase === 'forward-authorized') return 'reconcile-forward';
   if (state.phase === 'forward-settled') return 'return';
   if (state.phase === 'reverse-authorized') return 'reconcile-reverse';
