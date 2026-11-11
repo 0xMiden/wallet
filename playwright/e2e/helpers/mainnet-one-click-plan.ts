@@ -54,6 +54,22 @@ export async function searchSmallestViableAmount<T>(options: {
   throw new Error('No viable 1Click quote found within the bounded dry-quote search; the smallest viable amount was not established');
 }
 
+interface OneClickMidenBalance {
+  identity: string;
+  before: bigint;
+  after: bigint;
+}
+
+export function assertOneClickMidenBalances(_evidence: {
+  principal: OneClickMidenBalance;
+  native: OneClickMidenBalance;
+  sent: bigint;
+  received: bigint;
+  paidFees: bigint;
+}): void {
+  throw new Error('Miden principal and fee reconciliation is not implemented');
+}
+
 export interface OneClickLegBound {
   inputUsdMicros: bigint;
   minimumOutputUsdMicros: bigint;
