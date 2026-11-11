@@ -37,6 +37,9 @@ export interface MainnetEpochCheckpoint {
   evm: EpochEvmSnapshot;
   allocatorUrl: string;
   virtualChainId: number;
+  midenAllocator: string;
+  recallBlocks: number;
+  minimumRecallBlocks: number;
   principal: string;
   forwardMinimum: string;
   reverseMinimum: string;
@@ -85,6 +88,7 @@ const onlyKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys
 const ROOT_KEYS = [
   'version', 'network', 'account', 'accountHex', 'sourceRunId', 'authorizationRunId', 'phase',
   'createdAt', 'pricedAt', 'updatedAt', 'native', 'evm', 'allocatorUrl', 'virtualChainId',
+  'midenAllocator', 'recallBlocks', 'minimumRecallBlocks',
   'principal', 'forwardMinimum', 'reverseMinimum', 'lossBudgetUsdMicros', 'feeBudget', 'evmFeeBudget',
   'paidMidenFees', 'paidEvmFees', 'forwardNonce', 'forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash',
   'forwardReceived', 'reverseNonce', 'returnAmount', 'evmNonceBefore', 'transactions', 'returnNoteId',
@@ -104,7 +108,11 @@ function evmSnapshot(value: unknown): value is EpochEvmSnapshot {
 function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoint {
   if (!record(value) || !onlyKeys(value, ROOT_KEYS) || value.version !== 1 || value.network !== 'mainnet' ||
       typeof value.account !== 'string' || !/^mm1[a-z0-9]{20,150}(?:_[a-z0-9]{1,50})?$/.test(value.account) ||
-      !midenId(value.accountHex) || typeof value.sourceRunId !== 'string' || !/^\d{1,25}$/.test(value.sourceRunId) ||
+      !midenId(value.accountHex) || !midenId(value.midenAllocator) || value.midenAllocator === value.accountHex ||
+      typeof value.recallBlocks !== 'number' || !Number.isSafeInteger(value.recallBlocks) || value.recallBlocks <= 0 || value.recallBlocks > 0xffff_ffff ||
+      typeof value.minimumRecallBlocks !== 'number' || !Number.isSafeInteger(value.minimumRecallBlocks) ||
+      value.minimumRecallBlocks < 0 || value.minimumRecallBlocks > value.recallBlocks ||
+      typeof value.sourceRunId !== 'string' || !/^\d{1,25}$/.test(value.sourceRunId) ||
       typeof value.authorizationRunId !== 'string' || !/^\d{1,25}$/.test(value.authorizationRunId) ||
       typeof value.phase !== 'string' || !['forward-authorized', 'forward-settled', 'reverse-authorized',
         'complete', 'cancelled', 'unspent', 'recovery-required'].includes(value.phase) ||

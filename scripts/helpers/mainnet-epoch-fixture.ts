@@ -10,6 +10,7 @@ export function epochCheckpointFixture(): MainnetEpochCheckpoint {
       allocator: `0x${'2'.repeat(40)}`, compact: `0x${'3'.repeat(40)}`,
       tokenBalance: '3000000', nativeBalance: '10000000000000000', tokenUsdMicros: '1000000', nativeUsdMicros: '2000000000' },
     allocatorUrl: 'https://mainnet-api.epochprotocol.xyz', virtualChainId: 999,
+    midenAllocator: '0x593c167bec26769178dcbd1f9bcb40', recallBlocks: 6200, minimumRecallBlocks: 5200,
     principal: '1010000', forwardMinimum: '1000000', reverseMinimum: '1000000',
     lossBudgetUsdMicros: '1999095', feeBudget: '1000', evmFeeBudget: '1000000000000', paidMidenFees: '0', paidEvmFees: '0', forwardNonce: '9'
   };
