@@ -72,6 +72,13 @@ describe('durable nightly swap authorization', () => {
     c.phase = 'complete';
     expect(mainnetSwapNextAction(c)).toBe('prepare');
   });
+  it('allows a fresh loop only after proven non-submission or a fully reclaimed forward order', () => {
+    const c = checkpoint();
+    c.phase = 'unspent';
+    expect(mainnetSwapNextAction(c)).toBe('prepare');
+    c.phase = 'cancelled';
+    expect(mainnetSwapNextAction(c)).toBe('prepare');
+  });
   it('matches only a unique new order with authorized account, pair and amounts', () => {
     expect(matchAuthorizedSwap(checkpoint(), [row()], 'forward')?.orderId).toBe('2');
     expect(() => matchAuthorizedSwap(checkpoint(), [row(), { ...row(), orderId: '3' }], 'forward')).toThrow(/ambiguous/);

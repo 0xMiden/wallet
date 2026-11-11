@@ -1,2 +1,88 @@
-export async function chooseSwapCheckpoint() { throw new Error('not implemented'); }
-export function swapStepAttempted() { throw new Error('not implemented'); }
+import { appendFileSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+
+// Last verified nightly before native swaps existed. Never bootstrap past an unknown funded run.
+const BASELINE_RUN = 42966766471;
+const BASELINE_SHA = '96a3228a181d050395241d00071c5863a1815ab5';
+
+export function swapStepAttempted(jobs, leg) {
+  if (!Array.isArray(jobs?.jobs)) throw new Error('Invalid workflow jobs response');
+  return jobs.jobs.some(job => (job.steps ?? []).some(step => step.name === `Run mainnet swap ${leg}` &&
+    ['in_progress', 'completed'].includes(step.status) && step.conclusion !== 'skipped'));
+}
+
+export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN) {
+  for (const run of [...runs].sort((a, b) => b.id - a.id)) {
+    if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
+    if (run.id <= baseline) return { bootstrap: true };
+    const artifacts = await getArtifacts(run.id);
+    if (!Array.isArray(artifacts?.artifacts)) throw new Error('Invalid workflow artifact response');
+    for (const stage of ['final', 'reverse-authorized', 'forward-authorized']) {
+      const name = `mainnet-swap-${stage}-${run.id}`;
+      const matching = artifacts.artifacts.filter(artifact => artifact.name === name);
+      if (matching.length > 1) throw new Error('Duplicate mainnet swap checkpoint artifact');
+      const [artifact] = matching;
+      if (artifact) {
+        if (artifact.expired) throw new Error(`Newest swap checkpoint expired in run ${run.id}; recover before restarting`);
+        return { runId: run.id, name, bootstrap: false };
+      }
+    }
+    const jobs = await getJobs(run.id);
+    if (swapStepAttempted(jobs, 'forward') || swapStepAttempted(jobs, 'reverse')) {
+      throw new Error(`Recovery checkpoint missing for potentially funded run ${run.id}; refusing an older complete checkpoint`);
+    }
+  }
+  throw new Error('Swap checkpoint history did not reach the verified baseline; refusing to bootstrap');
+}
+
+async function github(path) {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GH_TOKEN;
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo) || !token) throw new Error('Missing GitHub workflow identity/token');
+  const response = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30_000)
+  });
+  if (!response.ok) throw new Error(`Checkpoint GitHub API failed: HTTP ${response.status}`);
+  return response.json();
+}
+
+function output(name, value) {
+  if (!process.env.GITHUB_OUTPUT) throw new Error('This command must run in GitHub Actions');
+  appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+}
+
+async function main() {
+  const mode = process.argv[2];
+  if (mode === 'attempts') {
+    const state = JSON.parse(readFileSync('test-results/mainnet-swap-state/roundtrip.json', 'utf8'));
+    for (const [leg, id] of [['forward', state.sourceRunId], ['reverse', state.authorizationRunId ?? state.sourceRunId]]) {
+      if (typeof id !== 'string' || !/^\d+$/.test(id)) throw new Error('Invalid checkpoint source workflow identity');
+      const run = await github(`actions/runs/${id}`);
+      const current = await github(`actions/runs/${process.env.GITHUB_RUN_ID}`);
+      if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
+      output(`${leg}_attempted`, swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg));
+    }
+    return;
+  }
+  if (mode !== 'find') throw new Error('Use find or attempts');
+  const anchor = await github(`actions/runs/${BASELINE_RUN}`);
+  const current = await github(`actions/runs/${process.env.GITHUB_RUN_ID}`);
+  if (anchor.head_sha !== BASELINE_SHA || anchor.workflow_id !== current.workflow_id || anchor.conclusion !== 'success') {
+    throw new Error('The pre-swap baseline is not the verified successful mainnet nightly');
+  }
+  const runs = [];
+  for (let page = 1; page <= 10; page++) {
+    const result = await github(`actions/workflows/${current.workflow_id}/runs?per_page=100&page=${page}`);
+    if (!Array.isArray(result.workflow_runs)) throw new Error('Invalid workflow history response');
+    runs.push(...result.workflow_runs.filter(run => run.id < Number(process.env.GITHUB_RUN_ID)));
+    if (result.workflow_runs.some(run => run.id <= BASELINE_RUN) || result.workflow_runs.length < 100) break;
+  }
+  const selected = await chooseSwapCheckpoint(runs,
+    id => github(`actions/runs/${id}/artifacts?per_page=100`), id => github(`actions/runs/${id}/jobs?per_page=100`));
+  output('bootstrap', selected.bootstrap);
+  if (!selected.bootstrap) { output('run_id', selected.runId); output('name', selected.name); }
+}
+
+if (process.argv[1] && basename(process.argv[1]) === 'mainnet-swap-artifacts.mjs') {
+  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+}
