@@ -11,7 +11,7 @@ SCRIPT = Path(__file__).with_name('native-bread-button.py').resolve()
 
 
 class NativeBreadButtonTest(unittest.TestCase):
-    def locate(self, points):
+    def locate(self, points, role='push button'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             image = Image.new('RGB', (1600, 1100), 'white')
@@ -39,8 +39,9 @@ class Node:
     def getExtents(self, coords): return Rect(*self.point)
     def __iter__(self): return iter(self.children)
 points = json.loads(os.environ['PROBE_POINTS'])
-toolbar = [Node('push button', 'Bread\\nWants access to this site', point) for point in points if point[1] < 95]
-page = [Node('push button', 'Bread\\nWants access to this site', point) for point in points if point[1] >= 95]
+role = os.environ['PROBE_ROLE']
+toolbar = [Node(role, 'Bread\\nWants access to this site', point) for point in points if point[1] < 95]
+page = [Node(role, 'Bread\\nWants access to this site', point) for point in points if point[1] >= 95]
 desktop = Node('application', children=[Node('frame', children=[Node('tool bar', children=toolbar), Node('document web', children=page)])])
 class Registry:
     @staticmethod
@@ -48,7 +49,7 @@ class Registry:
 '''
             (root / 'pyatspi.py').write_text(shim)
             env = {**os.environ, 'PATH': f'{root}:{os.environ["PATH"]}', 'PROBE_SCREEN': str(root / 'screen.png'),
-                   'PYTHONPATH': str(root), 'PROBE_POINTS': json.dumps(points)}
+                   'PYTHONPATH': str(root), 'PROBE_POINTS': json.dumps(points), 'PROBE_ROLE': role}
             return subprocess.run(['/usr/bin/python3', str(SCRIPT)], capture_output=True, text=True, env=env)
 
     def test_page_decoy_is_not_a_toolbar_candidate(self):
@@ -56,10 +57,20 @@ class Registry:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [1260, 72])
 
+    def test_button_role_name_from_at_spi_2_53_is_a_toolbar_candidate(self):
+        result = self.locate([(1260, 72), (944, 105)], role='button')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [1260, 72])
+
     def test_ambiguous_toolbar_candidates_fail_closed(self):
         result = self.locate([(1230, 72), (1260, 72)])
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('not unique', result.stderr)
+        self.assertIn('not unique: 2 found', result.stderr)
+
+    def test_missing_toolbar_candidate_fails_closed(self):
+        result = self.locate([(944, 105)])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not unique: 0 found', result.stderr)
 
 
 if __name__ == '__main__':
