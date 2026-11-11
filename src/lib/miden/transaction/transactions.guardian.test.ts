@@ -14914,6 +14914,56 @@ describe('Guardian proposal effect check', () => {
     }
   );
 
+  it('keeps a consume candidate during the pending fee lookup and forgets it when the check refuses', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    let releaseFee!: (fee: number) => void;
+    const feePending = new Promise<number>(resolve => {
+      releaseFee = resolve;
+    });
+    let entered!: () => void;
+    const feeLookupStarted = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const keptWhileFeePending: unknown[] = [];
+    nativeAsset.getVerificationBaseFee.mockImplementation(async () => {
+      keptWhileFeePending.push(txStore.find(row => row.id === 'claim-pending-fee')?.guardianCandidate);
+      entered();
+      return feePending;
+    });
+    try {
+      mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
+      const service = serviceWith({ id: 'prop-pending', nonce: 11, metadata: {}, txSummary: 'ZmlsbA==' });
+      const running = run({
+        id: 'claim-pending-fee',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'pswap-order'
+      });
+      try {
+        await feeLookupStarted;
+        // Still `creating-proposal`: the signing stage is written only after this check returns.
+        expect(txStore.find(row => row.id === 'claim-pending-fee')?.stage).toBe('creating-proposal');
+        expect(keptWhileFeePending).toEqual([
+          {
+            endpoint: 'https://old.guardian',
+            nonce: 11,
+            proposedAt: expect.any(Number),
+            attemptId: expect.any(String)
+          }
+        ]);
+      } finally {
+        releaseFee(10000);
+      }
+      const row = await running;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.guardianCandidate).toBeUndefined();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(11);
+    } finally {
+      nativeAsset.getVerificationBaseFee.mockReset();
+      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+    }
+  });
+
   it('requeues a claim when the chain fee is not known yet, and fails a custom transaction at once', async () => {
     const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
     nativeAsset.getVerificationBaseFee.mockResolvedValue(null);
