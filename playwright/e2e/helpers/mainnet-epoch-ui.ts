@@ -17,7 +17,25 @@ export interface EpochForwardHooks<T> {
   uncertain: () => Promise<void>;
 }
 export async function runGuardedEpochForward<T>(hooks: EpochForwardHooks<T>): Promise<T> {
-  return hooks.settle();
+  let mayHaveSubmitted = false;
+  try {
+    await hooks.enqueue();
+    const inspected = await hooks.inspect();
+    await hooks.persist(inspected);
+    mayHaveSubmitted = true;
+    await hooks.release();
+    return await hooks.settle();
+  } catch (error) {
+    if (mayHaveSubmitted) {
+      await hooks.uncertain();
+    } else {
+      let cancelled = false;
+      try { cancelled = await hooks.cancelQueued(); } catch { /* The held request remains unresolved. */ }
+      if (cancelled) await hooks.unspent();
+      else await hooks.uncertain();
+    }
+    throw error;
+  }
 }
 
 export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: bigint): OneClickRoundTripPlan {
