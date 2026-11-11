@@ -31,6 +31,7 @@ jobs:
           E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
           yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
-          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs
           node scripts/consume-request-equivalence.mjs
           yarn ts

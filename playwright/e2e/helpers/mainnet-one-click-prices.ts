@@ -1,8 +1,17 @@
 import type { OneClickAsset, OneClickMidenAssetConfig } from '../../../src/lib/one-click/types';
 import { usdToMicroDollarsCeil } from './mainnet-one-click-plan';
 
-export function mainnetOneClickPriceId(asset: OneClickAsset, _verifiedNative: OneClickMidenAssetConfig): string {
-  if (!asset.coingeckoId) throw new Error('No source-owned mainnet price identity');
+export function mainnetOneClickPriceId(asset: OneClickAsset, verifiedNative: OneClickMidenAssetConfig): string {
+  if (asset.assetId === verifiedNative.assetId) {
+    if (
+      asset.blockchain !== 'miden' ||
+      asset.faucetId !== verifiedNative.faucetId ||
+      asset.decimals !== verifiedNative.decimals
+    ) throw new Error('Conflicting metadata for the verified native price identity');
+    return 'usd-coin';
+  }
+  if (!asset.coingeckoId || !/^[a-z0-9-]{1,64}$/.test(asset.coingeckoId))
+    throw new Error('No source-owned mainnet price identity');
   return asset.coingeckoId;
 }
 
