@@ -239,6 +239,24 @@ it('shows no $0.00 for an unread known-scale row when the quote is ready', () =>
   expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
 });
 
+it('keeps unread availability warnings out of the picker while search remains usable', () => {
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+  mockNativeFaucetId = MIDEN.tokenId;
+  const unread = {
+    data: [{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+  fireEvent.change(search(), { target: { value: 'BTC' } });
+  expect(search()).toHaveValue('BTC');
+});
+
 describe('SelectTokenDrawer', () => {
   it('disables other tokens when the destination requires USDCx', () => {
     const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };

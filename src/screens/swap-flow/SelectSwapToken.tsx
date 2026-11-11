@@ -58,7 +58,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData = [], isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const swapTokens = useSwapPickerTokens(partnersOf);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -89,18 +89,24 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 // By priceSymbol, never by logoSymbol: IUSDT borrows the USDC logo, not its price. A
                 // token without one is unquoted, so it is valued only at the nominal rate.
                 const label = midenTokenLabel(bridgeConfig, token.faucetId, token.symbol);
-                const fiatValue = listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
+                const fiatValue = balancesLoading
+                  ? undefined
+                  : listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
-                const priceStatus = !scaleIsKnown
-                  ? t('assetValueUnknownScale')
-                  : fiatValue === undefined
-                    ? token.priceSymbol
-                      ? pricesStatus === 'loading'
-                        ? t('loading')
-                        : t('unavailable')
-                      : t('assetPriceUnsupported')
-                    : undefined;
+                const priceStatus = balancesLoading
+                  ? token.priceSymbol
+                    ? t('loading')
+                    : t('assetPriceUnsupported')
+                  : !scaleIsKnown
+                    ? t('assetValueUnknownScale')
+                    : fiatValue === undefined
+                      ? token.priceSymbol
+                        ? pricesStatus === 'loading'
+                          ? t('loading')
+                          : t('unavailable')
+                        : t('assetPriceUnsupported')
+                      : undefined;
 
                 return (
                   <AssetListItem
@@ -110,7 +116,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                     }
                     name={label}
                     amount={
-                      scaleIsKnown ? (
+                      !balancesLoading && scaleIsKnown ? (
                         <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${label}`} />
                       ) : (
                         label

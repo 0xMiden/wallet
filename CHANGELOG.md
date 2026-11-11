@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] Token pickers and token details keep unread balances in a loading state instead of showing a confirmed zero-dollar value.
+
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
 - [FIX][all] Remove redundant leading zeroes from amount edits while preserving exact decimal text and cursor placement.
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
