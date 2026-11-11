@@ -1,0 +1,92 @@
+import { netOutflowByFaucet, summaryBytesToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import { getMessage } from 'lib/i18n/core';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+
+import { ProposalEffectRefusedError } from './constants';
+import type { IConsumeGcPurchaseExtraInputs, ITransaction, ITransactionType } from '../db/types';
+import { canonicalWalletAccountId } from '../sdk/helpers';
+import { withWasmClientLock } from '../sdk/miden-client';
+import { isKilledPipeline } from '../sdk/sdk-error-code';
+
+/**
+ * What a row of a checked type may move out of the account beyond the network fee, by faucet. A type with no entry is
+ * not checked. No row records an approved NFT outflow, so every checked type allows none.
+ */
+const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => AssetAmount[]>> = {
+  // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
+  consume: transaction => {
+    const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
+    return purchase ? [{ faucetId: purchase.payFaucetId, amount: BigInt(purchase.fillAmount) }] : [];
+  },
+  // The approval-time dry run's outflow. A dry run that failed recorded none, so such a row may move nothing.
+  execute: transaction =>
+    (transaction.spentAssetTotals ?? []).map(asset => ({ faucetId: asset.faucetId, amount: BigInt(asset.amount) }))
+};
+
+const isEffectChecked = (type: ITransactionType): boolean => ALLOWED_OUTFLOW[type] !== undefined;
+
+/**
+ * Why `view` moves more than `transaction` was approved to move, or undefined when it does not (or its type is not
+ * checked).
+ *
+ * The outflow is the summary's NET vault change with the fee taken out (`summaryToView`), and no credit is applied for
+ * notes the request brought in: the net change already counts every note the transaction consumed, so crediting them
+ * again would let a request that consumes a note it carries send that much more than it showed.
+ */
+export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetView): string | undefined {
+  const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
+  if (allowedOutflow === undefined) return undefined;
+  const allowed = new Map<string, bigint>();
+  for (const asset of allowedOutflow(transaction)) {
+    const faucetId = canonicalWalletAccountId(asset.faucetId);
+    allowed.set(faucetId, (allowed.get(faucetId) ?? 0n) + asset.amount);
+  }
+  const reasons = netOutflowByFaucet(view)
+    .filter(asset => asset.amount > (allowed.get(asset.faucetId) ?? 0n))
+    .map(asset => `${asset.amount} of ${asset.faucetId} leaves (approved ${allowed.get(asset.faucetId) ?? 0n})`);
+  for (const nft of view.outgoingNfts) reasons.push(`an NFT of ${nft.faucetId} leaves (approved none)`);
+  // A vault change the summary cannot list may be an asset leaving, so it is never taken as nothing moving.
+  if (view.unlistedAssets > 0) reasons.push(`${view.unlistedAssets} vault change(s) the summary does not list`);
+  return reasons.length > 0 ? reasons.join('; ') : undefined;
+}
+
+const refusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
+  new ProposalEffectRefusedError(
+    transaction.type,
+    detail,
+    getMessage('proposalEffectRefused'),
+    cause === undefined ? undefined : { cause }
+  );
+
+/**
+ * Refuse a proposal of a checked type whose summary moves more than its row was approved to move (#2147). Runs before
+ * the hot key signs: it signs this summary's commitment, so the summary is what lands. A summary that is missing or
+ * does not decode is refused too; a kill of the decoding hold passes through unchanged.
+ */
+export async function assertProposalEffectApproved(
+  transaction: ITransaction,
+  txSummary: string | undefined
+): Promise<void> {
+  if (!isEffectChecked(transaction.type)) return;
+  if (typeof txSummary !== 'string' || txSummary.length === 0) {
+    throw refusal(transaction, 'the proposal carries no transaction summary');
+  }
+  // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
+  // refuses, so it is looked up first rather than left to whatever this realm cached.
+  await getVerificationBaseFee();
+  let view: TxAssetView;
+  try {
+    // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it.
+    view = await withWasmClientLock(async () => summaryBytesToView(txSummary), { label: 'proposal effect check' });
+  } catch (error) {
+    if (isKilledPipeline(error)) throw error;
+    throw refusal(transaction, 'the proposal summary could not be read', error);
+  }
+  let detail: string | undefined;
+  try {
+    detail = proposalEffectRefusal(transaction, view);
+  } catch (error) {
+    throw refusal(transaction, 'its approved amounts could not be read', error);
+  }
+  if (detail !== undefined) throw refusal(transaction, detail);
+}

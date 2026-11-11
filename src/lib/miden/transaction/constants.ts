@@ -579,6 +579,24 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/**
+ * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
+ * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
+ * and is kept as the row's raw error; `displayMessage` is the localized sentence the row shows. Matched by identity
+ * ahead of every text classifier, so no requeue arm reads it as transient.
+ */
+export class ProposalEffectRefusedError extends Error {
+  constructor(
+    readonly transactionType: string,
+    detail: string,
+    readonly displayMessage: string,
+    options?: { cause?: unknown }
+  ) {
+    super(`Refused to sign this ${transactionType} transaction: ${detail}`, options);
+    this.name = 'ProposalEffectRefusedError';
+  }
+}
+
 // Hedged: the proposal stages call the node as well as the guardian.
 export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
@@ -593,7 +611,7 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
-  if (error instanceof RotationGateConsumeRefusal) return false;
+  if (error instanceof RotationGateConsumeRefusal || error instanceof ProposalEffectRefusedError) return false;
   // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
   // sent (#1313).
   if (isKilledPipeline(error)) return false;
@@ -653,6 +671,9 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
   if (isSubmitCrossingUnrecorded(error)) {
