@@ -28,7 +28,7 @@ import {
   SWAP_TX_FEE_MULTIPLE,
   type SwapLoopPlan
 } from '../../helpers/mainnet-swap-plan';
-import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept } from '../../helpers/mainnet-swap-ui';
+import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount } from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
 import { parseSwapPairs } from '../../../../src/lib/remote-config/swap-pairs';
 
@@ -56,6 +56,8 @@ function persist(state: MainnetSwapCheckpoint): void {
       `- Route: ${state.offer.symbol} -> ${state.request.symbol} -> ${state.offer.symbol}`,
       `- Principal: ${state.principal} base units; forward: ${state.forwardOrderId ?? 'not identified'}; reverse: ${state.reverseOrderId ?? 'not identified'}`,
       `- Native fees paid/budget: ${state.paidFees}/${state.feeBudget} base units`,
+      `- Realized loss: ${state.realizedCostUsdMicros === undefined ? 'pending' : `$${swapDisplayAmount(BigInt(state.realizedCostUsdMicros), 6)}`}`,
+      `- USD price snapshot: ${state.pricedAt}`,
       '- Amount search: $1.00, $1.01, $1.02, $1.05, $1.10, $1.25, $1.50, $2.00, rounded up to token precision.',
       '- Loss ceiling: $2, not a spend target. A pending or recovered cancellation is not passing swap coverage.',
       ''
@@ -202,6 +204,7 @@ async function evidence(
   for (const row of rows) {
     if (
       row.type !== 'swap' ||
+      row.status !== 2 ||
       row.extraInputs?.orderId === undefined ||
       !row.accountId ||
       !row.faucetId ||
@@ -406,6 +409,7 @@ function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType
     throw new Error('Realized round-trip loss or network fees exceeded the authorized budget');
   state.reverseReceived = result.received.toString();
   state.paidFees = totalFees.toString();
+  state.realizedCostUsdMicros = loss.toString();
   state.phase = 'complete';
   persist(state);
   if (BigInt(state.forwardRefunded ?? '0') > 0n)
@@ -481,6 +485,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       state.forwardReceived = '0';
       state.forwardRefunded = result.refunded.toString();
       state.paidFees = result.fees.toString();
+      state.realizedCostUsdMicros = swapValue(holding(state.native), result.fees).toString();
       state.phase = 'cancelled';
       persist(state);
       throw new Error('Unfilled swap principal was fully reclaimed; full-fill acceptance failed');

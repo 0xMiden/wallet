@@ -222,6 +222,15 @@ export async function resumeSwapAutoAcceptInPage(identity: SwapOrderEvidence): P
   // Restore this loop's persisted Auto accept intent, never an unrelated recovered order's setting.
   const rowId = identity.id;
   const orderId = identity.orderId;
+  const canonical = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    if (!value.startsWith('0x')) return value;
+    try {
+      const convert = Reflect.get(globalThis, '__TEST_HEX_TO_BECH32_FAUCET__');
+      const converted: unknown = typeof convert === 'function' ? Reflect.apply(convert, globalThis, [value]) : undefined;
+      return typeof converted === 'string' ? converted : undefined;
+    } catch { return undefined; }
+  };
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('TridentMain');
     request.onsuccess = () => resolve(request.result);
@@ -234,7 +243,15 @@ export async function resumeSwapAutoAcceptInPage(identity: SwapOrderEvidence): P
       const request = store.get(rowId);
       request.onsuccess = () => {
         const value = request.result;
-        if (value?.type !== 'swap' || String(value.extraInputs?.orderId) !== orderId) {
+        if (
+          value?.type !== 'swap' || value.status !== 2 ||
+          String(value.extraInputs?.orderId) !== orderId ||
+          canonical(value.accountId) !== identity.account ||
+          canonical(value.faucetId) !== identity.offeredFaucet ||
+          canonical(value.extraInputs?.requestedFaucetId) !== identity.requestedFaucet ||
+          String(value.amount) !== identity.offer ||
+          String(value.extraInputs?.requestedAmount) !== identity.minimumReceive
+        ) {
           tx.abort();
           return;
         }

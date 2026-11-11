@@ -38,6 +38,7 @@ export interface MainnetSwapCheckpoint {
   knownOrderIds: string[];
   feeBudget: string;
   paidFees: string;
+  realizedCostUsdMicros?: string;
   forwardOrderId?: string;
   reverseOrderId?: string;
   forwardReceived?: string;
@@ -60,7 +61,7 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const amount = (value: unknown): value is string => typeof value === 'string' && /^\d{1,40}$/.test(value);
 const address = (value: unknown): value is string =>
-  typeof value === 'string' && /^m[a-z]{1,4}1[a-z0-9]{1,200}$/.test(value);
+  typeof value === 'string' && /^m[a-z]{1,4}1[a-z0-9]{1,150}(?:_[a-z0-9]{1,50})?$/.test(value);
 const timestamp = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
 function holding(value: unknown): value is SavedSwapHolding {
@@ -132,6 +133,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   for (const key of [
     'authorizationRunId',
     'recoveredRunId',
+    'realizedCostUsdMicros',
     'forwardOrderId',
     'reverseOrderId',
     'forwardReceived',
@@ -180,6 +182,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'knownOrderIds',
       'feeBudget',
       'paidFees',
+      'realizedCostUsdMicros',
       'forwardOrderId',
       'reverseOrderId',
       'forwardReceived',
