@@ -1,6 +1,25 @@
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { planOneClickRoundTrip, tokenValueUsdMicro, type OneClickRoundTripPlan } from './mainnet-one-click-plan';
 
+export interface EpochInspectedCollateral {
+  rowId: string;
+  noteId: string;
+  reclaimHeight: number;
+}
+export interface EpochForwardHooks<T> {
+  enqueue: () => Promise<void>;
+  inspect: () => Promise<EpochInspectedCollateral>;
+  persist: (inspection: EpochInspectedCollateral) => Promise<void>;
+  release: () => Promise<void>;
+  settle: () => Promise<T>;
+  cancelQueued: () => Promise<boolean>;
+  unspent: () => Promise<void>;
+  uncertain: () => Promise<void>;
+}
+export async function runGuardedEpochForward<T>(hooks: EpochForwardHooks<T>): Promise<T> {
+  return hooks.settle();
+}
+
 export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: bigint): OneClickRoundTripPlan {
   parseMainnetEpochCheckpoint(state);
   const settled = ['forward-settled', 'reverse-authorized', 'complete'].includes(state.phase);
