@@ -106,6 +106,7 @@ export async function quoteEpochSendOutput(args: {
 export interface EpochSendArgs {
   /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
+  minimumOutputBaseUnits?: bigint;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
