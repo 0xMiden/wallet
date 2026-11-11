@@ -1,5 +1,7 @@
 /** @jest-environment node */
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import YAML from 'yaml';
 
@@ -22,6 +24,29 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it.each([true, false])('installs xvfb only when missing (installed: %s)', installed => {
+    const bin = mkdtempSync(resolve(tmpdir(), 'nightly-xvfb-'));
+    try {
+      writeFileSync(resolve(bin, 'sudo'), '#!/bin/sh\nprintf \'%s\\n\' "$*"\n', { mode: 0o700 });
+      if (installed) {
+        writeFileSync(resolve(bin, 'xvfb-run'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+      }
+      for (const name of ['mainnet-nightly', 'mainnet-agglayer']) {
+        const jobSteps = object(jobs[name]).steps;
+        if (!Array.isArray(jobSteps)) throw new Error(`Missing steps in ${name}`);
+        const install = jobSteps.filter(record).find(entry => entry.name === 'Install xvfb');
+        if (typeof install?.run !== 'string') throw new Error(`Missing xvfb script in ${name}`);
+        const output = execFileSync('/bin/bash', ['-e', '-c', install.run], {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: bin }
+        });
+        if (installed) expect(output).toBe('');
+        else expect(output).toContain('apt-get install -y xvfb');
+      }
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
   it('restores and reconciles prior swaps before any shared Guardian send', () => {
     expect(index('Recover prior mainnet swap')).toBeGreaterThan(-1);
     expect(index('Recover prior mainnet swap')).toBeLessThan(index('Run native mainnet round trip'));
