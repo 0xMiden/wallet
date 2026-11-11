@@ -3,6 +3,7 @@
 ## 1.17.12 (TBD)
 
 - [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
+- [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 
 ## 1.17.11 (2026-11-09)
 
