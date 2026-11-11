@@ -994,7 +994,10 @@ describe('ReviewTransaction — rendering', () => {
     mockBalanceData = [VALID_TOKEN];
     render(<ReviewTransaction />);
     await flush();
-    await clickSubmit();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
     expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
   });
 

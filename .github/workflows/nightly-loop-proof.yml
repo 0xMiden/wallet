@@ -26,7 +26,7 @@ jobs:
       - name: Verify immutable source and mainnet helpers
         run: |
           test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
-          yarn jest src/lib/epoch/epoch-send.test.ts src/screens/send-flow/ReviewTransaction.test.tsx src/screens/send-flow/useEpochQuote.test.ts scripts/mainnet-*.test.ts playwright/e2e/helpers/mainnet-one-click-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn jest src/lib/one-click/fees.test.ts src/lib/one-click/client.test.ts src/lib/remote-config/schema.test.ts src/lib/epoch/epoch-send.test.ts src/screens/send-flow/ReviewTransaction.test.tsx src/screens/send-flow/useEpochQuote.test.ts scripts/mainnet-*.test.ts playwright/e2e/helpers/mainnet-one-click-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
           yarn lint:e2e
           E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
