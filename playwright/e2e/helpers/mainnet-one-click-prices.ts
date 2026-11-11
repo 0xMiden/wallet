@@ -1,4 +1,10 @@
+import type { OneClickAsset, OneClickMidenAssetConfig } from '../../../src/lib/one-click/types';
 import { usdToMicroDollarsCeil } from './mainnet-one-click-plan';
+
+export function mainnetOneClickPriceId(asset: OneClickAsset, _verifiedNative: OneClickMidenAssetConfig): string {
+  if (!asset.coingeckoId) throw new Error('No source-owned mainnet price identity');
+  return asset.coingeckoId;
+}
 
 const PRICE_URL = 'https://api.coingecko.com/api/v3/simple/price';
 
