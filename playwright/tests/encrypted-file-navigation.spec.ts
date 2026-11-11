@@ -5,10 +5,10 @@ import type { Locator, Page } from '@playwright/test';
 import { completeSeedImportOnboarding } from '../e2e/helpers/dapp-confirm';
 import { expect, test } from '../fixtures/extension';
 
-test.describe('encrypted file export navigation', () => {
-  // Only terminal navigation screenshots are retained; backup material and credentials stay private.
-  test.use({ trace: 'off', video: 'off', screenshot: 'off' });
+// Only terminal navigation screenshots are retained; backup material and credentials stay private.
+test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 
+test.describe('encrypted file export navigation', () => {
   async function fillPrivateInput(field: Locator, value: string): Promise<void> {
     try {
       await field.fill(value);
@@ -37,10 +37,10 @@ test.describe('encrypted file export navigation', () => {
     }
   }
 
-  test('Done and Back leave an actual successful export in both themes and extension layouts', async (
-    { extensionContext, extensionId },
-    testInfo
-  ) => {
+  test('Done and Back leave an actual successful export in both themes and extension layouts', async ({
+    extensionContext,
+    extensionId
+  }, testInfo) => {
     test.setTimeout(810_000);
     const onboardingPage = await extensionContext.newPage();
     const origin = `chrome-extension://${extensionId}`;
