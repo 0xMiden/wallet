@@ -31,6 +31,13 @@ describe('Skeleton', () => {
     expect(el).not.toHaveClass('bg-fill');
   });
 
+  it('renders the `onFill` tone for a skeleton on a fill card', () => {
+    render(<Skeleton data-testid="skeleton" tone="onFill" />);
+    const el = screen.getByTestId('skeleton');
+    expect(el).toHaveClass('bg-fill-pressed');
+    expect(el).not.toHaveClass('bg-fill');
+  });
+
   it('merges a caller-supplied className with the base classes', () => {
     render(<Skeleton data-testid="skeleton" className="h-4 w-24" />);
 

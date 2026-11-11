@@ -492,6 +492,30 @@ describe('AmountInput', () => {
     });
   });
 
+  describe('loading', () => {
+    const skeleton = (container: HTMLElement) => container.querySelector('[data-slot="skeleton"]');
+
+    it('keeps the input slot width while loading, so the unit control does not move', () => {
+      const { container } = render(
+        <AmountInput value="" loading unitControl={<span>USDC</span>} data-testid={TESTID} />
+      );
+      expect(skeleton(container)?.parentElement).toHaveClass('min-w-0', 'flex-1');
+    });
+
+    it('does not stretch the skeleton in the centred layout', () => {
+      const { container } = render(<AmountInput value="" loading align="center" data-testid={TESTID} />);
+      expect(skeleton(container)?.parentElement).not.toHaveClass('flex-1');
+    });
+
+    it('draws the skeleton in the requested tone', () => {
+      const { container, rerender } = render(<AmountInput value="" loading data-testid={TESTID} />);
+      expect(skeleton(container)).toHaveClass('bg-fill');
+
+      rerender(<AmountInput value="" loading skeletonTone="onFill" data-testid={TESTID} />);
+      expect(skeleton(container)).toHaveClass('bg-fill-pressed');
+    });
+  });
+
   describe('clear action (#503)', () => {
     const clearButton = () => screen.queryByRole('button', { name: 'clear' });
 

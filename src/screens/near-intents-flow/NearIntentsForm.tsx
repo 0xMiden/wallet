@@ -332,6 +332,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
                   placeholder="0"
                   disabled
                   loading={previewRequest !== undefined && preview.loading && quote === undefined}
+                  skeletonTone="onFill"
                   showDivider={false}
                   accent="receive"
                   unitControl={

@@ -6,7 +6,7 @@ import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input
 import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
-import { Skeleton } from 'components/ui/Skeleton';
+import { Skeleton, SkeletonTone } from 'components/ui/Skeleton';
 import { getCurrentLocale } from 'lib/i18n/core';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
@@ -110,6 +110,8 @@ export interface AmountInputProps {
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
+  /** The skeleton's tone: `onFill` when the field sits on a `fill` card. Defaults to `fill`. */
+  skeletonTone?: SkeletonTone;
   /** A unit drawn before the number (e.g. "$"), outside the input so the value stays bare digits. */
   prefix?: React.ReactNode;
   /**
@@ -157,6 +159,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   autoFocus,
   disabled,
   loading,
+  skeletonTone,
   prefix,
   align = 'left',
   size = 'default',
@@ -308,7 +311,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           </span>
         )}
         {loading ? (
-          <Skeleton className={classNames('rounded-xl', compact ? 'h-9 w-28' : 'h-14 w-40')} />
+          // Left-aligned, the skeleton takes the input's free width, so the unit control stays where it was.
+          <div className={classNames('self-center', !centered && 'min-w-0 flex-1')}>
+            <Skeleton tone={skeletonTone} className={classNames('rounded-xl', compact ? 'h-9 w-28' : 'h-14 w-40')} />
+          </div>
         ) : centered ? (
           // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
           // what it holds and the prefix + number centre as one.
