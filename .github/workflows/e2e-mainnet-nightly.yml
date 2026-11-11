@@ -98,6 +98,7 @@ jobs:
       - name: Install xvfb
         timeout-minutes: 6
         run: |
+          if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
           sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
@@ -439,6 +440,7 @@ jobs:
       - name: Install xvfb
         timeout-minutes: 6
         run: |
+          if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
           sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
