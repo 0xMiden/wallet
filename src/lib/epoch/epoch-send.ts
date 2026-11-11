@@ -3,12 +3,14 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import {
+  BridgeConfigUnavailableError,
   type EvmUsdc,
-  findEpochAllocatorAccount,
   getEpochAllocatorUrl,
   getEpochOutputToken,
-  getEvmChainId
+  getEvmChainId,
+  selectEpochAllocator
 } from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote, normalizeMidenIdToHex } from './bridge';
@@ -146,7 +148,11 @@ export interface EpochSendArgs {
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
   const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
-  const allocatorUrl = getEpochAllocatorUrl();
+  const allocator = selectEpochAllocator(getBridgeConfigSnapshot());
+  if (allocator === null) {
+    throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
+  }
+  const { allocatorUrl, accountId } = allocator;
   const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
@@ -175,7 +181,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
       // configuration names.
       const mismatch = collateralNoteMismatch(
         { faucetId: faucet, amount, allocatorId },
-        { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: findEpochAllocatorAccount(allocatorUrl) }
+        { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: accountId }
       );
       if (mismatch !== null) {
         noteError = new EpochCollateralNoteMismatchError(mismatch);

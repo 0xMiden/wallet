@@ -29,25 +29,29 @@ jest.mock('./bridge', () => ({
   // Idempotent, as the real conversion is: a hex id stays the same id.
   normalizeMidenIdToHex: (id: string) => (id.startsWith('hex:') ? id : `hex:${id}`)
 }));
-const mockFindEpochAllocatorAccount = jest.fn((url: string): string | null => {
-  const selected = mockSelectEpochAllocator(mockGetBridgeConfigSnapshot());
-  return selected?.allocatorUrl === url ? selected.accountId : null;
-});
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => mockGetBridgeConfigSnapshot()
 }));
-jest.mock('lib/remote-config/values', () => ({
-  getEpochOutputToken: (chainId: number, faucetId: string) => mockGetEvmUsdc(chainId, faucetId),
-  getEvmChainId: () => 11155111,
-  getEpochAllocatorUrl: () => {
-    const selected = mockSelectEpochAllocator(mockGetBridgeConfigSnapshot());
-    if (!selected) throw new Error('no allocator');
-    return selected.allocatorUrl;
-  },
-  selectEpochAllocator: (snapshot: { allocatorUrl?: string; accountId?: string | null }) =>
-    mockSelectEpochAllocator(snapshot),
-  findEpochAllocatorAccount: (url: string) => mockFindEpochAllocatorAccount(url)
-}));
+jest.mock('lib/remote-config/values', () => {
+  class BridgeConfigUnavailableError extends Error {
+    constructor(readonly value: string) {
+      super(`The bridge config has no usable ${value}.`);
+      this.name = 'BridgeConfigUnavailableError';
+    }
+  }
+  return {
+    BridgeConfigUnavailableError,
+    getEpochOutputToken: (chainId: number, faucetId: string) => mockGetEvmUsdc(chainId, faucetId),
+    getEvmChainId: () => 11155111,
+    getEpochAllocatorUrl: () => {
+      const selected = mockSelectEpochAllocator(mockGetBridgeConfigSnapshot());
+      if (!selected) throw new Error('no allocator');
+      return selected.allocatorUrl;
+    },
+    selectEpochAllocator: (snapshot: { allocatorUrl?: string; accountId?: string | null }) =>
+      mockSelectEpochAllocator(snapshot)
+  };
+});
 jest.mock('./chain', () => ({
   getCurrentMidenBlock: () => mockGetCurrentMidenBlock(),
   MIDEN_MIN_RECLAIM_BLOCKS: 1000,
@@ -274,10 +278,35 @@ describe('the collateral note request', () => {
     );
   });
 
-  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+  it('keeps the captured allocator pair when the network changes during quote', async () => {
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
     mockGetCrossChainQuote.mockImplementationOnce(async () => {
-      mockGetBridgeConfigSnapshot.mockReturnValue({ allocatorUrl: 'https://other-allocator.test', accountId: '0xother' });
+      mockGetBridgeConfigSnapshot.mockReturnValue({
+        allocatorUrl: 'https://other-allocator.test',
+        accountId: '0xother'
+      });
       return { quoteResult: { tokenOut: '250' } };
+    });
+
+    await expect(bridgeEpochSend(args())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(args().destinationAddress, 'https://allocator.test');
+    expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ allocatorUrl: 'https://allocator.test', allocatorId: '0xallocator' })
+    );
+  });
+
+  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      mockGetBridgeConfigSnapshot.mockReturnValue({
+        allocatorUrl: 'https://other-allocator.test',
+        accountId: '0xother'
+      });
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
     });
 
     await expect(bridgeEpochSend(args())).resolves.toEqual({ txId: 'tx-1' });
@@ -312,5 +341,15 @@ describe('the collateral note request', () => {
 
     await expect(bridgeEpochSend(args())).rejects.toMatchObject({ field: 'allocator' });
     expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+  });
+
+  it('rejects before SDK work while the snapshot names no allocator URL', async () => {
+    mockGetBridgeConfigSnapshot.mockReturnValue({ allocatorUrl: undefined, accountId: '0xallocator' });
+
+    await expect(bridgeEpochSend(args())).rejects.toMatchObject({
+      name: 'BridgeConfigUnavailableError',
+      value: 'epoch.allocatorUrl'
+    });
+    expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
   });
 });

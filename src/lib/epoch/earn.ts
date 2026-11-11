@@ -11,12 +11,13 @@ import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/t
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { EarnVaultProtocol } from 'lib/remote-config/schema';
 import {
+  BridgeConfigUnavailableError,
   type EarnMarket,
-  findEpochAllocatorAccount,
-  getEpochAllocatorUrl,
-  getEvmChainId
+  getEvmChainId,
+  selectEpochAllocator
 } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -370,10 +371,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   if (!isEvmAddress(args.evmAddress)) {
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
   }
+  const allocator = selectEpochAllocator(getBridgeConfigSnapshot());
+  if (allocator === null) {
+    throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
+  }
+  const { allocatorUrl, accountId } = allocator;
   const evmRecipient = args.evmAddress;
 
   const { market } = args;
-  const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(evmRecipient, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
 
@@ -415,7 +420,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
         {
           faucetId: args.collateral.faucetId,
           amount: args.amount,
-          allocatorAccountId: findEpochAllocatorAccount(allocatorUrl)
+          allocatorAccountId: accountId
         }
       );
       if (mismatch !== null) {

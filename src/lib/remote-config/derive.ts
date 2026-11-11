@@ -78,7 +78,6 @@ export interface AgglayerDepositToken {
  * A collateral note goes only to this account.
  */
 export interface EpochAllocatorAccount {
-  allocatorUrl: string;
   accountId: string; // '0x' + 30 lowercase hex
 }
 
@@ -377,7 +376,7 @@ function readAllocatorAccount(
     if (typeof named !== 'string' || named.trim() === '') throw new Error(`${url} names no Miden account`);
     const accountId = await io.midenAccountHex(named.trim());
     if (!/^0x[0-9a-f]{30}$/.test(accountId)) throw new Error(`${url} names an invalid Miden account`);
-    return { allocatorUrl, accountId };
+    return { accountId };
   });
 }
 

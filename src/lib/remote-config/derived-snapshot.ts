@@ -108,8 +108,9 @@ function probe<T>(value: unknown, read: (value: unknown) => T | null): Probe<T> 
 }
 
 function allocatorAccount(value: unknown): EpochAllocatorAccount | null {
-  if (!isRecord(value) || typeof value.allocatorUrl !== 'string' || !isMidenAccountId(value.accountId)) return null;
-  return { allocatorUrl: value.allocatorUrl, accountId: value.accountId };
+  // An older snapshot stored the allocator URL beside the account. The document already names that URL.
+  if (!isRecord(value) || !isMidenAccountId(value.accountId)) return null;
+  return { accountId: value.accountId };
 }
 
 function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {

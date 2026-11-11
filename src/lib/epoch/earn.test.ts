@@ -2,8 +2,8 @@ import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
-import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
 import { EpochCollateralNoteMismatchError } from './collateral-guard';
@@ -58,23 +58,29 @@ const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
 const SPONSOR = '0x1111111111111111111111111111111111111111';
 
-function bridgeSnapshot(allocatorUrl: string, accountId: string): BridgeConfigSnapshot {
+function bridgeSnapshot(allocatorUrl: string | undefined, accountId: string | undefined): BridgeConfigSnapshot {
   const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   const config = snapshot.config;
   const derived = snapshot.derived;
   if (!config || !derived || !config['bridge-providers'].epoch) throw new Error('incomplete bridge fixture');
+  const epochConfig = { ...config['bridge-providers'].epoch };
+  if (allocatorUrl === undefined) delete epochConfig.allocatorUrl;
+  else epochConfig.allocatorUrl = allocatorUrl;
   return {
     ...snapshot,
     config: {
       ...config,
       'bridge-providers': {
         ...config['bridge-providers'],
-        epoch: { ...config['bridge-providers'].epoch, allocatorUrl }
+        epoch: epochConfig
       }
     },
     derived: {
       ...derived,
-      epoch: { ...derived.epoch, allocatorAccount: { state: 'ok', value: { allocatorUrl, accountId } } }
+      epoch: {
+        ...derived.epoch,
+        allocatorAccount: accountId === undefined ? { state: 'absent' } : { state: 'ok', value: { accountId } }
+      }
     }
   };
 }
@@ -796,16 +802,14 @@ describe('openEarnPosition guards', () => {
   });
 
   it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {
-    jest.mocked(getEpochAllocatorUrl).mockImplementationOnce(() => {
-      throw new Error('no allocator');
-    });
-
-    // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
+    const snapshot = bridgeSnapshot(undefined, TEST_ALLOCATOR_ACCOUNT);
+    expect(snapshot.config?.['bridge-providers'].epoch).not.toHaveProperty('allocatorUrl');
+    mockGetBridgeConfigSnapshot.mockReturnValue(snapshot);
     let pending: Promise<unknown> | undefined;
     expect(() => {
       pending = openEarnPosition(baseArgs());
     }).not.toThrow();
-    await expect(pending).rejects.toThrow('no allocator');
+    await expect(pending).rejects.toMatchObject({ name: 'BridgeConfigUnavailableError', value: 'epoch.allocatorUrl' });
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });

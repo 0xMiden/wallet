@@ -276,10 +276,7 @@ const HEALTHY: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    allocatorAccount: {
-      state: 'ok',
-      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: ALLOCATOR_ACCOUNT }
-    },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [DUMMY_VAULT_INFO] }
   },
@@ -441,17 +438,14 @@ describe('deriveBridgeConfig', () => {
   const deriveAllocatorAccount = (body: unknown, io: Partial<DeriveDeps> = {}) =>
     deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_RECIPIENT_URL]: body }), ...io }));
 
-  it("reads the allocator's Miden account in its lowercase hex form, keyed by the allocator URL", async () => {
+  it("reads the allocator's Miden account in its lowercase hex form", async () => {
     const midenAccountHex = jest.fn(async () => ALLOCATOR_ACCOUNT);
     const derived = await deriveAllocatorAccount(
       { midenP2IDRecipientAccountId: 'mtst1allocator', midenMinReclaimBlocks: 1000 },
       { midenAccountHex }
     );
     expect(midenAccountHex).toHaveBeenCalledWith('mtst1allocator');
-    expect(derived.epoch.allocatorAccount).toEqual({
-      state: 'ok',
-      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: ALLOCATOR_ACCOUNT }
-    });
+    expect(derived.epoch.allocatorAccount).toEqual({ state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } });
   });
 
   it.each([

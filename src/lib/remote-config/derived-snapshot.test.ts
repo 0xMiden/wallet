@@ -123,7 +123,7 @@ const whole = (): DerivedBridgeConfig => ({
   agglayer: { indexer: { state: 'absent' } },
   epoch: {
     allocator: { state: 'error', message: 'HTTP 502' },
-    allocatorAccount: { state: 'ok', value: { allocatorUrl: 'https://allocator.test', accountId: ALLOCATOR_ACCOUNT } },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     market: { state: 'ok', value: MARKET },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [DUMMY_VAULT, EULER_VAULT] }
@@ -434,10 +434,18 @@ it('reads a copy with no allocator account, as a build before it stored it, as m
 });
 
 it.each([
-  ['an account id that is not lowercase hex', { allocatorUrl: 'https://allocator.test', accountId: 'mtst1allocator' }],
-  ['no allocator URL', { accountId: ALLOCATOR_ACCOUNT }]
-])('rejects a snapshot whose allocator account holds %s', (_label, value) => {
+  ['only its account id', { accountId: ALLOCATOR_ACCOUNT }],
+  ['an older URL beside its account id', { allocatorUrl: 'https://allocator.test', accountId: ALLOCATOR_ACCOUNT }]
+])('reads an allocator account with %s', (_label, value) => {
   const epoch = { ...whole().epoch, allocatorAccount: { state: 'ok', value } };
+  expect(parseStoredDerived({ ...whole(), epoch }, 'testnet', 4)).toStrictEqual(whole());
+});
+
+it('rejects a snapshot whose allocator account id is not lowercase hex', () => {
+  const epoch = {
+    ...whole().epoch,
+    allocatorAccount: { state: 'ok', value: { accountId: 'mtst1allocator' } }
+  };
   expect(parseStoredDerived({ ...whole(), epoch }, 'testnet', 4)).toBeNull();
 });
 

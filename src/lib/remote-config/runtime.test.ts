@@ -136,10 +136,7 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
   agglayer: { indexer: { state: 'skipped' } },
   epoch: {
     allocator: { state: 'ok', value: true },
-    allocatorAccount: {
-      state: 'ok',
-      value: { allocatorUrl: 'https://testnet-dev.epochprotocol.xyz', accountId: '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e' }
-    },
+    allocatorAccount: { state: 'ok', value: { accountId: '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e' } },
     market: { state: 'skipped' },
     midenUsdcFaucet: { state: 'skipped' },
     vaults: { state: 'skipped' }

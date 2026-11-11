@@ -72,6 +72,13 @@ export const TEST_EVM_NETWORK_ID = 0;
  * re-stub. Install it with
  * `jest.mock('lib/remote-config/values', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigValuesMock())`.
  */
+class BridgeConfigUnavailableError extends Error {
+  constructor(readonly value: string) {
+    super(`The bridge config has no usable ${value}.`);
+    this.name = 'BridgeConfigUnavailableError';
+  }
+}
+
 function selectedEpochAllocator(snapshot: BridgeConfigSnapshot) {
   const allocatorUrl = snapshot.config?.['bridge-providers'].epoch?.allocatorUrl;
   if (!allocatorUrl) return null;
@@ -86,10 +93,7 @@ export function remoteConfigValuesMock(readSnapshot: () => BridgeConfigSnapshot 
       if (!selected) throw new Error('no allocator');
       return selected.allocatorUrl;
     }),
-    findEpochAllocatorAccount: jest.fn((allocatorUrl: string): string | null => {
-      const selected = selectedEpochAllocator(readSnapshot());
-      return selected?.allocatorUrl === allocatorUrl ? selected.accountId : null;
-    }),
+    BridgeConfigUnavailableError,
     selectEpochAllocator: jest.fn((snapshot: BridgeConfigSnapshot) => selectedEpochAllocator(snapshot)),
     getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
     getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
@@ -177,7 +181,7 @@ const TEST_DERIVED: DerivedBridgeConfig = {
   epoch: {
     market: { state: 'ok', value: TEST_EARN_MARKET },
     allocator: { state: 'ok', value: true },
-    allocatorAccount: { state: 'ok', value: { allocatorUrl: TEST_ALLOCATOR_URL, accountId: TEST_ALLOCATOR_ACCOUNT } },
+    allocatorAccount: { state: 'ok', value: { accountId: TEST_ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
     vaults: { state: 'ok', value: [...TEST_EARN_VAULT_CATALOG] }
   },
