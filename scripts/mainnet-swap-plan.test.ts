@@ -63,6 +63,14 @@ describe('nightly swap cost gate', () => {
     if (mode === 'unpriced') c.native.usdMicros = 0n;
     expect(() => planMainnetSwapLoop(c)).toThrow();
   });
+  it('reserves forward create and claim fees out of native intermediate proceeds', () => {
+    const c = candidate();
+    c.native = c.forward.requested = c.reverse.offered = holding('b');
+    c.reverse.offer = 1_008_940n;
+    expect(planMainnetSwapLoop(c).worstCaseLossUsdMicros).toBe(2_120n);
+    c.reverse.offer = 1_009_000n;
+    expect(() => planMainnetSwapLoop(c)).toThrow(/proceeds/);
+  });
   it('rounds each network fee up conservatively', () => {
     const c = candidate();
     c.native.decimals = 12;
