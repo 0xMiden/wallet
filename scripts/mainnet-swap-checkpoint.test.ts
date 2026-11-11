@@ -15,23 +15,63 @@ import {
 
 export function checkpoint(): MainnetSwapCheckpoint {
   return {
-    version: 1, network: 'mainnet', account: 'mm1dedicatedaccount', sourceRunId: '123', phase: 'forward-authorized',
-    createdAt: '2026-11-11T12:00:00.000Z', pricedAt: '2026-11-11T12:00:00.000Z', updatedAt: '2026-11-11T12:00:00.000Z',
-    offer: { faucetId: 'mm1a', hex: '0x' + '1'.repeat(30), symbol: 'USDCX', decimals: 6, balance: '10000000', usdMicros: '1000000' },
-    request: { faucetId: 'mm1b', hex: '0x' + '2'.repeat(30), symbol: 'ETH', decimals: 8, balance: '123', usdMicros: '3000000000' },
-    native: { faucetId: 'mm1a', hex: '0x' + '1'.repeat(30), symbol: 'USDCX', decimals: 6, balance: '10000000', usdMicros: '1000000' },
-    baseFee: '1', principal: '1010000', forwardMinimum: '33649', reverseMinimum: '1007000',
-    knownOrderIds: ['1'], feeBudget: '180', paidFees: '0'
+    version: 1,
+    network: 'mainnet',
+    account: 'mm1dedicatedaccount',
+    sourceRunId: '123',
+    phase: 'forward-authorized',
+    createdAt: '2026-11-11T12:00:00.000Z',
+    pricedAt: '2026-11-11T12:00:00.000Z',
+    updatedAt: '2026-11-11T12:00:00.000Z',
+    offer: {
+      faucetId: 'mm1a',
+      hex: '0x' + '1'.repeat(30),
+      symbol: 'USDCX',
+      decimals: 6,
+      balance: '10000000',
+      usdMicros: '1000000'
+    },
+    request: {
+      faucetId: 'mm1b',
+      hex: '0x' + '2'.repeat(30),
+      symbol: 'ETH',
+      decimals: 8,
+      balance: '123',
+      usdMicros: '3000000000'
+    },
+    native: {
+      faucetId: 'mm1a',
+      hex: '0x' + '1'.repeat(30),
+      symbol: 'USDCX',
+      decimals: 6,
+      balance: '10000000',
+      usdMicros: '1000000'
+    },
+    baseFee: '1',
+    principal: '1010000',
+    forwardMinimum: '33649',
+    reverseMinimum: '1007000',
+    knownOrderIds: ['1'],
+    feeBudget: '180',
+    paidFees: '0'
   };
 }
 const row = (): SwapOrderEvidence => ({
-  id: 'tx', orderId: '2', account: 'mm1dedicatedaccount', offeredFaucet: 'mm1a', requestedFaucet: 'mm1b',
-  offer: '1010000', minimumReceive: '33649', initiatedAt: 1794398401
+  id: 'tx',
+  orderId: '2',
+  account: 'mm1dedicatedaccount',
+  offeredFaucet: 'mm1a',
+  requestedFaucet: 'mm1b',
+  offer: '1010000',
+  minimumReceive: '33649',
+  initiatedAt: 1794398401
 });
 
 describe('durable nightly swap authorization', () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'swap-checkpoint-')); });
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'swap-checkpoint-'));
+  });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it('round trips the full authorization with private file permissions', () => {
@@ -89,7 +129,9 @@ describe('durable nightly swap authorization', () => {
   });
   it('matches only a unique new order with authorized account, pair and amounts', () => {
     expect(matchAuthorizedSwap(checkpoint(), [row()], 'forward')?.orderId).toBe('2');
-    expect(() => matchAuthorizedSwap(checkpoint(), [row(), { ...row(), orderId: '3' }], 'forward')).toThrow(/ambiguous/);
+    expect(() => matchAuthorizedSwap(checkpoint(), [row(), { ...row(), orderId: '3' }], 'forward')).toThrow(
+      /ambiguous/
+    );
     expect(matchAuthorizedSwap(checkpoint(), [{ ...row(), orderId: '1' }], 'forward')).toBeUndefined();
     expect(matchAuthorizedSwap(checkpoint(), [{ ...row(), account: 'foreign' }], 'forward')).toBeUndefined();
     expect(matchAuthorizedSwap(checkpoint(), [{ ...row(), offer: '1010001' }], 'forward')).toBeUndefined();

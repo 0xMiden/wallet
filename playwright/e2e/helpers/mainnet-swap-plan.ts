@@ -35,8 +35,15 @@ export interface SwapLoopPlan extends SwapLoopCandidate {
 }
 
 function validateHolding(holding: SwapHolding): void {
-  if (!holding.faucetId || !holding.symbol || !Number.isSafeInteger(holding.decimals) ||
-      holding.decimals < 0 || holding.decimals > 12 || holding.balance < 0n || holding.usdMicros <= 0n) {
+  if (
+    !holding.faucetId ||
+    !holding.symbol ||
+    !Number.isSafeInteger(holding.decimals) ||
+    holding.decimals < 0 ||
+    holding.decimals > 12 ||
+    holding.balance < 0n ||
+    holding.usdMicros <= 0n
+  ) {
     throw new Error('Invalid swap holding or USD price');
   }
 }
@@ -50,10 +57,16 @@ export function planMainnetSwapLoop(candidate: SwapLoopCandidate): SwapLoopPlan 
   const { forward, reverse, native, baseFee, recoveryTxs } = candidate;
   validateHolding(native);
   if (baseFee <= 0n || recoveryTxs !== 2n) throw new Error('Invalid swap fee budget');
-  if (forward.offered.faucetId !== reverse.requested.faucetId ||
-      forward.requested.faucetId !== reverse.offered.faucetId ||
-      forward.offered.faucetId === forward.requested.faucetId) throw new Error('Swap pair mismatch');
-  for (const [left, right] of [[forward.offered, reverse.requested], [forward.requested, reverse.offered]]) {
+  if (
+    forward.offered.faucetId !== reverse.requested.faucetId ||
+    forward.requested.faucetId !== reverse.offered.faucetId ||
+    forward.offered.faucetId === forward.requested.faucetId
+  )
+    throw new Error('Swap pair mismatch');
+  for (const [left, right] of [
+    [forward.offered, reverse.requested],
+    [forward.requested, reverse.offered]
+  ]) {
     if (!left || !right || left.decimals !== right.decimals || left.usdMicros !== right.usdMicros) {
       throw new Error('Swap scale or valuation mismatch');
     }
@@ -71,7 +84,8 @@ export function planMainnetSwapLoop(candidate: SwapLoopCandidate): SwapLoopPlan 
   }
   const perTx = baseFee * SWAP_TX_FEE_MULTIPLE;
   const intermediateFees = forward.requested.faucetId === native.faucetId ? 2n * perTx : 0n;
-  if (reverse.offer !== forward.minimumReceive - intermediateFees) throw new Error('Return must spend only net forward proceeds');
+  if (reverse.offer !== forward.minimumReceive - intermediateFees)
+    throw new Error('Return must spend only net forward proceeds');
   if (forward.offer > forward.offered.balance) throw new Error('Swap principal is unfunded');
   const nativeReserve = 2n * (4n + recoveryTxs) * perTx;
   const nativePrincipal = forward.offered.faucetId === native.faucetId ? forward.offer : 0n;
@@ -98,7 +112,11 @@ export function chooseMainnetSwapLoop(candidates: readonly SwapLoopPlan[]): Swap
 export function swapSearchAmounts(holding: SwapHolding): bigint[] {
   validateHolding(holding);
   const scale = 10n ** BigInt(holding.decimals);
-  return [...new Set([100n, 101n, 102n, 105n, 110n, 125n, 150n, 200n].map(cents =>
-    (cents * 10_000n * scale + holding.usdMicros - 1n) / holding.usdMicros
-  ))].filter(amount => amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
+  return [
+    ...new Set(
+      [100n, 101n, 102n, 105n, 110n, 125n, 150n, 200n].map(
+        cents => (cents * 10_000n * scale + holding.usdMicros - 1n) / holding.usdMicros
+      )
+    )
+  ].filter(amount => amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
 }

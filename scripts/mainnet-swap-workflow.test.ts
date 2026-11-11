@@ -4,8 +4,13 @@ import { resolve } from 'node:path';
 import YAML from 'yaml';
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
-function object(value: unknown): Record<string, unknown> { if (!record(value)) throw new Error('Expected workflow mapping'); return value; }
-const document = object(YAML.parse(readFileSync(resolve(__dirname, '../.github/workflows/e2e-mainnet-nightly.yml'), 'utf8')));
+function object(value: unknown): Record<string, unknown> {
+  if (!record(value)) throw new Error('Expected workflow mapping');
+  return value;
+}
+const document = object(
+  YAML.parse(readFileSync(resolve(__dirname, '../.github/workflows/e2e-mainnet-nightly.yml'), 'utf8'))
+);
 const jobs = object(document.jobs);
 const main = object(jobs['mainnet-nightly']);
 const steps = Array.isArray(main.steps) ? main.steps.filter(record) : [];

@@ -1,31 +1,73 @@
 /** @jest-environment node */
-import { quotedSwapMinimum, validateSwapEta, validateSwapReview, submitSwapOnce, resumeSwapAutoAcceptInPage } from '../playwright/e2e/helpers/mainnet-swap-ui';
+import { db as walletDb } from 'lib/miden/repo';
 
-const price = () => ({ offeredFaucet: 'a', requestedFaucet: 'b', offeredDecimals: 6, requestedDecimals: 6,
-  marketPrice: '1', fillPrice: '0.99995', feePpm: 50, asOf: 1_000 });
-const eta = () => ({ offeredFaucet: 'a', requestedFaucet: 'b', offeredAmount: '1010000', requestedAmount: '1009444',
-  settlementsRunning: true, fillStatus: 'full', priceBand: 'at_market', reason: null,
-  fillableOfferedAmount: '1010000', fillableRequestedAmount: '1009444', expectedRequestedAmount: '1009949' });
+import {
+  quotedSwapMinimum,
+  validateSwapEta,
+  validateSwapReview,
+  submitSwapOnce,
+  resumeSwapAutoAcceptInPage
+} from '../playwright/e2e/helpers/mainnet-swap-ui';
+
+const price = () => ({
+  offeredFaucet: 'a',
+  requestedFaucet: 'b',
+  offeredDecimals: 6,
+  requestedDecimals: 6,
+  marketPrice: '1',
+  fillPrice: '0.99995',
+  feePpm: 50,
+  asOf: 1_000
+});
+const eta = () => ({
+  offeredFaucet: 'a',
+  requestedFaucet: 'b',
+  offeredAmount: '1010000',
+  requestedAmount: '1009444',
+  settlementsRunning: true,
+  fillStatus: 'full',
+  priceBand: 'at_market',
+  reason: null,
+  fillableOfferedAmount: '1010000',
+  fillableRequestedAmount: '1009444',
+  expectedRequestedAmount: '1009949'
+});
 
 describe('restoring one recovered swap automation setting', () => {
-  const identity = { id: 'resume-tx', orderId: '123', account: 'mm1account', offeredFaucet: 'mm1a', requestedFaucet: 'mm1b',
-    offer: '1010000', minimumReceive: '1009000', initiatedAt: 1_000 };
+  const identity = {
+    id: 'resume-tx',
+    orderId: '123',
+    account: 'mm1account',
+    offeredFaucet: 'mm1a',
+    requestedFaucet: 'mm1b',
+    offer: '1010000',
+    minimumReceive: '1009000',
+    initiatedAt: 1_000
+  };
   let db: IDBDatabase;
   beforeEach(async () => {
-    db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('TridentMain', 1);
-      request.onupgradeneeded = () => request.result.createObjectStore('transactions', { keyPath: 'id' });
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+    await walletDb.open();
+    db = walletDb.backendDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('transactions', 'readwrite');
-      tx.objectStore('transactions').put({ id: identity.id, type: 'swap', accountId: identity.account, faucetId: identity.offeredFaucet,
-        amount: 1010000n, extraInputs: { orderId: 123n, requestedFaucetId: identity.requestedFaucet, requestedAmount: 1009000n, autoConsume: false } });
-      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+      tx.objectStore('transactions').put({
+        id: identity.id,
+        type: 'swap',
+        status: 2,
+        accountId: identity.account,
+        faucetId: identity.offeredFaucet,
+        amount: 1010000n,
+        extraInputs: {
+          orderId: 123n,
+          requestedFaucetId: identity.requestedFaucet,
+          requestedAmount: 1009000n,
+          autoConsume: false
+        }
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   });
-  afterEach(() => db.close());
   async function setting(): Promise<boolean> {
     return new Promise((resolve, reject) => {
       const request = db.transaction('transactions', 'readonly').objectStore('transactions').get(identity.id);
@@ -37,10 +79,13 @@ describe('restoring one recovered swap automation setting', () => {
     await resumeSwapAutoAcceptInPage(identity);
     expect(await setting()).toBe(true);
   });
-  it.each([{ account: 'foreign' }, { offeredFaucet: 'foreign' }, { minimumReceive: '999999' }])('does not restore automation after identity changes: %p', async change => {
-    await expect(resumeSwapAutoAcceptInPage({ ...identity, ...change })).rejects.toThrow(/identity/);
-    expect(await setting()).toBe(false);
-  });
+  it.each([{ account: 'foreign' }, { offeredFaucet: 'foreign' }, { minimumReceive: '999999' }])(
+    'does not restore automation after identity changes: %p',
+    async change => {
+      await expect(resumeSwapAutoAcceptInPage({ ...identity, ...change })).rejects.toThrow(/identity/);
+      expect(await setting()).toBe(false);
+    }
+  );
 });
 
 describe('live nightly swap pre-sign boundary', () => {
@@ -58,8 +103,14 @@ describe('live nightly swap pre-sign boundary', () => {
   });
   it('requires an exact fully fillable live order, not a partial or stale-pair response', () => {
     expect(() => validateSwapEta(eta(), 'a', 'b', 1_010_000n, 1_009_444n)).not.toThrow();
-    for (const change of [{ settlementsRunning: false }, { fillStatus: 'partial' }, { offeredAmount: '2' },
-      { priceBand: 'tolerated' }, { fillableOfferedAmount: '1000000' }, { requestedFaucet: 'foreign' }]) {
+    for (const change of [
+      { settlementsRunning: false },
+      { fillStatus: 'partial' },
+      { offeredAmount: '2' },
+      { priceBand: 'tolerated' },
+      { fillableOfferedAmount: '1000000' },
+      { requestedFaucet: 'foreign' }
+    ]) {
       expect(() => validateSwapEta({ ...eta(), ...change }, 'a', 'b', 1_010_000n, 1_009_444n)).toThrow();
     }
   });
@@ -70,7 +121,10 @@ describe('live nightly swap pre-sign boundary', () => {
   });
   it('cannot submit twice even after the first submit loses its response', async () => {
     let submissions = 0;
-    const submit = submitSwapOnce(async () => { submissions++; throw new Error('transport lost'); });
+    const submit = submitSwapOnce(async () => {
+      submissions++;
+      throw new Error('transport lost');
+    });
     await expect(submit()).rejects.toThrow('transport lost');
     await expect(submit()).rejects.toThrow(/already attempted/);
     expect(submissions).toBe(1);
