@@ -15,6 +15,8 @@ export interface MainnetSwapCheckpoint {
   network: 'mainnet';
   account: string;
   sourceRunId: string;
+  authorizationRunId?: string;
+  recoveredRunId?: string;
   phase: SwapLoopPhase;
   createdAt: string;
   updatedAt: string;
@@ -69,7 +71,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       !amount(value.feeBudget) || !amount(value.paidFees) || BigInt(value.paidFees) > BigInt(value.feeBudget) ||
       !Array.isArray(value.knownOrderIds) || value.knownOrderIds.length > 4096 || !value.knownOrderIds.every(amount)) return false;
   if (!['forward-authorized', 'forward-settled', 'reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase))) return false;
-  for (const key of ['forwardOrderId', 'reverseOrderId', 'forwardReceived', 'reverseReceived', 'returnAmount']) {
+  for (const key of ['authorizationRunId', 'recoveredRunId', 'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'reverseReceived', 'returnAmount']) {
     if (value[key] !== undefined && !amount(value[key])) return false;
   }
   if (value.returnBaseline !== undefined && (!record(value.returnBaseline) ||
@@ -78,7 +80,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       (!amount(value.forwardOrderId) || !amount(value.forwardReceived) || !amount(value.returnAmount) || !record(value.returnBaseline))) return false;
   if (value.phase === 'complete' && (!amount(value.reverseOrderId) || !amount(value.reverseReceived))) return false;
   return Object.keys(value).every(key => [
-    'version', 'network', 'account', 'sourceRunId', 'phase', 'createdAt', 'updatedAt', 'offer', 'request', 'native',
+    'version', 'network', 'account', 'sourceRunId', 'authorizationRunId', 'recoveredRunId', 'phase', 'createdAt', 'updatedAt', 'offer', 'request', 'native',
     'baseFee', 'principal', 'forwardMinimum', 'reverseMinimum', 'knownOrderIds', 'feeBudget', 'paidFees',
     'forwardOrderId', 'reverseOrderId', 'forwardReceived', 'reverseReceived', 'returnAmount', 'returnBaseline'
   ].includes(key));

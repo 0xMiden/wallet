@@ -69,9 +69,10 @@ export function planMainnetSwapLoop(candidate: SwapLoopCandidate): SwapLoopPlan 
     const output = swapValue(leg.requested, leg.minimumReceive, false);
     loss += input > output ? input - output : 0n;
   }
-  if (reverse.offer !== forward.minimumReceive) throw new Error('Return must spend only forward proceeds');
-  if (forward.offer > forward.offered.balance) throw new Error('Swap principal is unfunded');
   const perTx = baseFee * SWAP_TX_FEE_MULTIPLE;
+  const intermediateFees = forward.requested.faucetId === native.faucetId ? 2n * perTx : 0n;
+  if (reverse.offer !== forward.minimumReceive - intermediateFees) throw new Error('Return must spend only net forward proceeds');
+  if (forward.offer > forward.offered.balance) throw new Error('Swap principal is unfunded');
   const nativeReserve = 2n * (4n + recoveryTxs) * perTx;
   const nativePrincipal = forward.offered.faucetId === native.faucetId ? forward.offer : 0n;
   if (native.balance < nativePrincipal + nativeReserve) throw new Error('Native recovery/tomorrow reserve is unfunded');

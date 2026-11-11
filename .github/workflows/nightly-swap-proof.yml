@@ -21,5 +21,7 @@ jobs:
           cache: yarn
       - run: yarn install --frozen-lockfile
         timeout-minutes: 8
-      - name: Native intermediate funding regression
-        run: yarn jest scripts/mainnet-swap-plan.test.ts --maxWorkers=2 --watch=false
+      - name: Cost and recovery boundaries
+        run: yarn jest scripts/mainnet-swap-plan.test.ts scripts/mainnet-swap-checkpoint.test.ts scripts/mainnet-swap-ui.test.ts --maxWorkers=2 --watch=false
+      - name: Checkpoint artifact regression
+        run: yarn jest scripts/mainnet-swap-artifacts.test.ts --maxWorkers=2 --watch=false
