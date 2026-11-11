@@ -64,7 +64,7 @@ const address = (value: unknown): value is string =>
   typeof value === 'string' && /^m[a-z]{1,4}1[a-z0-9]{1,150}(?:_[a-z0-9]{1,50})?$/.test(value);
 const timestamp = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
-function holding(value: unknown): value is SavedSwapHolding {
+export function holding(value: unknown): value is SavedSwapHolding {
   return (
     record(value) &&
     address(value.faucetId) &&
@@ -213,7 +213,7 @@ export function saveMainnetSwapCheckpoint(path: string, state: MainnetSwapCheckp
   renameSync(`${path}.tmp`, path);
 }
 export function mainnetSwapNextAction(
-  state: MainnetSwapCheckpoint | undefined
+  state: Pick<MainnetSwapCheckpoint, 'phase'> | undefined
 ): 'prepare' | 'reconcile-forward' | 'return' | 'reconcile-reverse' | 'stop' {
   if (!state || state.phase === 'complete' || state.phase === 'cancelled' || state.phase === 'unspent')
     return 'prepare';
