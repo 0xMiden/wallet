@@ -103,6 +103,33 @@ describe('accepted cached solver registry', () => {
   it('uses the accepted registry even when hydration made no new HTTP request', () => {
     expect(cachedSolverRegistry(config, derived)).toEqual({ service: 'https://solver.example/base', pairs });
   });
+  it('retains verified stablecoin price assets omitted by the solver registry parser', () => {
+    const tokenList = {
+      fetchedAt: Date.now(),
+      body: {
+        tokens: [
+          { network: 'mainnet', faucetId: 'mm1verified-stable', symbol: 'USDT' },
+          { network: 'testnet', faucetId: 'mtst1other', symbol: 'ETH' }
+        ]
+      }
+    };
+    expect(Reflect.apply(cachedSolverRegistry, undefined, [config, derived, [tokenList]])).toMatchObject({
+      priceAssets: new Map([['mm1verified-stable', 'USDT']])
+    });
+  });
+  it('falls back to a valid legacy price list, but never prices from malformed cache data', () => {
+    const valid = {
+      fetchedAt: Date.now(),
+      body: { tokens: [{ network: 'mainnet', faucetId: 'mm1verified-btc', symbol: 'WBTC', binanceAsset: 'BTC' }] }
+    };
+    const bad = { fetchedAt: Date.now(), body: { tokens: [{ symbol: 'USDT' }] } };
+    expect(Reflect.apply(cachedSolverRegistry, undefined, [config, derived, [bad, valid]])).toMatchObject({
+      priceAssets: new Map([['mm1verified-btc', 'BTC']])
+    });
+    expect(Reflect.apply(cachedSolverRegistry, undefined, [config, derived, [bad]])).toMatchObject({
+      priceAssets: new Map()
+    });
+  });
   it('refuses mismatched versions, networks, failed registry reads and insecure endpoints', () => {
     expect(() => cachedSolverRegistry(config, { ...derived, version: 17 })).toThrow();
     expect(() => cachedSolverRegistry(config, { ...derived, network: 'testnet' })).toThrow();
