@@ -295,6 +295,7 @@ describe('EarnWithdrawReview', () => {
       protocol: 'dummy-lending',
       chainId: 11155111,
       underlyingAddress: position.underlyingAddress,
+      underlyingSymbol: position.asset,
       amount: '42.25',
       review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),
       underlyingDecimals: 6,
@@ -354,6 +355,21 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'earnWithdrawRefreshQuote' }));
     await confirmEnabled();
+  });
+
+  it('keeps the quote when the balance check could not reach Epoch, so Withdraw can retry (#2116)', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('earnPositionsUnavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByTestId('earn-withdraw-review-error')).toHaveTextContent('earnPositionsUnavailable');
+    expect(screen.queryByText('earnWithdrawRefresh')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'earnWithdrawRefreshQuote' })).not.toBeInTheDocument();
+    await confirmEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(2));
   });
 
   it('reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {

@@ -136,9 +136,16 @@ const tx = (overrides: Record<string, unknown> = {}) => ({
 // Since slice 4 (issue #260) classifySwapOrderNotes consumes ConsumableNoteDtos:
 // the per-note swap {orderId, depth} is precomputed into `swapAttachment` by the
 // reducer, so the fixture mirrors that reduction of a PSWAP payback word
-// ([_, orderId, depth, 0]). The classifier only reads noteId + swapAttachment.
-const note = (id: string, attachment?: [bigint, bigint, bigint, bigint]): any => ({
+// ([_, orderId, depth, 0]). The classifier reads noteId, swapAttachment and standardPayment.
+// A payback is a P2ID note, so a note with an attachment is a standard payment by default;
+// a tip (no attachment) runs the PSWAP script.
+const note = (
+  id: string,
+  attachment?: [bigint, bigint, bigint, bigint],
+  standardPayment: boolean = attachment !== undefined
+): any => ({
   noteId: id,
+  standardPayment,
   swapAttachment:
     attachment && attachment[3] === 0n && attachment[1] != null && attachment[2] != null
       ? { orderId: attachment[1].toString(), depth: Number(attachment[2]) }
@@ -212,6 +219,35 @@ describe('swap order note settlement', () => {
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));
     expect(result.has('future-depth-unrelated')).toBe(false);
     expect(result.has('same-amount-unrelated')).toBe(false);
+  });
+
+  // The order id is public: every payback carries it. A note with another script and a
+  // copied attachment must not be tagged as a payback, or settlement consumes it unattended
+  // and its script runs against this account's vault (#2118).
+  it('does not classify a note with a payback attachment as a payback unless it is a standard payment', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip-2',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '0',
+        remainingRequested: '0'
+      }
+    ]);
+    const notes = [
+      note('tip-2'),
+      note('payback-1', [999n, 77n, 1n, 0n]),
+      note('forged-custom-script', [0n, 77n, 0n, 0n], false),
+      { ...note('forged-unreadable-script', [0n, 77n, 0n, 0n]), standardPayment: undefined }
+    ];
+
+    const result = await withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold));
+
+    expect(result.get('tip-2')).toEqual(expect.objectContaining({ role: 'tip' }));
+    expect(result.get('payback-1')).toEqual(expect.objectContaining({ role: 'payback' }));
+    expect(result.has('forged-custom-script')).toBe(false);
+    expect(result.has('forged-unreadable-script')).toBe(false);
   });
 
   it('classifies multiple orders from one snapshot and skips missing entries', async () => {
