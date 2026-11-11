@@ -91,8 +91,12 @@ export function submitSwapOnce<T>(submit: () => Promise<T>): () => Promise<T> {
 
 export async function runPreparedSwap<T>(prepare: () => Promise<() => Promise<T>>, unspent: () => void): Promise<T> {
   let submit: () => Promise<T>;
-  try { submit = await prepare(); }
-  catch (error) { unspent(); throw error; }
+  try {
+    submit = await prepare();
+  } catch (error) {
+    unspent();
+    throw error;
+  }
   // A submission error can mean funds moved; only preparation proves non-submission.
   return submit();
 }
@@ -103,9 +107,17 @@ export function cachedSolverRegistry(config: unknown, derived: unknown): { servi
   const swap = record(body.swap) ? body.swap : undefined;
   const probe = record(derived.swap) && record(derived.swap.pairs) ? derived.swap.pairs : undefined;
   const pairs = probe?.state === 'ok' ? parseSwapPairs(probe.value) : null;
-  if (body.network !== 'mainnet' || derived.network !== 'mainnet' ||
-    typeof body.version !== 'number' || !Number.isSafeInteger(body.version) || body.version < 1 || body.version !== derived.version ||
-    typeof swap?.etaUrl !== 'string' || !pairs?.pairs.length) throw new Error('No matching accepted mainnet solver registry');
+  if (
+    body.network !== 'mainnet' ||
+    derived.network !== 'mainnet' ||
+    typeof body.version !== 'number' ||
+    !Number.isSafeInteger(body.version) ||
+    body.version < 1 ||
+    body.version !== derived.version ||
+    typeof swap?.etaUrl !== 'string' ||
+    !pairs?.pairs.length
+  )
+    throw new Error('No matching accepted mainnet solver registry');
   const url = new URL(swap.etaUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('The accepted solver endpoint is not a public HTTPS API');
@@ -251,9 +263,12 @@ export async function resumeSwapAutoAcceptInPage(identity: SwapOrderEvidence): P
     if (!value.startsWith('0x')) return value;
     try {
       const convert = Reflect.get(globalThis, '__TEST_HEX_TO_BECH32_FAUCET__');
-      const converted: unknown = typeof convert === 'function' ? Reflect.apply(convert, globalThis, [value]) : undefined;
+      const converted: unknown =
+        typeof convert === 'function' ? Reflect.apply(convert, globalThis, [value]) : undefined;
       return typeof converted === 'string' ? converted : undefined;
-    } catch { return undefined; }
+    } catch {
+      return undefined;
+    }
   };
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('TridentMain');
@@ -268,7 +283,8 @@ export async function resumeSwapAutoAcceptInPage(identity: SwapOrderEvidence): P
       request.onsuccess = () => {
         const value = request.result;
         if (
-          value?.type !== 'swap' || value.status !== 2 ||
+          value?.type !== 'swap' ||
+          value.status !== 2 ||
           String(value.extraInputs?.orderId) !== orderId ||
           canonical(value.accountId) !== identity.account ||
           canonical(value.faucetId) !== identity.offeredFaucet ||

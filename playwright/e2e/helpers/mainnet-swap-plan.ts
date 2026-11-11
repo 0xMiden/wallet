@@ -118,8 +118,12 @@ export function realizedSwapLoss(samples: readonly { before: SwapHolding; after:
     if (after < 0n) throw new Error('Invalid final swap balance');
     const previous = seen.get(before.faucetId);
     if (previous) {
-      if (previous.before.balance !== before.balance || previous.after !== after ||
-        previous.before.decimals !== before.decimals || previous.before.usdMicros !== before.usdMicros)
+      if (
+        previous.before.balance !== before.balance ||
+        previous.after !== after ||
+        previous.before.decimals !== before.decimals ||
+        previous.before.usdMicros !== before.usdMicros
+      )
         throw new Error('Conflicting balance samples for the same swap asset');
       continue;
     }

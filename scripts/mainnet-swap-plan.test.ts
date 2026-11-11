@@ -43,18 +43,22 @@ const candidate = (): SwapLoopCandidate => {
 
 describe('realized swap loss', () => {
   it('counts native intermediate fees only once, including their effect on returned principal', () => {
-    expect(realizedSwapLoss([
-      { before: holding('a'), after: 9_998_000n },
-      { before: holding('b'), after: 9_999_940n },
-      { before: holding('b'), after: 9_999_940n }
-    ])).toBe(2_060n);
+    expect(
+      realizedSwapLoss([
+        { before: holding('a'), after: 9_998_000n },
+        { before: holding('b'), after: 9_999_940n },
+        { before: holding('b'), after: 9_999_940n }
+      ])
+    ).toBe(2_060n);
   });
   it('counts a native offered asset once even though it is also the fee holding', () => {
-    expect(realizedSwapLoss([
-      { before: holding('a'), after: 9_998_000n },
-      { before: holding('b'), after: 10_000_000n },
-      { before: holding('a'), after: 9_998_000n }
-    ])).toBe(2_000n);
+    expect(
+      realizedSwapLoss([
+        { before: holding('a'), after: 9_998_000n },
+        { before: holding('b'), after: 10_000_000n },
+        { before: holding('a'), after: 9_998_000n }
+      ])
+    ).toBe(2_000n);
   });
 });
 

@@ -29,7 +29,14 @@ import {
   SWAP_TX_FEE_MULTIPLE,
   type SwapLoopPlan
 } from '../../helpers/mainnet-swap-plan';
-import { prepareMainnetSwapReview, readLiveSwapLeg, recoveredSwapAutoAccept, swapDisplayAmount, runPreparedSwap, cachedSolverRegistry } from '../../helpers/mainnet-swap-ui';
+import {
+  prepareMainnetSwapReview,
+  readLiveSwapLeg,
+  recoveredSwapAutoAccept,
+  swapDisplayAmount,
+  runPreparedSwap,
+  cachedSolverRegistry
+} from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
@@ -79,15 +86,30 @@ async function balances(
 
 async function registry(wallet: GuardianAwareWalletPage) {
   let accepted: ReturnType<typeof cachedSolverRegistry> | undefined;
-  await expect.poll(async () => {
-    const stored = await wallet.page.evaluate(() => new Promise<{ config: unknown; derived: unknown }>(resolve => {
-      chrome.storage.local.get(['bridge_config_v1:mainnet', 'bridge_config_derived_v2:mainnet'], items => {
-        resolve({ config: items['bridge_config_v1:mainnet'], derived: items['bridge_config_derived_v2:mainnet'] });
-      });
-    }));
-    try { accepted = cachedSolverRegistry(stored.config, stored.derived); return true; }
-    catch { return false; }
-  }, { timeout: 90_000, intervals: [1_000], message: 'The accepted mainnet solver registry did not hydrate' }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const stored = await wallet.page.evaluate(
+          () =>
+            new Promise<{ config: unknown; derived: unknown }>(resolve => {
+              chrome.storage.local.get(['bridge_config_v1:mainnet', 'bridge_config_derived_v2:mainnet'], items => {
+                resolve({
+                  config: items['bridge_config_v1:mainnet'],
+                  derived: items['bridge_config_derived_v2:mainnet']
+                });
+              });
+            })
+        );
+        try {
+          accepted = cachedSolverRegistry(stored.config, stored.derived);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 90_000, intervals: [1_000], message: 'The accepted mainnet solver registry did not hydrate' }
+    )
+    .toBe(true);
   if (!accepted) throw new Error('No accepted mainnet solver registry');
   const { pairs, service } = accepted;
   const ids = [
@@ -508,31 +530,50 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   if (leg === 'forward' ? authorized.forwardOrderId !== undefined : authorized.reverseOrderId !== undefined)
     throw new Error('This swap already has an order; reconcile it instead of submitting again');
   const observed = await evidence(walletB);
-  if (observed.orders.some(row => row.account === authorized.account &&
-    row.initiatedAt >= Math.floor(Date.parse(authorized.createdAt) / 1000) - 30 &&
-    !authorized.knownOrderIds.includes(row.orderId) && !(leg === 'reverse' && row.orderId === authorized.forwardOrderId)))
+  if (
+    observed.orders.some(
+      row =>
+        row.account === authorized.account &&
+        row.initiatedAt >= Math.floor(Date.parse(authorized.createdAt) / 1000) - 30 &&
+        !authorized.knownOrderIds.includes(row.orderId) &&
+        !(leg === 'reverse' && row.orderId === authorized.forwardOrderId)
+    )
+  )
     throw new Error('A new unaccounted order exists; refusing to sign');
-  const live = await runPreparedSwap(async () => {
-    const snapshot = await registry(walletB);
-    const before = await balances(walletB, authorized);
-    const baseline = leg === 'forward'
-      ? { offer: authorized.offer.balance, request: authorized.request.balance, native: authorized.native.balance }
-      : authorized.returnBaseline;
-    if (!baseline || before.offer.toString() !== baseline.offer || before.request.toString() !== baseline.request || before.native.toString() !== baseline.native)
-      throw new Error('Balances changed since swap authorization');
-    if (snapshot.baseFee > BigInt(authorized.baseFee)) throw new Error('Native fee increased beyond the authorization');
-    if (leg === 'forward' && Date.now() - Date.parse(authorized.pricedAt) > 5 * 60_000)
-      throw new Error('Forward authorization USD prices expired');
-    const offered = leg === 'forward' ? authorized.offer : authorized.request;
-    const requested = leg === 'forward' ? authorized.request : authorized.offer;
-    const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
-    const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
-    const submit = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
-    return async () => { await submit(); return snapshot; };
-  }, () => {
-    authorized.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
-    persist(authorized);
-  });
+  const live = await runPreparedSwap(
+    async () => {
+      const snapshot = await registry(walletB);
+      const before = await balances(walletB, authorized);
+      const baseline =
+        leg === 'forward'
+          ? { offer: authorized.offer.balance, request: authorized.request.balance, native: authorized.native.balance }
+          : authorized.returnBaseline;
+      if (
+        !baseline ||
+        before.offer.toString() !== baseline.offer ||
+        before.request.toString() !== baseline.request ||
+        before.native.toString() !== baseline.native
+      )
+        throw new Error('Balances changed since swap authorization');
+      if (snapshot.baseFee > BigInt(authorized.baseFee))
+        throw new Error('Native fee increased beyond the authorization');
+      if (leg === 'forward' && Date.now() - Date.parse(authorized.pricedAt) > 5 * 60_000)
+        throw new Error('Forward authorization USD prices expired');
+      const offered = leg === 'forward' ? authorized.offer : authorized.request;
+      const requested = leg === 'forward' ? authorized.request : authorized.offer;
+      const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
+      const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
+      const submit = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
+      return async () => {
+        await submit();
+        return snapshot;
+      };
+    },
+    () => {
+      authorized.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
+      persist(authorized);
+    }
+  );
   const result = await settle(walletB, state, leg, false);
   if (leg === 'forward') await authorizeReturn(state, runId, live, result);
   else completeReturn(state, result);

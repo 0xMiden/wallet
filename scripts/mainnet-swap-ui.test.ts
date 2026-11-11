@@ -91,10 +91,13 @@ describe('restoring one recovered swap automation setting', () => {
 });
 
 describe('accepted cached solver registry', () => {
-  const pairs = { tokens: [
-    { faucetId: `0x${'1'.repeat(30)}`, ticker: 'USDCX', decimals: 6, binanceAsset: 'USDC' },
-    { faucetId: `0x${'2'.repeat(30)}`, ticker: 'ETH', decimals: 8, binanceAsset: 'ETH' }
-  ], pairs: [{ faucetIds: [`0x${'1'.repeat(30)}`, `0x${'2'.repeat(30)}`] }] };
+  const pairs = {
+    tokens: [
+      { faucetId: `0x${'1'.repeat(30)}`, ticker: 'USDCX', decimals: 6, binanceAsset: 'USDC' },
+      { faucetId: `0x${'2'.repeat(30)}`, ticker: 'ETH', decimals: 8, binanceAsset: 'ETH' }
+    ],
+    pairs: [{ faucetIds: [`0x${'1'.repeat(30)}`, `0x${'2'.repeat(30)}`] }]
+  };
   const config = { body: { network: 'mainnet', version: 18, swap: { etaUrl: 'https://solver.example/base/' } } };
   const derived = { network: 'mainnet', version: 18, swap: { pairs: { state: 'ok', value: pairs } } };
   it('uses the accepted registry even when hydration made no new HTTP request', () => {
@@ -104,16 +107,36 @@ describe('accepted cached solver registry', () => {
     expect(() => cachedSolverRegistry(config, { ...derived, version: 17 })).toThrow();
     expect(() => cachedSolverRegistry(config, { ...derived, network: 'testnet' })).toThrow();
     expect(() => cachedSolverRegistry(config, { ...derived, swap: { pairs: { state: 'error' } } })).toThrow();
-    expect(() => cachedSolverRegistry({ body: { ...config.body, swap: { etaUrl: 'http://solver.example' } } }, derived)).toThrow();
+    expect(() =>
+      cachedSolverRegistry({ body: { ...config.body, swap: { etaUrl: 'http://solver.example' } } }, derived)
+    ).toThrow();
   });
 });
 
 describe('read-only preparation versus possibly submitted swaps', () => {
   it('records proven non-submission when preparation fails, but not when submitting fails', async () => {
     let unspent = 0;
-    await expect(runPreparedSwap(async () => { throw new Error('quote outage'); }, () => { unspent++; })).rejects.toThrow('quote outage');
+    await expect(
+      runPreparedSwap(
+        async () => {
+          throw new Error('quote outage');
+        },
+        () => {
+          unspent++;
+        }
+      )
+    ).rejects.toThrow('quote outage');
     expect(unspent).toBe(1);
-    await expect(runPreparedSwap(async () => async () => { throw new Error('submission response lost'); }, () => { unspent++; })).rejects.toThrow('submission response lost');
+    await expect(
+      runPreparedSwap(
+        async () => async () => {
+          throw new Error('submission response lost');
+        },
+        () => {
+          unspent++;
+        }
+      )
+    ).rejects.toThrow('submission response lost');
     expect(unspent).toBe(1);
   });
 });
