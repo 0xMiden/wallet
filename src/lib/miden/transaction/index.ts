@@ -133,6 +133,7 @@ import {
   stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
+import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
   pruneQueueAdmission,
@@ -3423,6 +3424,38 @@ const recordUnabandonedCandidate = (
   });
 
 /**
+ * The signing-time effect check (#2147), on the summary the hot key would sign. The candidate is already on the row,
+ * written at `creating-proposal` before this check, so a process death during the fee lookup or the summary lock
+ * leaves it for the startup sweep. On any failure that candidate is forgotten and then abandoned under the outgoing
+ * deadline, as after a pre-submit failure, and flagged for the next proposal's retry when that abandon fails (#1317).
+ * The check's error is rethrown as it is.
+ */
+const assertProposalEffectBeforeSigning = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  try {
+    await assertProposalEffectApproved(transaction, proposal.txSummary);
+  } catch (error) {
+    try {
+      // Forgotten before the abandon goes out, as on a failed submission: once the Guardian takes the nonce, a
+      // later process's startup sweep must not send it again.
+      await forgetPersistedCandidate(transaction, proposal.nonce);
+      await withOutgoingGuardianDeadline(
+        () => service.abandonCandidate(proposal.nonce),
+        'abandoning a guardian candidate whose effect was refused'
+      );
+    } catch (abandonError) {
+      console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
+      recordUnabandonedCandidate(transaction.accountId, service, proposal.nonce, proposalStamps);
+    }
+    throw error;
+  }
+};
+
+/**
  * Flag the record of a candidate whose abandon failed or could not even be attempted, so the account's next
  * proposal retries it (#1317). Only the record of that nonce: a later write's record is kept. The record keeps
  * its proposal's stamps, so the retry window still closes where the Guardian's hold does.
@@ -4107,9 +4140,13 @@ const generateGuardianTransaction = async (
     }
   }
 
+  // Kept while the row is still at `creating-proposal`, before the effect check: a process death during the
+  // fee lookup or the summary lock leaves the candidate where the startup sweep can hand it back.
+  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
+  await assertProposalEffectBeforeSigning(transaction, service, proposalResult, proposalStamps);
+
   // Sign and execute the proposal. The proposal already exists if this write fails.
   await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
-  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
