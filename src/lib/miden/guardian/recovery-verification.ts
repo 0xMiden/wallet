@@ -2,6 +2,7 @@ import type { Account } from '@miden-sdk/miden-sdk/lazy';
 import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 
 import { getMessage } from 'lib/i18n';
+import { sameCommitment } from 'lib/secure-hot-key/commitment';
 
 import {
   GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
@@ -23,8 +24,6 @@ export interface ServedGuardianState {
 }
 
 const normalize = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
-
-export const sameCommitment = (a: string, b: string): boolean => normalize(a) === normalize(b);
 
 /**
  * Reads a slot straight from the inspector: the shared readers in ./account turn every error into "no signer", a

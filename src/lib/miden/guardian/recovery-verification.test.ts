@@ -8,7 +8,6 @@ import {
   judgeServedState,
   readAccountChainState,
   readServedStateFacts,
-  sameCommitment,
   selectAdoptable,
   type AccountChainState,
   type ServedGuardianState,
@@ -59,11 +58,6 @@ const account = () =>
 
 describe('recovery verification', () => {
   beforeEach(() => jest.resetAllMocks());
-
-  it('compares commitments ignoring prefix and case', () => {
-    expect(sameCommitment('0xAaBb', 'aabb')).toBe(true);
-    expect(sameCommitment('aabb', 'aabc')).toBe(false);
-  });
 
   describe('assertRecoverySignerMatches', () => {
     it('passes an equal recovery slot', async () => {
@@ -174,6 +168,14 @@ describe('recovery verification', () => {
         'verified'
       ],
       ['a copy that differs from the chain', false, 'ab', { kind: 'deployed', commitment: 'cd' }, 'mismatch'],
+      [
+        'a copy equal to the chain once leading zeros are dropped',
+        false,
+        'abc123',
+        { kind: 'deployed', commitment: `${'0'.repeat(40)}abc123` },
+        'verified'
+      ],
+      ['a copy one digit away from the chain', false, 'abc123', { kind: 'deployed', commitment: 'abc124' }, 'mismatch'],
       ['a new copy of a deployed account', true, 'ab', { kind: 'deployed', commitment: 'cd' }, 'mismatch'],
       ['a chain that could not be read', false, 'ab', { kind: 'unknown' }, 'unknown']
     ])('%s', (_name, isNew, commitment, chain, verdict) => {
