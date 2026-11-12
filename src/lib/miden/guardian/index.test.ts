@@ -97,13 +97,18 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
 }));
 
 const mockGetAccount = jest.fn();
+const mockAccountGet = jest.fn();
 const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
 const callOrder: string[] = [];
 const mockSyncChain = jest.fn(async () => {
   callOrder.push('syncChain');
 });
-const mockRawWebClient = { kind: 'raw-web-client', syncChain: () => mockSyncChain() };
+const mockRawWebClient = {
+  kind: 'raw-web-client',
+  syncChain: () => mockSyncChain(),
+  accounts: { get: (...args: unknown[]) => mockAccountGet(...args) }
+};
 const mockBuildPswapCancelRequest = jest.fn();
 const mockBuildPswapConsumeRequest = jest.fn(async (..._args: unknown[]) => new Uint8Array([6, 6, 1]));
 const mockMidenClient = {
@@ -122,6 +127,16 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
 // idle sync (#777).
 let currentWasmHold: object | null = null;
+const mockYieldWasmClientLock = jest.fn(async <T>(operation: () => Promise<T>, hold?: object): Promise<T> => {
+  const previous = currentWasmHold;
+  if (hold !== undefined && hold !== previous) throw new Error('yielded a hold this test does not own');
+  currentWasmHold = null;
+  try {
+    return await operation();
+  } finally {
+    currentWasmHold = previous;
+  }
+});
 let wasmLockTail: Promise<void> = Promise.resolve();
 // Set by the one test that needs the watchdog to land mid-build.
 let evictDuringClientBuild = false;
@@ -144,6 +159,7 @@ jest.mock('../sdk/miden-client', () => {
     // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
     // pass-through mock with no hold makes that guard both unreachable and a TypeError.
     getCurrentWasmLockHold: () => currentWasmHold,
+    yieldWasmClientLock: (...args: Parameters<typeof mockYieldWasmClientLock>) => mockYieldWasmClientLock(...args),
     // The shared post-await re-check (#788 follow-up). Re-implements the
     // comparison against THIS mock's current hold — a no-op stub here would make
     // every eviction test below vacuously green.
@@ -213,6 +229,7 @@ const mockExecuteForSummaryAtTip = jest.fn(async (..._args: unknown[]) => ({
   free: () => mockSummaryFree()
 }));
 const mockRequestBoundBlockNum = jest.fn((_request: unknown): number | undefined => 4242);
+const mockSummaryBoundBlockNum = jest.fn((_summary: unknown): number | undefined => 5150);
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
@@ -228,6 +245,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
   executeForSummaryAtTip: (...a: unknown[]) => mockExecuteForSummaryAtTip(...a),
   requestBoundBlockNum: (a: unknown) => mockRequestBoundBlockNum(a),
+  summaryBoundBlockNum: (a: unknown) => mockSummaryBoundBlockNum(a),
   AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
@@ -382,6 +400,9 @@ describe('MultisigService', () => {
     callOrder.length = 0;
     syncHoldsSeen.length = 0;
     mockTransactionRequestDeserialize.mockReset();
+    mockAccountGet.mockReset();
+    mockSummaryBoundBlockNum.mockReset();
+    mockSummaryBoundBlockNum.mockImplementation((_summary: unknown) => 5150);
     // The request a custom proposal derives its summary commitment from.
     mockTransactionRequestDeserialize.mockImplementation(() => ({ free: () => {} }));
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
@@ -495,6 +516,76 @@ describe('MultisigService', () => {
 
     describe('custom proposal id check', () => {
       const bytes = new Uint8Array([1, 2, 3]);
+
+      it('yields the WASM lock while abandoning a mismatched proposal', async () => {
+        const otherId = `0x${'77'.repeat(32)}`;
+        let holdDuringSummary: object | null = null;
+        let holdDuringAbandon: object | null = null;
+        mockExecuteForSummaryAtTip.mockImplementationOnce(async () => {
+          holdDuringSummary = currentWasmHold;
+          return {
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }),
+            free: () => mockSummaryFree()
+          };
+        });
+        const abandonCandidate = jest.fn(async () => {
+          holdDuringAbandon = currentWasmHold;
+          return { state: 'pending' };
+        });
+        const proposal = { kind: 'custom', id: otherId, nonce: 41 };
+        const multisig = makeMultisig({
+          createCustomProposal: jest.fn(async () => proposal),
+          createProposal: jest.fn(async () => proposal),
+          abandonCandidate
+        });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+
+        expect(holdDuringSummary).not.toBeNull();
+        expect(holdDuringAbandon).toBeNull();
+        expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(holdDuringSummary);
+      });
+
+      it('sends the locally derived custom summary once', async () => {
+        const createCustomProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        mockAccountGet.mockResolvedValueOnce({ nonce: () => ({ asInt: () => 40n }) });
+        mockSummaryBoundBlockNum.mockReturnValueOnce(5150);
+        const multisig = makeMultisig({ createCustomProposal, createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        await service.createCustomProposal(bytes, '  Custom_Transaction ');
+
+        expect(mockExecuteForSummaryAtTip).toHaveBeenCalledTimes(1);
+        expect(createCustomProposal).not.toHaveBeenCalled();
+        expect(createProposal).toHaveBeenCalledWith(41, 'qw==', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'custom_transaction',
+          requiredSignatures: 1
+        });
+        expect(multisig.getEffectiveThreshold).toHaveBeenCalledWith('custom');
+      });
+
+      it('abandons the prepared nonce when SDK verification rejects after the push', async () => {
+        const error = new Error('Invalid proposal: bound block mismatch');
+        const createProposal = jest.fn(async () => Promise.reject(error));
+        const createCustomProposal = jest.fn(async () => Promise.reject(error));
+        const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
+        mockAccountGet.mockResolvedValueOnce({ nonce: () => ({ asInt: () => 40n }) });
+        const multisig = makeMultisig({ createProposal, createCustomProposal, abandonCandidate });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
+
+        expect(mockAccountGet).toHaveBeenCalledWith('acc-id');
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(41);
+      });
 
       it('derives the summary commitment from the proposed bytes in the same hold, before the proposal', async () => {
         const request = { free: jest.fn() };
@@ -3005,6 +3096,34 @@ describe('MultisigService', () => {
         securityChange: 'replace-hot-key'
       });
       expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
+    it('abandons the captured nonce when SDK verification rejects after the push', async () => {
+      const error = new Error('Invalid proposal: bound block mismatch');
+      const abandonCandidate = jest.fn(async () => ({ state: 'pending' }));
+      const multisig = makeMultisig({
+        threshold: 1,
+        createProposal: jest.fn(async () => Promise.reject(error)),
+        abandonCandidate
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const now = jest.spyOn(Date, 'now').mockReturnValue(123456);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: { kind: 'request' },
+        salt: { toHex: () => 'salt-hex' }
+      });
+      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+
+      try {
+        await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+        expect(now).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(123456);
+      } finally {
+        now.mockRestore();
+      }
     });
 
     it('names a rejected replace-hot-key proposal creation but not its request build', async () => {
