@@ -61,7 +61,7 @@ async function relay(message: Record<string, unknown>): Promise<Record<string, u
 export async function getTestAuthorizationStorage(keys: string | string[]): Promise<Record<string, unknown>> {
   const list = keysForRead(keys);
   if (typeof chrome !== 'undefined' && chrome.storage?.local) return chrome.storage.local.get(list);
-  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+  if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
     const response = await relay({ operation: 'get', keys: list });
     if (!isRecord(response.value)) throw new Error('Invalid authorization storage response');
     return response.value;
@@ -74,7 +74,7 @@ export async function setTestAuthorizationStorage(items: Record<string, unknown>
     await chrome.storage.local.set(items);
     return;
   }
-  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+  if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
     await relay({ operation: 'set', items });
     return;
   }
