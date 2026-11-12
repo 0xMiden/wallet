@@ -5,7 +5,7 @@ import React, { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { type BackupRefreshOutcome, type BackupRefreshReason, WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -343,4 +343,46 @@ describe('useMidenContext — full callback coverage', () => {
     expect(container).toBeDefined();
     await act(async () => root.unmount());
   });
+});
+
+// The encrypted backup's context actions name the event; the backend holds the keys and does the work.
+const BackupActionsProbe: React.FC<{ onOutcomes: (outcomes: BackupRefreshOutcome[]) => void }> = ({ onOutcomes }) => {
+  const { refreshBackup, deleteBackup } = useMidenContext();
+  React.useEffect(() => {
+    Promise.all([refreshBackup('address-book'), deleteBackup()]).then(onOutcomes);
+  }, [refreshBackup, deleteBackup, onOutcomes]);
+  return null;
+};
+
+it('exposes the encrypted backup refresh and profile delete through the React context', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const refreshBackup = jest.fn<Promise<BackupRefreshOutcome>, [BackupRefreshReason]>().mockResolvedValue('updated');
+  const deleteBackup = jest.fn<Promise<BackupRefreshOutcome>, []>().mockResolvedValue('unchanged');
+  const previousState = useWalletStore.getState();
+  useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true, refreshBackup, deleteBackup });
+  const onOutcomes = jest.fn();
+  const root = createRoot(document.createElement('div'));
+
+  try {
+    await act(async () => {
+      root.render(
+        <MidenContextProvider>
+          <BackupActionsProbe onOutcomes={onOutcomes} />
+        </MidenContextProvider>
+      );
+    });
+
+    expect(refreshBackup).toHaveBeenCalledWith('address-book');
+    expect(deleteBackup).toHaveBeenCalledTimes(1);
+    expect(onOutcomes).toHaveBeenCalledWith(['updated', 'unchanged']);
+  } finally {
+    await act(async () => root.unmount());
+    useWalletStore.setState({
+      status: previousState.status,
+      isInitialized: previousState.isInitialized,
+      refreshBackup: previousState.refreshBackup,
+      deleteBackup: previousState.deleteBackup
+    });
+    consoleError.mockRestore();
+  }
 });

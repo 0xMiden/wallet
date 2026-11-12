@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,7 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SearchInput } from 'components/ui/SearchInput';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { useMidenContext } from 'lib/miden/front/client';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { WalletContact } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
@@ -39,6 +40,14 @@ function avatarFor(contact: WalletContact): React.ReactNode {
 const AddressBook: React.FC = () => {
   const { t } = useTranslation();
   const { allContacts } = useFilteredContacts();
+  const { refreshBackup } = useMidenContext();
+  // The address book opening is the one event that reads the backup's contacts (architecture doc
+  // 7.3). A merged list lands in the settings, which `useFilteredContacts` follows.
+  useEffect(() => {
+    refreshBackup('address-book').catch(error =>
+      console.warn('[AddressBook] the backup contacts refresh failed:', error)
+    );
+  }, [refreshBackup]);
   const [searchQuery, setSearchQuery] = useState('');
   const query = searchQuery.trim().toLowerCase();
 

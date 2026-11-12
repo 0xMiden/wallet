@@ -139,6 +139,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 jest.mock('../guardian/account', () => ({
   ...jest.requireActual('../guardian/account'),
   getSignerDetailsFromAccount: () => mockSignerRead(),
+  // The membership lookup reads the same stubbed signer, in the on-chain form it returns.
+  findOwnSignerCommitment: async () => (await mockSignerRead()).commitment,
   resolveGuardianEndpoint: () => 'https://guardian.invalid'
 }));
 jest.mock('../guardian/signer', () => ({ WalletSigner: class {} }));

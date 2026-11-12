@@ -1,3 +1,4 @@
+import { onBackupStorageCleared } from 'lib/backup/state';
 import { BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
@@ -75,6 +76,9 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
       // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
       // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
       await rereadStorageCache();
+      // The backup's cached device id went with its stored copy, and a backup session opened before the wipe
+      // belongs to the wallet that is gone: a recovery with the same phrase starts its own history stream.
+      onBackupStorageCleared();
       // No storage event fires in the document that wipes, so off the extension this announces it to every
       // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
       if (isMobile() || isDesktop()) storageCleared();

@@ -13,6 +13,7 @@ import {
 import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
+import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
@@ -178,9 +179,15 @@ const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slic
 const isEmptyWordHex = (unprefixed: string): boolean => /^0*$/.test(unprefixed);
 
 /**
- * Read a signer's commitment from a Guardian account: the hot signer at index 0,
- * or with `getCold` the cold signer at index 1 (`[hot, cold]`, the order
- * `createGuardianAccount` registers them in).
+ * Read a signer's commitment from a Guardian account by POSITION: index 0, or
+ * with `getCold` index 1 (`[hot, cold]`, the order `createGuardianAccount`
+ * registers them in).
+ *
+ * The slot order is only a creation convention. It breaks after a membership
+ * change: a device that adds a hot key appends it at the end, and a removal
+ * re-packs the slots. Use this function only as a fallback for a caller that
+ * holds no public key. A caller that knows a public key must use
+ * `findOwnSignerCommitment`, which checks membership.
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const noSigner = new Error('No signer commitment found in account storage');
@@ -210,6 +217,32 @@ export function getSignerCommitmentsFromAccount(account: Account): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * The on-chain signer commitment that the given public key commits to, as the
+ * account stores it (hex), else undefined.
+ *
+ * This checks MEMBERSHIP, not position: the signer set can hold more than one
+ * hot key (`[hot_dev1, cold, hot_dev2, ...]`), and a membership change moves
+ * slots. A device identifies its own signer only with this function. A key that
+ * does not decode, or an account whose signers cannot be read, gives undefined.
+ */
+export async function findOwnSignerCommitment(account: Account, publicKeyHex: string): Promise<string | undefined> {
+  const onChain = getSignerCommitmentsFromAccount(account);
+  if (onChain.length === 0) return undefined;
+  let own: string;
+  try {
+    own = await commitmentFromPublicKeyHex(publicKeyHex);
+  } catch {
+    return undefined;
+  }
+  return onChain.find(commitment => !isEmptyWordHex(stripHexPrefix(commitment)) && sameCommitment(commitment, own));
+}
+
+/** True when the account's signer set holds the given commitment, in any slot. */
+export function hasSignerCommitment(account: Account, commitmentHex: string): boolean {
+  return getSignerCommitmentsFromAccount(account).some(commitment => sameCommitment(commitment, commitmentHex));
 }
 
 /**
@@ -434,8 +467,10 @@ export async function createGuardianAccount(
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
     assertLive('before the account build');
-    // Signer order is [hot, cold] by convention — the migration plan diagrams
-    // and downstream role-routing code assume this layout.
+    // The account starts with the signers in the order [hot, cold]. Downstream
+    // code must not rely on this order: a device that adds a hot key appends it
+    // at the end, and a removal re-packs the slots. Find a signer by membership
+    // (`findOwnSignerCommitment`), not by its index.
     const multisig = await client.create(
       {
         threshold: 1,

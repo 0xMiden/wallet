@@ -4,8 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { ButtonVariant } from 'components/ui/Button';
+import { ListRow } from 'components/ui/ListRow';
+import { useDeviceRevocation } from 'lib/miden/front/useDeviceRevocation';
 import { isHotKeyRotatedOut } from 'lib/miden/guardian/sync-guard';
 import { resetWalletAndReload } from 'lib/miden/reset-and-reload';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
@@ -53,6 +56,8 @@ interface SheetProps {
 
 const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey, canMakeMain }) => {
   const { t } = useTranslation();
+  // Read the receipt only after the Guardian verdict has confirmed revocation.
+  const transactionId = useDeviceRevocation(accountPublicKey, hotPublicKey);
   const retireRotatedOutHotKey = useWalletStore(s => s.retireRotatedOutHotKey);
   const confirm = useConfirm();
   const alert = useAlert();
@@ -121,14 +126,21 @@ const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey,
         open
         dismissible={false}
         variant="explanation"
-        title={t('hotKeyRotatedOutTitle')}
+        title={t('thisDeviceRevoked')}
         actionLabel={t('hotKeyRotatedOutRemove')}
         actionVariant={ButtonVariant.Destructive}
         onAction={onRemove}
         screenKey="hot-key-rotated-out"
         actionTestId="hot-key-rotated-out-remove"
       >
-        {t('hotKeyRotatedOutBodyNoRecoveryKey')}
+        {t('deviceRevokedBodyNoRecoveryKey')}
+        {transactionId && (
+          <ListRow
+            title={t('deviceRevocationTransaction')}
+            subtitle={transactionId}
+            href={getExplorerTxUrl(transactionId)}
+          />
+        )}
       </AlertSheet>
     );
   }
@@ -138,7 +150,7 @@ const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey,
       open
       dismissible={false}
       variant="explanation"
-      title={t('hotKeyRotatedOutTitle')}
+      title={t('thisDeviceRevoked')}
       actionLabel={busy ? t('loading') : t('hotKeyRotatedOutMakeMain')}
       onAction={onMakeMain}
       secondaryLabel={t('hotKeyRotatedOutRemove')}
@@ -147,7 +159,14 @@ const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey,
       actionTestId="hot-key-rotated-out-make-main"
       secondaryTestId="hot-key-rotated-out-remove"
     >
-      {t('hotKeyRotatedOutBody')}
+      {t('deviceRevokedBody')}
+      {transactionId && (
+        <ListRow
+          title={t('deviceRevocationTransaction')}
+          subtitle={transactionId}
+          href={getExplorerTxUrl(transactionId)}
+        />
+      )}
     </AlertSheet>
   );
 };

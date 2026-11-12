@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -306,6 +307,9 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
       logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
     }
+    // A Completed row of this device goes to the encrypted backup at once (architecture doc 6.4).
+    // A restored row is a peer's and is never uploaded again.
+    if (status === ITransactionStatus.Completed && !tx.restoredFromBackup) signalTransactionCompleted();
   }
 };
 

@@ -150,3 +150,15 @@ it('supports all three Guardian recovery actions', () => {
     true
   );
 });
+
+it('binds revocation authorization to the selected signer commitment', () => {
+  const transaction = new ReplaceHotKeyTransaction('account', false);
+  transaction.extraInputs.revokedSignerCommitment = `0x${'1'.repeat(64)}`;
+  const secret = new Uint8Array([3, 4]);
+  authorizeRecovery(transaction, 'recovery', secret);
+  expect(getRecoveryAuthorization(transaction, 'recovery')).toBe(secret);
+  transaction.extraInputs.revokedSignerCommitment = `0x${'2'.repeat(64)}`;
+  expect(getRecoveryAuthorization(transaction, 'recovery')).toBeUndefined();
+  delete transaction.extraInputs.revokedSignerCommitment;
+  expect(getRecoveryAuthorization(transaction, 'recovery')).toBeUndefined();
+});

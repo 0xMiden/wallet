@@ -17,7 +17,7 @@ export function guardianHistoryIcon(type: ITransactionType): ITransactionIcon {
   }
 }
 
-export function guardianHistoryActionKey(type: ITransactionType, reclaimed = false): string {
+export function guardianHistoryActionKey(type: ITransactionType, reclaimed = false, hotKeyAdded = false): string {
   switch (type) {
     case 'send':
       return 'sent';
@@ -32,7 +32,7 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
     case 'switch-guardian':
       return 'guardianHistoryGuardianChanged';
     case 'replace-hot-key':
-      return 'guardianHistoryDeviceReplaced';
+      return hotKeyAdded ? 'guardianHistoryDeviceAdded' : 'guardianHistoryDeviceReplaced';
     case 'update-procedure-threshold':
       return 'guardianHistoryAccountSecured';
     default:
@@ -45,10 +45,13 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
   if (entry.message === 'Transaction failed') {
     return t('transactionFailedNotificationTitle');
   }
-  if (entry.guardianRecovered) return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
+  if (entry.revokedSignerCommitment) return t('deviceRevoked');
+  if (entry.guardianRecovered) {
+    return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed, entry.hotKeyAdded));
+  }
   if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
     const key = rotationRowTitleKey(entry.guardianSwitchVerdict);
     if (key) return t(key);
   }
-  return entry.message?.trim() || t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
+  return entry.message?.trim() || t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed, entry.hotKeyAdded));
 }

@@ -19,6 +19,7 @@ describe('SettingsSelectors', () => {
     RevealHotKeyButton: 'Settings/RevealHotKeyButton',
     KeysButton: 'Settings/KeysButton',
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
+    DevicesButton: 'Settings/DevicesButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
     RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
