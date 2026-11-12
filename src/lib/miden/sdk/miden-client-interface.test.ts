@@ -2760,7 +2760,7 @@ describe('MidenClientInterface', () => {
 
       // Three matches of two accounts: one batch, none under a hold (the mock throws if one is held).
       expect(chainRead).toHaveBeenCalledTimes(1);
-      expect(chainRead.mock.calls[0][0]).toEqual(['recovered-a', 'recovered-a', 'recovered-b']);
+      expect(chainRead.mock.calls[0]?.[0]).toEqual(['recovered-a', 'recovered-a', 'recovered-b']);
     });
 
     it('seed recovery reads every served account on one node client, with the reads in flight together and no hold', async () => {
@@ -2786,7 +2786,7 @@ describe('MidenClientInterface', () => {
 
       await expect(recover()).resolves.toHaveLength(2);
       expect(chainRead).toHaveBeenCalledTimes(1);
-      expect(chainRead.mock.calls[0][0]).toEqual(['recovered-a', 'recovered-b']);
+      expect(chainRead.mock.calls[0]?.[0]).toEqual(['recovered-a', 'recovered-b']);
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
