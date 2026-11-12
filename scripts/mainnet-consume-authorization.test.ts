@@ -87,11 +87,14 @@ it('fails closed before inspecting bytes when an explicitly armed claim policy d
   expect(serialize).not.toHaveBeenCalled();
   expect(set).not.toHaveBeenCalled();
 });
-it.each([{ accountId: account, nonce: 'foreign' }, { accountId: 'foreign', nonce }])(
+it.each([null, { accountId: account, nonce: 'foreign' }, { accountId: 'foreign', nonce }])(
   'rejects a claim policy detached from its original required scope: %j',
   async required => {
     data[`${KEY}_required`] = required;
-    const outcome = run().then(() => 'released', () => 'blocked');
+    const outcome = run().then(
+      () => 'released',
+      () => 'blocked'
+    );
     expect(await Promise.race([outcome, observed.then(() => 'waiting')])).toBe('blocked');
     expect(serialize).not.toHaveBeenCalled();
   }

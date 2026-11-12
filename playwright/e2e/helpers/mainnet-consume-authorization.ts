@@ -28,9 +28,14 @@ export async function armMainnetConsumeAuthorization(
   const handle = { ...scope, nonce: randomUUID() };
   await page.evaluate(
     async ({ key, handle }) => {
-      if ((await chrome.storage.local.get(key))[key] !== undefined)
+      const requiredKey = `${key}_required`;
+      const stored = await chrome.storage.local.get([key, requiredKey]);
+      if (stored[key] !== undefined || stored[requiredKey] !== undefined)
         throw new Error('Unresolved existing native authorization');
-      await chrome.storage.local.set({ [key]: { ...handle, status: 'armed' } });
+      await chrome.storage.local.set({
+        [key]: { ...handle, status: 'armed' },
+        [requiredKey]: { accountId: handle.accountId, nonce: handle.nonce }
+      });
     },
     { key: KEY, handle }
   );
