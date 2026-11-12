@@ -2613,6 +2613,64 @@ describe('doSync - expired swap order settlement', () => {
     }
   });
 
+  it("leaves a payback that falls short of its order's fill to the claim list, and a native one to the claim floor", async () => {
+    const undoRealQueue = useRealClaimQueue();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    mockBaseFee = 10000;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    // The order asked 50 and its lineage says 25 of it were filled.
+    await Repo.transactions.put({
+      ...partFilledOrderRow,
+      extraInputs: { ...partFilledOrderRow.extraInputs, requestedFaucetId: 'native-faucet' }
+    });
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [partFilledLineage] } }
+    }));
+    const attached = (note: ReturnType<typeof fakeNote>) => ({ ...note, swapAttachment: { orderId: '77', depth: 1 } });
+    const cachedNotes = () =>
+      mockStorageSet.mock.calls.filter(call => 'miden_cached_consumable_notes' in call[0]).at(-1)?.[0]
+        .miden_cached_consumable_notes;
+    try {
+      mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['short']);
+      mockHasClients.mockReturnValue(false);
+      const notify = jest.fn();
+      Object.assign(globalThis.chrome, { notifications: { create: notify } });
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'short', faucetId: 'native-faucet', amount: '1' }))
+      ]);
+      await doSync();
+
+      // It pays 1 of the 25 filled, so it is no payback to settle: it is listed and announced as a transfer to accept.
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(cachedNotes()).toEqual([expect.objectContaining({ id: 'short', swapOrder: undefined })]);
+      expect(notify).toHaveBeenCalled();
+
+      // Beside enough of the fee token, the native auto-consume claims it with that, as a payment.
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'short', faucetId: 'native-faucet', amount: '1' })),
+        fakeNote({ id: 'payment', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+      await doSync();
+
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims).toHaveLength(1);
+      expect([...(claims[0]?.noteIds ?? [])].sort()).toEqual(['payment', 'short']);
+      expect(claims[0]?.consumeEntryPoint).toBe('auto_consume');
+      expect(claims[0]?.extraInputs?.swapOrderTxId).toBeUndefined();
+    } finally {
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
   it('queues no native claim and no settlement consume while the store is not initialized', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');

@@ -225,7 +225,7 @@ describe('swap order note settlement', () => {
         currentDepth: 2,
         state: 0,
         remainingOffered: '0',
-        remainingRequested: '0'
+        remainingRequested: '45'
       }
     ]);
 
@@ -252,7 +252,7 @@ describe('swap order note settlement', () => {
         currentDepth: 2,
         state: 0,
         remainingOffered: '0',
-        remainingRequested: '0'
+        remainingRequested: '45'
       }
     ]);
     const notes = [
@@ -270,14 +270,15 @@ describe('swap order note settlement', () => {
     expect(result.has('forged-unreadable-script')).toBe(false);
   });
 
-  // An order 77 filled in rounds 1 and 2: each fill paid one payback of the requested asset.
+  // An order 77 filled in rounds 1 and 2: each fill paid one payback of the requested asset. 5 of the 50 asked were
+  // filled, which one default payback of 5 covers.
   const filledLineage = (overrides: Record<string, unknown> = {}) => ({
     orderId: '77',
     currentTipNoteId: 'spent-tip',
     currentDepth: 2,
     state: 1,
     remainingOffered: '0',
-    remainingRequested: '0',
+    remainingRequested: '45',
     ...overrides
   });
   const classify = (notes: unknown[]) =>
@@ -326,12 +327,14 @@ describe('swap order note settlement', () => {
 
   it.each([
     // Round 0 is the order note itself, which no fill paid.
-    ['an active order', { state: 0 }, [1, 2]],
-    ['a filled order', { state: 1 }, [1, 2]],
-    // The reclaim is round 2 and pays nothing, so the last payback is round 1.
-    ['a reclaimed order', { state: 2 }, [1]]
-  ])('takes paybacks of %s only at the rounds a fill paid', async (_case, lineage, paidDepths) => {
+    ['an active order', { state: 0 }, [1, 2], undefined],
+    ['a filled order', { state: 1 }, [1, 2], undefined],
+    // The reclaim is round 2 and pays nothing, so the last payback is round 1. A reclaimed order settles only a
+    // round a claim holds, so a live claim holds round 1.
+    ['a reclaimed order', { state: 2 }, [1], { 'round-1': 1 }]
+  ])('takes paybacks of %s only at the rounds a fill paid', async (_case, lineage, paidDepths, heldRounds) => {
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledLineage(lineage)]);
+    if (heldRounds) claimRows.mockResolvedValue([claimRow('live', ITransactionStatus.Queued, heldRounds)]);
     const depths = [0, 1, 2, 3];
 
     const result = await classify(depths.map(depth => note(`round-${depth}`, [5n, 77n, BigInt(depth), 0n])));
@@ -361,13 +364,26 @@ describe('swap order note settlement', () => {
   });
 
   // One fill pays one payback: once a claim holds a round, any other note at that round is a copy.
-  const claimRow = (id: string, status: ITransactionStatus, depths: Record<string, number>, extra = {}) => ({
+  // `amounts` is what the claim recorded for each note, 5 each by default; null records none, as a claim written
+  // before amounts were recorded.
+  const claimRow = (
+    id: string,
+    status: ITransactionStatus,
+    depths: Record<string, number>,
+    extra = {},
+    amounts: Record<string, string> | null = Object.fromEntries(Object.keys(depths).map(noteId => [noteId, '5']))
+  ) => ({
     id,
     type: 'consume',
     status,
     accountId: 'account-1',
     noteIds: Object.keys(depths),
-    extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapPaybackDepths: depths },
+    extraInputs: {
+      swapOrderTxId: 'swap-1',
+      swapSettleKind: 'settle',
+      swapPaybackDepths: depths,
+      ...(amounts ? { swapPaybackAmounts: amounts } : {})
+    },
     ...extra
   });
 
@@ -412,6 +428,68 @@ describe('swap order note settlement', () => {
     const later = [...notes, note('copy-1b', [1n, 77n, 1n, 0n])];
 
     expect(paybackIds(await classify(later)).sort()).toEqual(['copy-1', 'payback-1']);
+  });
+
+  // A payback of `amount` requested-asset units at fill round `depth` of order 77, which asks 50.
+  const paying = (id: string, depth: number, amount: string) => ({
+    ...note(id, [5n, 77n, BigInt(depth), 0n]),
+    assets: [{ faucetId: 'requested', amount }]
+  });
+  // Rounds 1 and 2 filled 30 of the 50 asked.
+  const filledThirty = () => filledLineage({ state: 0, currentDepth: 2, remainingRequested: '20' });
+
+  it('leaves every unheld payback of an order whose paybacks fall short of its fill as an ordinary payment', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
+    const notes = [paying('copy-1', 1, '1'), paying('payback-2', 2, '20')];
+
+    expect(paybackIds(await classify(notes))).toEqual([]);
+
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue(notes);
+    const result = await settleSwapOrders('account-1', false);
+
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(result.managedNoteIds).toEqual(new Set());
+  });
+
+  it('settles a later round on its own once the claims here recorded the earlier rounds', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
+    claimRows.mockResolvedValue([
+      claimRow('settled', ITransactionStatus.Completed, { 'payback-1': 1 }, {}, { 'payback-1': '10' })
+    ]);
+
+    expect(paybackIds(await classify([paying('payback-2', 2, '20')]))).toEqual(['payback-2']);
+  });
+
+  it('counts a round whose claim recorded no amount as paying nothing', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
+    claimRows.mockResolvedValue([claimRow('settled', ITransactionStatus.Completed, { 'payback-1': 1 }, {}, null)]);
+
+    expect(paybackIds(await classify([paying('payback-2', 2, '20')]))).toEqual([]);
+
+    claimRows.mockResolvedValue([
+      claimRow('settled', ITransactionStatus.Completed, { 'payback-1': 1 }, {}, { 'payback-1': 'ten' })
+    ]);
+
+    expect(paybackIds(await classify([paying('payback-2', 2, '20')]))).toEqual([]);
+  });
+
+  it('settles an over-fill', async () => {
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([filledLineage({ state: 1, currentDepth: 1, remainingRequested: '0' })]);
+
+    expect(paybackIds(await classify([paying('payback-1', 1, '60')]))).toEqual(['payback-1']);
+  });
+
+  it('settles no unheld payback of a reclaimed order, and keeps the one a live claim holds', async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledLineage({ state: 2, currentDepth: 3 })]);
+    claimRows.mockResolvedValue([
+      claimRow('live', ITransactionStatus.Queued, { 'payback-1': 1 }, {}, { 'payback-1': '10' })
+    ]);
+
+    expect(paybackIds(await classify([paying('payback-1', 1, '10'), paying('payback-2', 2, '20')]))).toEqual([
+      'payback-1'
+    ]);
   });
 
   it("records each payback's round on its claim, merged into the round record of a claim that already held one", async () => {
@@ -486,6 +564,13 @@ describe('swap order note settlement', () => {
         remainingRequested: '0'
       }
     ]);
+    // A reclaim leaves no record of the fill, so order 88's payback is one only at a round a claim holds.
+    claimRows.mockResolvedValue([
+      {
+        ...claimRow('live', ITransactionStatus.Queued, { 'payback-88': 1 }),
+        extraInputs: { swapOrderTxId: 'swap-2', swapSettleKind: 'settle', swapPaybackDepths: { 'payback-88': 1 } }
+      }
+    ]);
     const result = await withWasmClientLock(hold =>
       classifySwapOrderNotes(
         [note('tip-77'), note('tip-88'), note('payback-88', [0n, 88n, 1n, 0n]), note('absent', [0n, 99n, 1n, 0n])],
@@ -532,8 +617,9 @@ describe('swap order note settlement', () => {
     jest
       .mocked(midenClientProxy.getPswapLineages)
       .mockResolvedValue([{ ...lineage, remainingOffered: '1', remainingRequested: '50' }]);
+    const paidTarget = { ...note('payback', [0n, 77n, 1n, 0n]), assets: [{ faucetId: 'requested', amount: '4950' }] };
     const classified = await withWasmClientLock(hold =>
-      classifySwapOrderNotes([note('tip'), note('payback', [0n, 77n, 1n, 0n])], 'account-1', undefined, hold)
+      classifySwapOrderNotes([note('tip'), paidTarget], 'account-1', undefined, hold)
     );
     const tip = { ...consumable('tip', 'tip'), swapOrder: classified.get('tip')! };
     const payback = { ...consumable('payback', 'payback'), swapOrder: classified.get('payback')! };
@@ -1500,7 +1586,7 @@ describe('swap order note settlement', () => {
         .mocked(midenClientProxy.getPswapLineages)
         .mockResolvedValue([
           zeroFillLineage('zero-fill-tip'),
-          { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1 }
+          { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1, remainingRequested: '45' }
         ]);
       jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('payback-88', [999n, 88n, 1n, 0n])]);
       for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await evictedPass();
@@ -2015,7 +2101,7 @@ describe('swap order note settlement', () => {
       .mocked(midenClientProxy.getPswapLineages)
       .mockResolvedValue([
         zeroFillLineage('zero-fill-tip'),
-        { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1 }
+        { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1, remainingRequested: '45' }
       ]);
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('payback-88', [999n, 88n, 1n, 0n])]);
     const canSign = () => true;

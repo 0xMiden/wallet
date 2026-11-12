@@ -9,6 +9,7 @@ import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import { holdsNotes } from '../transaction/verdict-rules';
 import type { SwapOrderNoteMetadata } from '../types';
 import { normalizedFaucetId } from './faucet-ids';
+import { lineageFilledAmount, paybacksCoverFill } from './payback-fill';
 import { isRecoveredReturnOrder } from './recovered-order';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -98,11 +99,30 @@ export interface SwapOrderSnapshot {
 interface PaybackClaims {
   /** The fill rounds a payback claim of the order holds: queued, generating, completed, or awaiting its verdict. */
   heldDepths: Set<number>;
+  /** What each held round paid: the smallest amount a holding claim recorded for it, 0 where none was recorded. */
+  heldAmounts: Map<number, bigint>;
   /** Every note a payback claim of the order named with its round, failed claims included. */
   namedNoteIds: Set<string>;
 }
 
-/** What each order's payback claims recorded (`swapPaybackDepths`), by order row id. A restored row records nothing. */
+const recordedAmount = (value: string | undefined): bigint => {
+  if (value === undefined) return 0n;
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+};
+
+const keepSmallest = (amounts: Map<number, bigint>, depth: number, amount: bigint): void => {
+  const known = amounts.get(depth);
+  if (known === undefined || amount < known) amounts.set(depth, amount);
+};
+
+/**
+ * What each order's payback claims recorded (`swapPaybackDepths`, `swapPaybackAmounts`), by order row id. A restored
+ * row records nothing.
+ */
 async function paybackClaimsOf(orderTxIds: string[]): Promise<Map<string, PaybackClaims>> {
   const claims = new Map<string, PaybackClaims>();
   const rows = await Repo.transactions.where('extraInputs.swapOrderTxId').anyOf(orderTxIds).toArray();
@@ -110,7 +130,11 @@ async function paybackClaimsOf(orderTxIds: string[]): Promise<Map<string, Paybac
     const orderTxId = row.extraInputs?.swapOrderTxId;
     const depths = row.extraInputs?.swapPaybackDepths;
     if (row.type !== 'consume' || row.restoredFromBackup || typeof orderTxId !== 'string' || !depths) continue;
-    const entry = claims.get(orderTxId) ?? { heldDepths: new Set<number>(), namedNoteIds: new Set<string>() };
+    const entry = claims.get(orderTxId) ?? {
+      heldDepths: new Set<number>(),
+      heldAmounts: new Map<number, bigint>(),
+      namedNoteIds: new Set<string>()
+    };
     claims.set(orderTxId, entry);
     // The claim dedup's rule (`noteClaimCoverage`): such a row covers its notes, so no second claim takes them.
     const holds = isLiveTransaction(row) || row.status === ITransactionStatus.Completed || holdsNotes(row);
@@ -119,7 +143,10 @@ async function paybackClaimsOf(orderTxIds: string[]): Promise<Map<string, Paybac
       const depth = depths[noteId];
       if (typeof depth !== 'number') continue;
       entry.namedNoteIds.add(noteId);
-      if (holds) entry.heldDepths.add(depth);
+      if (!holds) continue;
+      entry.heldDepths.add(depth);
+      // A claim written before amounts were recorded counts as paying nothing, so it settles no later round alone.
+      keepSmallest(entry.heldAmounts, depth, recordedAmount(row.extraInputs?.swapPaybackAmounts?.[noteId]));
     }
   }
   return claims;
@@ -148,10 +175,12 @@ export async function classifySwapOrderSnapshot(
   const lineages = new Map(snapshot.map(lineage => [lineage.orderId, lineage]));
   const paybacksByOrder = new Map<string, string[]>();
   const paybackAmountByNote = new Map<string, bigint>();
+  const filledByOrder = new Map<string, bigint | undefined>();
   for (const order of orders) {
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = lineages.get(orderId);
     if (!lineage) continue;
+    filledByOrder.set(order.id, lineageFilledAmount(order.extraInputs.requestedAmount, lineage));
 
     const currentTipNoteId = lineage.currentTipNoteId;
     const currentDepth = lineage.currentDepth;
@@ -192,6 +221,12 @@ export async function classifySwapOrderSnapshot(
   // One fill pays one payback. A pass admits at most one unnamed note of a round: the largest amount of the requested
   // asset, the lowest note id breaking a tie. The other copies are ordinary incoming payments. A note a claim named
   // stays, so a failed claim's note is not displaced, and a round a claim already holds admits no unnamed note.
+  //
+  // Then the order's paybacks must account for its fill: the rounds held here, by the amounts their claims recorded,
+  // plus the rounds claimable now, by their smallest note, pay at least what the lineage says was filled. Otherwise
+  // no unheld payback of the order is settled; each is an ordinary incoming payment, claimed by the native
+  // auto-consume under its claim floor or by hand from the claim list. A reclaimed order's lineage no longer says
+  // what was filled, so only its held rounds stay.
   if (paybacksByOrder.size > 0) {
     const claims = await paybackClaimsOf([...paybacksByOrder.keys()]);
     assertLive();
@@ -232,6 +267,20 @@ export async function classifySwapOrderSnapshot(
           if (noteId !== keeper) result.delete(noteId);
         }
         if (heldDepths.has(depth)) result.delete(keeper);
+      }
+
+      const claimableAmounts = new Map<number, bigint>();
+      for (const [depth, idsAtDepth] of byDepth) {
+        for (const noteId of idsAtDepth) {
+          if (result.has(noteId)) keepSmallest(claimableAmounts, depth, paybackAmountByNote.get(noteId) ?? 0n);
+        }
+      }
+      if (claimableAmounts.size === 0) continue;
+      const heldAmounts = claim?.heldAmounts ?? new Map<number, bigint>();
+      if (paybacksCoverFill(filledByOrder.get(orderTxId), heldAmounts, claimableAmounts)) continue;
+      for (const [depth, idsAtDepth] of byDepth) {
+        if (heldDepths.has(depth)) continue;
+        for (const noteId of idsAtDepth) result.delete(noteId);
       }
     }
   }

@@ -439,16 +439,12 @@ export async function reconcileSwapOrderNotes(
     const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
     for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
-      // No `verificationBaseFee`, so no claim floor, unlike the three native auto-consumers. A floor here would
-      // strand a small payback for good: the fee does not price the requested asset, and a swap-managed note never
-      // reaches the manual claim list.
-      //
-      // The floor's griefing vector, dust notes that each cost the victim a fee, is closed in classification
-      // instead. The order id is public, so anyone can copy a payback's attachment, but a note settles here only
-      // as a standard payment of exactly the order's requested asset, at a round a fill reached, and not at a round
-      // a claim of the order already holds (`swapPaybackDepths`). A pass admits at most one unnamed note of a round,
-      // and the other copies are ordinary incoming payments. Only a round no claim here holds (its payback settled on
-      // another device or before rounds were recorded) lets a copy buy one claim of its own.
+      // No `verificationBaseFee`, so no claim floor, unlike the three native auto-consumers: a payback settled here
+      // is one the order's lineage accounts for. Classification admits a note only as a standard payment of exactly
+      // the order's requested asset, at a round a fill reached, one note per round, and only while the rounds held
+      // here (`swapPaybackAmounts`) and the rounds claimable now pay at least what the lineage says was filled. A
+      // payback the order cannot account for is left out of the classification and claimed as an ordinary payment,
+      // under the native claim floor or by hand from the claim list.
       // A solver CAN partial-fill into many small paybacks, but every payback of one order goes into one consume,
       // so a trickle of fills costs one fee per lap rather than one per note. One lap's fee can still exceed a very
       // small fill, which is the price of settling promptly on funds the user is owed.
