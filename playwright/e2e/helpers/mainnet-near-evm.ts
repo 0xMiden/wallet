@@ -22,9 +22,27 @@ export function inspectMainnetNearForwardReceipt(
 }
 
 export function reconcileMainnetNearEvmReceipt(
-  _state: MainnetNearCheckpoint, _evidence: EpochEvmRecoveryEvidence
+  state: MainnetNearCheckpoint, evidence: EpochEvmRecoveryEvidence
 ): boolean {
-  throw new Error('Read-only native NEAR receipt reconciliation is not implemented');
+  parseMainnetNearCheckpoint(state);
+  const entry = state.transactions?.[0]; const quote = state.reverseQuote;
+  if (state.transactions?.length !== 1 || !entry || !quote || !state.returnAmount || state.evmNonceBefore === undefined)
+    throw new Error('Missing original native NEAR signed recovery journal');
+  const { transaction: tx, receipt } = evidence;
+  const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [getAddress(quote.depositAddress), BigInt(state.returnAmount)] });
+  if (!tx.to || tx.hash.toLowerCase() !== entry.hash || receipt.transactionHash.toLowerCase() !== entry.hash ||
+      getAddress(tx.from) !== getAddress(state.evm.account) || getAddress(tx.to) !== getAddress(state.evm.token) ||
+      tx.input.toLowerCase() !== data.toLowerCase() || tx.value !== 0n || tx.chainId !== state.evm.chainId || tx.type !== 'eip1559' ||
+      tx.nonce !== state.evmNonceBefore || tx.nonce !== entry.nonce || tx.gas <= 0n || tx.maxFeePerGas === undefined || tx.maxFeePerGas <= 0n ||
+      tx.gas * tx.maxFeePerGas > BigInt(state.evmFeeBudget) || receipt.gasUsed <= 0n || receipt.gasUsed > tx.gas ||
+      receipt.effectiveGasPrice <= 0n || receipt.effectiveGasPrice > tx.maxFeePerGas)
+    throw new Error('Native NEAR recovery receipt differs from its original signed transfer or fee envelope');
+  const fee = receipt.gasUsed * receipt.effectiveGasPrice;
+  if ((entry.feeWei !== undefined && BigInt(entry.feeWei) !== fee) || BigInt(state.paidEvmFees) > fee)
+    throw new Error('Saved native NEAR fees contradict the original actual receipt');
+  // Historical reconciliation only: never refresh the original quote, nonce, price, run or signing authority.
+  entry.feeWei = fee.toString(); state.paidEvmFees = fee.toString();
+  return receipt.status === 'success';
 }
 
 export interface MainnetNearEvmEnvelope {
