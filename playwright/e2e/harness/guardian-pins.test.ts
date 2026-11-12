@@ -31,4 +31,20 @@ describe('Guardian pins', () => {
     expect(existsSync(resolve(root, `patches/@openzeppelin+guardian-client+${version}.patch`))).toBe(true);
     expect(lock).toContain(`"@openzeppelin/miden-multisig-client@${version}":`);
   });
+
+  it("guardian-b inherits Guardian A's image unless GUARDIAN_B_IMAGE_TAG is set", () => {
+    expect(read('playwright/e2e/local-stack/docker-compose.local.yml')).toContain(
+      'guardian:${GUARDIAN_B_IMAGE_TAG:-${GUARDIAN_IMAGE_TAG}}'
+    );
+  });
+
+  it('the lifecycle workflow validates each image input before compose', () => {
+    const workflow = read('.github/workflows/pr-e2e-guardian-lifecycle.yml');
+    const start = workflow.indexOf('- name: Bring up both guardians');
+    const step = workflow.slice(start, workflow.indexOf('- name: Start note-transport'));
+    expect(step).toContain('^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$');
+    expect(step).toContain('GUARDIAN_IMAGE_TAG_INPUT: ${{ inputs.guardian_image_tag }}');
+    expect(step).toContain('GUARDIAN_B_IMAGE_TAG_INPUT: ${{ inputs.guardian_b_image_tag }}');
+    expect(step).not.toMatch(/run: \|[\s\S]*\$\{\{ inputs\./);
+  });
 });
