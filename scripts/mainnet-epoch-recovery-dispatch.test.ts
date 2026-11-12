@@ -2,7 +2,7 @@
 import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
-const refund = jest.fn(); const returned = jest.fn(); const forward = jest.fn(); const prepare = jest.fn();
+const refund = jest.fn(); const returned = jest.fn(); const forward = jest.fn(); const prepare = jest.fn(); const reverse = jest.fn();
 const restore = jest.fn(); const summary = jest.fn();
 const head = jest.fn();
 const account = jest.fn();
@@ -36,7 +36,7 @@ beforeEach(() => {
   jest.doMock(modules[0]!, () => ({ test }));
   jest.doMock(modules[1]!, () => ({ loadMainnetEpochCheckpoint: () => previous, saveMainnetEpochCheckpoint: jest.fn() }));
   jest.doMock(modules[2]!, () => ({ runEpochRefund: refund, recoverEpochReturn: returned,
-    recoverEpochForward: forward, runEpochForward: jest.fn(), runEpochReverse: jest.fn() }));
+    recoverEpochForward: forward, runEpochForward: jest.fn(), runEpochReverse: reverse }));
   jest.doMock(modules[3]!, () => ({ prepareEpochRoundTrip: prepare,
     epochReadOnlyProvider: () => ({ config: {}, sdk: { getIntentStatus: async () => [] } }) }));
   jest.doMock(modules[4]!, () => ({ restoreMainnetLoopGuardian: restore }));
@@ -78,6 +78,28 @@ it('reconciles an already recorded actual native receipt without authorizing ano
   await run();
   expect(returned).toHaveBeenCalledWith(wallet, previous, expect.any(String), expect.any(String), expect.any(AbortSignal));
   expect(refund).not.toHaveBeenCalled(); expect(prepare).not.toHaveBeenCalled();
+});
+it('recovers a FIRST original return from owned proceeds without replacing the old authorization or budgets', async () => {
+  Object.assign(previous!, { phase: 'forward-settled', forwardReceived: '1001000', forwardEvmTxHash: hash });
+  const key = `0x${'0'.repeat(63)}1`; process.env.E2E_MAINNET_EVM_KEY = key;
+  const original = JSON.stringify(previous);
+  await run();
+  expect(reverse).toHaveBeenCalledWith(wallet, previous, expect.any(String), previous!.sourceRunId,
+    key, expect.any(String), expect.any(AbortSignal));
+  expect(previous!.sourceRunId).not.toBe(process.env.GITHUB_RUN_ID);
+  expect(JSON.stringify(previous)).toBe(original); expect(prepare).not.toHaveBeenCalled();
+});
+it('never refreshes an existing reverse nonce even when its signed journal is missing', async () => {
+  Object.assign(previous!, { forwardReceived: '1001000', forwardEvmTxHash: hash, reverseNonce: '10',
+    reverseAuthority: epochReverseAuthorityFixture() });
+  process.env.E2E_MAINNET_EVM_KEY = `0x${'0'.repeat(63)}1`;
+  await expect(run()).rejects.toThrow(/ambig|original|authorization|reverse/i);
+  expect(reverse).not.toHaveBeenCalled(); expect(refund).not.toHaveBeenCalled();
+});
+it('does not sign an original return with a missing existing EVM key', async () => {
+  Object.assign(previous!, { forwardReceived: '1001000', forwardEvmTxHash: hash });
+  await expect(run()).rejects.toThrow(/key/i);
+  expect(reverse).not.toHaveBeenCalled();
 });
 it('does not restore a funded actor for a terminal checkpoint', async () => {
   previous!.phase = 'cancelled'; await run();

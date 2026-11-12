@@ -41,3 +41,24 @@ jobs:
           yarn ts
       - name: Check public mainnet SDK reads without keys or writes
         run: node scripts/mainnet-sdk-readonly.mjs
+      - name: Inspect public receipt lookup capability without keys or funding
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          const targets = [
+            ['https://1click.chaindefuser.com/v1/receipts/resolve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"transactionHashes":[]}' }],
+            ['https://explorer.mainnet.miden.io', {}]
+          ];
+          for (const [url, init] of targets) {
+            try {
+              const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+              let body = ''; const decoder = new TextDecoder(); let length = 0;
+              for await (const chunk of response.body ?? []) {
+                length += chunk.length; if (length > 1048576) throw new Error('Public response too large');
+                body += decoder.decode(chunk, { stream: true });
+              }
+              const scripts = url.includes('explorer.') ? [...body.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].slice(0, 12).map(match => new URL(match[1], url)).filter(asset => asset.origin === new URL(url).origin).map(asset => asset.pathname.slice(0, 200)) : [];
+              console.log(JSON.stringify({ url, status: response.status, contentType: response.headers.get('content-type'), scripts }));
+            } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
+          }
+          NODE
