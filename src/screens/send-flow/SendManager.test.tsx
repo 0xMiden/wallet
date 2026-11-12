@@ -146,6 +146,12 @@ const walletStoreState = {
   get balancesLoading() {
     return realWalletStore().getState().balancesLoading;
   },
+  get balanceReadFailed() {
+    return realWalletStore().getState().balanceReadFailed;
+  },
+  get balanceReadInFlight() {
+    return realWalletStore().getState().balanceReadInFlight;
+  },
   get balancesLastFetched() {
     return realWalletStore().getState().balancesLastFetched;
   },
