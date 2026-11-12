@@ -5,6 +5,7 @@ export function epochReverseAuthorityFixture() {
   return {
     arbiter: `0x${'4'.repeat(40)}`, lockTag: `0x50${'2'.repeat(22)}`,
     preparedAt: '2026-11-11T12:10:00.000Z',
+    valuation: { pricedAt: '2026-11-11T12:10:00.000Z', stableUsdMicros: '1000000', gasUsdMicros: '2000000000' },
     minimumExpiry: minimumExpiry.toString(), maximumExpiry: (minimumExpiry + 300n).toString()
   };
 }

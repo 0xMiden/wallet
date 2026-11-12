@@ -7,6 +7,7 @@ import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isHex, ke
 
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochEvmTransaction } from './mainnet-epoch-checkpoint';
+import { planEpochRoundTrip } from './mainnet-epoch-ui';
 
 export function inspectEpochForwardReceipt(
   state: MainnetEpochCheckpoint, expectedHash: Hash,
@@ -116,6 +117,17 @@ export function createEpochEvmSender(
   if (state.phase !== 'reverse-authorized' || state.transactions?.length || state.evmNonceBefore === undefined ||
       state.returnAmount === undefined || state.forwardReceived === undefined || !state.reverseAuthority)
     throw new Error('Epoch sender requires fresh authority without an unresolved signed journal');
+  if (!state.reverseAuthority.valuation) throw new Error('Missing return-stage market valuation before signing');
+  const valuation = { ...state.reverseAuthority.valuation };
+  const checkValuation = () => {
+    const live = state.reverseAuthority?.valuation;
+    if (!live || live.pricedAt !== valuation.pricedAt || live.stableUsdMicros !== valuation.stableUsdMicros ||
+        live.gasUsdMicros !== valuation.gasUsdMicros) throw new Error('Uploaded Epoch valuation changed');
+    const age = Date.now() - Date.parse(valuation.pricedAt);
+    if (age < 0 || age > 600_000) throw new Error('Epoch market valuation is stale before signing');
+  };
+  checkValuation();
+  planEpochRoundTrip(state, BigInt(state.returnAmount));
   const nonceBefore = state.evmNonceBefore;
   const amount = BigInt(state.returnAmount);
   const forwardReceived = BigInt(state.forwardReceived);
@@ -124,6 +136,7 @@ export function createEpochEvmSender(
   const minimumExpiry = BigInt(state.reverseAuthority.minimumExpiry);
   const maximumExpiry = BigInt(state.reverseAuthority.maximumExpiry);
   const inspectLive = (transaction: CounterpartyTransaction): 'approve' | 'deposit' => {
+    checkValuation();
     const now = Date.now();
     for (let expiry = minimumExpiry; expiry <= maximumExpiry; expiry++) {
       try { return inspectEpochEvmTransaction(state, transaction, expiry, now); }

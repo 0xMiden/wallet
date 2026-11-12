@@ -29,6 +29,7 @@ import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } fr
 import { createEpochEvmSender, reconcileEpochEvmReceipts, inspectEpochForwardReceipt, type EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
 import { planEpochRoundTrip } from './mainnet-epoch-ui';
 import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
+import { fetchMainnetOneClickUsdPrices } from './mainnet-one-click-prices';
 import { exportMakerNote } from './swap';
 import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
@@ -217,7 +218,7 @@ export async function runEpochReverse(
 ): Promise<void> {
   if (state.phase !== 'forward-settled' || !state.forwardAuthority || state.sourceRunId !== runId ||
       state.authorizationRunId !== runId || state.transactions?.length || state.returnMidenTxId ||
-      state.reverseNonce !== undefined || state.consumeAuthority ||
+      state.reverseNonce !== undefined || state.reverseAuthority || state.consumeAuthority ||
       await wallet.getAccountAddress() !== state.account)
     throw new Error('Epoch return requires the original same-run, actually settled collateral authority');
   const evm = privateKeyToAccount(key);
@@ -270,13 +271,20 @@ export async function runEpochReverse(
           const pendingNonce = await client.getTransactionCount({ address: evm.address, blockTag: 'pending' });
           if (pendingNonce !== await client.getTransactionCount({ address: evm.address, blockTag: 'latest' }))
             throw new Error('Existing EVM account has an unrelated pending transaction');
-          state.reverseNonce = BigInt(nonce.nonce).toString(); state.returnAmount = quote.tokenIn;
-          state.evmNonceBefore = pendingNonce;
-          state.reverseAuthority = { arbiter: metadata.arbiterAddress,
-            lockTag: `0x${lockTag.toString(16).padStart(24, '0')}`, preparedAt: new Date().toISOString(),
-            minimumExpiry: expiry.toString(), maximumExpiry: (expiry + 300n).toString() };
-          state.phase = 'reverse-authorized';
-          planEpochRoundTrip(state, BigInt(quote.tokenIn));
+          const prices = await fetchMainnetOneClickUsdPrices(['usd-coin', 'ethereum']);
+          const stable = prices.usdMicrosById['usd-coin']; const gasPrice = prices.usdMicrosById.ethereum;
+          if (!stable || !gasPrice) throw new Error('Missing fresh Epoch return market prices');
+          const stableCeiling = [stable, BigInt(state.native.usdMicros), BigInt(state.evm.tokenUsdMicros)]
+            .reduce((left, right) => left > right ? left : right);
+          const gasCeiling = gasPrice > BigInt(state.evm.nativeUsdMicros) ? gasPrice : BigInt(state.evm.nativeUsdMicros);
+          const reverse: MainnetEpochCheckpoint = { ...state, phase: 'reverse-authorized',
+            reverseNonce: BigInt(nonce.nonce).toString(), returnAmount: quote.tokenIn, evmNonceBefore: pendingNonce,
+            reverseAuthority: { arbiter: metadata.arbiterAddress,
+              lockTag: `0x${lockTag.toString(16).padStart(24, '0')}`, preparedAt: new Date().toISOString(),
+              minimumExpiry: expiry.toString(), maximumExpiry: (expiry + 300n).toString(),
+              valuation: { pricedAt: prices.fetchedAt, stableUsdMicros: stableCeiling.toString(), gasUsdMicros: gasCeiling.toString() } } };
+          planEpochRoundTrip(reverse, BigInt(quote.tokenIn));
+          Object.assign(state, reverse);
           await persist();
           await awaitMainnetLoopAuthorization(path, gatePath, activeSignal);
           if (failed) throw new Error('Epoch return authorization was blocked while awaiting upload');

@@ -127,6 +127,7 @@ function senderFixture() {
   const now = Date.now();
   const expiry = BigInt(Math.floor(now / 1000)) + 3600n;
   state.reverseAuthority = { ...state.reverseAuthority, preparedAt: new Date(now).toISOString(),
+    valuation: { ...state.reverseAuthority.valuation, pricedAt: new Date(now).toISOString() },
     minimumExpiry: expiry.toString(), maximumExpiry: (expiry + 300n).toString() };
   let allowance = 0n;
   let envelope;
@@ -314,6 +315,7 @@ async function recoveryFixture() {
   c.state.phase = 'recovery-required'; c.state.paidEvmFees = '0';
   c.state.transactions.forEach(tx => { delete tx.feeWei; });
   c.state.reverseAuthority.preparedAt = new Date(Date.now() - 600_000).toISOString();
+  c.state.reverseAuthority.valuation.pricedAt = c.state.reverseAuthority.preparedAt;
   return { ...c, evidence };
 }
 test('reconciles actual signed hashes/receipts under original expired authority without renewing signing or budgets', async () => {
