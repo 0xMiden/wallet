@@ -19,7 +19,7 @@ import { WalletStatus } from 'lib/shared/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
-const mockSignData = jest.fn(async () => 'fake-sig-base64');
+const mockSignData = jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' }));
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
@@ -32,8 +32,7 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 // before raising a sheet, so this suite stands that module in. `false` is "no limit configured",
 // which is what every case here assumes.
 // The custom path now dry-runs before either sheet and assesses the result, so this suite controls
-// the dry run. The default is "no usable result", which is what the real module produced here
-// before (no client in this environment), so the pre-existing cases are unaffected.
+// the dry run.
 const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
@@ -42,8 +41,9 @@ jest.mock('lib/miden/note-quarantine', () => ({
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
 }));
 
+// The approval needs a dry run that succeeds, so the default is a dry run whose decoded view moves nothing.
 const mockSimulateCustomTransaction = jest.fn((..._args: unknown[]) =>
-  Promise.resolve({ error: 'no client in this suite' } as Record<string, unknown>)
+  Promise.resolve({ executedBytes: 'exec' } as Record<string, unknown>)
 );
 jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: (...args: unknown[]) => mockSimulateCustomTransaction(...args)
@@ -52,10 +52,25 @@ jest.mock('./simulate-custom-tx', () => ({
 // Only the decoder is stood in: what the bytes decode TO is decode.test.ts's subject, while this
 // file's subject is what the gate does with the result. `netOutflowByFaucet` stays REAL, so these
 // cases exercise the actual per-faucet netting and folding.
-const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => undefined as unknown);
+const EMPTY_SIMULATED_VIEW = {
+  account: 'miden-account-1',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false
+};
+const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => EMPTY_SIMULATED_VIEW as unknown);
 jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
-  return { ...actual, simulatedBytesToView: (...args: unknown[]) => mockSimulatedBytesToView(...args) };
+  return {
+    ...actual,
+    simulatedBytesToView: (...args: unknown[]) => mockSimulatedBytesToView(...args),
+    simulatedOutputRecipients: () => []
+  };
 });
 
 const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
@@ -2492,14 +2507,77 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
 
-  it('allows an unsimulatable request when the account has no limit at all', async () => {
+  it('refuses an unsimulatable request before any prompt also when the account has no limit at all', async () => {
+    // The approval needs a dry run that succeeds, with or without a spending limit.
     mockSimulatedBytesToView.mockReturnValue(undefined);
     mockHasSpendingLimits.mockResolvedValueOnce(false);
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
 
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      `${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  const unattributableSummary = () => {
+    mockSimulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sum', introducedCount: 0 });
+    mockSimulatedBytesToView.mockReturnValue({ ...viewMoving([]), inputNotesConsumed: 2 });
+  };
+
+  it('passes an unattributable custom spend through unset when preparation finds no spending limit', async () => {
+    unattributableSummary();
+    // Earlier cases queue a one-shot limit answer they never consume. Reset so this call sees no limit.
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
     await dapp.requestTransaction('https://miden.xyz', customRequest());
 
-    expect(mockRequestCustomTransaction).toHaveBeenCalled();
+    expect(mockAssessOutgoingSpendingLimitDetails).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+  });
+
+  it('refuses an unattributable custom spend before the prompt when a spending limit is configured', async () => {
+    unattributableSummary();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValueOnce(true);
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
+  it('releases quarantined notes when the locked recheck refuses an unattributable custom spend', async () => {
+    unattributableSummary();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    const refusal = new Error(MidenDAppErrorType.NotGranted);
+    refusal.name = 'UnattributableCustomSpendError';
+    mockRequestCustomTransaction.mockRejectedValue(refusal);
+
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          payload: {
+            address: 'miden-account-1',
+            recipientAddress: 'bob',
+            transactionRequest: 'YmFzZTY0cmVx',
+            importNotes: ['note-a']
+          }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:note-a']);
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
   });
 
   it('no longer refuses a custom request that moves two capped assets', async () => {
@@ -2804,7 +2882,8 @@ describe('requests for an account that is not the current one (#1419)', () => {
   it('still signs when the current account is unchanged at approval', async () => {
     await expect(requests.sign!()).resolves.toEqual({
       type: MidenDAppMessageType.SignResponse,
-      signature: 'fake-sig-base64'
+      signature: 'fake-sig-base64',
+      signedCommitment: 'fake-commitment-b64'
     });
     expect(mockSignData).toHaveBeenCalledTimes(1);
   });

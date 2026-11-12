@@ -19,6 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -29,7 +30,10 @@ import {
   getMidenClient,
   getCurrentWasmLockHold,
   assertWasmHoldCurrent,
+  withHoldSigner,
   withWasmClientLock,
+  retireWasmClientForCaughtTrap,
+  retireWasmClientForUnheldTrap,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import type {
@@ -245,9 +249,11 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
  * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
- * shipping bundle leaves it at 180s. It was 90s, sized when a local prove could
- * not finish at all (below), and that was shorter than the slowest write the
- * wallet itself allows: a delegated prove may take `DELEGATED_PROVE_TIMEOUT_MS`
+ * shipping bundle leaves it at 180s, which each vite config's define sets: only
+ * Jest reads the fallback below (`write-deadline-define-parity.test.ts`). It was
+ * 90s, sized when a local prove could not finish at all (below), and that was
+ * shorter than the slowest write the wallet itself allows: a delegated prove
+ * may take `DELEGATED_PROVE_TIMEOUT_MS`
  * (120s) and then still has to submit and apply. Once local proving ran in the
  * prove worker (#945), a legitimate on-device proof of a multi-note claim ran
  * past 90s too, and each cut-off kept a Guardian proposal that blocked the
@@ -256,6 +262,10 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * do. The cost is 90s more realm time per genuine wedge. Raising it further on
  * the strength of a CI timing would trade a visible CI failure for an invisible
  * production hang, which is the one thing this knob exists to prevent.
+ *
+ * One op can run its execute and prove more than once: a Guardian leaf executes
+ * again when a proof goes stale before its submit, and `withFreshProof` stops it at
+ * `OFFSCREEN_PROOF_BUDGET_MS` so that ends as a failed row, not a kill here (#2060).
  *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *
@@ -366,7 +376,8 @@ const inFlight = new Map<string, InFlightOp>();
 /** The RAW hex-in/bytes-out sign callback shape the tx loop supplies (the SW's
  * `swSignCallback`). Flag-ON it crosses into the reverse-IPC handler, where the
  * offscreen document builds its byte-shaped keystore `sign` from it via
- * `buildSdkSignCallback`; flag-OFF it is unused, the realm signer signs (#878). */
+ * `buildSdkSignCallback`; flag-OFF it signs for the write's own WASM lock hold
+ * (`withHoldSigner`), while every other hold keeps the realm signer (#878). */
 type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
 
 /** The per-step stage stamp the tx loop supplies for a staged write (PR #524) —
@@ -504,6 +515,12 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit
+    // tag itself.
+    if (resp.errorName === 'StaleProofError') {
+      reject(new StaleProofError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
@@ -784,6 +801,8 @@ export function markOpStarted(op_id: string): void {
  * exactly as the inline path does (`buildSignCallbackError`) and the reason is
  * recorded PER-OP (so the write path can re-tag the thrown error for
  * `isLockedError`; issue #260 flip-prep #1 removed the redundant global slot).
+ * A `WebAssembly.RuntimeError` is not classified. It is retired and rethrown;
+ * the IPC rejection then answers the offscreen sign as a failed sign.
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
@@ -799,6 +818,14 @@ export async function handleOffscreenSignRequest(
       const signature = await cb(publicKeyHex, signingInputsHex);
       return { ok: true, sign_id, signatureB64: bytesToB64(signature) };
     } catch (rawErr) {
+      // The service worker does not hold the client lock around this decode. A trap
+      // is retired here and rethrown; classifying it would hide the RuntimeError.
+      if (rawErr instanceof WebAssembly.RuntimeError) {
+        const hold = getCurrentWasmLockHold();
+        if (hold) retireWasmClientForCaughtTrap(hold, rawErr);
+        else retireWasmClientForUnheldTrap(rawErr);
+        throw rawErr;
+      }
       // Classify identically to the inline path so a locked vault DEFERS.
       const classified = buildSignCallbackError(rawErr);
       opSignReasons.set(op_id, classified.reason);
@@ -1746,8 +1773,9 @@ export const midenClientProxy = {
    *
    *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
    *   realm's one client under the WASM lock, `withWasmClientLock(() =>
-   *   getMidenClient().consumeNoteId(tx, onStage))`; the realm signer `Actions.init`
-   *   installed signs it, and the `signCallback` argument is unused (#878).
+   *   getMidenClient().consumeNoteId(tx, onStage))`, and `signCallback` signs for
+   *   that hold in place of the realm signer `Actions.init` installed
+   *   (`withHoldSigner`), so the loop's per-write check covers it (#2147).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
    *   realm as ONE killable op; the SDK keystore reaches the vault mid-execute via
@@ -1763,7 +1791,9 @@ export const midenClientProxy = {
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction, onStage));
+      return withWasmClientLock(async hold =>
+        withHoldSigner(hold, signCallback, async () => (await getMidenClient()).consumeNoteId(transaction, onStage))
+      );
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
@@ -1777,8 +1807,8 @@ export const midenClientProxy = {
   /**
    * Send (create a P2ID / recallable-P2IDE note) — moved offscreen (issue #260,
    * slice 5b). Same shape as {@link consumeNoteId}: flag-OFF runs inline under
-   * the WASM lock on the realm's one client, signed by the realm signer (the
-   * `signCallback` argument is unused, #878); flag-ON runs the whole
+   * the WASM lock on the realm's one client, signed by `signCallback` for that
+   * hold (`withHoldSigner`); flag-ON runs the whole
    * execute→prove→submit→apply chain in the offscreen realm as one killable op,
    * with that argument as the op's reverse-IPC signer.
    *
@@ -1806,7 +1836,9 @@ export const midenClientProxy = {
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).sendTransaction(transaction, onStage));
+      return withWasmClientLock(async hold =>
+        withHoldSigner(hold, signCallback, async () => (await getMidenClient()).sendTransaction(transaction, onStage))
+      );
     }
     const dto: OffscreenSendDto = {
       accountId: transaction.accountId,
@@ -1835,7 +1867,7 @@ export const midenClientProxy = {
 
   /**
    * Create a partial-swap (PSWAP) note — moved offscreen (issue #260, slice 5b).
-   * Same flag-OFF inline (realm signer) + flag-ON whole-op contract as {@link sendTransaction}.
+   * Same flag-OFF inline + flag-ON whole-op contract as {@link sendTransaction}.
    * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
    * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
    * `delegateTransaction`, `extraInputs.{requestedFaucetId, requestedAmount}`
@@ -1850,7 +1882,11 @@ export const midenClientProxy = {
   ): Promise<TransactionResult> {
     const feeContext = await readSwapFeeContext(transaction.extraInputs.balanceScope);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage, feeContext));
+      return withWasmClientLock(async hold =>
+        withHoldSigner(hold, signCallback, async () =>
+          (await getMidenClient()).swapTransaction(transaction, onStage, feeContext)
+        )
+      );
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1869,7 +1905,7 @@ export const midenClientProxy = {
 
   /**
    * Execute a pre-built custom `TransactionRequest` (custom-tx / execute) —
-   * moved offscreen (issue #260, slice 5b). Same flag-OFF inline (realm signer) +
+   * moved offscreen (issue #260, slice 5b). Same flag-OFF inline +
    * flag-ON whole-op contract as the other writes. This one takes POSITIONAL args
    * mirroring `MidenClientInterface.newTransaction(accountId, requestBytes,
    * delegateTransaction)` — `requestBytes` crosses as raw bytes (`encodeArg`
@@ -1886,8 +1922,10 @@ export const midenClientProxy = {
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+      return withWasmClientLock(async hold =>
+        withHoldSigner(hold, signCallback, async () =>
+          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+        )
       );
     }
     return dispatchOffscreenWrite(

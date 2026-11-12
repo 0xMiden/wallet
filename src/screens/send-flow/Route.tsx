@@ -128,6 +128,8 @@ export type RouteOptionsProps = Pick<
 > & {
   accent?: FlowAccent;
   slowStatus: AgglayerEligibility;
+  showFastRoute?: boolean;
+  showSlowRoute?: boolean;
   /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
   usdcxPayout?: UsdcxPayoutTarget;
 };
@@ -234,12 +236,14 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastAvailability,
   slowAvailability,
   accent = 'brand',
-  usdcxPayout
+  usdcxPayout,
+  showFastRoute = true,
+  showSlowRoute = true
 }) => {
   const { t } = useTranslation();
   const slowAllowed = slowStatus === 'allowed';
-  const fastSelectable = !isFeatureBlocked(fastAvailability);
-  const slowSelectable = slowAllowed && !isFeatureBlocked(slowAvailability);
+  const fastSelectable = showFastRoute && !isFeatureBlocked(fastAvailability);
+  const slowSelectable = showSlowRoute && slowAllowed && !isFeatureBlocked(slowAvailability);
   let slowFee: React.ReactNode = <span className="text-base font-bold text-ink">{t('noFee')}</span>;
   let slowNotice: React.ReactNode;
   switch (slowStatus) {
@@ -280,82 +284,86 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <RouteCard
-        emoji="⚡"
-        label={t('bridgeRouteEpoch')}
-        selected={route === 'epoch'}
-        onSelect={() => select('epoch')}
-        fee={fastFee}
-        eta={t('fastArrival')}
-        disabled={!fastSelectable}
-        describedBy={
-          fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
-        }
-        testId="bridge-route-fast"
-        accent={accent}
-        description={
-          fastAvailability.state === 'unavailable' || fastHint ? (
-            <>
-              <RouteAvailabilityNotice
-                availability={fastAvailability}
-                feature={fastFeature}
-                otherRouteSelectable={slowSelectable}
-                id={FAST_NOTICE_ID}
-                data-testid="feature-unavailable-notice-fast"
-              />
-              {fastHint && (
-                <p id="bridge-route-fast-hint" className="text-caption text-muted">
-                  {fastHint}
-                </p>
-              )}
-            </>
-          ) : undefined
-        }
-      />
-      <RouteCard
-        emoji="🕐"
-        label={t('bridgeRouteAgglayer')}
-        selected={route === 'agglayer' && slowAllowed}
-        disabled={!slowSelectable}
-        loading={slowStatus === 'loading'}
-        describedBy={
-          slowAvailability.state === 'unavailable'
-            ? SLOW_NOTICE_ID
-            : slowNotice
-              ? 'bridge-route-slow-status'
-              : slowHint
-                ? 'bridge-route-slow-hint'
-                : undefined
-        }
-        onSelect={() => select('agglayer')}
-        fee={slowFee}
-        eta={t('slowArrival')}
-        testId="bridge-route-slow"
-        accent={accent}
-        description={
-          slowAvailability.state === 'unavailable' || slowNotice || slowHint ? (
-            <>
-              <RouteAvailabilityNotice
-                availability={slowAvailability}
-                feature={slowFeature}
-                otherRouteSelectable={fastSelectable}
-                id={SLOW_NOTICE_ID}
-                data-testid="feature-unavailable-notice-slow"
-              />
-              {slowHint && (
-                <p id="bridge-route-slow-hint" className="text-caption text-muted">
-                  {slowHint}
-                </p>
-              )}
-              {slowNotice && (
-                <p id="bridge-route-slow-status" role="status" className="text-caption text-muted">
-                  {slowNotice}
-                </p>
-              )}
-            </>
-          ) : undefined
-        }
-      />
+      {showFastRoute && (
+        <RouteCard
+          emoji="⚡"
+          label={t('bridgeRouteEpoch')}
+          selected={route === 'epoch'}
+          onSelect={() => select('epoch')}
+          fee={fastFee}
+          eta={t('fastArrival')}
+          disabled={!fastSelectable}
+          describedBy={
+            fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
+          }
+          testId="bridge-route-fast"
+          accent={accent}
+          description={
+            fastAvailability.state === 'unavailable' || fastHint ? (
+              <>
+                <RouteAvailabilityNotice
+                  availability={fastAvailability}
+                  feature={fastFeature}
+                  otherRouteSelectable={slowSelectable}
+                  id={FAST_NOTICE_ID}
+                  data-testid="feature-unavailable-notice-fast"
+                />
+                {fastHint && (
+                  <p id="bridge-route-fast-hint" className="text-caption text-muted">
+                    {fastHint}
+                  </p>
+                )}
+              </>
+            ) : undefined
+          }
+        />
+      )}
+      {showSlowRoute && (
+        <RouteCard
+          emoji="🕐"
+          label={t('bridgeRouteAgglayer')}
+          selected={route === 'agglayer' && slowAllowed}
+          disabled={!slowSelectable}
+          loading={slowStatus === 'loading'}
+          describedBy={
+            slowAvailability.state === 'unavailable'
+              ? SLOW_NOTICE_ID
+              : slowNotice
+                ? 'bridge-route-slow-status'
+                : slowHint
+                  ? 'bridge-route-slow-hint'
+                  : undefined
+          }
+          onSelect={() => select('agglayer')}
+          fee={slowFee}
+          eta={t('slowArrival')}
+          testId="bridge-route-slow"
+          accent={accent}
+          description={
+            slowAvailability.state === 'unavailable' || slowNotice || slowHint ? (
+              <>
+                <RouteAvailabilityNotice
+                  availability={slowAvailability}
+                  feature={slowFeature}
+                  otherRouteSelectable={fastSelectable}
+                  id={SLOW_NOTICE_ID}
+                  data-testid="feature-unavailable-notice-slow"
+                />
+                {slowHint && (
+                  <p id="bridge-route-slow-hint" className="text-caption text-muted">
+                    {slowHint}
+                  </p>
+                )}
+                {slowNotice && (
+                  <p id="bridge-route-slow-status" role="status" className="text-caption text-muted">
+                    {slowNotice}
+                  </p>
+                )}
+              </>
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 };

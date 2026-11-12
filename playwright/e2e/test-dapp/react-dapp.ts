@@ -30,7 +30,16 @@ import {
 import { MidenProvider, useMiden, useSigner, type SignerContextValue } from '@miden-sdk/react';
 import { createRoot } from 'react-dom/client';
 
-import { canonical, describeError, fromNode, HarnessCheckError, outcome, outputNoteView } from './page-common.js';
+import {
+  canonical,
+  describeError,
+  fromNode,
+  HarnessCheckError,
+  outcome,
+  outputNoteView,
+  signBytesCommitment,
+  withProviderSignedCommitment
+} from './page-common.js';
 import type {
   ReactCommandName,
   ReactDappWindowApi,
@@ -354,13 +363,16 @@ const handlers: ReactHandlers = {
     return outcome(async () => {
       const inputs = SigningInputs.newArbitrary(felts.map(felt => new Felt(BigInt(felt))));
       const payload = inputs.serialize();
-      const message = inputs.toCommitment().serialize();
-      const signature = await signer.signCb(signer.accountConfig.publicKeyCommitment, payload);
+      const message = signBytesCommitment(payload, 'signingInputs').serialize();
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        signer.signCb(signer.accountConfig.publicKeyCommitment, payload)
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(message)
+        messageB64: u8ToB64(message),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     });
   },

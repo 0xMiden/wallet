@@ -57,6 +57,8 @@ afterAll(() => _setSwapTokensForTest(undefined));
 let mockSearch = '';
 let mockFullPage = false;
 let mockPublicKey: string | null = 'pubkey-1';
+let mockIsNewRecipient: boolean | undefined;
+const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
@@ -248,6 +250,11 @@ jest.mock('framer-motion', () => {
         ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLDivElement>) => (
           <div ref={ref} {...props} />
         )
+      ),
+      span: React.forwardRef(
+        ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLSpanElement>) => (
+          <span ref={ref} {...props} />
+        )
       )
     },
     useReducedMotion: () => false
@@ -261,6 +268,7 @@ jest.mock('components/ui/DetailCard', () => ({
     children,
     action,
     sub,
+    badge,
     onClick,
     disabled,
     'aria-haspopup': hasPopup,
@@ -268,6 +276,7 @@ jest.mock('components/ui/DetailCard', () => ({
   }: any) => (
     <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
+      {badge !== undefined && <span data-testid="row-badge">{badge}</span>}
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
         <button
@@ -470,6 +479,9 @@ jest.mock('lib/telemetry', () => ({
   classifyError: (error: unknown) => classifyErrorMock(error)
 }));
 
+jest.mock('./useIsNewRecipient', () => ({
+  useIsNewRecipient: (...a: unknown[]) => mockUseIsNewRecipient(...a)
+}));
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: { amount?: bigint }) => {
     mockEpochQuoteArgs = args;
@@ -587,6 +599,8 @@ beforeEach(() => {
   mockSearch = '';
   mockFullPage = false;
   mockPublicKey = 'pubkey-1';
+  mockIsNewRecipient = undefined;
+  mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
@@ -2499,5 +2513,72 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     await expectReport('unknownTokenScale');
+  });
+});
+
+describe('ReviewTransaction - new recipient tag', () => {
+  it('tags a first-time recipient on the To row', async () => {
+    setValidRoute();
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(within(screen.getByTestId('review-row-to')).getByTestId('review-new-recipient')).toHaveTextContent(
+      'newRecipient'
+    );
+  });
+
+  it('shows no tag for a recipient sent to before', async () => {
+    setValidRoute();
+    mockIsNewRecipient = false;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-new-recipient')).not.toBeInTheDocument();
+  });
+
+  it('shows no tag while the history is still being read', async () => {
+    setValidRoute();
+    mockIsNewRecipient = undefined;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-new-recipient')).not.toBeInTheDocument();
+  });
+
+  it('keeps Send available with the tag shown', async () => {
+    setValidRoute();
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+
+    expect(screen.getByTestId('review-new-recipient')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
+  });
+
+  it('asks about the current account and the reviewed address', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockUseIsNewRecipient).toHaveBeenCalledWith('pubkey-1', '0xrecipient');
+  });
+
+  it('tags a first-time 0x recipient too', async () => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+    mockIsNewRecipient = true;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockUseIsNewRecipient).toHaveBeenCalledWith('pubkey-1', '0x1111111111111111111111111111111111111111');
+    expect(within(screen.getByTestId('review-row-to')).getByTestId('review-new-recipient')).toBeInTheDocument();
   });
 });

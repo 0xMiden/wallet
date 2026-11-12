@@ -14,6 +14,9 @@ import {
 import { TransactionOutput } from 'lib/miden/db/types';
 import { GuardianInfo } from 'lib/shared/types';
 
+// The adapter-base 0.17.0 InputNoteDetails lacks standardPayment; drop this alias once the wallet moves to the adapter that adds it.
+export type DAppConsumableNote = InputNoteDetails & { standardPayment: boolean };
+
 export type MidenDAppMessage = MidenDAppRequest | MidenDAppResponse;
 
 export type MidenDAppRequest =
@@ -182,6 +185,8 @@ export interface MidenDAppSignRequest extends MidenDAppMessageBase {
 export interface MidenDAppSignResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.SignResponse;
   signature: string;
+  // Base64 of the word the key signed. Absent from wallets before domain-separated signing.
+  signedCommitment?: string;
 }
 
 export interface MidenDAppLoginKeyRequest extends MidenDAppMessageBase {
@@ -248,7 +253,7 @@ export interface MidenDAppConsumableNotesRequest extends MidenDAppMessageBase {
 
 export interface MidenDAppConsumableNotesResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.ConsumableNotesResponse;
-  consumableNotes: any[];
+  consumableNotes: DAppConsumableNote[];
 }
 
 export interface MidenDAppWaitForTxRequest extends MidenDAppMessageBase {

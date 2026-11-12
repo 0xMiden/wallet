@@ -303,6 +303,7 @@ describe('hand-copied English is queued for translation', () => {
   // carry the keys: en_GB is outside the runtime parity check, so a key could otherwise vanish from it
   // unnoticed. The queued check skips English variants (en_*), whose translation can equal English.
   const COPIED_KEYS = [
+    'earnBalanceLoadError',
     'earnNoActivePositionsTitle',
     'earnNoActivePositionsBody',
     'tokenActivityEmptyTitle',

@@ -9,7 +9,7 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
-import { assertProposalEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
+import { assertProposalEffectApproved, assertViewEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -416,6 +416,72 @@ describe('assertProposalEffectApproved', () => {
     await expect(assertProposalEffectApproved(send, undefined)).resolves.toBeUndefined();
     await expect(assertProposalEffectApproved(send, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
+    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertViewEffectApproved', () => {
+  it('refuses an execute whose view moves more than approved, after the fee lookup', async () => {
+    const order: string[] = [];
+    jest.mocked(getVerificationBaseFee).mockImplementationOnce(async () => {
+      order.push('fee');
+      return 2;
+    });
+    const decode = () => {
+      order.push('decode');
+      return summaryToView(PSWAP_FILL as never);
+    };
+    const transaction = execute([{ faucetId: 'bech32:fA', amount: 100n }]);
+    const refused = await assertViewEffectApproved(transaction, decode).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect((refused as Error).message).toContain('500 of bech32:fA leaves (approved 100)');
+    expect(order).toEqual(['fee', 'decode']);
+  });
+
+  it('refuses when the decode fails', async () => {
+    const failure = new Error('unexpected end of input');
+    const refused = await assertViewEffectApproved(claim, () => {
+      throw failure;
+    }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: 'Refused to sign this consume transaction: the transaction summary could not be read',
+      cause: failure
+    });
+  });
+
+  it('passes a refusal from the decode through as the same error', async () => {
+    const inner = new ProposalEffectRefusedError('consume', 'the proposal summary could not be read', 'copy');
+    await expect(
+      assertViewEffectApproved(claim, () => {
+        throw inner;
+      })
+    ).rejects.toBe(inner);
+  });
+
+  it('passes a kill of the decoding hold through unchanged', async () => {
+    const kill = new WasmClientPoisonedError('watchdog');
+    await expect(
+      assertViewEffectApproved(claim, async () => {
+        throw kill;
+      })
+    ).rejects.toBe(kill);
+  });
+
+  it('rejects an unknown fee without calling the decode', async () => {
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    const refused = assertViewEffectApproved(claim, decode);
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
+    expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unchecked type alone without calling the decode', async () => {
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertViewEffectApproved(send, decode)).resolves.toBeUndefined();
+    expect(decode).not.toHaveBeenCalled();
     expect(getVerificationBaseFee).not.toHaveBeenCalled();
   });
 });

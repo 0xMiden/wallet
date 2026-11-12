@@ -5,6 +5,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useGuardianHoldUntil } from 'app/hooks/useGuardianHoldUntil';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import guardianSwitchAvatarUrl from 'app/icons/guardian-switch-avatar.svg?url';
@@ -13,6 +14,7 @@ import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { SectionHeader } from 'components/ui/SectionHeader';
@@ -22,7 +24,7 @@ import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
+import { isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -48,7 +50,7 @@ import { stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -344,6 +346,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
+  const guardianHoldUntil = useGuardianHoldUntil(row);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
   // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
   const paybackState = usePaybackClaimState(row);
@@ -440,7 +443,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
         const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
-        const submission = submissionFeedback(tx);
+        const submission = shownSubmissionFeedback(tx);
+        const isUnconfirmed = readsAsNotConfirmed(tx);
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -495,11 +499,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
-          errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
+          errorMessage:
+            submission !== undefined && !isUnconfirmed ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
-          isUnconfirmed:
-            submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx),
+          isUnconfirmed,
           notConfirmedHint:
             submission !== undefined && submission.kind !== 'rejected'
               ? submission.messageKey
@@ -596,15 +600,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     return () => {
       cancelled = true;
     };
-  }, [getCachedTokenMetadata, loaded, row, t, transactionId]);
+    // The entry's copy names the hold, which ends with no write to the row.
+  }, [getCachedTokenMetadata, guardianHoldUntil, loaded, row, t, transactionId]);
 
   const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
   // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
-  const actions = useTransactionActions(transactionId, entry, transaction);
+  const actions = useTransactionActions(transactionId, entry, transaction, guardianHoldUntil);
   const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
+  const heldByGuardian = guardianHoldUntil !== undefined;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -1516,6 +1522,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
+            {heldByGuardian && <GuardianHoldNotice clearsAtSec={guardianHoldUntil} className="mb-2" />}
             {actions.retryError && (
               <HistoryError
                 errorId={actions.retryErrorId}
@@ -1526,7 +1533,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {actions.retryError}
               </HistoryError>
             )}
-            {maxNetworkFee && !isEarnWithdraw && (
+            {maxNetworkFee && !isEarnWithdraw && !heldByGuardian && (
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no
               // review step. The recorded `networkFee` row above is what the failed
               // attempt already paid, not a bound on what this retry will cost.
@@ -1539,7 +1546,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               variant={ButtonVariant.Primary}
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
               isLoading={actions.isRetrying}
-              disabled={actions.isRetrying}
+              disabled={actions.isRetrying || heldByGuardian}
               onClick={() => actions.onRetry()}
               className="max-w-none"
             />
@@ -1551,7 +1558,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
                 isLoading={actions.isRetrying}
-                disabled={actions.isRetrying}
+                disabled={actions.isRetrying || heldByGuardian}
                 onClick={() => actions.onRetry(acknowledgement)}
                 className="mt-2 max-w-none"
               />

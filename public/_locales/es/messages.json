@@ -864,6 +864,10 @@
     "message": "No se ha podido comprobar tu saldo con Epoch. Inténtalo de nuevo.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "No se ha podido cargar tu saldo. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "La función «Earn» no está disponible en esta red",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Tu «Guardian» sigue reteniendo esta transacción, por lo que aún no se puede volver a intentar.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "La red ha confirmado que esta transacción nunca se llevó a cabo, por lo que no se ha movido nada. Tu «Guardian» sigue reteniéndola, por lo que aún no se puede volver a intentar.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Tu «Guardian» sigue reteniendo esta transacción. Puedes volver a intentarlo tras $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Puedes volver a intentarlo dentro de $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "No se ha recibido respuesta a este envío. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
@@ -3996,6 +4026,10 @@
     "message": "No puedes enviar fondos a tu propia dirección.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nuevo destinatario",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4031,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "El monedero detuvo esta transacción antes de firmarla, porque no pudo confirmar que la transacción solo transfiriera lo que tú habías aprobado. No se transfirieron fondos.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "El monedero no ha podido leer la comisión de red, por lo que no ha firmado esta transacción. No se ha enviado nada. Inténtalo de nuevo dentro de un momento.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "El importe debe ser inferior al saldo",
@@ -4699,6 +4737,14 @@
   "unavailable": {
     "message": "No disponible",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "No admitido",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Escala desconocida",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporalmente no disponible",
@@ -5900,6 +5946,10 @@
     "message": "No se ha podido completar el depósito",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Tu monedero conectado no tiene tokens con saldo positivo en esta red.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "Tu monedero conectado contiene $balance$ $token$ en $network$, una cantidad inferior a la que requiere este depósito. No se ha enviado nada.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6312,6 +6362,10 @@
     "message": "Esta dApp solicita una transacción personalizada. La cartera no ha podido interpretar sus detalles. Continúa solo si sabes exactamente qué hace.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "El monedero no ha podido simular esta transacción, por lo que no puede mostrar lo que hace. No puedes aprobarla.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Valor sin procesar",
     "englishSource": "Raw value"
@@ -6319,6 +6373,10 @@
   "opaqueSignatureTitle": {
     "message": "Solicitud para firmar datos sin procesar",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Esta firma no puede autorizar una transacción desde tu cuenta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",

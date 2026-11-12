@@ -68,6 +68,7 @@ type Wallet = {
   requestAssets: () => Promise<unknown>;
   requestLoginKey: () => Promise<{ loginKey: Uint8Array }>;
   signLoginBytes: (data: Uint8Array, kind: 'word') => Promise<{ signature: Uint8Array }>;
+  signBytes: (data: Uint8Array, kind: string) => Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
   off: (event: string, cb: (data: unknown) => void) => void;
   emit: (event: string, data: unknown) => void;
@@ -698,6 +699,27 @@ describe('login key', () => {
     expect(sig).toBeInstanceOf(Uint8Array);
     expect(sig).toHaveLength(66);
     expect(Array.from(sig)).toEqual(Array.from(signature));
+  });
+
+  it('returns the signed commitment beside the signature', async () => {
+    const h = await connected();
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const commitment = Uint8Array.from({ length: 32 }, (_, i) => 100 + i);
+    const request = h.win.midenWallet.signBytes(new Uint8Array(32), 'word');
+    h.answer(h.last().reqId, { type: 'SIGN_RESPONSE', signature: b64(signature), signedCommitment: b64(commitment) });
+    const res = await request;
+    expect(res.signedCommitment).toBeInstanceOf(Uint8Array);
+    expect(Array.from(res.signature)).toEqual(Array.from(signature));
+    expect(Array.from(res.signedCommitment ?? [])).toEqual(Array.from(commitment));
+  });
+
+  it('omits signedCommitment when the wallet sends none', async () => {
+    const h = await connected();
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const request = h.win.midenWallet.signBytes(new Uint8Array(32), 'word');
+    h.answer(h.last().reqId, { type: 'SIGN_RESPONSE', signature: b64(signature) });
+    const res = await request;
+    expect(Object.keys(res)).toEqual(['signature']);
   });
 
   it('rejects a refusal with the extension error class and message', async () => {

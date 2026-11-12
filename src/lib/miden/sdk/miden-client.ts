@@ -14,7 +14,7 @@ import {
   WasmClientPoisonedError,
   bumpWasmClientGeneration
 } from './wasm-client-poison';
-import { tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
+import { buildSdkSignCallback, tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -642,6 +642,18 @@ export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown
 }
 
 /**
+ * Retire the client for a trap caught where this realm holds no WASM lock (the offscreen sign: the service worker's
+ * lock is not the one around that decode), through the same no-holder recovery as the realm listeners. The cause is
+ * recorded so a later listener does not retire it again. With a current holder it does nothing: a trap that holder
+ * caught is retired with {@link retireWasmClientForCaughtTrap}.
+ */
+export function retireWasmClientForUnheldTrap(cause: unknown): void {
+  if (currentHolder !== null || wasRetiredForCaughtTrap(cause)) return;
+  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
+  recoverFromTrap(cause);
+}
+
+/**
  * Register the trap listeners on this realm (issue #775). The abandoned-future
  * case surfaces as an uncaught `error`, since its promise never settles; a trap
  * that does reject its call surfaces as an `unhandledrejection` whenever the
@@ -1040,6 +1052,35 @@ function signReasonOf(err: unknown): SignCallbackReason | undefined {
 }
 
 /**
+ * A write's own signer, keyed by the hold it runs under (`withHoldSigner`). Keyed by hold, like the sign reasons
+ * above, so a dry run or any other hold, one that takes the mutex while the write is yielded included, keeps the
+ * realm signer.
+ */
+const holdSigners = new WeakMap<WasmLockHold, SignCallback>();
+
+/**
+ * Run `run` with `signer` answering every sign the SDK asks for while `hold` owns the mutex, in place of the realm
+ * signer and wrapped as it is (`buildSdkSignCallback`). The proxy's inline writes take it, so a write signs through
+ * the signer the transaction loop handed it, as its offscreen path does through its op.
+ *
+ * A checked write is judged only while its own hold is current. A sign the SDK asked for while the write was yielded,
+ * or one from an inline write that skips this wrapper, gets the plain realm signer. Today neither happens: a write
+ * signs inside `executeRequest`, before its one yield (the offscreen-prover leg).
+ */
+export async function withHoldSigner<T>(
+  hold: WasmLockHold,
+  signer: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  run: () => Promise<T>
+): Promise<T> {
+  holdSigners.set(hold, buildSdkSignCallback(signer));
+  try {
+    return await run();
+  } finally {
+    holdSigners.delete(hold);
+  }
+}
+
+/**
  * Options for {@link withWasmClientLock}.
  *
  * `watchdogMs` tightens THIS hold's normal watchdog ceiling below
@@ -1142,6 +1183,8 @@ export async function withWasmClientLock<T>(
     // A trap that rejects the callback instead of abandoning it reaches no realm
     // listener, so the lock retires it through its own holder, still the owner here
     // (an evicted hold settles with WasmClientPoisonedError from `aborted` instead).
+    // A keystore trap is retired in the trampoline: only its message crosses the SDK
+    // boundary, so this check is for a trap that does arrive as the rejection.
     if (isWasmRuntimeError(err)) retireWasmClientForCaughtTrap(holder, err);
     // A locked vault reported by this hold's sign rides out on the hold's own
     // rejection, the one tag `isLockedError` reads; keyed by the hold, so no other
@@ -1588,12 +1631,20 @@ class MidenClientSingleton {
         // Resolved before anything is recorded: a call this client refuses (a
         // replaced client's late sign, a missing install) must not touch the
         // record of whoever holds the lock now.
-        const sign = installed('sign');
+        assertBuildCurrent('sign');
         const holder = currentHolder;
+        const sign = (holder === null ? undefined : holdSigners.get(holder)) ?? installed('sign');
         if (holder) signReasonByHold.delete(holder);
         try {
           return await sign(publicKey, signingInputs);
         } catch (err) {
+          // A keystore throw crosses the SDK boundary as its message alone, so the
+          // lock's trap check never sees this object. Retire while this hold still
+          // owns the mutex, and rethrow the trap itself. Do not evict the hold.
+          if (isWasmRuntimeError(err)) {
+            if (holder !== null) retireWasmClientForCaughtTrap(holder, err);
+            throw err;
+          }
           const reason = signReasonOf(err);
           if (holder && reason) signReasonByHold.set(holder, reason);
           throw err;

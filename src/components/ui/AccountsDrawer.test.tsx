@@ -187,6 +187,6 @@ describe('AccountsDrawer', () => {
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(navigate).toHaveBeenCalledWith('/settings');
+    expect(navigate).toHaveBeenCalledWith('/me');
   });
 });

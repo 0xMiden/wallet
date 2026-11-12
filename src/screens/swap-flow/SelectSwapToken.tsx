@@ -33,11 +33,10 @@ export interface SelectSwapTokenDrawerProps {
  * Token picker for a swap side, presented as a bottom sheet (vaul) over the amounts step like the
  * send flow's SelectTokenDrawer.
  *
- * Drawn the way the home tab's Assets section draws a token: the shared `AssetListItem` on the
- * sheet's own surface (no grey card), 72px rows divided by a hairline, a 36px logo, the symbol over
- * the held balance and the value on the right. The tokens are the solver's, filtered by its pairs
- * (`useSwapPickerTokens`), and a token the account holds nothing of is still listed with a zero
- * balance — the list is the pair chooser, not an inventory.
+ * Drawn like the home tab's Assets section: the shared `AssetListItem` on the sheet's own surface,
+ * without a grey card. Rows have a 72px floor and grow when the quantity wraps, with hairline dividers,
+ * a 36px logo, the symbol over its balance and the value on the right. Solver pairs filter the tokens
+ * (`useSwapPickerTokens`). A token the account does not hold still shows zero; this list chooses pairs.
  *
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
@@ -58,10 +57,11 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData = [], isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const swapTokens = useSwapPickerTokens(partnersOf);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
 
   const onSelectToken = (token: SwapToken) => {
     onSelect(token);
@@ -88,9 +88,24 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 // By priceSymbol, never by the ticker: a solver token can stand in for another asset. A
                 // token without one is unquoted, so it is valued only at the nominal rate.
                 const label = midenTokenLabel(bridgeConfig, token.faucetId, token.symbol);
-                const fiatValue = listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
+                const fiatValue = balancesLoading
+                  ? undefined
+                  : listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+                const priceStatus = balancesLoading
+                  ? token.priceSymbol
+                    ? t('loading')
+                    : t('assetPriceUnsupported')
+                  : !scaleIsKnown
+                    ? t('assetValueUnknownScale')
+                    : fiatValue === undefined
+                      ? token.priceSymbol
+                        ? pricesStatus === 'loading'
+                          ? t('loading')
+                          : t('unavailable')
+                        : t('assetPriceUnsupported')
+                      : undefined;
 
                 return (
                   <AssetListItem
@@ -98,7 +113,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                     icon={<TokenLogo faucetId={token.faucetId} />}
                     name={label}
                     amount={
-                      scaleIsKnown ? (
+                      !balancesLoading && scaleIsKnown ? (
                         <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${label}`} />
                       ) : (
                         label
@@ -109,6 +124,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                         <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
                       )
                     }
+                    priceStatus={priceStatus}
                     selected={token.faucetId === currentFaucetId}
                     accent="swap"
                     onClick={() => onSelectToken(token)}
