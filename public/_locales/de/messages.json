@@ -865,6 +865,10 @@
     "message": "Ihr Kontostand konnte mit Epoch nicht überprüft werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Ihr Guthaben konnte nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "„Earn“ ist in diesem Netzwerk nicht verfügbar",
     "englishSource": "Earn is not available on this network"

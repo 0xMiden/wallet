@@ -42,3 +42,16 @@ it('forwards the matching closed source observation to the displayed positions w
   act(() => jest.advanceTimersByTime(1000));
   expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
 });
+
+it('shows progress and blocks Retry until the request ends', () => {
+  const onRetry = jest.fn();
+  const { getByRole, rerender } = render(<EarnLoadError onRetry={onRetry} isRetrying />);
+  const button = getByRole('button', { name: 'retry' });
+  expect(button).toBeDisabled();
+  expect(button).toHaveAttribute('aria-busy', 'true');
+  expect(button.querySelector('svg circle')).not.toBeNull();
+  rerender(<EarnLoadError onRetry={onRetry} isRetrying={false} />);
+  expect(button).toBeEnabled();
+  expect(button).toHaveAttribute('aria-busy', 'false');
+  expect(button.querySelector('svg circle')).toBeNull();
+});

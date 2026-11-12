@@ -864,6 +864,10 @@
     "message": "Couldn't check your balance with Epoch. Try again.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Couldn't load your balance. Check your connection and try again.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Earn is not available on this network",
     "englishSource": "Earn is not available on this network"

@@ -864,6 +864,10 @@
     "message": "无法通过 Epoch 查询您的余额。请重试。",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "无法加载您的余额。请检查网络连接并重试。",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "该网络不支持“赚取”功能",
     "englishSource": "Earn is not available on this network"
