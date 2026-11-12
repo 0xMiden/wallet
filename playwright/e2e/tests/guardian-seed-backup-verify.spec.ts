@@ -142,8 +142,9 @@ test.describe('Seed Phrase Backup and Verification', () => {
         await passwordInput.fill(PASSWORD);
         await page.getByRole('button', { name: CONTINUE, exact: true }).click();
 
-        // Review step: the twelve words, in order. The last chip rendering is
+        // Review step: the words stay masked until Show. The last chip rendering is
         // the signal that the whole grid is on screen.
+        await page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
         await expect(page.getByTestId(`seed-word-${SEED_WORD_COUNT - 1}`)).toBeVisible({ timeout: 30_000 });
         const words: string[] = [];
         for (let index = 0; index < SEED_WORD_COUNT; index++) {

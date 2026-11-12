@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
@@ -23,6 +24,7 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -59,6 +61,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(mnemonic !== null);
+  const mask = useRevealMask({ remaskOnLeave: true });
 
   const {
     register,
@@ -392,7 +395,19 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <SeedPhraseGrid words={words} />
+              <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
+
+              {!isMobile() && (
+                <Pill
+                  className="mt-3 self-start"
+                  icon={<Icon name={mask.revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
+                  selected={mask.revealed}
+                  onClick={mask.toggle}
+                  data-testid="seed-reveal-toggle"
+                >
+                  {t(mask.revealed ? 'hide' : 'show')}
+                </Pill>
+              )}
 
               {!remove && (
                 <Pill

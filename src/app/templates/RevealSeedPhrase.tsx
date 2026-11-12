@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
@@ -24,6 +25,7 @@ import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -81,6 +83,7 @@ const RevealSeedPhrase: FC = () => {
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(secret !== null);
+  const mask = useRevealMask({ remaskOnLeave: true });
 
   const {
     register,
@@ -347,7 +350,19 @@ const RevealSeedPhrase: FC = () => {
       >
         {isGuardReady && (
           <SubPageSection className="gap-3">
-            <SeedPhraseGrid words={words} />
+            <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
+
+            {!isMobile() && (
+              <Pill
+                className="self-start"
+                icon={<Icon name={mask.revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
+                selected={mask.revealed}
+                onClick={mask.toggle}
+                data-testid="seed-reveal-toggle"
+              >
+                {t(mask.revealed ? 'hide' : 'show')}
+              </Pill>
+            )}
 
             {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill

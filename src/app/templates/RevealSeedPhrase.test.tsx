@@ -52,7 +52,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
+  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 // Mirrors the real header's focus contract rather than stubbing it away: the title is
@@ -290,6 +290,13 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+  };
+
+  // Off mobile the words stay masked until Show.
+  const pressShow = async (container: HTMLElement) => {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
+    });
   };
 
   const renderAndView = async () => {
@@ -933,6 +940,7 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
     const container = await renderAndView();
+    await pressShow(container);
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
@@ -1008,6 +1016,7 @@ describe('RevealSeedPhrase', () => {
   it('draws the revealed words on the shared fill surface, with copy as a shared pill', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
+    await pressShow(container);
 
     const grid = container.querySelector('[data-testid="seed-word-0"]')!.closest('.rounded-2xl')!;
     expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
@@ -1015,6 +1024,63 @@ describe('RevealSeedPhrase', () => {
     // No lone white block and no bordered one-off copy button any more.
     expect(container.querySelector('.bg-white')).toBeNull();
     expect(container.querySelector('.border-border-card')).toBeNull();
+  });
+
+  it('off mobile the phrase is not in the DOM while masked, and Show reveals it', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.textContent).not.toContain('alpha');
+    const toggle = container.querySelector('[data-testid="seed-reveal-toggle"]')!;
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle.textContent).toBe('show');
+
+    await pressShow(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle.textContent).toBe('hide');
+  });
+
+  it('off mobile the phrase hides again when the window loses focus', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'));
+    });
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('off mobile the phrase hides again when the document is hidden', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('on mobile the phrase shows at once with no Show control', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
   });
 
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
@@ -1053,6 +1119,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.textContent).toContain('alpha');
     const wordsTitle = container.querySelector('[data-testid="nh-title"]');
@@ -1126,6 +1193,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'retry')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.querySelector('[data-tone="negative"]')).toBeNull();
     expect(container.textContent).toContain('alpha');

@@ -291,6 +291,15 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Upload posture screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posture-screenshots
+          path: test-results/**/posture-*.png
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Upload wallet picker screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

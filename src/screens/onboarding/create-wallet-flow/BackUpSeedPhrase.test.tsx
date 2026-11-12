@@ -23,6 +23,13 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// Off mobile a hidden word leaves the DOM; mobile keeps blurred text.
+let mockIsMobile = false;
+jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
+
+// The native guard plugin never answers in jsdom, and the guard has its own suite.
+jest.mock('lib/mobile/screenshot-guard', () => ({ useScreenshotGuard: () => true }));
+
 // `components/Button` pulls in framer-motion / haptics / the icon switch. Stub
 // it to a plain <button> that records `title`, `iconLeft` and `onClick` so the
 // title/icon toggles and click wiring are assertable. A `btn-<title>` test id
@@ -35,7 +42,8 @@ jest.mock('components/Button', () => ({
     onClick,
     className,
     size,
-    children
+    children,
+    'data-testid': dataTestId
   }: {
     children?: React.ReactNode;
     title?: string;
@@ -43,9 +51,11 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     className?: string;
     size?: string;
+    'data-testid'?: string;
   }) => (
     <button
       data-testid={`btn-${title}`}
+      data-seed-testid={dataTestId}
       data-icon={String(iconLeft)}
       data-classname={className}
       data-size={size}
@@ -133,6 +143,7 @@ const dispatchCopy = ({
 };
 
 beforeEach(() => {
+  mockIsMobile = false;
   // The clipboard mock is module-level, so a call-count assertion reads every
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
@@ -158,6 +169,7 @@ describe('BackUpSeedPhraseScreen', () => {
 
     it('renders one chip per seed word with its 1-based index and word', () => {
       renderComponent();
+      fireEvent.click(screen.getByTestId('btn-show'));
       const chips = screen.getAllByTestId(/^seed-word-\d+$/);
       expect(chips).toHaveLength(SEED.length);
       expect(chips[0]).toHaveTextContent('1.');
@@ -221,6 +233,10 @@ describe('BackUpSeedPhraseScreen', () => {
     const wordMasks = () =>
       screen.getAllByTestId(/^seed-word-\d+$/).map(chip => chip.querySelector('[data-slot="word-mask"]'));
 
+    beforeEach(() => {
+      mockIsMobile = true;
+    });
+
     it('starts hidden: words are blurred and the toggle shows the "show" affordance', () => {
       renderComponent();
       // A plain filter value, since the composed blur-sm draws nothing on a Chrome 113 WebView.
@@ -260,6 +276,44 @@ describe('BackUpSeedPhraseScreen', () => {
 
       expect(wordMasks()[0]).toHaveClass('[filter:blur(8px)]');
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
+    });
+  });
+
+  describe('masking off mobile', () => {
+    it('off mobile a hidden word is not in the DOM', () => {
+      const { container } = renderComponent();
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
+      for (const word of SEED) expect(container.textContent).not.toContain(word);
+      expect(container.textContent).toContain('1.');
+      expect(screen.getByTestId('btn-show')).toHaveAttribute('data-seed-testid', 'seed-reveal-toggle');
+    });
+
+    it('off mobile Show reveals and a window blur hides again', () => {
+      renderComponent();
+      fireEvent.click(screen.getByTestId('btn-show'));
+      expect(screen.getByTestId('seed-word-0')).toHaveTextContent('alpha');
+
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
+      expect(screen.getByTestId('btn-show')).toBeInTheDocument();
+    });
+
+    it('on mobile the hidden words stay blurred text and a window blur does not hide them', () => {
+      mockIsMobile = true;
+      renderComponent();
+      const chips = screen.getAllByTestId(/^seed-word-\d+$/);
+      expect(chips[0]).toHaveTextContent('alpha');
+      expect(chips[0].querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:blur(8px)]');
+
+      fireEvent.click(screen.getByTestId('btn-show'));
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+
+      expect(screen.getByTestId('seed-word-0').querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:none]');
     });
   });
 
