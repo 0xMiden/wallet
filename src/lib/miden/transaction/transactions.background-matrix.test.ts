@@ -50,7 +50,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
-  getVerificationBaseFeeSync: jest.fn(() => null)
+  getVerificationBaseFeeSync: jest.fn(() => 10000)
 }));
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
   getFaucetIdSetting: async () => '0xfee0000000000000000000000000000000'
@@ -60,13 +60,35 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   canonicalWalletAccountId: (id: string) => id,
-  sameWalletAccountId: (a: string, b: string) => a === b
+  sameWalletAccountId: (a: string, b: string) => a === b,
+  getBech32AddressFromAccountId: (id: string | { __faucet: string }) => (typeof id === 'string' ? id : id.__faucet)
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
   TransactionProver: {
     newLocalProver: jest.fn(() => 'local-prover'),
     newCallbackProver: jest.fn(() => 'callback-prover')
+  },
+  TransactionSummary: {
+    deserialize: () => {
+      const removed = [{ faucetId: () => ({ __faucet: 'faucet' }), amount: () => 1000n }];
+      const note = (assets: typeof removed) => ({
+        assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
+      });
+      return {
+        accountDelta: () => ({
+          id: () => 'guardian-acc',
+          vault: () => ({
+            removedFungibleAssets: () => removed,
+            addedFungibleAssets: () => [],
+            numAssets: () => removed.length
+          }),
+          storage: () => ({ isEmpty: () => true })
+        }),
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
+      };
+    }
   }
 }));
 jest.mock('../sdk/native-prover-mobile', () => ({
@@ -279,7 +301,7 @@ const service = {
   guardianEndpoint: 'https://guardian.test',
   createSendProposal: async () => {
     play('proposal');
-    return { id: 'proposal', nonce: 5 };
+    return { id: 'proposal', nonce: 5, txSummary: 'c2VuZA==' };
   },
   signAndCreateTransactionRequest: async () => {
     play('co-sign');

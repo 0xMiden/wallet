@@ -63,11 +63,11 @@ jest.mock('../front', () => ({
 
 jest.mock('lib/settings/constants', () => ({}));
 
-const mockGetVerificationBaseFee = jest.fn(async (): Promise<bigint | null> => 0n);
+const mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0);
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getVerificationBaseFee: () => mockGetVerificationBaseFee(),
-  getVerificationBaseFeeSync: () => 0n,
+  getVerificationBaseFeeSync: () => 0,
   isVerificationBaseFeeKnownAbsent: () => false
 }));
 
@@ -220,7 +220,7 @@ beforeEach(() => {
   // clearAllMocks keeps a queued *Once, so a one-shot a test never reached would leak into the next.
   mockIsGuardianAccount.mockReset().mockImplementation(async () => false);
   mockProxyNewTransaction.mockReset().mockImplementation(async () => makeResult());
-  mockGetVerificationBaseFee.mockReset().mockResolvedValue(0n);
+  mockGetVerificationBaseFee.mockReset().mockResolvedValue(0);
   txStore.length = 0;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
@@ -351,11 +351,12 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     expect(mockComplete.earn).not.toHaveBeenCalled();
     expect(mockGetVerificationBaseFee).not.toHaveBeenCalled();
-    expect(txStore[0].nextEligibleAt).toBeUndefined();
+    expect(txStore[0]).toBeDefined();
+    expect(txStore[0]?.nextEligibleAt).toBeUndefined();
   });
 
-  it.each<[string, bigint | null]>([
-    ['known', 0n],
+  it.each<[string, number | null]>([
+    ['known', 0],
     ['unknown', null]
   ])('refuses an Earn deposit abandoned during %s fee discovery', async (_state, fee) => {
     const id = 'tx-earn-fee-abandoned';
@@ -479,7 +480,8 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     expect(mockComplete.earn).not.toHaveBeenCalled();
     expect(mockGetVerificationBaseFee).not.toHaveBeenCalled();
-    expect(txStore[0].nextEligibleAt).toBeUndefined();
+    expect(txStore[0]).toBeDefined();
+    expect(txStore[0]?.nextEligibleAt).toBeUndefined();
   });
 
   it('flag ON keeps Earn delegation on the proxy with a guarded signer', async () => {
