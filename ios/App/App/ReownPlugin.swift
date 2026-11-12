@@ -150,6 +150,70 @@ private struct PendingReownRequest {
     let resolvesHash: Bool
 }
 
+/// The pending calls of a plugin, keyed by the request id. The table uses plain inputs, so a test builds no Reown type.
+/// Every function that removes an entry returns it, and returns nothing when the entry is not there.
+/// So each call settles exactly once. Read and write a table on the main actor only.
+struct PendingCallTable<Key: Hashable, Call> {
+    struct Entry {
+        let call: Call
+        let topic: String
+        // True after the relay send of the call returned.
+        var published: Bool
+    }
+
+    private var entries: [Key: Entry] = [:]
+
+    var count: Int {
+        entries.count
+    }
+
+    func contains(_ key: Key) -> Bool {
+        entries[key] != nil
+    }
+
+    /// Record the call before its send, so that a fast response finds it.
+    mutating func insert(key: Key, topic: String, call: Call) {
+        entries[key] = Entry(call: call, topic: topic, published: false)
+    }
+
+    /// Mark the call as published. Return false when the call is no longer pending.
+    mutating func markPublished(key: Key) -> Bool {
+        guard entries[key] != nil else {
+            return false
+        }
+        entries[key]?.published = true
+        return true
+    }
+
+    /// Remove and return the entry of a response. Return nothing, and keep the entry, when the key is unknown
+    /// or the topic is not the topic of the entry.
+    mutating func settle(key: Key, topic: String) -> Entry? {
+        guard let entry = entries[key], entry.topic == topic else {
+            return nil
+        }
+        entries.removeValue(forKey: key)
+        return entry
+    }
+
+    /// Remove and return the entry of an expired request.
+    mutating func expire(key: Key) -> Entry? {
+        entries.removeValue(forKey: key)
+    }
+
+    /// Remove and return the entry of a failed send. Return nothing when a response or a rejection settled it first.
+    mutating func failSend(key: Key) -> Entry? {
+        entries.removeValue(forKey: key)
+    }
+
+    /// Remove and return the entries of one topic, or all entries when the topic is nil.
+    mutating func removeAll(topic: String?) -> [Entry] {
+        let keys = entries.compactMap { key, entry in
+            topic == nil || entry.topic == topic ? key : nil
+        }
+        return keys.compactMap { entries.removeValue(forKey: $0) }
+    }
+}
+
 private struct NativeEthereumTransaction: Codable {
     let from: String?
     let to: String
@@ -196,7 +260,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
     private var configured = false
     private var subscriptions = Set<AnyCancellable>()
     // Pending calls, keyed by the WalletConnect request id. Read and write this map on the main actor only.
-    private var pendingRequests: [RPCID: PendingReownRequest] = [:]
+    private var pendingRequests = PendingCallTable<RPCID, PendingReownRequest>()
     private var socketStatus: String?
     // Proposal namespaces built in configure(); reused by connectUri() (E2E) to
     // create a pairing directly and hand the wc: URI to JS, bypassing the modal.
@@ -538,10 +602,10 @@ private extension ReownPlugin {
         Sign.instance.requestExpirationPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] id in
-                guard let pending = self?.pendingRequests.removeValue(forKey: id) else {
+                guard let pending = self?.pendingRequests.expire(key: id) else {
                     return
                 }
-                rejectReownCall(pending.call, message: "Request expired", origin: .requestExpired)
+                rejectReownCall(pending.call.call, message: "Request expired", origin: .requestExpired)
             }
             .store(in: &subscriptions)
 
@@ -588,12 +652,16 @@ private extension ReownPlugin {
         Task {
             // Record the call before the send, so that a fast response finds it.
             await MainActor.run {
-                self.pendingRequests[request.id] = PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash)
+                self.pendingRequests.insert(
+                    key: request.id,
+                    topic: request.topic,
+                    call: PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash)
+                )
             }
             do {
                 try await Sign.instance.request(params: request)
                 await MainActor.run {
-                    guard self.pendingRequests[request.id] != nil else {
+                    guard self.pendingRequests.markPublished(key: request.id) else {
                         return
                     }
                     self.openWallet(for: request)
@@ -601,7 +669,7 @@ private extension ReownPlugin {
             } catch {
                 await MainActor.run {
                     // Reject the call only if no response settled it during the send.
-                    guard self.pendingRequests.removeValue(forKey: request.id) != nil else {
+                    guard self.pendingRequests.failSend(key: request.id) != nil else {
                         return
                     }
                     rejectReownCall(call, message: error.localizedDescription, origin: .requestCallError)
@@ -618,10 +686,10 @@ private extension ReownPlugin {
             "result": String(describing: response.result)
         ])
 
-        guard let pending = pendingRequests[response.id], pending.request.topic == response.topic else {
+        guard let entry = pendingRequests.settle(key: response.id, topic: response.topic) else {
             return
         }
-        pendingRequests.removeValue(forKey: response.id)
+        let pending = entry.call
 
         switch response.result {
         case .response(let result):
@@ -639,14 +707,8 @@ private extension ReownPlugin {
     /// Reject the pending calls of one session topic, or of all sessions when the topic is nil.
     /// Each call is removed before it is rejected, so that a later response cannot settle it again.
     func rejectPendingRequests(topic: String?, message: String, origin: ReownCallFailureOrigin) {
-        let ids = pendingRequests.compactMap { id, pending in
-            topic == nil || pending.request.topic == topic ? id : nil
-        }
-        for id in ids {
-            guard let pending = pendingRequests.removeValue(forKey: id) else {
-                continue
-            }
-            rejectReownCall(pending.call, message: message, origin: origin)
+        for entry in pendingRequests.removeAll(topic: topic) {
+            rejectReownCall(entry.call.call, message: message, origin: origin)
         }
     }
 
