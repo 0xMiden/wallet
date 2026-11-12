@@ -371,7 +371,8 @@ jobs:
         working-directory: token-detail-baseline
         env:
           TOKEN_DETAIL_CAPTURE: before
-        run: $GITHUB_WORKSPACE/node_modules/.bin/playwright test --config playwright.token-detail-visual.config.ts
+        run: |
+          "$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts
 
       - name: Capture TokenDetail candidate
         if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
