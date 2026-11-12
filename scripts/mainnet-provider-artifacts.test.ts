@@ -24,6 +24,30 @@ describe('provider-scoped mainnet recovery discovery', () => {
       artifact(`mainnet-epoch-${id === baseline + 2 ? 'forward-authorized' : 'final'}-${id}`, id === baseline + 2)
     ] }), async () => jobs('Run mainnet epoch forward'), baseline, 'epoch')).rejects.toThrow(/expired/);
   });
+  it.each(['swap', 'epoch', 'near'])('never downgrades an attempted %s return to its earlier forward authority', async provider => {
+    const prefix = provider === 'near' ? '1click' : provider;
+    await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+      artifact(`mainnet-${prefix}-forward-authorized-${id}`)
+    ] }), async () => jobs(`Run mainnet ${provider} reverse`), baseline, provider)).rejects.toThrow(/missing|reverse|return/i);
+  });
+  it('selects the latest signed Epoch journal before an older reverse authorization', async () => {
+    const selected = await chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+      artifact(`mainnet-epoch-reverse-authorized-${id}`), artifact(`mainnet-epoch-reverse-signed-1-${id}`),
+      artifact(`mainnet-epoch-reverse-signed-3-${id}`), artifact(`mainnet-epoch-reverse-signed-2-${id}`)
+    ] }), async () => jobs('Run mainnet epoch reverse'), baseline, 'epoch');
+    expect(selected.name).toBe(`mainnet-epoch-reverse-signed-3-${baseline + 2}`);
+  });
+  it('refuses an expired signed Epoch journal instead of restoring an older unsigned authority', async () => {
+    await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+      artifact(`mainnet-epoch-reverse-signed-3-${id}`, true), artifact(`mainnet-epoch-reverse-signed-2-${id}`),
+      artifact(`mainnet-epoch-reverse-authorized-${id}`)
+    ] }), async () => jobs('Run mainnet epoch reverse'), baseline, 'epoch')).rejects.toThrow(/expired/);
+  });
+  it('refuses a missing later signed journal even when an earlier authorization survived', async () => {
+    await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+      artifact(`mainnet-epoch-reverse-signed-2-${id}`), artifact(`mainnet-epoch-reverse-authorized-${id}`)
+    ] }), async () => jobs('Upload mainnet epoch signed EVM 3', 'success'), baseline, 'epoch')).rejects.toThrow(/missing|journal/i);
+  });
   it('retains the existing 1Click authorization artifact names for NEAR recovery', async () => {
     const selected = await chooseSwapCheckpoint(runs, async id => ({ artifacts: [
       artifact(`mainnet-1click-execute-started-${id}`), artifact(`mainnet-1click-preflight-${id}`)
