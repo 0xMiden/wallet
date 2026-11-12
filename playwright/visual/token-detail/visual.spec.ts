@@ -15,9 +15,9 @@ test('captures the real token detail page in compact light and dark layouts', as
     .join('&');
   await page.goto(`/?${query}`);
 
+  await expect(page.getByText('IETH', { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId('token-detail-name')).toHaveCount(capture === 'before' ? 0 : 1);
   if (capture === 'before') {
-    await expect(page.getByText('IETH', { exact: true }).first()).toBeVisible();
-    await expect(page.getByTestId('token-detail-name')).toHaveCount(0);
     await page.screenshot({
       path: testInfo.outputPath(`token-detail-${viewportKind}-${dark ? 'dark' : 'light'}-before-top.png`),
       animations: 'disabled',
@@ -34,7 +34,7 @@ test('captures the real token detail page in compact light and dark layouts', as
   }
 
   const viewportHeight = page.viewportSize()?.height ?? 0;
-  expect(viewportHeight).toBeGreaterThan(0);
+  expect(viewportHeight).toBe(testInfo.project.use.viewport?.height);
   await expect(page.getByTestId('token-detail-hero')).toBeVisible();
   await expect(page.getByTestId('token-detail-price')).toBeVisible();
   await expect(page.getByTestId('token-detail-send')).toBeVisible();
@@ -45,11 +45,11 @@ test('captures the real token detail page in compact light and dark layouts', as
   const frame = page.locator('#root > div');
   expect(await frame.evaluate(element => Math.round(element.getBoundingClientRect().height))).toBe(viewportHeight);
   const scrollport = page.locator('#root > div > div.overflow-y-auto');
+  await expect(scrollport).toBeVisible();
   const scrollSize = await scrollport.evaluate(element => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight
   }));
-  expect(scrollSize.clientHeight).toBeGreaterThan(0);
   expect(scrollSize.scrollHeight).toBeGreaterThan(scrollSize.clientHeight);
 
   const send = page.getByTestId('token-detail-send');
@@ -110,7 +110,7 @@ test('captures the real token detail page in compact light and dark layouts', as
   await expect(activity).toBeVisible();
   await expect(activity.getByRole('heading', { level: 2 })).toBeVisible();
   await expect(activity.getByTestId('token-history-fixture-row-title')).toHaveText('Received');
-  expect(await scrollport.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(activity).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath(`token-detail-${viewportKind}-${dark ? 'dark' : 'light'}-after-history.png`),
     animations: 'disabled',
