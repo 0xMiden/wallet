@@ -12,7 +12,6 @@ interface AmountShortcutsProps {
   scaleIsKnown: boolean;
   onAmountChange: (amount: string) => void;
   disabled?: boolean;
-  maxAmount?: string;
   includeMax?: boolean;
   compact?: boolean;
   className?: string;
@@ -25,6 +24,10 @@ function trimDecimalZeros(value: string): string {
   return value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
 }
 
+// An amount a shortcut puts into the field is the amount sent, so it keeps every
+// decimal of the token. Rounded DOWN, so it never passes the spendable balance.
+// A display figure (such as "Available") must never be used here: it keeps only
+// about 4 decimals, and Max then leaves the rest of the balance behind (#2157).
 function formatAmount(value: BigNumber, decimals: number): string {
   return trimDecimalZeros(value.toFixed(decimals, BigNumber.ROUND_DOWN));
 }
@@ -35,7 +38,6 @@ export const AmountShortcuts: React.FC<AmountShortcutsProps> = ({
   scaleIsKnown,
   onAmountChange,
   disabled = false,
-  maxAmount,
   includeMax = true,
   compact = false,
   className,
@@ -83,7 +85,7 @@ export const AmountShortcuts: React.FC<AmountShortcutsProps> = ({
       ))}
       {includeMax && (
         <Pill
-          onClick={() => onAmountChange(maxAmount ?? formatAmount(available, decimals))}
+          onClick={() => onAmountChange(formatAmount(available, decimals))}
           disabled={disabled}
           className={`flex-1 justify-center ${className ?? ''}`}
           data-testid={`${testIdPrefix}-max`}
