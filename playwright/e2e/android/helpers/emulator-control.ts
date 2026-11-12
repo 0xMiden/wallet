@@ -373,6 +373,20 @@ export class EmulatorControl {
     }
   }
 
+  /** Leave the app the way an app switch does: its process stays alive behind the launcher. */
+  async pressHome(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME']);
+  }
+
+  /** Turn the screen off. KEYCODE_SLEEP and KEYCODE_WAKEUP say which state they want; KEYCODE_POWER only toggles. */
+  async sleepScreen(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP']);
+  }
+
+  async wakeScreen(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
+  }
+
   /**
    * Pre-grant the POST_NOTIFICATIONS runtime permission (Android 13+/API 33+)
    * so the wallet's `checkPermissions()` returns granted and the OS

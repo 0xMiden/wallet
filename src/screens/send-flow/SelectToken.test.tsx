@@ -79,7 +79,9 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the component only reads
 // `tokenPrices` via a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, unknown> } = { tokenPrices: {} };
+let mockStoreState: { tokenPrices: Record<string, unknown>; tokenPricesStatus?: 'loading' | 'ready' | 'error' } = {
+  tokenPrices: {}
+};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
@@ -220,6 +222,39 @@ beforeEach(() => {
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
+it('shows no $0.00 for an unread known-scale row when the quote is ready', () => {
+  mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+  const unread = {
+    data: [{ ...BTC, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+});
+
+it('keeps unread availability warnings out of the picker while search remains usable', () => {
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+  mockNativeFaucetId = MIDEN.tokenId;
+  const unread = {
+    data: [{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+  fireEvent.change(search(), { target: { value: 'BTC' } });
+  expect(search()).toHaveValue('BTC');
 });
 
 describe('SelectTokenDrawer', () => {
@@ -436,6 +471,42 @@ describe('SelectTokenDrawer', () => {
     expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
   });
 
+  it('shows loading and failed quote states in the fiat slot', () => {
+    setBalances([BTC]);
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
+    const loading = renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('loading')).toBeInTheDocument();
+    loading.unmount();
+
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'error' };
+    renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('unavailable')).toBeInTheDocument();
+  });
+
+  it('shows unsupported and unknown-scale states without inventing a value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([
+      XYZ,
+      {
+        ...BTC,
+        metadata: { ...BTC.metadata, scaleIsUnknown: true } as Balance['metadata']
+      }
+    ]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-XYZ')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('assetValueUnknownScale')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('shows $0.00 when a supported token has a known zero balance and quote', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([{ ...BTC, balance: 0 }]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('$0.00')).toBeInTheDocument();
+  });
+
   it('values the native token at the nominal $1 with the nominal rate on, and hands the amount step that price', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
@@ -459,7 +530,7 @@ describe('SelectTokenDrawer', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
-  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
+  it('stacks the rows unboxed with a 72px floor, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
@@ -468,7 +539,9 @@ describe('SelectTokenDrawer', () => {
     expect(list.className).toContain('divide-rule-default');
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
+    const rowClasses = screen.getByTestId('send-token-ETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 });
 

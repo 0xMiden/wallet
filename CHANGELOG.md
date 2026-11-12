@@ -3,12 +3,28 @@
 ## 1.17.12 (TBD)
 
 - [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
+- [FIX][all] Recover a Guardian transaction whose proof went stale before its submit, keep a refused transaction in review until the chain rules, and show the Guardian hold before Retry in local time with a countdown.
+- [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
+- [FIX][all] Token pickers and token details keep unread balances in a loading state instead of showing a confirmed zero-dollar value.
+- [FIX][all] Asset rows keep the full token quantity and its symbol visible, wrapping onto a taller row when the line does not fit.
+
+- [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
+- [FIX][all] Remove redundant leading zeroes from amount edits while preserving exact decimal text and cursor placement.
+- [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
+- [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity; the Android JavaScript-interface fallback forwards page events without frame identity, so the wallet bridge refuses fallback wallet requests while generic app events still reach their listeners.
+- [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
+- [FIX][all] New Guardian accounts derive their account seed separately from the recovery key's seed, so the account's stored seed never carries key material.
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
+- [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+- [FIX][all] The bridge-in token drawer lists only Agglayer tokens with positive balances and scrolls long lists below a fixed header with vertical overscroll containment. Unreadable balances stay unavailable, and balances from a previous account or chain are cleared.
+- [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
+- [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
+- [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
 
 ## 1.17.11 (2026-11-09)
 

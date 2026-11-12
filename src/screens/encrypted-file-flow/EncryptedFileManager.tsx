@@ -3,11 +3,11 @@ import React, { ChangeEvent, useCallback, useEffect } from 'react';
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { TextFieldElement } from 'components/ui/TextField';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { navigate } from 'lib/woozie';
 import EncryptedWalletFileWalletPassword from 'screens/encrypted-file-flow/EncryptedWalletFileWalletPassword';
 
 import ExportFileComplete from './ExportFileComplete';
@@ -38,9 +38,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { t } = useTranslation();
 
-  const onClose = useCallback(() => {
-    navigate('/settings');
-  }, []);
+  const onClose = useBackWithFallback('/me');
 
   // Handle mobile back button/gesture
   useMobileBackHandler(() => {

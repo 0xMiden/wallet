@@ -864,6 +864,10 @@
     "message": "Epoch로 잔액을 확인할 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "잔액을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "이 거래는 여전히 귀하의 Guardian가 보유하고 있으므로, 아직 재시도할 수 없습니다.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "네트워크에서 이 거래가 처리되지 않았음을 확인했으므로, 아무것도 이동하지 않았습니다. 귀하의 ‘Guardian’가 여전히 이를 보유하고 있으므로, 아직 재시도할 수 없습니다.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "현재 이 거래는 귀하의 Guardian가 여전히 보유 중입니다. $time$가 지난 후 다시 시도할 수 있습니다.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "$time$ 후에 다시 시도할 수 있습니다.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "이 제출에 대한 응답이 돌아오지 않았습니다. 지갑에서는 제출이 정상적으로 처리되었는지 확인할 수 없습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 확인해 보십시오.",
@@ -4698,6 +4728,14 @@
     "message": "사용 불가",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "지원되지 않음",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "알 수 없는 규모",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "일시적으로 이용 불가",
     "englishSource": "Temporarily unavailable"
@@ -5897,6 +5935,10 @@
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "연결된 지갑에는 이 네트워크에서 잔액이 양수인 토큰이 없습니다.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",

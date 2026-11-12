@@ -81,7 +81,11 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  createLocationState: () => ({ historyPosition: 0 }),
+  listen: jest.fn(),
+  HistoryAction: { Replace: 'replace' }
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({

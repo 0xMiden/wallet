@@ -864,6 +864,10 @@
     "message": "No se ha podido comprobar tu saldo con Epoch. Inténtalo de nuevo.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "No se ha podido cargar tu saldo. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "La función «Earn» no está disponible en esta red",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Tu «Guardian» sigue reteniendo esta transacción, por lo que aún no se puede volver a intentar.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "La red ha confirmado que esta transacción nunca se llevó a cabo, por lo que no se ha movido nada. Tu «Guardian» sigue reteniéndola, por lo que aún no se puede volver a intentar.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Tu «Guardian» sigue reteniendo esta transacción. Puedes volver a intentarlo tras $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Puedes volver a intentarlo dentro de $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "No se ha recibido respuesta a este envío. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
@@ -4704,6 +4734,14 @@
     "message": "No disponible",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "No admitido",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Escala desconocida",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporalmente no disponible",
     "englishSource": "Temporarily unavailable"
@@ -5903,6 +5941,10 @@
   "bridgeDepositFailed": {
     "message": "No se ha podido completar el depósito",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Tu monedero conectado no tiene tokens con saldo positivo en esta red.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Tu monedero conectado contiene $balance$ $token$ en $network$, una cantidad inferior a la que requiere este depósito. No se ha enviado nada.",

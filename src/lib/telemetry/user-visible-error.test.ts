@@ -25,6 +25,11 @@ beforeEach(() => {
 });
 
 describe('user-visible error reports', () => {
+  it('recognizes the Earn balance load error id', () => {
+    expect(USER_ERROR_IDS).toContain('earnBalanceLoadError');
+    expect(isUserErrorId('earnBalanceLoadError')).toBe(true);
+  });
+
   it('reports a known id and surface once as WalletUserVisibleError', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
 
@@ -356,6 +361,7 @@ it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating
 });
 
 it.each([
+  ['earnBalanceLoadError', 'notice'],
   ['earnPositionsLoadError', 'inline'],
   ['earnVaultLoadError', 'notice']
 ])('rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {
