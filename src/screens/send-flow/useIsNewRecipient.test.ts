@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { WalletContact } from 'lib/shared/types';
@@ -155,6 +155,24 @@ describe('useIsNewRecipient', () => {
     expect(result.current).toBeUndefined();
     await waitFor(() => expect(result.current).toBe(false));
     expect(mockToArray).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a history read that lands after the recipient changed', async () => {
+    let resolveA: (rows: ITransaction[]) => void = () => undefined;
+    mockToArray
+      .mockReturnValueOnce(new Promise<ITransaction[]>(resolve => (resolveA = resolve)))
+      .mockResolvedValueOnce([]);
+
+    const { result, rerender } = renderHook(({ to }) => useIsNewRecipient(ACCOUNT, to), {
+      initialProps: { to: 'mtst1sent' }
+    });
+    rerender({ to: 'mtst1second' });
+    await waitFor(() => expect(result.current).toBe(true));
+
+    // The late read would make A known, and it must not leak into B's answer.
+    await act(async () => resolveA([sendRow()]));
+
+    expect(result.current).toBe(true);
   });
 
   it('stays undefined and warns when the history read fails', async () => {

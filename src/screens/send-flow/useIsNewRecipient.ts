@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -77,6 +77,10 @@ export function useIsNewRecipient(accountId: string | null | undefined, to: stri
     };
   }, [accountId, key]);
 
-  if (!accountId || !key || read?.accountId !== accountId || read.key !== key) return undefined;
-  return isNewRecipient({ to, accountId, rows: read.rows, contacts: allContacts });
+  const current = accountId && key && read?.accountId === accountId && read.key === key ? read : undefined;
+  return useMemo(
+    () =>
+      accountId && current ? isNewRecipient({ to, accountId, rows: current.rows, contacts: allContacts }) : undefined,
+    [accountId, current, to, allContacts]
+  );
 }
