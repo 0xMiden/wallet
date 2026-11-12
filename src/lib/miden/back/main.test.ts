@@ -1157,17 +1157,20 @@ describe('a delivery write a page reports', () => {
 const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => any> = [];
 
 /**
- * The listener refuses any sender that is not this extension, so every fixture
- * has to name one. Shared rather than inlined so the identity check has one
- * place to be wrong in, and so a test about routing is not silently also a test
- * about identity.
+ * The listener refuses any sender that is not this extension's offscreen
+ * document, so every fixture has to name one. Shared rather than inlined so the
+ * identity check has one place to be wrong in, and so a test about routing is
+ * not silently also a test about identity.
  */
 const OWN_EXTENSION_ID = 'this-extension';
-const ownSender = { id: OWN_EXTENSION_ID };
+const ownSender = { id: OWN_EXTENSION_ID, url: 'chrome-extension://this-extension/offscreen.html' };
 
 beforeAll(() => {
   const chromeAny = (globalThis as any).chrome;
-  if (chromeAny?.runtime) chromeAny.runtime.id = OWN_EXTENSION_ID;
+  if (chromeAny?.runtime) {
+    chromeAny.runtime.id = OWN_EXTENSION_ID;
+    chromeAny.runtime.getURL = (p: string) => `chrome-extension://${OWN_EXTENSION_ID}/${p}`;
+  }
   if (chromeAny?.runtime?.onMessage) {
     chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
   }
@@ -1287,6 +1290,50 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
       const ret = signListener()(
         { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
         foreign,
+        sendResponse
+      );
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sign request from a content script of this extension', () => {
+      const sendResponse = jest.fn();
+      const contentScript = { id: OWN_EXTENSION_ID, url: 'https://dapp.example/', tab: { id: 1 } };
+
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
+        contentScript,
+        sendResponse
+      );
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('refuses an op-started signal and a telemetry event from an extension page that is not the offscreen document', () => {
+      Actions.handleReportTelemetryEvent.mockResolvedValue({ type: 'x' });
+      const popup = { id: OWN_EXTENSION_ID, url: 'chrome-extension://this-extension/popup.html' };
+      const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed' };
+
+      expect(signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-p' }, popup, jest.fn())).toBe(
+        false
+      );
+      expect(signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, popup, jest.fn())).toBe(false);
+
+      expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
+      expect(Actions.handleReportTelemetryEvent).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sender with a tab even at the offscreen url', () => {
+      const sendResponse = jest.fn();
+      const inTab = { ...ownSender, tab: { id: 2 } };
+
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
+        inTab,
         sendResponse
       );
 

@@ -20,7 +20,7 @@ import { isInOffscreenDocument } from './offscreen-realm';
 // directly; see that file for why the two are separate.
 export { isInOffscreenDocument };
 
-const OFFSCREEN_URL = 'offscreen.html';
+export const OFFSCREEN_URL = 'offscreen.html';
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
 // "Only a single offscreen document may be created" if create races with
