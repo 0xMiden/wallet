@@ -85,7 +85,9 @@ export const DetailRow: React.FC<DetailRowProps> = ({
         {label}
         {info}
         {badge != null && (
-          <span data-slot="badge" className="ml-1">
+          // A box of its own with no leading, so the tag sets its height: an inherited line box grew the
+          // 20px label line by a pixel under WebKit's metrics.
+          <span data-slot="badge" className="ml-1 flex items-center leading-none">
             {badge}
           </span>
         )}
