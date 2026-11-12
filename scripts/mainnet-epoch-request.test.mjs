@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { canonicalRequestBytes } from './canonical-request-bytes.mjs';
 
@@ -7,7 +8,7 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, assertMainnetConsumeRequestHash } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -86,6 +87,30 @@ function returnFile(options = {}) {
     sdk.InputNote.authenticated(note, sdk.NoteInclusionProof.mockAtBlock(1000))
   ).serialize()) };
 }
+function consumeHash(bytes, change = builder => builder) {
+  const note = sdk.NoteFile.deserialize(bytes).note();
+  const builder = new sdk.TransactionRequestBuilder().withInputNotes(new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(note, null)]))
+    .withExpirationDelta(600);
+  return createHash('sha256').update(canonicalRequestBytes(change(builder).build().serialize())).digest('hex');
+}
+for (const privacy of [false, true]) test(`matches the actual canonical single-note consume request for ${privacy ? 'private' : 'public'} transport`, () => {
+  const input = returnFile({ private: privacy });
+  assert.doesNotThrow(() => assertMainnetConsumeRequestHash(input.bytes, consumeHash(input.bytes)));
+});
+for (const [name, change] of [
+  ['changed expiration', builder => builder.withExpirationDelta(601)],
+  ['additional outgoing note', builder => builder.withOwnOutputNotes(new sdk.NoteArray([sdk.NoteFile.deserialize(returnFile().bytes).note()]))],
+  ['additional input', builder => builder.withInputNotes(new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(sdk.NoteFile.deserialize(returnFile().bytes).note(), null)]))],
+  ['explicit fee salt', builder => builder.withFeeConversionSalt(sdk.Word.fromHex(`0x${'11'.repeat(32)}`))]
+]) test(`rejects canonical consume bytes with ${name}`, () => {
+  const input = returnFile();
+  assert.throws(() => assertMainnetConsumeRequestHash(input.bytes, consumeHash(input.bytes, change)));
+});
+test('rejects malformed note bytes and digest before a native consume can be released', () => {
+  assert.throws(() => assertMainnetConsumeRequestHash(new Uint8Array([1]), 'a'.repeat(64)));
+  assert.throws(() => assertMainnetConsumeRequestHash(returnFile().bytes, 'not a request hash'));
+});
+
 for (const privacy of [false, true]) test(`inspects actual SDK ${privacy ? 'private' : 'public'} return-note bytes without consuming`, () => {
   const input = returnFile({ private: privacy });
   assert.ok(ArrayBuffer.isView(input.bytes), `Native NoteFile.serialize returned ${Object.prototype.toString.call(input.bytes)}, not typed bytes`);

@@ -9,6 +9,10 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
+export function assertMainnetConsumeRequestHash(_noteFile: Uint8Array, _canonicalSha256: string): void {
+  throw new Error('Mainnet consume request inspection is not implemented');
+}
+
 export interface EpochCollateralReview {
   currentBlock: number;
   reclaimHeight: number;
@@ -171,7 +175,7 @@ export function inspectEpochCollateralRequest(
   if (salt) builder = builder.withFeeConversionSalt(salt);
   builder = builder.withBlockNumbers(blocks).extendAdviceMap(request.adviceMap());
   const expected = builder.build();
-  if (!canonicalRequestBytes(bytes).equals(canonicalRequestBytes(expected.serialize()))) {
+  if (Buffer.compare(canonicalRequestBytes(bytes), canonicalRequestBytes(expected.serialize())) !== 0) {
     throw new Error('Epoch transaction contains undeclared execution fields beyond its checked collateral note');
   }
   return { noteId, reclaimHeight: review.reclaimHeight };
