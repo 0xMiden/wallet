@@ -12,7 +12,13 @@ import { TextAction } from 'components/ui/TextAction';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
-import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
+import {
+  EarnAssetMark,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnSummaryPanel,
+  useEarnAssetFaucetId
+} from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
 import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
@@ -125,6 +131,7 @@ const Earn: FC = () => {
 /** A lone position spans the row; with more than one they keep their own width and scroll. */
 const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ position, fullWidth = false }) => {
   const { t } = useTranslation();
+  const assetFaucetId = useEarnAssetFaucetId();
 
   return (
     <CardButton
@@ -137,7 +144,7 @@ const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ pos
       {/* One row, like a Settings row: the asset's mark, the vault over its asset and network, and
           the position's value over its rate, all in Nunito. */}
       <div className="face-heading flex items-center gap-3">
-        <EarnAssetMark asset={position.asset} network={position.network} decorative />
+        <EarnAssetMark asset={position.asset} network={position.network} faucetId={assetFaucetId} decorative />
         <div className="min-w-0 flex-1">
           <div className="truncate text-row-title text-ink">{earnSubjectTitle(position)}</div>
           {/* The position named as the page it opens names it: the protocol, over its asset and network. */}
