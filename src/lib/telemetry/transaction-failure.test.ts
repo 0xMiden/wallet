@@ -234,6 +234,37 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
   expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
 
+it('uses the UI producer submission lists in crash scrubbing', () => {
+  const endpoint = 'shared_submission_endpoint';
+  const status = 'shared_grpc_status';
+  let closedNames: ReadonlySet<string> | undefined;
+
+  try {
+    jest.isolateModules(() => {
+      jest.doMock('./ui-producer-diagnostics', () => ({
+        SUBMIT_ENDPOINTS: [endpoint],
+        SUBMIT_GRPC_STATUSES: [status]
+      }));
+      jest.doMock('./crash-diagnostics', () => ({
+        annotateCrash: jest.fn(),
+        errorChain: jest.fn(() => []),
+        snapshotCrashDiagnostics: jest.fn(() => ({}))
+      }));
+      const { reportTransactionFailure: report } = jest.requireActual<typeof import('./transaction-failure')>(
+        './transaction-failure'
+      );
+      report({ type: 'send' });
+      const captureCrash = jest.requireMock<typeof import('./crash')>('./crash').captureCrash;
+      closedNames = jest.mocked(captureCrash).mock.calls[0]?.[2]?.closedNames;
+    });
+  } finally {
+    jest.dontMock('./ui-producer-diagnostics');
+    jest.dontMock('./crash-diagnostics');
+  }
+  expect(closedNames).toContain(endpoint);
+  expect(closedNames).toContain(status);
+});
+
 it('reports a failure already reported at warning, still as a failure', async () => {
   reportTransactionFailure({
     type: 'consume',
