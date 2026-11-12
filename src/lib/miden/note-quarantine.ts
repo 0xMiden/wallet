@@ -203,7 +203,7 @@ export async function quarantineNoteIds(ids: string[], attempt?: QuarantineAttem
       const existing = await readLiveEntries();
       // Abandon can land during the read. Skipping the write is the safe direction: the caller
       // that abandoned is about to release, and a write here would hide the note until the TTL.
-      if (attempt?.abandoned === true) return;
+      if (attempt?.abandoned) return;
       const now = Date.now();
       const merged = [...existing.filter(entry => !ids.includes(entry.id)), ...ids.map(id => ({ id, at: now }))];
       const capped = merged.slice(-MAX_QUARANTINED);

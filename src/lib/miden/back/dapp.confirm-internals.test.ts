@@ -171,8 +171,7 @@ jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
   return {
     ...actual,
-    simulatedBytesToView: (...args: unknown[]) =>
-      mockSimulatedView === undefined ? mockEmptySimulatedView : mockSimulatedView,
+    simulatedBytesToView: () => (mockSimulatedView === undefined ? mockEmptySimulatedView : mockSimulatedView),
     simulatedOutputRecipients: () => []
   };
 });
