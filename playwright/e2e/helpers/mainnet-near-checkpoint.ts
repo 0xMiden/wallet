@@ -142,6 +142,8 @@ export function parseMainnetNearCheckpoint(value: unknown): MainnetNearCheckpoin
       tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(state.evm.nativeUsdMicros), true) > BigInt(state.lossBudgetUsdMicros)) reject();
   if (state.forwardQuote && (state.forwardQuote.amountIn !== state.principal || !state.forwardQuote.depositAddress.startsWith('mm1') ||
       BigInt(state.forwardQuote.minimumOutput) < BigInt(state.forwardMinimum) || BigInt(state.forwardQuote.refundFee) >= BigInt(state.principal))) reject();
+  if (state.forwardQuote && tokenValueUsdMicro(BigInt(state.forwardQuote.refundFee) + BigInt(state.feeBudget),
+      6, BigInt(state.native.usdMicros), true) > BigInt(state.lossBudgetUsdMicros)) reject();
   if (state.sendAuthority && !state.forwardQuote) reject();
   if (state.forwardMidenTxId && (!state.sendAuthority || BigInt(state.paidMidenFees) === 0n)) reject();
   const forwardSettled = !!state.forwardQuote && !!state.sendAuthority && !!state.forwardMidenTxId && !!state.forwardEvmTxHash &&
