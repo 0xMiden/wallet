@@ -384,6 +384,29 @@ describe('IntercomServer', () => {
       });
     });
 
+    it('does not count as a client and receives no broadcast', () => {
+      const content = { ...contentPort, name: 'INTERCOM', postMessage: jest.fn() };
+      connectListener(content);
+
+      server.broadcast({ type: 'STATE_UPDATED' });
+
+      expect(server.hasClients()).toBe(false);
+      expect(content.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('leaves an extension page counted as a client and broadcast to', () => {
+      const content = { ...contentPort, name: 'INTERCOM', postMessage: jest.fn() };
+      const page = { ...mockPort, name: 'INTERCOM', postMessage: jest.fn() };
+      connectListener(content);
+      connectListener(page);
+
+      server.broadcast({ type: 'STATE_UPDATED' });
+
+      expect(server.hasClients()).toBe(true);
+      expect(page.postMessage).toHaveBeenCalledWith({ type: MessageType.Sub, data: { type: 'STATE_UPDATED' } });
+      expect(content.postMessage).not.toHaveBeenCalled();
+    });
+
     it('treats a sender with no url as a content script', async () => {
       const noUrl = { ...mockPort, sender: { id: 'test-extension-id' } };
       const handler = jest.fn().mockResolvedValue({ type: 'SIGN_WORD_RESPONSE' });

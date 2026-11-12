@@ -34,12 +34,12 @@ export class IntercomServer {
   }
 
   /**
-   * Returns true if any popup/fullpage intercom clients are connected.
-   * Filters out content script and other non-intercom port connections.
+   * True while one of the extension's own pages (popup, full page, side panel, approval window) has an intercom port
+   * open. A content script's port carries the same name and does not count.
    */
   hasClients(): boolean {
     for (const port of this.ports) {
-      if (port.name === 'INTERCOM') return true;
+      if (port.name === 'INTERCOM' && this.isExtensionPage(port)) return true;
     }
     return false;
   }
@@ -71,8 +71,9 @@ export class IntercomServer {
 
   broadcast(data: any) {
     const msg: SubscriptionMessage = { type: MessageType.Sub, data };
+    // Content scripts never subscribe, so only the extension's pages are broadcast to.
     this.ports.forEach(port => {
-      port.postMessage(msg);
+      if (this.isExtensionPage(port)) port.postMessage(msg);
     });
   }
 
@@ -140,8 +141,12 @@ export class IntercomServer {
   }
 
   private servesSender(port: Runtime.Port, requestType: unknown) {
-    if (isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL(''))) return true;
+    if (this.isExtensionPage(port)) return true;
     return typeof requestType === 'string' && this.contentScriptRequestTypes.has(requestType);
+  }
+
+  private isExtensionPage(port: Runtime.Port) {
+    return isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL(''));
   }
 
   private processMessage(msg: RequestMessage, port: Runtime.Port) {
