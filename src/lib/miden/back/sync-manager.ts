@@ -4,7 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   computeSyncBackoffMs,
@@ -700,6 +700,7 @@ async function runSync(force: boolean): Promise<void> {
             // note, twenty notes worth 5x the base fee each were all refused despite
             // totalling 100x.
             nativeAutoConsumeBaseFee = candidates.length > 0 ? await getClaimFloorBaseFee() : null;
+            noteUnknownClaimFloor(`sync:${accountPubKey}`, nativeAutoConsumeBaseFee, candidates.length > 0);
             if (
               candidates.length > 0 &&
               isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)

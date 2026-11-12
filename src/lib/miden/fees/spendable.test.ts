@@ -10,6 +10,7 @@ const {
   hasNoFeeAsset,
   isWorthClaiming,
   maxSendableNative,
+  noteUnknownClaimFloor,
   totalClaimableAmount
 } = spendable;
 
@@ -192,6 +193,42 @@ describe('isWorthClaiming', () => {
     // than it collects on a fee it has not seen.
     expect(isWorthClaiming(FLOOR * 1000n, null)).toBe(false);
     expect(isWorthClaiming(1n, 0)).toBe(true);
+  });
+});
+
+describe('noteUnknownClaimFloor', () => {
+  it('logs once while the claim floor is unknown', () => {
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const key = 'auto-consume';
+      const line = '[claim-floor] claim skipped, fee unknown';
+
+      noteUnknownClaimFloor(key, null, true);
+      expect(debug).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledWith(line, key);
+
+      // The same key stays quiet, and a pass with no native candidate neither logs nor forgets the key.
+      noteUnknownClaimFloor(key, null, true);
+      noteUnknownClaimFloor(key, null, false);
+      noteUnknownClaimFloor(key, null, true);
+      expect(debug).toHaveBeenCalledTimes(1);
+
+      // A known fee, including zero and one the batch would not clear, stays silent and arms the next unknown stretch.
+      noteUnknownClaimFloor(key, 10000, true);
+      noteUnknownClaimFloor(key, 0, false);
+      expect(debug).toHaveBeenCalledTimes(1);
+
+      noteUnknownClaimFloor(key, null, true);
+      expect(debug).toHaveBeenCalledTimes(2);
+      expect(debug).toHaveBeenLastCalledWith(line, key);
+
+      // A second caller key is its own latch.
+      noteUnknownClaimFloor('rotation-funding', null, true);
+      expect(debug).toHaveBeenCalledTimes(3);
+      expect(debug).toHaveBeenLastCalledWith(line, 'rotation-funding');
+    } finally {
+      debug.mockRestore();
+    }
   });
 });
 

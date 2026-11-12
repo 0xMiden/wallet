@@ -285,6 +285,27 @@ export function isWorthClaiming(
 }
 
 /**
+ * Keys already logged for an unknown claim floor. One set for every unattended caller, so a shared key
+ * (Home and the mobile auto-consumer) logs once per realm. A non-null fee forgets its key.
+ */
+const unknownClaimFloorKeys = new Set<string>();
+
+/**
+ * One line the first time an unattended pass skips native notes because the claim floor is unknown.
+ * `hadNativeCandidate` is that pass's filtered native batch: empty stays silent, and so does a known
+ * fee, including one the batch does not clear. The next unknown stretch logs once more.
+ */
+export function noteUnknownClaimFloor(key: string, claimFloorFee: number | null, hadNativeCandidate: boolean): void {
+  if (claimFloorFee !== null) {
+    unknownClaimFloorKeys.delete(key);
+    return;
+  }
+  if (!hadNativeCandidate || unknownClaimFloorKeys.has(key)) return;
+  unknownClaimFloorKeys.add(key);
+  console.debug('[claim-floor] claim skipped, fee unknown', key);
+}
+
+/**
  * Sum of note amounts, in the asset's smallest unit - the value to hand
  * `isWorthClaiming` when these notes will be claimed as ONE transaction.
  *

@@ -1,4 +1,4 @@
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 
 import { isVaultShortfallRow } from './constants';
@@ -97,7 +97,9 @@ export function selectRotationFundingNotes<T extends FundingNoteShape>(
     note => note.faucetId === feeFaucetId && !note.swapOrder && !note.fromCache && note.standardPayment === true
   );
   const unclaimed = native.filter(note => !note.isBeingClaimed);
-  // An unknown fee is waiting, not too small: the floor cannot judge the notes yet.
+  // An unknown fee is waiting, not too small: the floor cannot judge the notes yet. The gate mounts for the
+  // current account only, so one key covers every caller. A known fee forgets it and stays silent.
+  noteUnknownClaimFloor('rotation-funding', baseFee, unclaimed.length > 0);
   if (unclaimed.length === 0 || baseFee === null) return { native, batch: [], tooSmall: false };
   const worthIt = isWorthClaiming(totalClaimableAmount(unclaimed.map(note => note.amount)), baseFee);
   return { native, batch: worthIt ? unclaimed : [], tooSmall: !worthIt };

@@ -137,6 +137,13 @@ export async function checkRefusedRecoveredOrders(orders: RecoveredSwapOrderRef[
 
 const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? [];
 
+/** Orders already logged for a short payback drop. A later snapshot that keeps the paybacks forgets the order. */
+const shortPaybackLogged = new Set<string>();
+
+export function __resetShortPaybackLogsForTests(): void {
+  shortPaybackLogged.clear();
+}
+
 /**
  * Read one lineage snapshot and prepare the one class of settlement request
  * that cannot be built from consumable input notes: an expired, still-active,
@@ -156,9 +163,23 @@ export async function classifySwapSettlementSnapshot(
   // Both callers read the notes in the hold that reads the lineages, so the two agree on every fill.
   const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
   // A shortfall marks each unheld payback and leaves it in the classifier map. Drop those marks before every return,
-  // so a locked lap and a settling lap both queue none of them.
+  // so a locked lap and a settling lap both queue none of them. One line per order the first time, forgotten when
+  // a later snapshot keeps that order's paybacks.
+  const droppedOrders = new Set<string>();
+  const keptPaybackOrders = new Set<string>();
   for (const [noteId, meta] of snapshot.notes) {
-    if (meta.coverageShort) snapshot.notes.delete(noteId);
+    if (meta.role === 'payback' && !meta.coverageShort) keptPaybackOrders.add(meta.orderId);
+    if (!meta.coverageShort) continue;
+    droppedOrders.add(meta.orderId);
+    snapshot.notes.delete(noteId);
+  }
+  for (const orderId of droppedOrders) {
+    if (shortPaybackLogged.has(orderId)) continue;
+    shortPaybackLogged.add(orderId);
+    console.debug('[swap-settlement] paybacks fall short of the fill', orderId);
+  }
+  for (const orderId of keptPaybackOrders) {
+    if (!droppedOrders.has(orderId)) shortPaybackLogged.delete(orderId);
   }
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   const refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];

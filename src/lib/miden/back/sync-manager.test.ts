@@ -298,6 +298,7 @@ jest.mock('../swap/settlement', () => {
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import { noteUnknownClaimFloor } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -1991,12 +1992,17 @@ describe('doSync — native-note auto-consume', () => {
     mockClient.getConsumableNoteDtos.mockResolvedValue([
       fakeNote({ id: 'native-note', faucetId: 'native-faucet', amount: '1000000000' })
     ]);
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    // A known fee first, so the shared latch starts clear whatever ran before.
+    noteUnknownClaimFloor('sync:pk-1', 0, false);
     try {
       await doSync();
 
       expect(await queuedClaimNoteIds()).toEqual([]);
       expect(create).toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith('[claim-floor] claim skipped, fee unknown', 'sync:pk-1');
     } finally {
+      debug.mockRestore();
       Reflect.set(notificationHost, 'notifications', previousNotifications);
       undoRealQueue();
       await Repo.transactions.clear();

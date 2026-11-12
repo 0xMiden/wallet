@@ -6,6 +6,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
   __resetRecoveredBuildRetriesForTests,
+  __resetShortPaybackLogsForTests,
   classifySwapOrderNotes,
   classifySwapSettlementSnapshot,
   reconcileSwapOrderNotes,
@@ -203,6 +204,7 @@ describe('swap order note settlement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetSyncFuseStateForTests();
+    __resetShortPaybackLogsForTests();
     toArray.mockResolvedValue([tx()]);
     claimRows.mockReset().mockResolvedValue([]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
@@ -467,6 +469,31 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(result.managedNoteIds).toEqual(new Set());
+  });
+
+  it('logs once when paybacks fall short of the fill', async () => {
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
+      const notes = [paying('copy-1', 1, '1'), paying('payback-2', 2, '20')];
+      const line = '[swap-settlement] paybacks fall short of the fill';
+      const shortLogs = () => debug.mock.calls.filter(call => call[0] === line);
+
+      await settlementSnapshot(notes);
+      await settlementSnapshot(notes);
+      expect(shortLogs()).toEqual([[line, '77']]);
+
+      // A later snapshot that keeps the paybacks forgets the order, so the next shortfall logs once more.
+      await settlementSnapshot([paying('covered', 1, '30')]);
+      expect(shortLogs()).toEqual([[line, '77']]);
+      await settlementSnapshot(notes);
+      expect(shortLogs()).toEqual([
+        [line, '77'],
+        [line, '77']
+      ]);
+    } finally {
+      debug.mockRestore();
+    }
   });
 
   it('settles a later round on its own once the claims here recorded the earlier rounds', async () => {

@@ -111,8 +111,16 @@ describe('selectAutoConsumeBatch', () => {
     expect(selectAutoConsumeBatch([nativeCached, nativeDust], 'faucet-native', FEE)).toEqual([]);
   });
 
-  it('claims nothing while the fee is unknown', () => {
-    expect(selectAutoConsumeBatch([native], 'faucet-native', null)).toEqual([]);
+  it('claims nothing while the fee is unknown, and says so once', () => {
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      // A known fee first, so the shared latch starts clear whatever ran before.
+      selectAutoConsumeBatch([native], 'faucet-native', FEE);
+      expect(selectAutoConsumeBatch([native], 'faucet-native', null)).toEqual([]);
+      expect(debug).toHaveBeenCalledWith('[claim-floor] claim skipped, fee unknown', 'auto-consume');
+    } finally {
+      debug.mockRestore();
+    }
   });
 
   it('claims nothing while the native faucet is unknown', () => {

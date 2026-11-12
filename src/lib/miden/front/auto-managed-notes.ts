@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 
 import { useClaimableNotes } from './claimable-notes';
@@ -61,11 +61,16 @@ export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  return nativeBatchWorthClaiming(
-    notes.filter(note => !note.fromCache),
-    nativeFaucetId,
-    verificationBaseFee
+  const live = notes.filter(note => !note.fromCache);
+  // Home and the mobile manager share this key, so the realm logs the unknown floor once.
+  noteUnknownClaimFloor(
+    'auto-consume',
+    verificationBaseFee,
+    live.some(
+      note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
+    )
   );
+  return nativeBatchWorthClaiming(live, nativeFaucetId, verificationBaseFee);
 }
 
 /**

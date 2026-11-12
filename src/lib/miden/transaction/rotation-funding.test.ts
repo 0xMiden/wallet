@@ -62,11 +62,19 @@ describe('selectRotationFundingNotes', () => {
   });
 
   it('waits without claiming while the fee is unknown', () => {
-    const selection = selectRotationFundingNotes(live([note('a', { amount: '1' })]), NATIVE, null);
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      // A known fee first, so the shared latch starts clear whatever ran before.
+      selectRotationFundingNotes(live([note('a', { amount: '1' })]), NATIVE, 10000);
+      const selection = selectRotationFundingNotes(live([note('a', { amount: '1' })]), NATIVE, null);
 
-    expect(selection.batch).toEqual([]);
-    expect(selection.tooSmall).toBe(false);
-    expect(selection.native.map(n => n.id)).toEqual(['a']);
+      expect(selection.batch).toEqual([]);
+      expect(selection.tooSmall).toBe(false);
+      expect(selection.native.map(n => n.id)).toEqual(['a']);
+      expect(debug).toHaveBeenCalledWith('[claim-floor] claim skipped, fee unknown', 'rotation-funding');
+    } finally {
+      debug.mockRestore();
+    }
   });
 
   it('returns nothing from a fallback list, or while the native asset is unknown', () => {
