@@ -105,7 +105,7 @@ final class GuardianProbeHttpCancellationRegressionTests: XCTestCase {
                 settled.fulfill()
             },
             error: { error in
-                rejection = error.message
+                rejection = error?.message
                 settled.fulfill()
             }
         ))
@@ -113,7 +113,7 @@ final class GuardianProbeHttpCancellationRegressionTests: XCTestCase {
         plugin.request(request)
         wait(for: [settled], timeout: 5)
 
-        XCTAssertTrue(resolved || rejection != nil)
+        XCTAssertTrue(resolved || !(rejection ?? "").isEmpty)
         XCTAssertNotEqual(rejection, "The guardian probe request was cancelled")
     }
 }
