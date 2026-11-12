@@ -94,17 +94,28 @@ public class DappPresentationGestureInputTest {
                     }
                     long inputStarted = SystemClock.elapsedRealtime();
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
+                    stage(id, "swipe-start");
                     assertTrue("one continuous UiDevice swipe must inject successfully", device.swipe(path, steps));
+                    stage(id, "swipe-finished");
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
                     output.println(reply(id, "injected", executed, device).put("inputEndedMs", inputEnded));
+                    stage(id, "foreground-start");
                     assertEquals("wallet remains foreground after input", PACKAGE, device.getCurrentPackageName());
+                    stage(id, "foreground-finished");
                     output.println(reply(id, "done", executed, device)
                         .put("inputStartedMs", inputStarted).put("inputEndedMs", inputEnded));
                 }
             }
             fail("gesture host did not complete its bounded acceptance session");
         }
+    }
+
+    private static void stage(int id, String phase) {
+        Bundle status = new Bundle();
+        status.putString("stream", "DappGestureInput id=" + id + " phase=" + phase
+            + " elapsedMs=" + SystemClock.elapsedRealtime() + "\n");
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
     }
 
     private static int integer(JSONObject object, String key, int minimum, int maximum) throws Exception {

@@ -45,7 +45,11 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
     const socket = createConnection({ host: '127.0.0.1', port: 9236 });
     let buffer = '';
     let completed = false;
-    socket.setTimeout(30_000, () => socket.destroy(new Error('Native gesture input timed out')));
+    let lastPhase = 'connecting';
+    const commandStarted = Date.now();
+    socket.setTimeout(30_000, () =>
+      socket.destroy(new Error(`Native gesture input timed out: id=${id} op=${command.op} phase=${lastPhase}`))
+    );
     socket.on('connect', () => socket.write(JSON.stringify({ id, ...command }) + '\n'));
     socket.on('data', chunk => {
       buffer += String(chunk);
@@ -60,6 +64,18 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
         try {
           const reply: BridgeReply = JSON.parse(line);
           if (reply.id !== id) throw new Error('Native gesture command identity mismatch');
+          lastPhase = reply.phase;
+          console.info(
+            'Native gesture RPC',
+            JSON.stringify({
+              id,
+              op: command.op,
+              phase: reply.phase,
+              elapsedMs: Date.now() - commandStarted,
+              inputStartedMs: reply.inputStartedMs,
+              inputEndedMs: reply.inputEndedMs
+            })
+          );
           if (reply.phase === 'started' || reply.phase === 'injected') phaseChanged?.(reply.phase);
           else if (reply.phase === 'done') {
             completed = true;
