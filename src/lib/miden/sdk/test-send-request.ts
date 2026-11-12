@@ -97,7 +97,7 @@ export function inspectTestMainnetSwapRequest(
   const requested = new FungibleAsset(AccountId.fromHex(scope.requestedFaucetId), BigInt(scope.requestedAmount));
   const script = NoteScript.pswap();
   const root = script.root().serialize();
-  const useCase = (BigInt(root[0]) << 6n) | (BigInt(root[1]) >> 2n);
+  const useCase = BigInt(new DataView(root.buffer, root.byteOffset, root.byteLength).getUint16(0) >>> 2);
   const tag =
     (1n << 30n) |
     (useCase << 16n) |
