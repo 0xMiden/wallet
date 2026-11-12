@@ -19,6 +19,29 @@ describe('native presentation trace helpers', () => {
     expect(analyzer).toContain('FrameTimeline query returned no frame rows');
   });
 
+  it('treats Perfetto null jank values as non-janky', () => {
+    const analyzer = readFileSync(path.resolve(__dirname, '../../../../scripts/analyze-native-frame-timeline.mjs'), 'utf8');
+    expect(analyzer).toContain("!['', 'NULL', '[NULL]', 'None', 'none'].includes(row.jank_type)");
+    expect(analyzer).toContain('Before and after trials used different emulator instances');
+    expect(analyzer).toContain('Before and after trials do not share a recorded alternating order');
+  });
+
+  it('places the start marker after a touch-down lead and ends before screenshot work', () => {
+    const helper = readFileSync(path.resolve(__dirname, 'native-presentation-trace.ts'), 'utf8');
+    const spec = readFileSync(path.resolve(__dirname, '../tests/dapp-browser.presentation.android.spec.ts'), 'utf8');
+    expect(helper).toContain("'motionevent', 'DOWN'");
+    expect(helper).toContain('await delay(200)');
+    expect(helper).toContain('await beforeUp()');
+    expect(helper).toContain("'motionevent', 'UP'");
+    expect(spec.indexOf("`trial-${index}-end`)")).toBeLessThan(spec.indexOf("'native-presentation-${VARIANT}-${index}'"));
+  });
+
+  it('reboots the reserved Android device before each comparison variant', () => {
+    const setup = readFileSync(path.resolve(__dirname, '../fixtures/global-setup.ts'), 'utf8');
+    expect(setup).toContain("process.env.E2E_ANDROID_REBOOT_BEFORE_PRESENTATION === '1'");
+    expect(setup).toContain('await emu.reboot(serialA)');
+  });
+
   it('uses the largest WebView belonging to the wallet package', () => {
     const xml = [
       '<hierarchy>',

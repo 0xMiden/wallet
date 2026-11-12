@@ -66,7 +66,7 @@ function summarize(rows) {
     const durationMs = Number(row.dur) / 1_000_000;
     if (!Number.isInteger(trial) || !Number.isFinite(durationMs) || durationMs <= 0) continue;
     const list = grouped.get(trial) ?? [];
-    list.push({ durationMs, jank: !['', 'NULL', 'None', 'none'].includes(row.jank_type) });
+    list.push({ durationMs, jank: !['', 'NULL', '[NULL]', 'None', 'none'].includes(row.jank_type) });
     grouped.set(trial, list);
   }
 
@@ -150,6 +150,13 @@ for (const file of metadataFiles) {
 for (const variant of ['before', 'after']) {
   if (!metadata[variant]) throw new Error(`Missing ${variant} presentation metadata`);
 }
+if (metadata.before.emulatorSerial !== metadata.after.emulatorSerial)
+  throw new Error('Before and after trials used different emulator instances');
+if (
+  !['before after', 'after before'].includes(metadata.before.comparisonOrder) ||
+  metadata.before.comparisonOrder !== metadata.after.comparisonOrder
+)
+  throw new Error('Before and after trials do not share a recorded alternating order');
 const lines = [
   '# Android dApp presentation FrameTimeline comparison',
   '',
@@ -182,6 +189,8 @@ for (const [variant, trials] of [
 
 lines.push(
   '',
+  `Comparison order: ${metadata.before.comparisonOrder}`,
+  `Emulator serial: ${metadata.before.emulatorSerial}`,
   `Before source SHA: ${metadata.before.sourceSha}`,
   `After source SHA: ${metadata.after.sourceSha}`,
   `Trace Processor: ${traceProcessor}`,

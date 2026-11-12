@@ -1444,6 +1444,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         this.getActivity().runOnUiThread(() -> {
             boolean accepted = false;
+            boolean wasShowing = dialog.isShowing();
             try {
                 String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
                 boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
@@ -1452,10 +1453,16 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 if (current) {
                     accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
                         call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
-                    if (accepted && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
                 }
             } catch (Exception e) {
                 Log.e("InAppBrowser", "morph failed: " + e.getMessage());
+            }
+            if (navbarManager != null && (accepted || wasShowing != dialog.isShowing())) {
+                try {
+                    navbarManager.notifyDialogVisibilityChanged(dialog);
+                } catch (Exception e) {
+                    Log.e("InAppBrowser", "morph navbar update failed: " + e.getMessage());
+                }
             }
             call.resolve(new JSObject().put("accepted", accepted));
         });

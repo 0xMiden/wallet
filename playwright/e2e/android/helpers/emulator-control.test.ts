@@ -49,7 +49,7 @@ function bootAnswers(reply: (command: string) => AdbReply | undefined = () => un
     'pgrep -f com.google.android.gms.persistent': { stdout: '4242\n' }
   };
   return adbAnswers(args => {
-    const command = args.slice(3).join(' ');
+    const command = args[2] === 'shell' ? args.slice(3).join(' ') : args.slice(2).join(' ');
     return reply(command) ?? defaults[command] ?? { error: new Error('unexpected adb command: ' + command) };
   });
 }
@@ -81,6 +81,26 @@ describe('EmulatorControl', () => {
     run.mockReset();
   });
   afterEach(() => jest.useRealTimers());
+
+  describe('reboot', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('waits for the same emulator to boot completely after requesting a reboot', async () => {
+      const calls = bootAnswers(command =>
+        ['reboot', 'wait-for-device'].includes(command) ? { stdout: '' } : undefined
+      );
+      const ready = new EmulatorControl().reboot(SERIAL);
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      await expect(ready).resolves.toBeUndefined();
+      expect(calls.slice(0, 2).map(call => call.args.slice(2).join(' '))).toEqual(['reboot', 'wait-for-device']);
+      expect(calls[1].timeout).toBe(300_000);
+      expect(calls.some(call => call.args.slice(3).join(' ') === 'getprop sys.boot_completed')).toBe(true);
+    });
+  });
 
   describe('ensureBooted', () => {
     beforeEach(() => {

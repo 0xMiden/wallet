@@ -390,6 +390,22 @@ public class BreadPresentationControllerTest {
             targetAccessibilityImportance, targetDecor.getImportantForAccessibility());
     }
 
+    @Test @Config(shadows = PaintWebView.class)
+    public void renderKeepsAnAttachedWarmDecorHiddenFromAccessibility() throws Exception {
+        openMorph(false);
+        reveal();
+        controller.visibility(false, null, nextSequence());
+        dialog.prepareMorph(600);
+        View decor = dialog.getWindow().getDecorView();
+        decor.setVisibility(View.VISIBLE);
+        decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+
+        controller.render();
+
+        assertEquals(View.INVISIBLE, decor.getVisibility());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, decor.getImportantForAccessibility());
+    }
+
     @Test @Config(sdk = 28) public void warmDialogIsNotAuthPresentable() {
         open(true, true, "default", false);
         WebViewDialog target = dialog;
@@ -2538,6 +2554,27 @@ public class BreadPresentationControllerTest {
             cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
         plugin.morph(call);
         assertTrue(accepted(call));
+        assertTrue(dialog.isShowing());
+        verify(navbar).notifyDialogVisibilityChanged(dialog);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void rejectedExpandNotifiesNavbarWhenItStillShowsTheDialog() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard hostCard = hostCardInside(0.7f, 0.7f, 0.95f, 0.92f);
+        park(card());
+        root.layout(0, 0, 0, 0);
+        WebViewRegistry.getShared().register("zero-navbar", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
+            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
+        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
+        PluginCall call = morphCall("zero-navbar", null, nextSequence(), "expanded", cardJson(hostCard));
+
+        plugin.morph(call);
+
+        assertFalse(accepted(call));
         assertTrue(dialog.isShowing());
         verify(navbar).notifyDialogVisibilityChanged(dialog);
     }

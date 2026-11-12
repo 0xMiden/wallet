@@ -522,6 +522,16 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     );
     expect(baselineInstall?.lines.some(line => /yarn install --frozen-lockfile/.test(line))).toBe(true);
     expect(keyOf(baselineInstall!, 'if')).toBe(PRESENTATION_COMPARE_ONLY);
+    const comparison = presentationJob.steps.find(
+      step => keyOf(step, 'name') === 'Run alternating native-tap FrameTimeline comparison'
+    );
+    expect(comparison).toBeDefined();
+    const comparisonScript = comparison!.lines.join('\n');
+    expect(comparisonScript).toContain('GITHUB_RUN_NUMBER % 2');
+    expect(comparisonScript).toContain('order=(before after)');
+    expect(comparisonScript).toContain('order=(after before)');
+    expect(comparisonScript).toContain('E2E_ANDROID_REBOOT_BEFORE_PRESENTATION');
+    expect(comparisonScript).toContain('PRESENTATION_ORDER="${order[*]}"');
     expect(presentationJob.keys['timeout-minutes']).toBe(PRESENTATION_COMPARE_TIMEOUT);
     expect(
       keyOf(presentationJob.steps.find(step => keyOf(step, 'name') === 'Run dApp browser E2E (Android)')!, 'if')

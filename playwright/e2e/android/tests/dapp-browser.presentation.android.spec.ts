@@ -67,14 +67,17 @@ test.describe('dApp Browser native presentation (Android)', () => {
         const webViewBounds = await readWebViewScreenBounds(walletA.serial, walletA.packageName);
         const tap = cssRectCenterToScreen(card.rect, webViewBounds, devicePixelRatio);
 
-        if (FRAME_TIMELINE_CAPTURE) await markFrameTimeline(walletA.serial, `trial-${index}-start`);
-        await nativeTap(walletA.serial, tap);
+        await nativeTap(
+          walletA.serial,
+          tap,
+          FRAME_TIMELINE_CAPTURE ? () => markFrameTimeline(walletA.serial, `trial-${index}-start`) : undefined
+        );
         await driver.waitForForeground('alpha');
         await driver.waitForMotionIdle();
+        if (FRAME_TIMELINE_CAPTURE) await markFrameTimeline(walletA.serial, `trial-${index}-end`);
         await driver.expectDappPainted('alpha', `native-presentation-${VARIANT}-${index}`);
         await driver.expectFreshFrame('alpha', `native-presentation-fresh-${VARIANT}-${index}`);
         await walletA.delay(300);
-        if (FRAME_TIMELINE_CAPTURE) await markFrameTimeline(walletA.serial, `trial-${index}-end`);
 
         trials.push({ index, cssRect: card.rect, devicePixelRatio, webViewBounds, tap });
         await driver.minimize();
@@ -96,6 +99,8 @@ test.describe('dApp Browser native presentation (Android)', () => {
           variant: VARIANT,
           sourceSha: process.env.PRESENTATION_SOURCE_SHA ?? process.env.GITHUB_SHA ?? 'local',
           packageName: walletA.packageName,
+          emulatorSerial: walletA.serial,
+          comparisonOrder: process.env.PRESENTATION_ORDER ?? null,
           trials
         },
         null,

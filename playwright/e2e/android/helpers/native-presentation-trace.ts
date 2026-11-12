@@ -24,11 +24,22 @@ export async function readWebViewScreenBounds(serial: string, packageName: strin
   }
 }
 
-export async function nativeTap(serial: string, point: ScreenPoint): Promise<void> {
+export async function nativeTap(serial: string, point: ScreenPoint, beforeUp?: () => Promise<void>): Promise<void> {
   if (!Number.isSafeInteger(point.x) || !Number.isSafeInteger(point.y) || point.x < 0 || point.y < 0) {
     throw new Error('Native Android tap coordinates must be non-negative safe integers');
   }
-  await adb(serial, ['shell', 'input', 'tap', String(point.x), String(point.y)]);
+  const x = String(point.x), y = String(point.y);
+  if (!beforeUp) {
+    await adb(serial, ['shell', 'input', 'tap', x, y]);
+    return;
+  }
+  await adb(serial, ['shell', 'input', 'motionevent', 'DOWN', x, y]);
+  try {
+    await delay(200);
+    await beforeUp();
+  } finally {
+    await adb(serial, ['shell', 'input', 'motionevent', 'UP', x, y]);
+  }
 }
 
 export async function markFrameTimeline(serial: string, message: string): Promise<void> {

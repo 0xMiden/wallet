@@ -21,6 +21,7 @@ export default async function globalSetup(): Promise<void> {
   const { serialA, serialB } = await EmulatorControl.reservePair();
   const emu = new EmulatorControl();
   await Promise.all([emu.ensureBooted(serialA), emu.ensureBooted(serialB)]);
+  if (process.env.E2E_ANDROID_REBOOT_BEFORE_PRESENTATION === '1') await emu.reboot(serialA);
 
   // eslint-disable-next-line no-console
   console.log(`[android-globalSetup] reserved pair A=${serialA} B=${serialB}; both booted`);

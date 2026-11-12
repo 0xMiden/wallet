@@ -448,23 +448,41 @@ jobs:
           chmod +x "$RUNNER_TEMP/perfetto/trace_processor_shell"
           "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
 
-      - name: Run baseline native-tap FrameTimeline
+      - name: Run alternating native-tap FrameTimeline comparison
         if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
         env:
-          ANDROID_E2E_APK_PATH: ${{ runner.temp }}/wallet-presentation-before.apk
+          BASELINE_APK: ${{ runner.temp }}/wallet-presentation-before.apk
+          CANDIDATE_APK: ${{ runner.temp }}/wallet-presentation-after.apk
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           E2E_FRAME_TIMELINE_CAPTURE: '1'
-          PRESENTATION_VARIANT: before
-          PRESENTATION_SOURCE_SHA: ${{ inputs.baseline_sha }}
-        run: yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
-
-      - name: Run candidate native-tap FrameTimeline
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
-        env:
-          ANDROID_E2E_APK_PATH: ${{ runner.temp }}/wallet-presentation-after.apk
-          E2E_FRAME_TIMELINE_CAPTURE: '1'
-          PRESENTATION_VARIANT: after
-          PRESENTATION_SOURCE_SHA: ${{ inputs.candidate_sha }}
-        run: yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
+          E2E_ANDROID_REBOOT_BEFORE_PRESENTATION: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p test-results-android
+          if (( GITHUB_RUN_NUMBER % 2 == 0 )); then
+            order=(before after)
+          else
+            order=(after before)
+          fi
+          printf '%s %s\n' "${order[0]}" "${order[1]}" | tee test-results-android/presentation-comparison-order.txt
+          run_variant() {
+            local variant="$1" apk sha
+            if [[ "$variant" == before ]]; then
+              apk="$BASELINE_APK"
+              sha="$BASELINE_SHA"
+            else
+              apk="$CANDIDATE_APK"
+              sha="$CANDIDATE_SHA"
+            fi
+            ANDROID_E2E_APK_PATH="$apk" \
+              PRESENTATION_VARIANT="$variant" \
+              PRESENTATION_SOURCE_SHA="$sha" \
+              PRESENTATION_ORDER="${order[*]}" \
+              yarn playwright test --config playwright.android.dapp.config.ts --grep 'native tap expands a minimized dApp and records FrameTimeline'
+          }
+          run_variant "${order[0]}"
+          run_variant "${order[1]}"
 
       - name: Analyze before and after FrameTimeline traces
         if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'

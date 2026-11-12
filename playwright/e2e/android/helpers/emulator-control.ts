@@ -246,6 +246,12 @@ export class EmulatorControl {
     });
   }
 
+  async reboot(serial: string): Promise<void> {
+    await adb(['-s', serial, 'reboot']);
+    await adb(['-s', serial, 'wait-for-device'], BOOT_TIMEOUT_MS);
+    await this.ensureBooted(serial);
+  }
+
   async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);

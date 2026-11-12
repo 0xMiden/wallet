@@ -450,9 +450,7 @@ final class BreadPresentationController {
         Window window = owner.getWindow();
         if (window == null) return;
         if (warmed) {
-            if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
-            warmCooldown = () -> finishWarmup(true);
-            handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
+            scheduleWarmCooldown(durationMs);
             return;
         }
         if (owner.isShowing()) return;
@@ -462,6 +460,11 @@ final class BreadPresentationController {
         addWarmWindowFlags(window);
         owner.applyPresentationVisibility(true);
         hideWarmDecor(window);
+        scheduleWarmCooldown(durationMs);
+    }
+
+    private void scheduleWarmCooldown(long durationMs) {
+        if (warmCooldown != null) handler.removeCallbacks(warmCooldown);
         warmCooldown = () -> finishWarmup(true);
         handler.postDelayed(warmCooldown, Math.max(0, durationMs) + WARMUP_GRACE_MS);
     }
@@ -1158,7 +1161,10 @@ final class BreadPresentationController {
                         decor.setVisibility(View.INVISIBLE);
                         decor.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
                     }
-                } else if (decor.getVisibility() != View.INVISIBLE) decor.setVisibility(View.INVISIBLE);
+                } else if (decor.getVisibility() != View.INVISIBLE
+                    || decor.getImportantForAccessibility() != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS) {
+                    hideWarmDecor(window);
+                }
             } else owner.applyPresentationVisibility(false);
             restoreWindow();
             renderCover();
