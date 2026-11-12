@@ -15,13 +15,15 @@ jobs:
       EXPECTED_SOURCE_SHA: '1fe48b4a2badf7223e22dfa655c7b5b950e2932f'
       EXPECTED_SOURCE_TREE: '8fca34c7a5a6bb4a7e688183a1df1ec72c5bebc7'
       BASELINE_SHA: '657f4b98cb0aa7756865c0030ea11bc99bb7a016'
-      EXPECTED_QA_BRANCH: 'ci/qa-2147-earn-precondition-red-1fe48b4a2-20261112-v1'
-      EVIDENCE_DIR: ${{ runner.temp }}/qa-2147-earn-red
+      EXPECTED_QA_BRANCH: 'ci/qa-2147-earn-precondition-red-1fe48b4a2-20261112-v2'
       NODE_OPTIONS: '--max-old-space-size=4096'
       UV_THREADPOOL_SIZE: '2'
       CARGO_BUILD_JOBS: '2'
       RAYON_NUM_THREADS: '2'
     steps:
+      - name: Set the evidence path from the runner environment
+        shell: bash
+        run: printf 'EVIDENCE_DIR=%s/qa-2147-earn-red\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           ref: '1fe48b4a2badf7223e22dfa655c7b5b950e2932f'
