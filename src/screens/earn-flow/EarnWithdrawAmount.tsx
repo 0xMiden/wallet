@@ -13,16 +13,24 @@ import { useWalletStore } from 'lib/store';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  useEarnAssetFaucetId
+} from './components';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) => {
   const { t } = useTranslation();
+  const assetFaucetId = useEarnAssetFaucetId();
   const prices = useWalletStore(state => state.tokenPrices);
   const [amount, setAmount] = useState('');
   const [fullBalanceSelected, setFullBalanceSelected] = useState(false);
-  const { positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
+  const { positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const position = positions.find(item => item.id === positionId);
   const { pending } = earnItemLoadState(position, { isLoading, error });
   const validation = position ? withdrawalAmountError(amount, position.withdrawable, position.decimals) : undefined;
@@ -34,7 +42,11 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
         data-testid="earn-withdraw-amount-page"
         title={position ? earnSubjectTitle(position) : t('withdraw')}
         subtitle={position && <EarnSubjectSubtitle subject={position} />}
-        headerActions={position && <EarnAssetMark asset={position.asset} network={position.network} decorative />}
+        headerActions={
+          position && (
+            <EarnAssetMark asset={position.asset} network={position.network} faucetId={assetFaucetId} decorative />
+          )
+        }
         onBack={goBack}
         footer={
           position && (
@@ -53,12 +65,16 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
           )
         }
       >
-        {!position && !pending ? (
-          <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />
+        {pending ? (
+          <EarnLoading />
+        ) : !position ? (
+          <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
         ) : (
           position && (
             <>
-              {error && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+              {error && (
+                <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+              )}
               <TokenAmountInput
                 assetId={`${position.chainId}:${position.underlyingAddress}`}
                 symbol={position.asset}
@@ -82,7 +98,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 error={amount && validation ? t(validation, { decimals: position.decimals }) : undefined}
                 tokenSelector={
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <EarnAmountUnit symbol={position.asset} />
+                    <EarnAmountUnit symbol={position.asset} faucetId={assetFaucetId} />
                     <Button
                       title={t('max')}
                       size="sm"

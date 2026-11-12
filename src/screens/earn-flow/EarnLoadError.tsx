@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
 import { type UiEvidenceInput, validateUiEvidence } from 'lib/telemetry/ui-producer-diagnostics';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
@@ -17,11 +18,12 @@ import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
  */
 export const EarnLoadError: FC<{
   onRetry: () => void;
+  isRetrying?: boolean;
   className?: string;
   message?: string;
   errorId?: UserErrorId;
   errorDiagnostics?: UiEvidenceInput;
-}> = ({ onRetry, className, message, errorId = 'earnPositionsLoadError', errorDiagnostics }) => {
+}> = ({ isRetrying = false, onRetry, className, message, errorId = 'earnPositionsLoadError', errorDiagnostics }) => {
   const { t } = useTranslation();
 
   return (
@@ -46,6 +48,9 @@ export const EarnLoadError: FC<{
         title={t('retry')}
         // `Button` fires the tap haptic itself; calling it here too would buzz twice.
         onClick={onRetry}
+        disabled={isRetrying}
+        aria-busy={isRetrying}
+        iconLeft={isRetrying && <Spinner size="sm" />}
         className="w-auto"
       />
     </div>

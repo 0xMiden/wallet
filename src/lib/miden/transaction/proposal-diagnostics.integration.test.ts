@@ -52,6 +52,12 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   nonce: 8,
   metadata: { proposalType: 'custom' }
 }));
+// The custom proposal id check derives this commitment locally; it is the id the reclaim proposal mock returns.
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  serialize: () => Uint8Array.of(9),
+  toCommitment: () => ({ toHex: () => 'private-reclaim-proposal-id', free: () => {} }),
+  free: () => {}
+}));
 const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
 const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
   if (mockState.customAdvice) throw mockState.customAdvice;
@@ -101,7 +107,8 @@ const mockExecute = jest.fn(async (..._args: unknown[]) => ({
 const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   accountId,
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
-  createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  createProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  getEffectiveThreshold: () => 1,
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
   prepareCustomExecution: (...args: unknown[]) => mockPrepareCustom(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
@@ -122,14 +129,20 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   TransactionProver: { newLocalProver: () => ({}) },
   TransactionRequest: {
-    deserialize: () => {
-      if (mockState.customBuild) throw mockState.customBuild;
-      return { extendAdviceMap: () => ({ authArg: () => undefined, serialize: () => oldBytes }) };
-    }
+    // The custom request build fails at the advice step: the proposal id check also reads these bytes, before signing.
+    deserialize: () => ({
+      extendAdviceMap: () => {
+        if (mockState.customBuild) throw mockState.customBuild;
+        return { authArg: () => undefined, serialize: () => oldBytes };
+      },
+      free: () => {}
+    })
   }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
+  summaryBoundBlockNum: () => 100,
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);
@@ -161,6 +174,7 @@ jest.mock('../sdk/miden-client', () => ({
       getAccount: (...args: unknown[]) => mockAccountRead(...args),
       client: {
         syncChain: async () => {},
+        accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) },
         transactions: { executeRequest: (...args: unknown[]) => mockExecute(...args) }
       }
     };

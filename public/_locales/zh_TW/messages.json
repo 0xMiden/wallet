@@ -864,6 +864,10 @@
     "message": "無法透過 Epoch 查詢您的餘額。請重試。",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "無法載入您的餘額。請檢查網路連線並重新嘗試。",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "此網路不提供「賺取」功能",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "系統拒絕了此提交。請重新嘗試。",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "您的 Guardian 目前仍持有這筆交易，因此尚無法重新嘗試。",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "網路已確認此筆交易從未完成，因此並未發生任何資金流動。您的「Guardian」仍持有該資產，因此目前尚無法重新嘗試。",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "您的 Guardian 目前仍持有這筆交易。您可在 $time$ 後重新嘗試。",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "您可在 $time$ 後重試",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "此提交未收到任何回應。錢包無法確認該操作是否成功傳送。該操作仍可能完成，因此請先確認後再嘗試。",
@@ -4694,6 +4724,14 @@
     "message": "不可用",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "不支援",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "未知規模",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "暫時無法使用",
     "englishSource": "Temporarily unavailable"
@@ -5894,6 +5932,10 @@
     "message": "跨鏈存入失敗",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "您已連線的錢包在此網路中沒有餘額為正的代幣。",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "您已連線的錢包在 $network$ 上持有 $balance$ $token$，此金額低於本次存款所需。因此並未發送任何代幣。",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6305,6 +6347,10 @@
   "couldNotDecodeTransaction": {
     "message": "此 dApp 正在請求一筆自訂交易。錢包無法解碼其詳細資訊——請僅在您確切了解其運作方式的情況下繼續。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "該錢包無法模擬此交易，因此無法顯示其運作方式。您無法批准此交易。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "原始值",

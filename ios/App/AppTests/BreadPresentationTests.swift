@@ -3387,6 +3387,23 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertEqual(live.window.alpha, 1)
     }
 
+    func testARepeatedPrepareRenewsTheWarmWindowPastTheOriginalDeadline() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
+        try await Task.sleep(nanoseconds: 550_000_000)
+        try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertFalse(live.window.isHidden, "a repeated prepare renews the warmup cooldown past the original deadline")
+        XCTAssertEqual(live.window.alpha, 0)
+        XCTAssertFalse(live.presentation.state.surfaceVisibility)
+
+        let cooled = try await eventually { live.window.isHidden }
+        XCTAssertTrue(cooled)
+        XCTAssertEqual(live.window.alpha, 1)
+    }
+
     func testAWarmUpNoMorphFollowsHidesTheWindowAgain() async throws {
         let (live, _) = try await parkedWithProxy()
         defer { live.dispose(); BreadFrameRateBoost.shared.release() }

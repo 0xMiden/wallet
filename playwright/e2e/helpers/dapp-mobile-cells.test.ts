@@ -120,9 +120,18 @@ describe('the pinned sheet text', () => {
     expect(literals).toContain(text);
   });
 
-  it('lists the declared preview before the simulated effects on the mobile sheet, so the cells read the effects last', () => {
-    expect(dapp).toContain('transactionMessages: [...declaredMessages, ...simulatedEffects.messages]');
+  it('lists the preview head before the simulated effects on the mobile sheet, so the cells read the effects last', () => {
+    expect(dapp).toContain(
+      'transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...simulatedEffects.messages]'
+    );
   });
+
+  it.each(Object.entries(pinned.notSimulatedRefusal))(
+    'finds the pinned not-simulated refusal %s text in the wallet refusal',
+    (_key, text) => {
+      expect(literals).toContain(text);
+    }
+  );
 });
 
 const refusalCases = [

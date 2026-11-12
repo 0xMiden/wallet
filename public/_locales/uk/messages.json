@@ -864,6 +864,10 @@
     "message": "Не вдалося перевірити ваш баланс за допомогою Epoch. Спробуйте ще раз.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Не вдалося завантажити ваш баланс. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Функція «Earn» недоступна в цій мережі",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "Мережа відхилила цю заявку. Спробуйте ще раз.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Ваш «Guardian» все ще утримує цю транзакцію, тому її поки що неможливо повторити.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Мережа підтвердила, що ця транзакція так і не відбулася, тому нічого не було переміщено. Ваш «Guardian» все ще утримує її, тому повторну спробу поки що неможливо здійснити.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Ваш «Guardian» все ще утримує цю транзакцію. Ви можете повторити спробу через $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Ви можете спробувати ще раз через $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Відповіді на це подання не надійшло. Гаманець не може підтвердити, чи пройшло воно успішно. Можливо, операція ще завершиться, тому перевірте, перш ніж спробувати ще раз.",
@@ -4696,6 +4726,14 @@
     "message": "Недоступно",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Непідтримувані",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Невідома шкала",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Тимчасово недоступно",
     "englishSource": "Temporarily unavailable"
@@ -5896,6 +5934,10 @@
     "message": "Помилка під час депозиту через міст",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositNoTokenBalance": {
+    "message": "У вашому підключеному гаманці немає токенів із позитивним балансом у цій мережі.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
+  },
   "bridgeDepositBalanceTooLow": {
     "message": "У вашому підключеному гаманці на $network$ зберігається $balance$ $token$, що менше, ніж потрібно для цього депозиту. Нічого не було надіслано.",
     "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
@@ -6307,6 +6349,10 @@
   "couldNotDecodeTransaction": {
     "message": "Цей dApp надсилає запит на нестандартну транзакцію. Гаманець не зміг розшифрувати її деталі — продовжуйте лише в тому випадку, якщо ви точно знаєте, що вона собою являє.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "Гаманець не зміг змоделювати цю транзакцію, тому не може показати, що саме відбувається. Ви не можете її затвердити.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Необроблене значення",

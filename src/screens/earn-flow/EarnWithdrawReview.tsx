@@ -12,6 +12,7 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { TokenUsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { quoteEarnWithdrawal, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
@@ -22,9 +23,17 @@ import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { truncateAddress } from 'utils/string';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnHero,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  useEarnAssetFaucetId
+} from './components';
 import { EARN_PLACEHOLDER, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -55,7 +64,8 @@ const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | und
 /** Review the selected amount against its quote. A URL without an amount goes back to the amount step. */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
+  const assetFaucetId = useEarnAssetFaucetId();
+  const { positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const { search } = useLocation();
   const requested = new URLSearchParams(search).get('amount');
@@ -104,6 +114,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       clearTimeout(timer);
     };
   }, [amount, reviewed, account.publicKey, account.evmAddress, validation, refresh]);
+  const quotePending = Boolean(reviewed && !reviewed.stale && !validation && !quote && !quoteError);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
@@ -203,7 +214,9 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         title={found ? earnSubjectTitle(found) : t('withdraw')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
+        headerActions={
+          found && <EarnAssetMark asset={found.asset} network={found.network} faucetId={assetFaucetId} decorative />
+        }
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
@@ -215,6 +228,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
               )}
               <Button
                 data-testid="earn-withdraw-review-confirm"
+                aria-busy={isSubmitting || quotePending}
+                iconLeft={(isSubmitting || quotePending) && <Spinner size="sm" />}
                 title={isSubmitting ? t('withdrawing') : t('withdraw')}
                 variant={ButtonVariant.Primary}
                 accent="earn"
@@ -227,10 +242,19 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         }
       >
         {loadFailed && !found ? (
-          <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} className="mt-10" />
-        ) : pending ? null : (
+          <EarnLoadError
+            errorDiagnostics={errorDiagnostics}
+            isRetrying={isRefreshing}
+            onRetry={refetch}
+            className="mt-10"
+          />
+        ) : pending ? (
+          <EarnLoading />
+        ) : (
           <>
-            {loadFailed && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+            {loadFailed && (
+              <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+            )}
             <EarnHero
               labelId="earn-withdraw-review-amount"
               value={
@@ -247,7 +271,11 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
               className="mt-7"
               labelClassName={amountCaptionClassName}
               figureClassName={classNames('mt-3 text-ink break-words', amountFigureClassName(receiptDisplay))}
-              unit={quote && <EarnAmountUnit symbol={quote.destinationSymbol} compact />}
+              unit={
+                quote && (
+                  <EarnAmountUnit symbol={quote.destinationSymbol} faucetId={quote.destinationFaucetId} compact />
+                )
+              }
               label={t('youReceive')}
               layout="label-first"
               meta={

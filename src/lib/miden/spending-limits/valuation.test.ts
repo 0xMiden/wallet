@@ -313,9 +313,7 @@ describe('resolveSpendsUsd', () => {
   // #1131: allowlist membership is coverage. A price symbol the feed never quotes has no price to
   // read, so the spend is refused rather than counted as nothing.
   it('refuses an allowlisted faucet whose price symbol the feed does not quote (#1131 F-004)', async () => {
-    _setSwapTokensForTest([
-      { symbol: 'INOPE', faucetId: 'mtst1nope', decimals: 8, logoSymbol: 'MIDEN', priceSymbol: 'NOPE' }
-    ]);
+    _setSwapTokensForTest([{ symbol: 'INOPE', faucetId: 'mtst1nope', decimals: 8, priceSymbol: 'NOPE' }]);
     try {
       jest.mocked(peekTokenPriceAssets).mockReturnValueOnce(new Map([['mtst1nope', 'NOPE']]));
       mockedMetadata.mockResolvedValue(base('INOPE', 8));

@@ -716,6 +716,17 @@ it('uses the full action area for the claim spinner', () => {
   expect(within(card).queryByText('activityAcceptingTransfer')).not.toBeInTheDocument();
 });
 
+it('leaves a claim the Guardian still holds out of Accept All, since its own Retry is off (#2060)', () => {
+  const [first, failed, third] = mockItems;
+  if (!first || !failed || !third) throw new Error('Missing note fixtures');
+  mockState.items = [first, { ...failed, status: 'failed', holdUntil: Math.floor(Date.now() / 1000) + 60 }, third];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+
+  expect(mockAcceptMany).toHaveBeenCalledWith([first.note, third.note]);
+});
+
 it('offers Restore under the Pending filter while declined transfers can still be accepted', () => {
   const [, failed] = mockItems;
   if (!failed) throw new Error('Missing note fixtures');
