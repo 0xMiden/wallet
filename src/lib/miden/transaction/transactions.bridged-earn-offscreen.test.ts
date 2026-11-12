@@ -63,6 +63,14 @@ jest.mock('../front', () => ({
 
 jest.mock('lib/settings/constants', () => ({}));
 
+const mockGetVerificationBaseFee = jest.fn(async (): Promise<bigint | null> => 0n);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: () => mockGetVerificationBaseFee(),
+  getVerificationBaseFeeSync: () => 0n,
+  isVerificationBaseFeeKnownAbsent: () => false
+}));
+
 // Non-guardian throughout: the standard signCallback dispatch path.
 const mockIsGuardianAccount = jest.fn(async (..._a: unknown[]) => false);
 jest.mock('lib/miden/front/guardian-manager', () => ({
@@ -212,6 +220,7 @@ beforeEach(() => {
   // clearAllMocks keeps a queued *Once, so a one-shot a test never reached would leak into the next.
   mockIsGuardianAccount.mockReset().mockImplementation(async () => false);
   mockProxyNewTransaction.mockReset().mockImplementation(async () => makeResult());
+  mockGetVerificationBaseFee.mockReset().mockResolvedValue(0n);
   txStore.length = 0;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
@@ -289,7 +298,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     }
   );
 
-  it('earn-deposit (pre-built collateral request) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback); never sendTransaction, never the inline SW leaf', async () => {
+  it('earn-deposit delegates its collateral request with a guarded signer', async () => {
     const requestBytes = new Uint8Array([0xea, 0x51]);
     await run('tx-earn', {
       type: 'earn-deposit',
@@ -302,7 +311,8 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     });
 
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, expect.any(Function), undefined);
+    expect(mockProxyNewTransaction.mock.calls[0]?.[3]).not.toBe(signCallback);
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineNewTransaction).not.toHaveBeenCalled();
@@ -319,6 +329,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
   // P2IDE collateral note — stranding the funds until the reclaim height while the
   // activity row read "Deposited to lending".
   it('earn-deposit refuses to submit once the caller abandoned the Epoch intent', async () => {
+    mockGetVerificationBaseFee.mockResolvedValue(null);
     const tx = buildTx('tx-earn-abandoned', {
       type: 'earn-deposit',
       secondaryAccountId: 'mtst1qallocator',
@@ -338,6 +349,60 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     // No collateral note was built, submitted, or marked deposited.
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+    expect(mockGetVerificationBaseFee).not.toHaveBeenCalled();
+    expect(txStore[0].nextEligibleAt).toBeUndefined();
+  });
+
+  it.each<[string, bigint | null]>([
+    ['known', 0n],
+    ['unknown', null]
+  ])('refuses an Earn deposit abandoned during %s fee discovery', async (_state, fee) => {
+    const id = 'tx-earn-fee-abandoned';
+    mockGetVerificationBaseFee.mockImplementationOnce(async () => {
+      const persisted = txStore.find(row => row.id === id)!;
+      persisted.extraInputs = { recallBlocks: 10, epochStatus: 'failed' };
+      return fee;
+    });
+
+    await expect(
+      run(id, {
+        type: 'earn-deposit',
+        requestBytes: new Uint8Array([0xea, 0x51]),
+        secondaryAccountId: 'mtst1qallocator',
+        faucetId: 'faucet',
+        amount: 500n,
+        noteType: 'public',
+        extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+      })
+    ).rejects.toThrow(/refusing to submit an orphan collateral note/);
+
+    expect(mockGetVerificationBaseFee).toHaveBeenCalledTimes(1);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(signCallback).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.nextEligibleAt).toBeUndefined();
+  });
+
+  it('requeues a live Earn deposit with request bytes when its fee is unknown', async () => {
+    mockGetVerificationBaseFee.mockResolvedValue(null);
+    const tx = await run('tx-earn-fee-unknown', {
+      type: 'earn-deposit',
+      requestBytes: new Uint8Array([0xea, 0x51]),
+      secondaryAccountId: 'mtst1qallocator',
+      faucetId: 'faucet',
+      amount: 500n,
+      noteType: 'public',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+
+    const persisted = txStore.find(row => row.id === tx.id);
+    expect(persisted?.nextEligibleAt).toEqual(expect.any(Number));
+    expect(persisted?.requeueStreak).toEqual({ arm: 'chain-fee-unknown', count: 1 });
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(signCallback).not.toHaveBeenCalled();
     expect(mockComplete.earn).not.toHaveBeenCalled();
   });
 
@@ -393,6 +458,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
   });
 
   it('earn-deposit with no request bytes is refused before it mints: no send-style fallback for Earn', async () => {
+    mockGetVerificationBaseFee.mockResolvedValue(null);
     // The fallback would mint a P2IDE with no mandate binding, which the allocator refuses to bind.
     const tx = buildTx('tx-earn-no-bytes', {
       type: 'earn-deposit',
@@ -412,9 +478,11 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     expect(mockComplete.earn).not.toHaveBeenCalled();
+    expect(mockGetVerificationBaseFee).not.toHaveBeenCalled();
+    expect(txStore[0].nextEligibleAt).toBeUndefined();
   });
 
-  it('flag ON changes nothing at THIS seam — the switch still delegates to the proxy leaf (the proxy owns the offscreen route)', async () => {
+  it('flag ON keeps Earn delegation on the proxy with a guarded signer', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const requestBytes = new Uint8Array([0xea, 0x52]);
     await run('tx-earn-flagon', {
@@ -427,7 +495,8 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, expect.any(Function), undefined);
+    expect(mockProxyNewTransaction.mock.calls[0]?.[3]).not.toBe(signCallback);
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });
