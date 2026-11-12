@@ -72,7 +72,8 @@ export function __resetScreenshotGuardForTest(): void {
 
 /**
  * Blocks screenshots / screen recordings of the current screen while `active`.
- * Desktop excludes the wallet window from capture through the Tauri window flag. iOS excludes the window from captures via the secure-text-field layer trick;
+ * Desktop excludes the wallet window from capture through the Tauri window flag.
+ * iOS excludes the window from captures via the secure-text-field layer trick;
  * Android sets FLAG_SECURE on the activity window.
  *
  * Every active holder shares one native switch: the first to mount enables it,

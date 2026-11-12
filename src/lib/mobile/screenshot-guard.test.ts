@@ -244,6 +244,21 @@ describe('useScreenshotGuard', () => {
       expect(mockSetProtected.mock.calls.filter(([enabled]) => enabled === false)).toHaveLength(1);
     });
 
+    it('on desktop, releasing while the enable is pending turns protection off exactly once', async () => {
+      const enable = deferred();
+      mockSetProtected.mockReturnValue(enable.promise);
+      const { unmount } = renderHook(() => useScreenshotGuard());
+      await settle();
+      expect(mockSetProtected).toHaveBeenCalledTimes(1);
+
+      unmount();
+      enable.resolve();
+      await settle();
+
+      expect(mockSetProtected.mock.calls.filter(([enabled]) => enabled === false)).toHaveLength(1);
+      expect(mockSetProtected).toHaveBeenCalledTimes(2);
+    });
+
     it('on desktop, a failed enable still reports ready and logs', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockSetProtected.mockRejectedValue(new Error('no window flag'));
