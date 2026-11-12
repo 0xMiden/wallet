@@ -1,6 +1,7 @@
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
+  STALE_PROOF_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
@@ -411,6 +412,40 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
 
     await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
     expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  describe('a send that ended on a stale proof (#2060)', () => {
+    const staleSend = (overrides: Partial<ITransaction> = {}) =>
+      failedRow({ type: 'send', stage: 'proving', transactionId: undefined, error: STALE_PROOF_ERROR, ...overrides });
+
+    it('requeues with no acknowledgement, because nothing was sent', async () => {
+      const row = staleSend();
+      wireRow(row);
+      await requeueFailedTransaction('tx-1');
+      expect(row.status).toBe(ITransactionStatus.Queued);
+    });
+
+    it('requeues past an earlier attempt retired before its submit', async () => {
+      const row = staleSend({
+        submitEvidence: [{ attemptId: 'a0', capturedAt: 900, source: 'pin', preSubmitEnd: true }]
+      });
+      wireRow(row);
+      await requeueFailedTransaction('tx-1');
+      expect(row.status).toBe(ITransactionStatus.Queued);
+    });
+
+    it.each([
+      [
+        'an earlier attempt may have crossed',
+        { submitEvidence: [{ attemptId: 'a0', capturedAt: 900, source: 'stage' }] }
+      ],
+      ['a crossing is recorded', { mayHaveSubmitted: true }]
+    ] satisfies [string, Partial<ITransaction>][])('still asks while %s', async (_case, overrides) => {
+      const row = staleSend(overrides);
+      wireRow(row);
+      await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+    });
   });
 
   // Where the refusal lives, and why it moved. It used to be the PREDICATE, so
