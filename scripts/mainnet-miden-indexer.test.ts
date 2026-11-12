@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { readMainnetMidenOutputCandidates } from '../playwright/e2e/helpers/mainnet-miden-indexer';
+import { readMainnetMidenOutputCandidates, readMainnetMidenOwnNoteCreator } from '../playwright/e2e/helpers/mainnet-miden-indexer';
 jest.mock('@miden-sdk/miden-sdk', () => ({ Address: { fromBech32: () => ({ accountId: () => ({ toString: () => '0x593c167bec26769178dcbd1f9bcb40' }) }) } }));
 const txId = `0x${'a'.repeat(64)}`; const noteId = `0x${'b'.repeat(64)}`;
 const sender = 'mm1apeg8ae87qy4n52a2myu6kpk8c3y4mav'; const senderHex = '0x593c167bec26769178dcbd1f9bcb40';
@@ -40,6 +40,22 @@ it.each(invalid)('refuses %s rather than guessing which payment belongs to the q
     .mockResolvedValueOnce(json({ data: { transaction: transaction() } }))
     .mockResolvedValueOnce(json(changed));
   await expect(readMainnetMidenOutputCandidates(txId, self, fetcher)).rejects.toThrow();
+});
+it('recovers the real creator hash for the exact original own output note, without inventing a transaction from a history label', async () => {
+  fetcher.mockReset().mockResolvedValueOnce(json({ data: { note: { note_id: noteId, sender, block_number: '828100' } } }))
+    .mockResolvedValueOnce(json(reply()));
+  await expect(readMainnetMidenOwnNoteCreator(noteId, senderHex, fetcher)).resolves.toEqual({ transactionId: txId,
+    senderAddress: sender, senderHex, blockNumber: 828100, noteIds: [noteId] });
+});
+it('never attributes another sender\'s created note to the original funded wallet', async () => {
+  fetcher.mockReset().mockResolvedValueOnce(json({ data: { note: { note_id: noteId, sender, block_number: '828100' } } }));
+  await expect(readMainnetMidenOwnNoteCreator(noteId, self, fetcher)).rejects.toThrow(); expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it('keeps original source-note recovery blocked when its maker submitted two transactions in that block', async () => {
+  const changed = reply(); changed.data.transactions.edges.push({ node: { ...transaction(), transaction_id: noteId } });
+  fetcher.mockReset().mockResolvedValueOnce(json({ data: { note: { note_id: noteId, sender, block_number: '828100' } } }))
+    .mockResolvedValueOnce(json(changed));
+  await expect(readMainnetMidenOwnNoteCreator(noteId, senderHex, fetcher)).rejects.toThrow();
 });
 it('refuses invalid provider fingerprints without contacting an indexer', async () => {
   await expect(readMainnetMidenOutputCandidates('not-a-hash', self, fetcher)).rejects.toThrow(); expect(fetcher).not.toHaveBeenCalled();

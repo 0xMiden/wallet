@@ -33,6 +33,12 @@ async function read(query: string, variables: Record<string, string>, fetcher: t
     return result.data;
   } catch { throw new Error('Public mainnet maker lookup failed; no settlement inferred'); }
 }
+export async function readMainnetMidenOwnNoteCreator(
+  _noteId: string, _walletAccountHex: string, _fetcher: typeof fetch = fetch
+): Promise<MainnetMidenOutputCandidates> {
+  throw new Error('Exact original native note creator recovery is not implemented');
+}
+
 export async function readMainnetMidenOutputCandidates(
   transactionId: string, walletAccountHex: string, fetcher: typeof fetch = fetch
 ): Promise<MainnetMidenOutputCandidates> {
