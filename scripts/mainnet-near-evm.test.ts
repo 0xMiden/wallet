@@ -2,7 +2,8 @@
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, getAddress, isHex, keccak256,
   type Address, type Hash, type TransactionReceipt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createMainnetNearEvmBroadcast, inspectMainnetNearForwardReceipt, inspectMainnetNearSignedTransfer, type MainnetNearBroadcastInput, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
+import { createMainnetNearEvmBroadcast, inspectMainnetNearForwardReceipt, inspectMainnetNearSignedTransfer, reconcileMainnetNearEvmReceipt, type MainnetNearBroadcastInput, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
+import type { EpochEvmRecoveryEvidence } from '../playwright/e2e/helpers/mainnet-epoch-evm';
 import type { MainnetNearCheckpoint } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 import { nativeNearFixture, nativeNearQuote } from './helpers/mainnet-near-fixture';
 const key = `0x${'0'.repeat(63)}1`;
@@ -102,6 +103,42 @@ it.each(invalidForward)('refuses %s instead of accepting a balance delta as forw
 function receipt(transactionHash: Hash, status: 'success' | 'reverted' = 'success') {
   return { transactionHash, status, gasUsed: 45000n, effectiveGasPrice: 1000000n };
 }
+async function recoveryFixture() {
+  const state = authority(); const approved = envelope(); const raw = await signer.signTransaction({ ...approved, type: 'eip1559' });
+  const hash = keccak256(raw); state.phase = 'recovery-required'; state.transactions = [{ kind: 'transfer', nonce: 0, hash }];
+  const evidence: EpochEvmRecoveryEvidence = { transaction: { hash, from: signer.address, to: approved.to, input: approved.data,
+    value: 0n, nonce: 0, chainId: 42161, gas: approved.gas, maxFeePerGas: approved.maxFeePerGas, type: 'eip1559' }, receipt: receipt(hash) };
+  return { state, evidence };
+}
+it('reconciles an expired original signed return from its actual receipt without reauthorizing or double-counting', async () => {
+  const f = await recoveryFixture(); jest.setSystemTime(new Date('2026-11-13T12:00:00.000Z'));
+  expect(reconcileMainnetNearEvmReceipt(f.state, f.evidence)).toBe(true); expect(f.state.paidEvmFees).toBe('45000000000');
+  expect(reconcileMainnetNearEvmReceipt(f.state, f.evidence)).toBe(true); expect(f.state.paidEvmFees).toBe('45000000000');
+  expect(f.state.phase).toBe('recovery-required'); expect(f.state.sourceRunId).toBe('100'); expect(f.state.lossBudgetUsdMicros).toBe('1999095');
+  const fresh = broadcastFixture(); expect(() => createMainnetNearEvmBroadcast(f.state, fresh.input)).toThrow();
+});
+it('records a real reverted original return fee but never calls it successful coverage', async () => {
+  const f = await recoveryFixture(); f.evidence.receipt.status = 'reverted';
+  expect(reconcileMainnetNearEvmReceipt(f.state, f.evidence)).toBe(false); expect(f.state.paidEvmFees).toBe('45000000000');
+});
+const invalidRecovery: Array<[string, (value: Awaited<ReturnType<typeof recoveryFixture>>) => void]> = [
+  ['unknown original hash', f => { f.evidence.transaction.hash = keccak256('0x02'); }],
+  ['another payer', f => { f.evidence.transaction.from = deposit; }],
+  ['different nonce', f => { f.evidence.transaction.nonce = 1; }],
+  ['another chain', f => { f.evidence.transaction.chainId = 1; }],
+  ['another token', f => { f.evidence.transaction.to = deposit; }],
+  ['native value', f => { f.evidence.transaction.value = 1n; }],
+  ['undeclared calldata', f => { f.evidence.transaction.input = '0x'; }],
+  ['oversized fee envelope', f => { f.evidence.transaction.maxFeePerGas = 1000000000n; }],
+  ['receipt for a different hash', f => { f.evidence.receipt.transactionHash = keccak256('0x02'); }],
+  ['gas used beyond original envelope', f => { f.evidence.receipt.gasUsed = 50001n; }],
+  ['fee beyond original max gas price', f => { f.evidence.receipt.effectiveGasPrice = 1000001n; }],
+  ['changed saved receipt fee', f => { const entry = f.state.transactions?.[0]; if (!entry) throw new Error('Missing unit journal'); entry.feeWei = '1'; f.state.paidEvmFees = '1'; }]
+];
+it.each(invalidRecovery)('keeps %s unresolved without fresh authorization or invented fees', async (_name, change) => {
+  const f = await recoveryFixture(); change(f); const paid = f.state.paidEvmFees;
+  expect(() => reconcileMainnetNearEvmReceipt(f.state, f.evidence)).toThrow(); expect(f.state.paidEvmFees).toBe(paid);
+});
 function broadcastFixture() {
   const state = authority(); const abort = new AbortController(); const events: string[] = [];
   const client = {

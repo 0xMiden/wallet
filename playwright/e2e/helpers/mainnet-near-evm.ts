@@ -2,6 +2,7 @@ import { encodeFunctionData, erc20Abi, getAddress, isHash, isHex, keccak256, par
   type Address, type Hash, type Hex, type TransactionReceipt, type TransactionSerializedEIP1559 } from 'viem';
 import { parseMainnetNearCheckpoint, type MainnetNearCheckpoint } from './mainnet-near-checkpoint';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
+import type { EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
 import type { MainnetOneClickEvmSenderInput } from './mainnet-one-click-evm';
 
 export function inspectMainnetNearForwardReceipt(
@@ -18,6 +19,12 @@ export function inspectMainnetNearForwardReceipt(
   const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
   if (received < BigInt(state.forwardQuote.minimumOutput)) throw new Error('Native NEAR payout is below the reviewed output');
   return received;
+}
+
+export function reconcileMainnetNearEvmReceipt(
+  _state: MainnetNearCheckpoint, _evidence: EpochEvmRecoveryEvidence
+): boolean {
+  throw new Error('Read-only native NEAR receipt reconciliation is not implemented');
 }
 
 export interface MainnetNearEvmEnvelope {
