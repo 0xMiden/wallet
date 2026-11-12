@@ -1,5 +1,5 @@
 import {
-  AccountId, Note, NoteArray, NoteAssets, NoteType, TransactionRequest, TransactionRequestBuilder
+  AccountId, Note, NoteArray, NoteAssets, NoteAttachment, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -57,9 +57,29 @@ export function inspectEpochForwardQuote(
 }
 
 export function inspectEpochReturnNote(
-  _state: MainnetEpochCheckpoint, _expectedNoteId: string, _bytes: Uint8Array
+  state: MainnetEpochCheckpoint, expectedNoteId: string, bytes: Uint8Array
 ): bigint {
-  throw new Error('Epoch return note inspection is not implemented');
+  parseMainnetEpochCheckpoint(state);
+  if (!/^0x[0-9a-f]{64}$/i.test(expectedNoteId) || bytes.length < 1 || bytes.length > 1_048_576)
+    throw new Error('Invalid Epoch return note identity or byte size');
+  const note = NoteFile.deserialize(bytes).note();
+  if (!note || note.id().toString() !== expectedNoteId.toLowerCase() ||
+      note.metadata().sender().toString() === state.accountHex || note.assets().assets().length !== 1)
+    throw new Error('Epoch return must be the exact provider-correlated non-self note');
+  const assets = note.assets().fungibleAssets();
+  const asset = assets[0];
+  if (assets.length !== 1 || !asset || asset.faucetId().toString() !== state.native.hex ||
+      asset.amount() < BigInt(state.reverseMinimum))
+    throw new Error('Epoch return note asset or amount differs from its authorization');
+  const amount = asset.amount();
+  const expected = Note.createP2IDNote(note.metadata().sender(), AccountId.fromHex(state.accountHex),
+    new NoteAssets([asset]), NoteType.Public, new NoteAttachment());
+  const actualStorage = note.recipient().storage().items().map(value => value.asInt());
+  const expectedStorage = expected.recipient().storage().items().map(value => value.asInt());
+  if (note.script().root().toHex() !== expected.script().root().toHex() || actualStorage.length !== expectedStorage.length ||
+      actualStorage.some((value, index) => value !== expectedStorage[index]))
+    throw new Error('Epoch return is not the exact non-reclaimable P2ID to the authorized Guardian');
+  return amount;
 }
 
 export function inspectEpochCollateralRequest(
