@@ -72,7 +72,8 @@ async function writeScoped(snapshot: NativeAssetSnapshot, name: string, value: u
   await putToStorage(key, value);
 }
 const listeners = new Set<(id: string) => void>();
-const FEE_PROBE_RETRY_COOLDOWN_MS = 60_000;
+// The claim-floor hook retries an unknown fee on this same cooldown. It does not clear the probe latch.
+export const FEE_PROBE_RETRY_COOLDOWN_MS = 60_000;
 const MAX_PLAUSIBLE_BASE_FEE = 1e7;
 
 function isPlausibleBaseFee(fee: number): boolean {
