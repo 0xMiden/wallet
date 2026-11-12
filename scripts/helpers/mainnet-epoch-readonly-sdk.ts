@@ -1,3 +1,4 @@
+export { MIDEN_VIRTUAL_CHAIN_ID } from '@epoch-protocol/epoch-intents-sdk/dist/constants.js';
 export { getTaskData } from '@epoch-protocol/epoch-intents-sdk/dist/sdk/get-task-data.js';
 export { getIntentQuote } from '@epoch-protocol/epoch-intents-sdk/dist/sdk/quote.js';
 export { getCompactData } from '@epoch-protocol/epoch-intents-sdk/dist/services/compact-data.js';
