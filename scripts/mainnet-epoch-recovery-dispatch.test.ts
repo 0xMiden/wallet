@@ -58,6 +58,7 @@ it.each(['forward', 'reverse'])('dispatches an unused same-run Epoch %s only aft
   previous = epochCheckpointFixture(); process.env.GITHUB_RUN_ID = previous.sourceRunId; process.env.MAINNET_EPOCH_MODE = mode;
   process.env.MAINNET_LOOP_RECOVERY_CLEARED = 'true'; process.env.E2E_MAINNET_EVM_KEY = `0x${'0'.repeat(63)}1`;
   previous.createdAt = previous.pricedAt = new Date().toISOString();
+  previous.evm.account = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf';
   if (mode === 'reverse') Object.assign(previous, { phase: 'forward-settled', forwardNoteId: hash, forwardMidenTxId: hash,
     forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
     forwardReceived: '1001000', forwardEvmTxHash: hash, paidMidenFees: '7' });

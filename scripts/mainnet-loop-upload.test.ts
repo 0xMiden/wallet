@@ -40,23 +40,27 @@ function runAction(input: ReturnType<typeof fixture>, extra: NodeJS.ProcessEnv =
   return { ...result, output };
 }
 it('executes the real composite snapshot script against the held request', () => {
-  const input = fixture(); const result = runAction(input);
+  const input = fixture(); const bytes = Buffer.from('{"transactions":[{"kind":"deposit"}]}');
+  writeFileSync(input.checkpoint, bytes); writeFileSync(`${input.gate}.ready`, `${createHash('sha256').update(bytes).digest('hex')}\n`);
+  const result = runAction(input);
   expect(result.status).toBe(0); expect(existsSync(result.output)).toBe(true);
+  expect(readFileSync(result.output, 'utf8')).toContain('envelope_kind=deposit\n');
   expect(readFileSync(join(directory, 'action-snapshot/roundtrip.json'))).toEqual(readFileSync(input.checkpoint));
   expect(existsSync(input.gate)).toBe(false);
 });
-it('skips a later EVM envelope only after the one deposit was signed', () => {
+it('never skips a current deposit merely because persistence preceded its ready marker', () => {
   const input = fixture(); rmSync(`${input.gate}.ready`);
   writeFileSync(input.checkpoint, JSON.stringify({ transactions: [{ kind: 'deposit' }] }));
-  const result = runAction(input, { SKIP_AFTER_DEPOSIT: 'true' });
-  expect(result.status).toBe(0); expect(readFileSync(result.output, 'utf8')).toBe('skipped=true\n');
+  const pid = join(directory, 'dead.pid'); writeFileSync(pid, '2147483647\n');
+  const result = runAction(input, { SKIP_AFTER_DEPOSIT: 'true', PID_FILE: pid });
+  expect(result.status).not.toBe(0);
   expect(existsSync(input.gate)).toBe(false); expect(existsSync(join(directory, 'action-snapshot'))).toBe(false);
 });
 it('skips an unused recovery branch when its other exact gate is ready', () => {
   const input = fixture(); rmSync(`${input.gate}.ready`); const alternate = join(directory, 'refund');
   writeFileSync(`${alternate}.ready`, `${'a'.repeat(64)}\n`);
   const result = runAction(input, { ALTERNATIVE_GATES: alternate });
-  expect(result.status).toBe(0); expect(readFileSync(result.output, 'utf8')).toBe('skipped=true\n');
+  expect(result.status).toBe(0); expect(readFileSync(result.output, 'utf8')).toBe(`skipped=true\nalternative_gate=${alternate}\n`);
   expect(existsSync(input.gate)).toBe(false);
 });
 it('does not wait or release when the held request process is already gone', () => {
