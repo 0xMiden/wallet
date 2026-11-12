@@ -87,11 +87,16 @@ fileprivate extension XCTestCase {
             let presentation = try XCTUnwrap(owner.breadPresentation)
             instance.installContainerWindow(window, hostWindow: host)
             web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
-            let loaded = try await eventually {
-                guard !web.isLoading else { return false }
-                return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
-            }
-            XCTAssertTrue(loaded)
+            let bootstrapDeadline = CACurrentMediaTime() + 30
+            var loaded = false
+            repeat {
+                if !web.isLoading {
+                    loaded = (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+                    if loaded { break }
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } while CACurrentMediaTime() < bootstrapDeadline
+            _ = try XCTUnwrap(loaded ? web : nil, "WebContent fixture did not become ready within 30 seconds")
             try probe?(instance, window)
             return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
         } catch {
