@@ -19,11 +19,13 @@ import {
 } from './history';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { readMainnetMidenBlock } from './mainnet-miden-read';
+import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 
 /** Runtime adapter; funded entry remains disabled until all recovery/return drivers are complete. */
 export async function runEpochForward(
-  wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, runId: string
+  wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, runId: string,
+  gatePath: string, signal: AbortSignal
 ): Promise<void> {
   const age = Date.now() - Date.parse(state.createdAt);
   if (state.phase !== 'forward-authorized' || state.sourceRunId !== runId || state.authorizationRunId !== runId ||
@@ -103,6 +105,7 @@ export async function runEpochForward(
     persist: async inspection => {
       if (!authority) throw new Error('Missing exact inspected Epoch collateral authority');
       state.forwardNoteId = inspection.noteId; state.forwardAuthority = authority; persist();
+      await awaitMainnetLoopAuthorization(path, gatePath, signal);
     },
     release: async () => {
       const fresh = (await readTransactionRowsWithBytes(wallet.page, 'bridged-send')).find(row => row.id === queued?.id);
@@ -110,6 +113,15 @@ export async function runEpochForward(
           fresh.requestBytes.some((value, index) => value !== queued?.requestBytes?.[index]))
         throw new Error('Epoch request bytes changed after inspection');
       assertNeverStartedBuilding(fresh, 'immediately before Epoch queue release', TxStatus.Queued);
+      const currentBlock = await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl);
+      if (signal.aborted || !authority || authority.mandateReclaimHeight <= currentBlock ||
+          Date.now() - Date.parse(state.createdAt) > 600_000 || Date.now() - Date.parse(state.pricedAt) > 600_000)
+        throw new Error('Epoch authorization became stale or aborted while awaiting upload');
+      inspectEpochCollateralRequest(state, Uint8Array.from(fresh.requestBytes), {
+        currentBlock, reclaimHeight: authority.reclaimHeight, bindingHash: authority.bindingHash
+      });
+      if (await vaultBalanceByFaucetId(wallet.page, state.native.faucetId) !== BigInt(state.native.balance))
+        throw new Error('Epoch native portfolio changed while awaiting authorization upload');
       await releaseQueueBlocker(wallet.page, blocker);
     },
     settle: async () => {
