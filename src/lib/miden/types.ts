@@ -59,6 +59,11 @@ export interface SwapOrderNoteMetadata {
   expiresAt: number;
   expiryTriggeredAt?: number;
   autoConsume: boolean;
+  /**
+   * A payback whose order's paybacks do not account for its fill, kept on its order by a read that may not drop it (the
+   * claim list's): settlement will not claim it, so the list shows it to accept by hand.
+   */
+  coverageShort?: true;
 }
 
 export enum MidenSharedStorageKey {

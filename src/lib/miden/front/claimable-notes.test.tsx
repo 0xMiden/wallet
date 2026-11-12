@@ -208,7 +208,7 @@ jest.mock('./assets', () => ({
 
 import * as Repo from 'lib/miden/repo';
 
-import { selectAutoConsumeBatch } from './auto-managed-notes';
+import { excludeAutoManagedNotes, selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
 import { requestNotesRefresh } from './note-refresh';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -1115,9 +1115,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     }
   });
 
-  // The notes and the lineages come from two holds, so a sync between them can show a fill whose payback the note read
-  // missed. Settlement, which reads both in one hold, decides whether the order's paybacks cover its fill.
-  it('keeps an earlier payback on its order when the lineage shows a later fill its note read missed', async () => {
+  // Order 77 asks 50 of `requestedFaucetId`, and its lineage at round `depth` says `filled` of it were filled.
+  const readOrder = async (requestedFaucetId: string, depth: number, filled: number) => {
     await Repo.transactions.put({
       id: 'swap-1',
       accountId: 'pk-1',
@@ -1128,38 +1127,77 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       displayIcon: 'SWAP',
       faucetId: 'offer',
       amount: 50n,
-      extraInputs: { requestedFaucetId: 'requested', requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+      extraInputs: { requestedFaucetId, requestedAmount: 50n, orderId: '77', expiresAt: 220 }
     });
-    // Rounds 1 and 2 filled 30 of the 50 asked; the note read saw only round 1's payback of 10.
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
       {
         orderId: '77',
         currentTipNoteId: 'tip',
-        currentDepth: 2,
+        currentDepth: depth,
         state: 0,
         remainingOffered: '20',
-        remainingRequested: '20'
+        remainingRequested: String(50 - filled)
       }
     ]);
-    // Known metadata, which the list needs to show a note: a payback that lost its order would be listed.
-    _g.__cnTest.metadataCache = { requested: { decimals: 6, symbol: 'REQ', name: 'Requested' } };
-    _g.__cnTest.consumableNotes = [
-      {
-        ...makeMockNote({ id: 'payback-1', faucetId: 'requested', amount: '10' }),
-        swapAttachment: { orderId: '77', depth: 1 }
-      },
-      makeMockNote({ id: 'payment' })
-    ];
-    try {
-      renderHook(() => useClaimableNotes('pk-1'));
-      await _g.__cnTest.lastFetchPromise;
+  };
+  const payback = (id: string, faucetId: string, depth: number, amount: string) => ({
+    ...makeMockNote({ id, faucetId, amount }),
+    swapAttachment: { orderId: '77', depth }
+  });
+  const readList = async (): Promise<ClaimableNoteWithMetadata[]> => {
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    return _g.__cnTest.lastFetchData;
+  };
+  const forgetOrder = async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
+    await Repo.transactions.clear();
+  };
 
-      // Still the order's payback, which settlement claims, so the list leaves it out.
-      const notes: ClaimableNoteWithMetadata[] = _g.__cnTest.lastFetchData;
-      expect(notes.map(note => note.id)).toEqual(['payment']);
+  it("lists a payback short of its order's fill to accept by hand, which the native auto-consume leaves", async () => {
+    await readOrder('miden-faucet', 1, 30);
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'miden-faucet', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      const notes = await readList();
+
+      // It keeps its order, so no auto-consumer takes it: the native one claims only the payment.
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', null).map(note => note.id)).toEqual(['payment']);
+      expect(excludeAutoManagedNotes(notes, 'miden-faucet', true, null)?.map(note => note.id)).toEqual(['payback-1']);
+      expect(notes.find(note => note.id === 'payback-1')?.swapOrder).toEqual(
+        expect.objectContaining({ role: 'payback', autoConsume: true, coverageShort: true })
+      );
     } finally {
-      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
-      await Repo.transactions.clear();
+      await forgetOrder();
+    }
+  });
+
+  it("leaves a payback that covers its order's fill out of the list, for settlement to claim", async () => {
+    await readOrder('miden-faucet', 1, 10);
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'miden-faucet', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      expect((await readList()).map(note => note.id)).toEqual(['payment']);
+    } finally {
+      await forgetOrder();
+    }
+  });
+
+  // The notes and the lineages come from two holds, so a sync between them can show a fill whose payback the note read
+  // missed. The earlier payback is listed for that poll, still on its order; settlement, reading both in one hold,
+  // claims it on its own read.
+  it('lists an earlier payback, still on its order, when the lineage shows a fill its note read missed', async () => {
+    await readOrder('requested', 2, 30);
+    // Known metadata, which the list needs to show a note.
+    _g.__cnTest.metadataCache = { requested: { decimals: 6, symbol: 'REQ', name: 'Requested' } };
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'requested', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      const notes = await readList();
+
+      expect(notes.map(note => note.id).sort()).toEqual(['payback-1', 'payment']);
+      expect(notes.find(note => note.id === 'payback-1')?.swapOrder).toEqual(
+        expect.objectContaining({ orderId: '77', role: 'payback', depth: 1, coverageShort: true })
+      );
+    } finally {
+      await forgetOrder();
     }
   });
 

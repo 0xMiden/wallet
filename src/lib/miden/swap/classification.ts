@@ -89,7 +89,7 @@ export interface SwapClassificationOptions {
   /**
    * Whether an order settlement claims unattended keeps its unheld paybacks only when they account for its fill. Only
    * a read that took its notes and lineages in one hold may ask: between two holds a sync can show a fill whose
-   * payback the note read missed.
+   * payback the note read missed. Any other read keeps such paybacks on their order and marks them `coverageShort`.
    */
   requireFillCoverage: boolean;
 }
@@ -199,7 +199,7 @@ export async function classifySwapOrderSnapshot(
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = lineages.get(orderId);
     if (!lineage) continue;
-    if (options.requireFillCoverage && settlesUnattended(order)) {
+    if (settlesUnattended(order)) {
       fillToCover.set(order.id, lineageFilledAmount(order.extraInputs.requestedAmount, lineage));
     }
 
@@ -249,6 +249,8 @@ export async function classifySwapOrderSnapshot(
   // payment, claimed by the native auto-consume under its claim floor or by hand from the claim list. A reclaimed
   // order's lineage no longer says what was filled, so only its held rounds stay. An order with Auto accept off is
   // exempt: its paybacks are accepted by hand, which records no amount, and must stay out of the native auto-consume.
+  // A read that may not drop them keeps them on their order, marked `coverageShort`: nothing claims them unattended,
+  // and the claim list shows them to accept by hand.
   if (paybacksByOrder.size > 0) {
     const claims = await paybackClaimsOf([...paybacksByOrder.keys()]);
     assertLive();
@@ -303,7 +305,12 @@ export async function classifySwapOrderSnapshot(
       if (paybacksCoverFill(fillToCover.get(orderTxId), heldAmounts, claimableAmounts)) continue;
       for (const [depth, idsAtDepth] of byDepth) {
         if (heldDepths.has(depth)) continue;
-        for (const noteId of idsAtDepth) result.delete(noteId);
+        for (const noteId of idsAtDepth) {
+          const meta = result.get(noteId);
+          if (!meta) continue;
+          if (options.requireFillCoverage) result.delete(noteId);
+          else result.set(noteId, { ...meta, coverageShort: true });
+        }
       }
     }
   }
