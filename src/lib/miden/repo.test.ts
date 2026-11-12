@@ -9,9 +9,12 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
+import { badgesFromHistory } from '../badges/backfill';
+import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
 import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
+  BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
   db,
   exportDb,
@@ -99,8 +102,7 @@ describe('miden repo export/import', () => {
     await importDb(await exportDb());
 
     const [restored] = await transactions.toArray();
-    // The provenance stamp is the ONLY thing import adds to a terminal row —
-    // asserting the whole object is what proves nothing else was rewritten.
+    // Import drops local badge provenance. This swap names no mainnet network, so it stores no revision.
     expect(restored).toEqual({ ...original, restoredFromBackup: true });
   });
 
@@ -480,6 +482,55 @@ describe('miden repo export/import', () => {
     expect(restored).not.toHaveProperty('dappOrigins');
   });
 
+  it('keeps local badge provenance out of exports and ignores provenance supplied by a dump', async () => {
+    await transactions.add({
+      id: 'local-recovery',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      accountId: 'victim',
+      secondaryAccountId: 'recipient',
+      initiatedAt: 1,
+      completedAt: 2,
+      amount: 10n,
+      displayIcon: 'SEND',
+      recovered: true,
+      restoredFromBackup: true,
+      recoveredBadgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'local-token',
+      recovery: {
+        version: 5,
+        network: 'mainnet',
+        operators: ['guardian'],
+        nonce: 1,
+        inputNotes: [],
+        outputNotes: [],
+        completeness: 'decoded',
+        reclaimed: false
+      }
+    });
+
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(dumped).not.toHaveProperty('badgeEvidenceRevision');
+
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            ...dumped,
+            recoveredBadgeNetwork: 'mainnet',
+            badgeEvidenceRevision: 'backup-token'
+          }
+        ]
+      })
+    );
+
+    const [restored] = await transactions.toArray();
+    expect(restored).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(restored).not.toHaveProperty('badgeEvidenceRevision');
+    expect(badgesFromHistory([restored!], ['victim'], ['first-send'])).toEqual([]);
+  });
+
   // On a Guardian-recovered order the Cancel stamp is the permission settlement acts on to return the order, and only
   // this wallet's own Cancel may give it (#1487). A restored row's stamp is read nowhere else.
   it("drops a dump's swap Cancel stamp and keeps the rest of the order", async () => {
@@ -825,10 +876,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.1', () => {
+  it('keys spending limits by account alone on schema version 3.2', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.1);
+    expect(db.verno).toBe(3.2);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1006,7 +1057,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.2);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1057,7 +1108,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.1);
+    expect(upgraded.verno).toBe(3.2);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1075,6 +1126,11 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 });
 
 describe('writing a transaction row', () => {
+  it('locks badge evidence row types to the badge reader union', () => {
+    const union = [...new Set(Object.values(BADGE_EVIDENCE_TYPES).flat())].sort();
+    expect([...BADGE_EVIDENCE_ROW_TYPES].sort()).toEqual(union);
+  });
+
   it('upgrades a populated v3 store without losing transaction blobs or spending limits', async () => {
     const name = `badge-index-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const seed = new Dexie(name);
@@ -1099,8 +1155,10 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.1);
-      expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
+      expect(upgraded.verno).toBe(3.2);
+      const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
+      expect(upgradedLegacy).toMatchObject(legacy);
+      expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
       expect(
         await upgraded
           .table(Table.Transactions)
@@ -1130,7 +1188,8 @@ describe('writing a transaction row', () => {
     await transactions.bulkAdd([
       old,
       { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
-      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' }
+      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' },
+      { ...old, id: 'badge-recovered', recovered: true, restoredFromBackup: true, recoveredBadgeNetwork: 'mainnet' }
     ]);
     expect(
       await transactions
@@ -1138,7 +1197,70 @@ describe('writing a transaction row', () => {
         .equals(['mainnet', ITransactionStatus.Completed, 'send'])
         .primaryKeys()
     ).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-recovered']);
     expect(await transactions.get('badge-legacy')).toEqual(old);
+    expect(await transactions.get('badge-testnet')).not.toHaveProperty('badgeEvidenceRevision');
+    expect((await transactions.get('badge-mainnet'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect((await transactions.get('badge-recovered'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+  });
+
+  it('refreshes row revisions on add, update, and put while retaining the issuer index', async () => {
+    const input: ITransaction = {
+      id: 'badge-revision',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      badgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'untrusted-input'
+    };
+    await transactions.add(input);
+    const added = (await transactions.get(input.id))!;
+    expect(added.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(added.badgeEvidenceRevision).not.toBe('untrusted-input');
+
+    await transactions.update(input.id, { extraInputs: { phase: 'ready' } });
+    const updated = (await transactions.get(input.id))!;
+    expect(updated.badgeEvidenceRevision).not.toBe(added.badgeEvidenceRevision);
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send', added.badgeEvidenceRevision!])
+        .count()
+    ).resolves.toBe(0);
+
+    await transactions.bulkUpdate([{ key: input.id, changes: { extraInputs: { phase: 'received' } } }]);
+    const bulkUpdated = (await transactions.get(input.id))!;
+    expect(bulkUpdated.badgeEvidenceRevision).not.toBe(updated.badgeEvidenceRevision);
+
+    await transactions.put({ ...bulkUpdated, badgeEvidenceRevision: 'backup-revision' });
+    const replaced = (await transactions.get(input.id))!;
+    expect(replaced.badgeEvidenceRevision).not.toBe(bulkUpdated.badgeEvidenceRevision);
+    expect(replaced.badgeEvidenceRevision).not.toBe('backup-revision');
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).resolves.toEqual([input.id]);
   });
   it.each([
     ['missing', undefined],
@@ -1423,7 +1545,7 @@ describe('wallet storage rejection boundaries', () => {
   // never become telemetry merely because it passed through the wallet middleware.
   it('does not guess an owner for a historical or unknown table', async () => {
     const target = database();
-    target.version(3.2).stores({ transactionRequests: 'id', unrelated: 'id' });
+    target.version(3.3).stores({ transactionRequests: 'id', unrelated: 'id' });
     const failures = new Map<string, Error>();
     target.use({
       stack: 'dbcore',
@@ -1787,7 +1909,10 @@ describe('wallet storage rejection boundaries', () => {
               });
           });
           expect(consumed).toBe(true);
-          expect(await target.table(table).get('consumed-success')).toEqual(row('consumed-success'));
+          const consumedRow = await target.table(table).get('consumed-success');
+          expect(consumedRow).toMatchObject(row('consumed-success'));
+          expect(consumedRow).not.toHaveProperty('badgeEvidenceRevision');
+          const rows = await target.table(table).toArray();
           outcomes.push({
             scalar: scalar.name,
             inner: scalar.inner.name,
@@ -1797,7 +1922,7 @@ describe('wallet storage rejection boundaries', () => {
             modifyFailures: modify.failures.map((error: unknown) => (error instanceof Error ? error.name : error)),
             successCount: modify.successCount,
             failedKeys: modify.failedKeys,
-            rows: await target.table(table).toArray()
+            rows
           });
           if (instrumented) {
             for (const error of [scalar, bulk, modify, rollback]) {
@@ -2044,7 +2169,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.2)
+          .version(3.3)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2076,7 +2201,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.2)
+        .version(3.3)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;
