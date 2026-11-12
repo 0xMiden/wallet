@@ -54,7 +54,9 @@ export function inspectEpochForwardReceipt(
   );
   if (transfers.some(log => log.args.from.toLowerCase() === state.evm.account.toLowerCase()))
     throw new Error('Epoch cannot self-fill its payout');
-  const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
+  const transfer = transfers[0];
+  if (!transfer || transfers.length !== 1) throw new Error('Epoch receipt has a missing or ambiguous payout');
+  const received = transfer.args.value;
   if (received < BigInt(state.forwardAuthority.minimumOutput))
     throw new Error('Epoch receipt underfilled the reviewed output');
   return received;
