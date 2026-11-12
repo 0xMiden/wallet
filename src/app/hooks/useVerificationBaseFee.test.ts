@@ -176,14 +176,27 @@ describe('useClaimFloorBaseFee', () => {
     await waitFor(() => expect(result.current).toBe(0));
   });
 
-  it('useClaimFloorBaseFee stays null while the fee is unknown', async () => {
-    mockFloorSync.mockReturnValue(null);
+  it('useClaimFloorBaseFee reads null once the fee is unknown, replacing the fee it was seeded with', async () => {
+    mockFloorSync.mockReturnValue(7);
     mockFloorAsync.mockResolvedValue(null);
 
     const { result } = renderHook(() => useClaimFloorBaseFee());
 
-    await waitFor(() => expect(mockFloorAsync).toHaveBeenCalled());
-    expect(result.current).toBeNull();
+    expect(result.current).toBe(7);
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  it('useClaimFloorBaseFee names itself when its read fails', async () => {
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockRejectedValue(new Error('rpc unreachable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    renderHook(() => useClaimFloorBaseFee());
+
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('useClaimFloorBaseFee: base fee read failed', expect.any(Error))
+    );
+    warn.mockRestore();
   });
 
   it('useClaimFloorBaseFee re-reads when the native asset changes', async () => {

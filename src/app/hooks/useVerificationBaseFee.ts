@@ -9,34 +9,31 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 /**
- * Returns the chain's per-transaction verification base fee, in the fee asset's
- * smallest unit.
- *
- * Returns `null` until it is known. `null` and `0` are different answers and must
- * stay that way at every layer: `0` is a chain that charges nothing (testnet),
- * while `null` is "not discovered yet". A caller that reserved against `null` as
- * if it were `0` would hold nothing back on a chain that does charge.
- *
- * Seeds from the synchronous cache so an already-discovered fee is available on
- * first render, avoiding a frame of fee-less UI.
+ * A fee seeded from `readSync` on first render, so an already-discovered fee shows without a frame of fee-less UI,
+ * then read from `readAsync` at mount and on every native-asset change. `hook` names the caller in the warning a
+ * failed read logs.
  */
-function useBaseFee(readSync: () => number | null, readAsync: () => Promise<number | null>): number | null {
+function useBaseFee(
+  hook: string,
+  readSync: () => number | null,
+  readAsync: () => Promise<number | null>
+): number | null {
   const [baseFee, setBaseFee] = useState<number | null>(readSync());
 
   useEffect(() => {
     let cancelled = false;
     let generation = 0;
 
-    // Never rejects: a discovery failure has to leave the fee `null` (guards fail
-    // open) rather than surface as an unhandled rejection, and the subscription
-    // below is what repairs it once discovery succeeds.
+    // Never rejects: a failed read keeps the last fee (null until one lands) rather than surface as an unhandled
+    // rejection, and each caller reads null its own way: the verification fee's guards fail open, the claim floor
+    // refuses. The subscription below is what repairs it once discovery succeeds.
     const read = async () => {
       const request = ++generation;
       try {
         const fee = await readAsync();
         if (!cancelled && request === generation) setBaseFee(fee);
       } catch (err) {
-        console.warn('useVerificationBaseFee: base fee read failed', err);
+        console.warn(`${hook}: base fee read failed`, err);
       }
     };
 
@@ -60,13 +57,22 @@ function useBaseFee(readSync: () => number | null, readAsync: () => Promise<numb
   return baseFee;
 }
 
+/**
+ * Returns the chain's per-transaction verification base fee, in the fee asset's
+ * smallest unit.
+ *
+ * Returns `null` until it is known. `null` and `0` are different answers and must
+ * stay that way at every layer: `0` is a chain that charges nothing (testnet),
+ * while `null` is "not discovered yet". A caller that reserved against `null` as
+ * if it were `0` would hold nothing back on a chain that does charge.
+ */
 function useVerificationBaseFee(): number | null {
-  return useBaseFee(getVerificationBaseFeeSync, getVerificationBaseFee);
+  return useBaseFee('useVerificationBaseFee', getVerificationBaseFeeSync, getVerificationBaseFee);
 }
 
 /** The fee the claim floor measures against: 0 once the chain is known to report none, null while unknown. */
 export function useClaimFloorBaseFee(): number | null {
-  return useBaseFee(getClaimFloorBaseFeeSync, getClaimFloorBaseFee);
+  return useBaseFee('useClaimFloorBaseFee', getClaimFloorBaseFeeSync, getClaimFloorBaseFee);
 }
 
 export default useVerificationBaseFee;
