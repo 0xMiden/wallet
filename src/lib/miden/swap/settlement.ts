@@ -153,7 +153,12 @@ export async function classifySwapSettlementSnapshot(
   prepareReclaims = true
 ): Promise<SwapSettlementSnapshot> {
   // Both callers read the notes in the hold that reads the lineages, so the two agree on every fill.
-  const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold, { requireFillCoverage: true });
+  const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
+  // A shortfall marks each unheld payback and leaves it in the classifier map. Drop those marks before every return,
+  // so a locked lap and a settling lap both queue none of them.
+  for (const [noteId, meta] of snapshot.notes) {
+    if (meta.coverageShort) snapshot.notes.delete(noteId);
+  }
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   const refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];
   // A fused build leaves the orders to a later pass; the notes are classified all the same.

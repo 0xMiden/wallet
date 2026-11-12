@@ -85,15 +85,6 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 
-export interface SwapClassificationOptions {
-  /**
-   * Whether an order settlement claims unattended keeps its unheld paybacks only when they account for its fill. Only
-   * a read that took its notes and lineages in one hold may ask: between two holds a sync can show a fill whose
-   * payback the note read missed. Any other read keeps such paybacks on their order and marks them `coverageShort`.
-   */
-  requireFillCoverage: boolean;
-}
-
 /**
  * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
  * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
@@ -102,10 +93,9 @@ export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
   preloadedOrders: SwapOrder[] | undefined,
-  hold: WasmLockHold,
-  options: SwapClassificationOptions
+  hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
-  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold, options)).notes;
+  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold)).notes;
 }
 
 export interface SwapOrderSnapshot {
@@ -179,8 +169,7 @@ export async function classifySwapOrderSnapshot(
   notes: ConsumableNoteDto[],
   accountId: string,
   preloadedOrders: SwapOrder[] | undefined,
-  hold: WasmLockHold,
-  options: SwapClassificationOptions
+  hold: WasmLockHold
 ): Promise<SwapOrderSnapshot> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
@@ -245,12 +234,10 @@ export async function classifySwapOrderSnapshot(
   //
   // Then, for an order settlement claims unattended, its paybacks must account for its fill: the rounds held here, by
   // the amounts their claims recorded, plus the rounds claimable now, by their smallest note, pay at least what the
-  // lineage says was filled. Otherwise no unheld payback of the order is settled; each is an ordinary incoming
-  // payment, claimed by the native auto-consume under its claim floor or by hand from the claim list. A reclaimed
-  // order's lineage no longer says what was filled, so only its held rounds stay. An order with Auto accept off is
+  // lineage says was filled. Otherwise each unheld payback is marked `coverageShort` and left in the map. The claim
+  // list shows it to accept by hand, and settlement drops every marked payback before it queues. A reclaimed order's
+  // lineage no longer says what was filled, so only its held rounds stay unmarked. An order with Auto accept off is
   // exempt: its paybacks are accepted by hand, which records no amount, and must stay out of the native auto-consume.
-  // A read that may not drop them keeps them on their order, marked `coverageShort`: nothing claims them unattended,
-  // and the claim list shows them to accept by hand.
   if (paybacksByOrder.size > 0) {
     const claims = await paybackClaimsOf([...paybacksByOrder.keys()]);
     assertLive();
@@ -308,8 +295,7 @@ export async function classifySwapOrderSnapshot(
         for (const noteId of idsAtDepth) {
           const meta = result.get(noteId);
           if (!meta) continue;
-          if (options.requireFillCoverage) result.delete(noteId);
-          else result.set(noteId, { ...meta, coverageShort: true });
+          result.set(noteId, { ...meta, coverageShort: true });
         }
       }
     }

@@ -114,8 +114,6 @@ const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] 
 // Then the order link the queue writes in the row's insert (#1644).
 const SETTLE = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'settle' })];
 const RECLAIM = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'reclaim' })];
-// Settlement's read: notes and lineages from one hold, so the fill coverage rule applies.
-const SETTLEMENT_READ = { requireFillCoverage: true };
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -235,7 +233,7 @@ describe('swap order note settlement', () => {
     // inside one, so it passes a sentinel the ownership check will accept.
     const classifyHold = { id: 'direct-classify-call' } as unknown as WasmLockHold;
     currentHold = classifyHold;
-    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold, SETTLEMENT_READ);
+    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold);
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));
@@ -265,7 +263,7 @@ describe('swap order note settlement', () => {
     ];
 
     const result = await withWasmClientLock(hold =>
-      classifySwapOrderNotes(notes as any, 'account-1', undefined, hold, SETTLEMENT_READ)
+      classifySwapOrderNotes(notes as any, 'account-1', undefined, hold)
     );
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ role: 'tip' }));
@@ -286,7 +284,9 @@ describe('swap order note settlement', () => {
     ...overrides
   });
   const classify = (notes: unknown[]) =>
-    withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold, SETTLEMENT_READ));
+    withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold));
+  const settlementSnapshot = (notes: unknown[]) =>
+    withWasmClientLock(hold => classifySwapSettlementSnapshot(notes as any, 'account-1', [tx()] as never, hold));
   const paybackIds = (result: Map<string, { role: string }>) =>
     [...result].filter(([, meta]) => meta.role === 'payback').map(([id]) => id);
 
@@ -446,7 +446,12 @@ describe('swap order note settlement', () => {
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
     const notes = [paying('copy-1', 1, '1'), paying('payback-2', 2, '20')];
 
-    expect(paybackIds(await classify(notes))).toEqual([]);
+    const classified = await classify(notes);
+    expect(classified.get('copy-1')).toEqual(expect.objectContaining({ role: 'payback', coverageShort: true }));
+    expect(classified.get('payback-2')).toEqual(expect.objectContaining({ role: 'payback', coverageShort: true }));
+    const snapshot = await settlementSnapshot(notes);
+    expect(snapshot.classified.has('copy-1')).toBe(false);
+    expect(snapshot.classified.has('payback-2')).toBe(false);
 
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue(notes);
     const result = await settleSwapOrders('account-1', false);
@@ -468,13 +473,21 @@ describe('swap order note settlement', () => {
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([filledThirty()]);
     claimRows.mockResolvedValue([claimRow('settled', ITransactionStatus.Completed, { 'payback-1': 1 }, {}, null)]);
 
-    expect(paybackIds(await classify([paying('payback-2', 2, '20')]))).toEqual([]);
+    const noRecordedAmount = [paying('payback-2', 2, '20')];
+    expect((await classify(noRecordedAmount)).get('payback-2')).toEqual(
+      expect.objectContaining({ role: 'payback', coverageShort: true })
+    );
+    expect((await settlementSnapshot(noRecordedAmount)).classified.has('payback-2')).toBe(false);
 
     claimRows.mockResolvedValue([
       claimRow('settled', ITransactionStatus.Completed, { 'payback-1': 1 }, {}, { 'payback-1': 'ten' })
     ]);
 
-    expect(paybackIds(await classify([paying('payback-2', 2, '20')]))).toEqual([]);
+    const unparsedAmount = [paying('payback-2', 2, '20')];
+    expect((await classify(unparsedAmount)).get('payback-2')).toEqual(
+      expect.objectContaining({ role: 'payback', coverageShort: true })
+    );
+    expect((await settlementSnapshot(unparsedAmount)).classified.has('payback-2')).toBe(false);
   });
 
   it('settles an over-fill', async () => {
@@ -491,9 +504,12 @@ describe('swap order note settlement', () => {
       claimRow('live', ITransactionStatus.Queued, { 'payback-1': 1 }, {}, { 'payback-1': '10' })
     ]);
 
-    expect(paybackIds(await classify([paying('payback-1', 1, '10'), paying('payback-2', 2, '20')]))).toEqual([
-      'payback-1'
-    ]);
+    const reclaimed = [paying('payback-1', 1, '10'), paying('payback-2', 2, '20')];
+    const classified = await classify(reclaimed);
+    expect(classified.get('payback-1')).toEqual(expect.objectContaining({ role: 'payback' }));
+    expect(classified.get('payback-1')?.coverageShort).toBeUndefined();
+    expect(classified.get('payback-2')).toEqual(expect.objectContaining({ role: 'payback', coverageShort: true }));
+    expect(paybackIds((await settlementSnapshot(reclaimed)).classified)).toEqual(['payback-1']);
   });
 
   it("records each payback's round on its claim, merged into the round record of a claim that already held one", async () => {
@@ -580,8 +596,7 @@ describe('swap order note settlement', () => {
         [note('tip-77'), note('tip-88'), note('payback-88', [0n, 88n, 1n, 0n]), note('absent', [0n, 99n, 1n, 0n])],
         'account-1',
         undefined,
-        hold,
-        SETTLEMENT_READ
+        hold
       )
     );
     expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
@@ -610,7 +625,7 @@ describe('swap order note settlement', () => {
         { orderId: '77', currentTipNoteId: 'tip', currentDepth: 1, state: 0, remainingOffered: '1', remainingRequested }
       ]);
     const result = await withWasmClientLock(hold =>
-      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold, SETTLEMENT_READ)
+      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold)
     );
     expect(result.get('tip')).toEqual(expect.objectContaining({ lineageState: 'active' }));
   });
@@ -624,7 +639,7 @@ describe('swap order note settlement', () => {
       .mockResolvedValue([{ ...lineage, remainingOffered: '1', remainingRequested: '50' }]);
     const paidTarget = { ...note('payback', [0n, 77n, 1n, 0n]), assets: [{ faucetId: 'requested', amount: '4950' }] };
     const classified = await withWasmClientLock(hold =>
-      classifySwapOrderNotes([note('tip'), paidTarget], 'account-1', undefined, hold, SETTLEMENT_READ)
+      classifySwapOrderNotes([note('tip'), paidTarget], 'account-1', undefined, hold)
     );
     const tip = { ...consumable('tip', 'tip'), swapOrder: classified.get('tip')! };
     const payback = { ...consumable('payback', 'payback'), swapOrder: classified.get('payback')! };
