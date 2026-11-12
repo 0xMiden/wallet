@@ -42,7 +42,10 @@ async function adb(...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-function input(command: { op: string; points?: Point[]; steps?: number; label?: string }, phaseChanged?: (phase: string) => void) {
+function input(
+  command: { op: string; points?: Point[]; steps?: number; label?: string },
+  phaseChanged?: (phase: string) => void
+) {
   const id = ++commandId;
   return new Promise<BridgeReply>((resolve, reject) => {
     const socket = createConnection({ host: '127.0.0.1', port: 9236 });
@@ -84,8 +87,7 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
             completed = true;
             resolve(reply);
             socket.end();
-          }
-          else throw new Error('Native gesture input rejected the command');
+          } else throw new Error('Native gesture input rejected the command');
         } catch (error) {
           socket.destroy(error instanceof Error ? error : new Error(String(error)));
         }
@@ -99,7 +101,10 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
 }
 
 async function footprint(file: string) {
-  const { data, info } = await sharp(await readFile(file)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(await readFile(file))
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const rgb = fixtureDapp('alpha').rgb;
   let count = 0;
   let top = info.height;
@@ -242,8 +247,9 @@ test.describe('API36 managed presentation gestures', () => {
 
   test.afterAll(async () => {
     try {
+      let removed: { ok: boolean; error?: string } = { ok: true };
       if (host) {
-        const removed = await host.evalAsync<{ ok: boolean; error?: string }>(`
+        removed = await host.evalAsync<{ ok: boolean; error?: string }>(`
           var done = arguments[arguments.length - 1];
           var handle = window.__gestureNativeObserver;
           if (!handle) { done({ ok: true }); return; }
@@ -252,8 +258,8 @@ test.describe('API36 managed presentation gestures', () => {
             done({ ok: true });
           }, function (error) { done({ ok: false, error: String(error.message) }); });
         `);
-        expect(removed?.ok, removed?.error).toBe(true);
       }
+      expect(removed?.ok, removed?.error).toBe(true);
     } finally {
       stopConsole?.();
       const cleanup = await Promise.allSettled([page?.close(), host?.close(), fixture?.stop()]);

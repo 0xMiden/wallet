@@ -571,6 +571,23 @@ jobs:
       PRESENTATION_WEBVIEW_APK: ${{ github.workspace }}/.presentation-SystemWebView.apk
     steps:
       - uses: actions/checkout@v4
+      - name: Bind the unit-verified product and exact gesture fixture
+        run: |
+          mkdir -p test-results-presentation-gesture
+          python3 <<'PYBIND'
+          import json, os, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': 'a27c7dc5bff48be852b0333a8288579b4f660787', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'c496d479bc9032e2b5913964acf91981f3e78a3f', 'android/app/src/androidTest/java/com/miden/wallet/DappPresentationGestureInputTest.java': '8685d4c1b010b1b5df36df047854528e07941152', 'playwright/e2e/android/tests/dapp-browser.gesture.android.spec.ts': '3cf00d29a5615ec71cbf5c380900904220d15377'}
+          actual = {name: git('rev-parse', 'HEAD:' + name) for name in expected}
+          binding = {'head': git('rev-parse', 'HEAD'), 'tree': git('rev-parse', 'HEAD^{tree}'),
+                     'product_source': '3b5533bc75094a51b310bb60b671bbc6c3eb30a5',
+                     'unit_gate_run': 43308324381, 'unit_gate_executed': 328,
+                     'expected': expected, 'actual': actual}
+          pathlib.Path('test-results-presentation-gesture/source-binding.json').write_text(json.dumps(binding, indent=2) + '\n')
+          assert binding['head'] == os.environ['GITHUB_SHA']
+          assert actual == expected, (actual, expected)
+          PYBIND
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -625,6 +642,10 @@ jobs:
         uses: ./.github/actions/start-eligibility-fixture
         env:
           E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+      - name: Check the changed gesture fixture before the device build
+        run: |
+          yarn -s prettier --check playwright/e2e/android/tests/dapp-browser.gesture.android.spec.ts
+          yarn -s lint:e2e
       - name: Build debug and instrumentation APKs
         run: |
           yarn test:e2e:android:build
