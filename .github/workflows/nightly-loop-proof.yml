@@ -64,16 +64,17 @@ jobs:
               if (!response.ok || json.errors?.length) throw new Error('Public metadata query refused');
               return json.data;
             }
-            const latest = await read('{transactions(first:1,input:{order_by:desc,sort_by:timestamp}){edges{node{transaction_id account_bech block_number}}}}');
-            const sample = latest.transactions.edges[0]?.node;
-            if (!sample) throw new Error('No public sample transaction');
+            const latest = await read('{notes(first:1,input:{order_by:desc,sort_by:timestamp}){edges{node{note_id sender block_number}}}}');
+            const sample = latest.notes.edges[0]?.node;
+            if (!sample) throw new Error('No public sample note');
+            console.log(JSON.stringify({ publicNoteMetadata: sample }));
             const query = `query($id:DigestString!,$account:String!,$height:BigIntNumber!){
-              transaction(input:{transaction_id:$id}){transaction_id account_bech block_number}
+              note(input:{note_id:$id}){note_id sender block_number}
               transactions(first:2,input:{account_bech:$account,block_number:$height,order_by:asc,sort_by:timestamp}){
                 edges{node{transaction_id account_bech block_number}} pageInfo{hasNextPage}}
               notes(first:100,input:{sender:$account,block_number:$height,order_by:asc,sort_by:timestamp}){
                 edges{node{note_id sender block_number}} pageInfo{hasNextPage}}}`;
-            const metadata = await read(query, { id: sample.transaction_id, account: sample.account_bech, height: sample.block_number });
+            const metadata = await read(query, { id: sample.note_id, account: sample.sender, height: sample.block_number });
             console.log(JSON.stringify({ url, metadata, purpose: 'Public transaction/note ID correlation probe only; not funded loop acceptance' }));
           } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
           NODE
