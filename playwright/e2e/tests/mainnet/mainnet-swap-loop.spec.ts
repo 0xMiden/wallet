@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { Address } from '@miden-sdk/miden-sdk';
 
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import {
@@ -39,6 +40,7 @@ import {
 } from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
+import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from '../../helpers/mainnet-send-authorization';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
 const PRICE_IDS: Record<string, string> = {
@@ -580,10 +582,39 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       const requested = leg === 'forward' ? authorized.request : authorized.offer;
       const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
       const minimum = BigInt(leg === 'forward' ? authorized.forwardMinimum : authorized.reverseMinimum);
-      const submit = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
+      const gate = process.env.MAINNET_SWAP_SDK_GATE;
+      if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
+      const reviewed = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
+      const handle = await armMainnetSendAuthorization(walletB.page, {
+        kind: 'swap', accountId: Address.fromBech32(authorized.account).accountId().toString(),
+        faucetId: offered.hex, amount: amount.toString(), requestedFaucetId: requested.hex,
+        requestedAmount: reviewed.minimumReceive,
+        expiresAt: Date.parse(authorized.pricedAt) + (leg === 'forward' ? 300_000 : 600_000)
+      });
       return async () => {
-        await submit();
-        return snapshot;
+        const controller = new AbortController();
+        try {
+          await Promise.all([
+            reviewed.submit().catch(error => { controller.abort(); throw error; }),
+            releaseMainnetSendAuthorization(walletB.page, handle, {
+              checkpointPath: STATE_PATH, gatePath: gate, signal: controller.signal,
+              persist: async authority => {
+                if (authority.orderId === undefined) throw new Error('Missing actual SDK PSWAP order identity');
+                const request = { ...authority, orderId: authority.orderId,
+                  minimumReceive: reviewed.minimumReceive, expiresAt: handle.expiresAt };
+                if (leg === 'forward') {
+                  authorized.forwardRequestAuthority = request;
+                  authorized.forwardOrderId = request.orderId;
+                } else {
+                  authorized.reverseRequestAuthority = request;
+                  authorized.reverseOrderId = request.orderId;
+                }
+                persist(authorized);
+              }
+            })
+          ]);
+          return snapshot;
+        } finally { controller.abort(); }
       };
     },
     () => {

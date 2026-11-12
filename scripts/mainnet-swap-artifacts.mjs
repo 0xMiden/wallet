@@ -34,11 +34,12 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     provider === 'swap'
       ? []
       : Array.from({ length: provider === 'epoch' ? 3 : 1 }, (_, index) => `reverse-signed-${index + 1}`).reverse();
-  const reverseStages = [...(provider === 'swap' ? [] : ['return-authorized', ...signed]), 'reverse-authorized'];
+  const reverseStages = [...(provider === 'swap' ? ['reverse-sdk-authorized'] : ['return-authorized', ...signed]), 'reverse-authorized'];
   const stages = [
     'final',
     ...(provider === 'swap' ? [] : ['refund-authorized']),
     ...reverseStages,
+    ...(provider === 'swap' ? ['forward-sdk-authorized'] : []),
     'forward-authorized'
   ];
   if (provider === 'near') stages.push('execute-started', 'preflight');
@@ -52,6 +53,14 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
       throw new Error(`Contradictory mainnet ${provider} return and refund authorization`);
     const jobs = has('final') ? { jobs: [] } : await getJobs(run.id);
     if (!has('final')) {
+      if (provider === 'swap') {
+        if (stepAttempted(jobs, ['Upload swap SDK forward authority']) &&
+          !['forward-sdk-authorized', 'reverse-sdk-authorized'].some(has))
+          throw new Error('Actual mainnet swap forward SDK checkpoint missing; refusing a pre-SDK downgrade');
+        if (stepAttempted(jobs, ['Upload swap SDK reverse authority', 'Upload recovered swap SDK return authority']) &&
+          !has('reverse-sdk-authorized'))
+          throw new Error('Actual mainnet swap reverse SDK checkpoint missing; refusing a pre-SDK downgrade');
+      }
       if (provider !== 'swap') {
         if (
           stepAttempted(jobs, [

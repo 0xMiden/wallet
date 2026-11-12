@@ -212,7 +212,25 @@ jobs:
           if-no-files-found: error
       - name: Run mainnet swap reverse
         if: steps.swap-recovery-return.outputs.required == 'true'
-        run: MAINNET_SWAP_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-recovered-return xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: |
+          umask 077
+          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recovered-return-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recovered-return.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recovered-return.exit") &
+          echo $! > "$RUNNER_TEMP/swap-recovered-return.pid"
+      - name: Upload recovered swap SDK return authority
+        if: steps.swap-recovery-return.outputs.required == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.reverse.sdk
+          artifact-name: mainnet-swap-reverse-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-recovered-return.pid
+          snapshot-directory: ${{ runner.temp }}/swap-recovered-return-auth
+      - name: Wait for recovered swap return
+        if: steps.swap-recovery-return.outputs.required == 'true'
+        timeout-minutes: 31
+        run: |
+          while [ ! -f "$RUNNER_TEMP/swap-recovered-return.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-recovered-return.pid"; kill -0 "$pid"; sleep 1; done
+          read -r code < "$RUNNER_TEMP/swap-recovered-return.exit"; [ "$code" = 0 ] || { echo 'Original swap return blocked; retain its authority.' >&2; exit 1; }
       - name: Recover prior mainnet Epoch
         env:
           MAINNET_EPOCH_FORWARD_ATTEMPTED: ${{ steps.epoch-attempts.outputs.forward_attempted }}
@@ -398,7 +416,25 @@ jobs:
           if-no-files-found: error
       - name: Run mainnet swap forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
-        run: MAINNET_SWAP_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-forward xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: |
+          umask 077
+          (code=0; MAINNET_SWAP_MODE=forward MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.forward.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-forward-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-forward.exit") &
+          echo $! > "$RUNNER_TEMP/swap-forward.pid"
+      - name: Upload swap SDK forward authority
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.forward.sdk
+          artifact-name: mainnet-swap-forward-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-forward.pid
+          snapshot-directory: ${{ runner.temp }}/swap-forward-auth
+      - name: Wait for mainnet swap forward
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        timeout-minutes: 31
+        run: |
+          while [ ! -f "$RUNNER_TEMP/swap-forward.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-forward.pid"; kill -0 "$pid"; sleep 1; done
+          read -r code < "$RUNNER_TEMP/swap-forward.exit"; [ "$code" = 0 ] || { echo 'Swap forward blocked; retain original authority.' >&2; exit 1; }
       - name: Upload mainnet swap reverse authorization
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
         uses: actions/upload-artifact@v4
@@ -409,7 +445,25 @@ jobs:
           if-no-files-found: error
       - name: Run mainnet swap reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
-        run: MAINNET_SWAP_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-reverse xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: |
+          umask 077
+          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-reverse-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-reverse.exit") &
+          echo $! > "$RUNNER_TEMP/swap-reverse.pid"
+      - name: Upload swap SDK reverse authority
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: test-results/mainnet-swap-state/roundtrip.json
+          gate: test-results/mainnet-swap-state/roundtrip.json.reverse.sdk
+          artifact-name: mainnet-swap-reverse-sdk-authorized-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/swap-reverse.pid
+          snapshot-directory: ${{ runner.temp }}/swap-reverse-auth
+      - name: Wait for mainnet swap return
+        if: steps.recovery-barrier.outputs.recovery_cleared == 'true'
+        timeout-minutes: 31
+        run: |
+          while [ ! -f "$RUNNER_TEMP/swap-reverse.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-reverse.pid"; kill -0 "$pid"; sleep 1; done
+          read -r code < "$RUNNER_TEMP/swap-reverse.exit"; [ "$code" = 0 ] || { echo 'Swap return blocked; retain original authority.' >&2; exit 1; }
       - name: Prepare mainnet Epoch loop
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         run: MAINNET_EPOCH_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-prepare-results" xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0

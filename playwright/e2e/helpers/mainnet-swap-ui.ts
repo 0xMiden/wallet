@@ -209,7 +209,7 @@ export async function prepareMainnetSwapReview(
   requested: SavedSwapHolding,
   amount: bigint,
   minimum: bigint
-): Promise<() => Promise<void>> {
+): Promise<{ minimumReceive: string; submit: () => Promise<void> }> {
   const page = wallet.page;
   await page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/swap`);
   await page.getByTestId('swap-flow').waitFor({ state: 'visible', timeout: 60_000 });
@@ -257,12 +257,15 @@ export async function prepareMainnetSwapReview(
   await checkLiveSwapEta(service, offered, requested, actualOffer, actualMinimum);
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').waitFor({ state: 'visible' });
-  return submitSwapOnce(async () => {
-    if (!(await page.getByTestId('swap-submit').isEnabled()))
-      throw new Error('The wallet refused the live swap review');
-    await page.getByTestId('swap-submit').click();
-    await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
-  });
+  return {
+    minimumReceive: actualMinimum.toString(),
+    submit: submitSwapOnce(async () => {
+      if (!(await page.getByTestId('swap-submit').isEnabled()))
+        throw new Error('The wallet refused the live swap review');
+      await page.getByTestId('swap-submit').click();
+      await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
+    })
+  };
 }
 
 export async function recoveredSwapAutoAccept(page: Page, order: SwapOrderEvidence): Promise<void> {
