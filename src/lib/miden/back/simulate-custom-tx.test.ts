@@ -388,6 +388,15 @@ describe('simulateCustomTransaction', () => {
     expect(res).toEqual({ error: 'note not found' });
   });
 
+  it('keeps a genuine dry-run error whose text is Simulation timed out as an error result', async () => {
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error('Simulation timed out'));
+
+    await expect(simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' })).resolves.toEqual({
+      error: 'Simulation timed out'
+    });
+    expect(executeRequest).not.toHaveBeenCalled();
+  });
+
   // #788 follow-up: a watchdog eviction hands the mutex to a successor without
   // stopping this callback, so the abandoned dry run must stop at its next
   // transition instead of borrowing a client somebody else is inside. Nothing
@@ -402,7 +411,8 @@ describe('simulateCustomTransaction', () => {
       await expect(simulation).rejects.toMatchObject({
         cause: expect.objectContaining({ message: `operation abandoned ${where}` })
       });
-      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(mockBeginQuarantineAttempt.mock.results[0].value);
+      expect(mockBeginQuarantineAttempt).toHaveBeenCalledTimes(1);
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(mockBeginQuarantineAttempt.mock.results[0]?.value);
     };
 
     it('during the client build: nothing WASM runs at all', async () => {
