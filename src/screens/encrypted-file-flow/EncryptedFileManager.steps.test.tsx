@@ -129,8 +129,8 @@ jest.mock('./ExportFileComplete', () => ({
   default: () => <div data-testid="export-complete-step" />
 }));
 
-// A password that satisfies the export step's own strength rule: mixed case, a digit and a symbol.
-const FILE_PASSWORD = 'Backup1234!';
+// A new file password at the 12-character floor: mixed case, a digit and a symbol.
+const FILE_PASSWORD = 'Backup12345!';
 
 const flowRoot = () => screen.getByTestId('encrypted-file-manager-flow');
 

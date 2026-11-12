@@ -3338,12 +3338,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 characters, 1 number",
-    "englishSource": "8 characters, 1 number"
+    "message": "At least 12 characters",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Minimum 8 characters with at least 1 number",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Save these 12 words and store in a secure place.",
