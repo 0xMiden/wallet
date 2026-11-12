@@ -34,6 +34,26 @@ describe('provider-scoped mainnet recovery discovery', () => {
     await expect(chooseSwapCheckpoint(runs, async () => ({ artifacts: [] }),
       async () => jobs('Run funded 1Click swap-out and swap-back acceptance'), baseline, 'near')).rejects.toThrow(/missing/);
   });
+  describe.each(['epoch', 'near'])('%s exact staged claim/refund authorization', provider => {
+    const prefix = provider === 'near' ? '1click' : provider;
+    it.each(['return-authorized', 'refund-authorized'])('restores the newest %s snapshot before older stages', async stage => {
+      const selected = await chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+        artifact(`mainnet-${prefix}-${id === baseline + 2 ? stage : 'final'}-${id}`),
+        artifact(`mainnet-${prefix}-reverse-authorized-${id}`)
+      ] }), async () => ({ jobs: [] }), baseline, provider);
+      expect(selected).toEqual({ runId: baseline + 2, name: `mainnet-${prefix}-${stage}-${baseline + 2}`, bootstrap: false });
+    });
+    it.each(['return-authorized', 'refund-authorized'])('refuses expired %s rather than falling back to another authorization', async stage => {
+      await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+        artifact(`mainnet-${prefix}-${stage}-${id}`, true), artifact(`mainnet-${prefix}-reverse-authorized-${id}`)
+      ] }), async () => ({ jobs: [] }), baseline, provider)).rejects.toThrow(/expired/);
+    });
+    it('rejects contradictory live return and refund authorities without a final snapshot', async () => {
+      await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [
+        artifact(`mainnet-${prefix}-return-authorized-${id}`), artifact(`mainnet-${prefix}-refund-authorized-${id}`)
+      ] }), async () => ({ jobs: [] }), baseline, provider)).rejects.toThrow(/contradictory/i);
+    });
+  });
   it('classifies only the requested provider and includes its running reverse stage', () => {
     expect(swapStepAttempted(jobs('Run mainnet epoch forward'), 'forward', 'epoch')).toBe(true);
     expect(swapStepAttempted(jobs('Run mainnet swap forward'), 'forward', 'epoch')).toBe(false);
