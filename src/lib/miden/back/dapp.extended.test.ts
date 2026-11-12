@@ -143,6 +143,33 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+/**
+ * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
+ * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: () => ({ inputCount: 0, inputs: [], outputs: [] })
+}));
+
 const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {

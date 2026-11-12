@@ -4,7 +4,14 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
+import {
+  REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_NEVER_COMMITTED_ERROR,
+  TRANSACTION_STUCK_ERROR
+} from 'lib/miden/transaction/constants';
+import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
+import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -25,8 +32,16 @@ jest.mock('lib/i18n', () => ({
   getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
 }));
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key) })
+  useTranslation: () => ({
+    t: (key: string, substitutions?: { seconds?: string; time?: string }) => {
+      if (key === 'insufficientFeeAsset') return mockFeeCopy;
+      if (key === 'guardianHoldNotice') return `${key} ${substitutions?.time}`;
+      return key === 'transactionStepDurationSec' ? `${key} ${substitutions?.seconds}` : key;
+    }
+  })
 }));
+let mockMaxNetworkFee: string | undefined;
+jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () => mockMaxNetworkFee }));
 
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(() => false),
@@ -158,6 +173,33 @@ const makeTx = (overrides: Record<string, any> = {}) => ({
   ...overrides
 });
 
+const networkRefusal =
+  'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+
+const checkableEntry = {
+  attemptId: 'a1',
+  capturedAt: 1_700_000_000,
+  source: 'stage',
+  transactionId: '0x01',
+  initialCommitment: '0x02',
+  finalCommitment: '0x03',
+  initialNonce: '4',
+  outputNoteIds: ['0x05'],
+  nullifiers: [],
+  refBlock: 100,
+  refBlockCommitment: '0x06'
+};
+
+// A row the node refused after its crossing ends Failed, while the reconciler still judges what it recorded (#2060).
+const refusedAfterCrossing = (entry: Record<string, unknown>) =>
+  makeTx({
+    status: ITransactionStatus.Failed,
+    stage: 'submitting',
+    mayHaveSubmitted: true,
+    error: networkRefusal,
+    submitEvidence: [entry]
+  });
+
 describe('GeneratingTransactionPage interval driver', () => {
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -259,7 +301,7 @@ describe('GeneratingTransactionPage interval driver', () => {
   });
 
   describe('the unconfirmed reconciler (#1081)', () => {
-    const platform: { isExtension: jest.Mock } = jest.requireMock('lib/platform');
+    const platform: { isExtension: jest.Mock; isMobile: jest.Mock } = jest.requireMock('lib/platform');
     const ticks = async (count: number) => {
       const root = createRoot(document.createElement('div'));
       await act(async () => {
@@ -278,6 +320,7 @@ describe('GeneratingTransactionPage interval driver', () => {
 
     afterEach(() => {
       platform.isExtension.mockReturnValue(false);
+      platform.isMobile.mockReturnValue(false);
     });
 
     it('fires on the page`s own tick while its row is Unconfirmed, since the sync tick skips this page', async () => {
@@ -294,6 +337,41 @@ describe('GeneratingTransactionPage interval driver', () => {
       mockRowState = { row: makeTx({ status }), loaded: true };
       await ticks(2);
       expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('fires on the page`s own tick on mobile while a Failed row still awaits a verdict (#2060)', async () => {
+      platform.isMobile.mockReturnValue(true);
+      mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+      ['it is proven dead', { neverCommittedAt: 1 }],
+      ['it was restored', { restoredFromBackup: true }]
+    ])('does not fire for a Failed row once %s', async (_label, fields) => {
+      platform.isMobile.mockReturnValue(true);
+      mockRowState = { row: { ...refusedAfterCrossing(checkableEntry), ...fields }, loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('stops firing when the verdict arrives, without a remount', async () => {
+      const root = createRoot(document.createElement('div'));
+      mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(1);
+      mockRowState = { row: { ...refusedAfterCrossing(checkableEntry), neverCommittedAt: 1 }, loaded: true };
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(20_000);
+      });
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(1);
+      act(() => root.unmount());
     });
 
     it('does not fire on the extension, whose service worker reconciles after its own sync', async () => {
@@ -757,8 +835,6 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  const networkRefusal =
-    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
   const submitDeadline =
     'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: request to Miden node timed out; the node may be under heavy load';
 
@@ -791,6 +867,312 @@ describe('GeneratingTransactionPage container effects', () => {
     });
     expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
+  });
+
+  it('reads a refusal the reconciler still judges as not confirmed, with no refused sentence (#2060)', async () => {
+    mockRowState = { row: refusedAfterCrossing(checkableEntry), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('transactionFailed');
+    expect(container.textContent).toContain('showFullError');
+    expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(container.querySelector('.bg-status-negative')).toBeNull();
+    expect(stepStates(container).submitting).toBe('pending');
+    act(() => root.unmount());
+  });
+
+  it('turns to the failed title and the refusal once nothing is left to judge (#2060)', async () => {
+    mockRowState = {
+      row: refusedAfterCrossing({ ...checkableEntry, verdict: 'never-committed' }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('notConfirmed');
+    act(() => root.unmount());
+  });
+
+  it('turns to the failed title and the refusal when the reconciler gave up on its entry (#2060)', async () => {
+    mockRowState = { row: refusedAfterCrossing({ ...checkableEntry, verdict: 'unresolvable' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('transactionUndeterminedHint');
+    act(() => root.unmount());
+  });
+
+  describe('a row the node proved never committed (#2060)', () => {
+    const provenRow = (entry: Record<string, unknown> = {}) =>
+      makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        neverCommittedAt: 1,
+        error: TRANSACTION_NEVER_COMMITTED_ERROR,
+        rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
+        submitEvidence: [{ ...checkableEntry, verdict: 'never-committed', ...entry }]
+      });
+
+    it('reads Failed and says it is safe to retry, with nothing about the answer it missed', async () => {
+      mockRowState = { row: provenRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+        expect(container.textContent).toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+        expect(container.textContent).not.toContain('submissionUnanswered');
+        expect(container.querySelector('.bg-status-negative')).not.toBeNull();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('does not invite a retry while the Guardian still holds its candidate', async () => {
+      mockRowState = {
+        row: provenRow({ candidateKept: true, capturedAt: Math.floor(Date.now() / 1000) - 60 }),
+        loaded: true
+      };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+        expect(container.textContent).toContain('submissionProvenHeldByGuardian');
+        expect(container.textContent).not.toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+  });
+
+  it('says why a refused row with nothing left to judge cannot be retried yet (#2060)', async () => {
+    mockRowState = {
+      row: refusedAfterCrossing({
+        ...checkableEntry,
+        verdict: 'unresolvable',
+        candidateKept: true,
+        capturedAt: Math.floor(Date.now() / 1000) - 60
+      }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionHeldByGuardian');
+    expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain(networkRefusal);
+    act(() => root.unmount());
+  });
+
+  describe('a refused row whose candidate the Guardian still holds (#2060)', () => {
+    const heldRow = () =>
+      refusedAfterCrossing({ ...checkableEntry, candidateKept: true, capturedAt: Math.floor(Date.now() / 1000) - 60 });
+
+    afterEach(() => {
+      mockMaxNetworkFee = undefined;
+      mockAcknowledgementOf.mockReturnValue(null);
+      requeueFailedTransactionMock.mockReset();
+      jest.useRealTimers();
+    });
+
+    const notice = (container: HTMLElement) => container.querySelector('[data-testid="guardian-hold-notice"]');
+    const secondsFromNow = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+
+    it('states the deadline and hides the fee a Retry would pay', async () => {
+      mockMaxNetworkFee = '0.3 MIDEN';
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(notice(container)?.textContent).toContain('guardianHoldNotice');
+        expect(container.querySelector('[data-testid="guardian-hold-countdown"]')?.textContent).toMatch(/^17:\d\d$/);
+        expect(container.textContent).not.toContain('networkFeeMax');
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('announces the deadline once and never the countdown', async () => {
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        const areas = [...container.querySelectorAll('[aria-live], [role="status"]')];
+        expect(areas.filter(area => area.textContent?.includes('guardianHoldNotice'))).toHaveLength(1);
+        expect(areas.filter(area => area.querySelector('time') !== null)).toEqual([]);
+        expect(container.querySelector('time')?.closest('[aria-live], [role="status"]')).toBeNull();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('turns on Retry and the fee, and drops the hold sentence, the moment the hold ends', async () => {
+      jest.useFakeTimers();
+      mockMaxNetworkFee = '0.3 MIDEN';
+      mockRowState = {
+        row: refusedAfterCrossing({
+          ...checkableEntry,
+          verdict: 'unresolvable',
+          candidateKept: true,
+          capturedAt: secondsFromNow(3) - GUARDIAN_PENDING_HOLD_SEC
+        }),
+        loaded: true
+      };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(buttonLabelled(container, 'retry')).toBeDisabled();
+        expect(container.textContent).toContain('submissionHeldByGuardian');
+
+        await act(async () => {
+          jest.advanceTimersByTime(3_000);
+        });
+
+        expect(buttonLabelled(container, 'retry')).toBeEnabled();
+        expect(notice(container)).toBeNull();
+        expect(container.textContent).toContain('networkFeeMax');
+        expect(container.textContent).not.toContain('submissionHeldByGuardian');
+        expect(container.textContent).toContain('submissionRejectedByNetwork');
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('replaces the proven row`s safe-to-retry sentence, and gives it back when the hold ends', async () => {
+      jest.useFakeTimers();
+      const proven = makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        neverCommittedAt: 1,
+        error: TRANSACTION_NEVER_COMMITTED_ERROR,
+        rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
+        submitEvidence: [
+          {
+            ...checkableEntry,
+            verdict: 'never-committed',
+            candidateKept: true,
+            capturedAt: secondsFromNow(3) - GUARDIAN_PENDING_HOLD_SEC
+          }
+        ]
+      });
+      mockRowState = { row: proven, loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(notice(container)).not.toBeNull();
+        expect(buttonLabelled(container, 'retry')).toBeDisabled();
+        expect(container.textContent).not.toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+
+        await act(async () => {
+          jest.advanceTimersByTime(3_000);
+        });
+
+        expect(buttonLabelled(container, 'retry')).toBeEnabled();
+        expect(container.textContent).toContain(TRANSACTION_NEVER_COMMITTED_ERROR);
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('clears a refusal that met the hold, with its Retry anyway, when the Guardian lets go', async () => {
+      const refused = refusedAfterCrossing({ ...checkableEntry, verdict: 'unresolvable' });
+      mockRowState = { row: refused, loaded: true };
+      requeueFailedTransactionMock.mockRejectedValue(new GuardianHoldRetryError(secondsFromNow(60)));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        await act(async () => {
+          buttonLabelled(container, 'retry')?.click();
+        });
+        expect(container.textContent).toContain('guardianHoldRetryRefused');
+
+        mockRowState = { row: heldRow(), loaded: true };
+        await act(async () => {
+          root.render(<GeneratingTransactionPage txId="tx-1" />);
+        });
+        expect(buttonLabelled(container, 'retryAnyway')).toBeDisabled();
+
+        mockRowState = { row: refused, loaded: true };
+        await act(async () => {
+          root.render(<GeneratingTransactionPage txId="tx-1" />);
+        });
+        expect(container.textContent).not.toContain('guardianHoldRetryRefused');
+        expect(buttonLabelled(container, 'retryAnyway')).toBeUndefined();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('keeps another row`s refusal and Retry anyway off this row', async () => {
+      const refused = (id: string) => ({
+        ...refusedAfterCrossing({ ...checkableEntry, verdict: 'unresolvable' }),
+        id
+      });
+      mockRowState = { row: refused('tx-1'), loaded: true };
+      requeueFailedTransactionMock.mockRejectedValue(new Error('refused for tx-1'));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        await act(async () => {
+          buttonLabelled(container, 'retry')?.click();
+        });
+        expect(container.textContent).toContain('refused for tx-1');
+
+        mockRowState = { row: refused('tx-2'), loaded: true };
+        await act(async () => {
+          root.render(<GeneratingTransactionPage txId="tx-2" />);
+        });
+
+        expect(container.textContent).not.toContain('refused for tx-1');
+        expect(buttonLabelled(container, 'retryAnyway')).toBeUndefined();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('shows Retry disabled before any tap', async () => {
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(buttonLabelled(container, 'retry')).toBeTruthy();
+        expect(buttonLabelled(container, 'retry')).toBeDisabled();
+        expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+      } finally {
+        act(() => root.unmount());
+      }
+    });
+
+    it('does not say the network refused it and to try again', async () => {
+      mockRowState = { row: heldRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      try {
+        expect(container.textContent).not.toContain('submissionRejectedByNetwork');
+      } finally {
+        act(() => root.unmount());
+      }
+    });
   });
 
   it('explains a dropped connection and a missing answer without calling the transaction failed', async () => {
@@ -928,19 +1310,6 @@ describe('GeneratingTransactionPage container effects', () => {
   });
 
   describe('an Unconfirmed row (#1081)', () => {
-    const checkableEntry = {
-      attemptId: 'a1',
-      capturedAt: 1_700_000_000,
-      source: 'stage',
-      transactionId: '0x01',
-      initialCommitment: '0x02',
-      finalCommitment: '0x03',
-      initialNonce: '4',
-      outputNoteIds: ['0x05'],
-      nullifiers: [],
-      refBlock: 100,
-      refBlockCommitment: '0x06'
-    };
     const unconfirmedRow = (entry: Record<string, unknown> = checkableEntry) =>
       makeTx({
         status: ITransactionStatus.Unconfirmed,
@@ -1287,6 +1656,36 @@ describe('GeneratingTransaction stage + state rendering', () => {
       act(() => root.unmount());
     }
   );
+
+  it('reads each step in seconds with one fraction digit (#2060)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete
+        activeType="consume"
+        activeTransaction={
+          makeTx({
+            status: ITransactionStatus.Completed,
+            stage: 'complete',
+            stageTimestamps: {
+              'creating-proposal': 0,
+              executing: 2_345,
+              proving: 3_000,
+              submitting: 4_000,
+              'guardian-syncing': 5_000,
+              complete: 6_000
+            }
+          }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows[0]?.textContent).toContain('transactionStepDurationSec 2.3');
+    expect(rows[1]?.textContent).toContain('transactionStepDurationSec 1.7');
+    act(() => root.unmount());
+  });
 
   it('times both the Guardian sync and the delivery of a completed private send', async () => {
     const { container, root } = await renderInto(
@@ -1824,6 +2223,65 @@ describe('user-visible transaction errors', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
     act(() => jest.advanceTimersByTime(2000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports neither a failure nor a refusal for a refused row it shows as not confirmed (#2060)', async () => {
+    await renderPage();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        error: networkRefusal,
+        submitEvidence: [checkableEntry]
+      }),
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports no failure for a Failed row it shows as not confirmed (#2060)', async () => {
+    await renderPage();
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Failed, stage: 'sending', error: TRANSACTION_STUCK_ERROR }),
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports the refusal and the failure it shows once the row turns Failed (#2060)', async () => {
+    await renderPage();
+    const refused = makeTx({
+      status: ITransactionStatus.Failed,
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      error: networkRefusal
+    });
+    mockRowState = {
+      row: { ...refused, submitEvidence: [checkableEntry] },
+      loaded: true
+    };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    mockRowState = {
+      row: { ...refused, submitEvidence: [{ ...checkableEntry, verdict: 'never-committed' }] },
+      loaded: true
+    };
+    await renderPage();
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual(
+      expect.arrayContaining([
+        ['raw_transaction_failed', 'status_screen'],
+        ['submissionRejectedByNetwork', 'status_screen']
+      ])
+    );
   });
 
   it('reports the reason attached to the displayed status retry refusal', async () => {
