@@ -73,6 +73,40 @@ final class ReownCallFailureTests: XCTestCase {
             XCTAssertEqual(captured?.code, "REOWN_IOS_REQUEST_FAILURE:unconfigured")
         }
     }
+
+    func testOriginIsUnpublishedUntilTheSendReturnedForDeletionAndExpiry() {
+        var table = PendingCallTable<Int, String>()
+        table.insert(key: 1, topic: "topic-a", call: "call-1")
+        table.insert(key: 2, topic: "topic-a", call: "call-2")
+        XCTAssertTrue(table.markPublished(key: 2))
+        let removed = table.removeAll(topic: "topic-a")
+        let sent = removed.first(where: { $0.call == "call-2" })?.published ?? false
+        let notSent = removed.first(where: { $0.call == "call-1" })?.published ?? true
+        XCTAssertTrue(sent)
+        XCTAssertFalse(notSent)
+        XCTAssertEqual(ReownCallFailureOrigin.forDeletion(published: notSent), .sessionDeletedUnpublished)
+        XCTAssertEqual(ReownCallFailureOrigin.forDeletion(published: sent), .sessionDeleted)
+        XCTAssertEqual(ReownCallFailureOrigin.forExpiry(published: notSent), .requestExpiredUnpublished)
+        XCTAssertEqual(ReownCallFailureOrigin.forExpiry(published: sent), .requestExpired)
+    }
+
+    func testRejectionCodesFollowTheOriginAndKeepTheMessage() throws {
+        let cases: [(ReownCallFailureOrigin, String, String)] = [
+            (.sessionDeletedUnpublished, "WalletConnect session was deleted", "REOWN_IOS_REQUEST_FAILURE:session_deleted_unpublished"),
+            (.requestExpiredUnpublished, "Request expired", "REOWN_IOS_REQUEST_FAILURE:request_expired_unpublished"),
+            (.sessionDeleted, "WalletConnect session was deleted", "REOWN_IOS_REQUEST_FAILURE:session_deleted"),
+            (.requestExpired, "Request expired", "REOWN_IOS_REQUEST_FAILURE:request_expired")
+        ]
+        for (origin, message, code) in cases {
+            var captured: CAPPluginCallError?
+            let call = try XCTUnwrap(CAPPluginCall(callbackId: code, methodName: "request", options: [:],
+                success: { _, _ in XCTFail("A rejected call must not resolve") },
+                error: { captured = $0 }))
+            rejectReownCall(call, message: message, origin: origin)
+            XCTAssertEqual(captured?.message, message)
+            XCTAssertEqual(captured?.code, code)
+        }
+    }
 }
 
 // The table holds the pending calls of ReownPlugin. These tests use plain keys and payloads, so they build no Reown type.

@@ -117,18 +117,33 @@ private enum ReownCryptoError: Error {
     case publicKeyRecoveryUnsupported
 }
 
-// The first four origins fail a call before the relay publishes its request. The last two
-// fail a published request: the JS decoder reads them as published, with the same wire names as Android.
-private enum ReownCallFailureOrigin: String {
+// The first four origins fail a call before the relay publishes its request: the JS decoder reads them as unobserved.
+// The origins request_expired and session_deleted end a call after the relay send of its request returned:
+// the JS decoder reads them as published. The origins with the suffix _unpublished end a call before that send
+// returned, so its publication is not known: the JS decoder reads them as unobserved, as it does for Android.
+// Choose between the two kinds with the functions below, from the published flag of the call.
+enum ReownCallFailureOrigin: String {
     case unconfigured
     case argumentValidation = "argument_validation"
     case requestConstructionError = "request_construction_error"
     case requestCallError = "request_call_error"
     case requestExpired = "request_expired"
     case sessionDeleted = "session_deleted"
+    case requestExpiredUnpublished = "request_expired_unpublished"
+    case sessionDeletedUnpublished = "session_deleted_unpublished"
+
+    /// The origin of a call that a session deletion ends. The flag is true after the relay send returned.
+    static func forDeletion(published: Bool) -> ReownCallFailureOrigin {
+        published ? .sessionDeleted : .sessionDeletedUnpublished
+    }
+
+    /// The origin of a call that expires. The flag is true after the relay send returned.
+    static func forExpiry(published: Bool) -> ReownCallFailureOrigin {
+        published ? .requestExpired : .requestExpiredUnpublished
+    }
 }
 
-private func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
+func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
     call.reject(message, "REOWN_IOS_REQUEST_FAILURE:\(origin.rawValue)")
 }
 
@@ -516,7 +531,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await Sign.instance.disconnect(topic: topic)
                     await MainActor.run {
-                        self.rejectPendingRequests(topic: topic, message: "WalletConnect session was disconnected", origin: .sessionDeleted)
+                        self.rejectPendingRequests(topic: topic, message: "WalletConnect session was disconnected")
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -542,7 +557,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await AppKit.instance.cleanup()
                     await MainActor.run {
-                        self.rejectPendingRequests(topic: nil, message: "WalletConnect session was disconnected", origin: .sessionDeleted)
+                        self.rejectPendingRequests(topic: nil, message: "WalletConnect session was disconnected")
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -594,7 +609,7 @@ private extension ReownPlugin {
         Sign.instance.sessionDeletePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] topic, _ in
-                self?.rejectPendingRequests(topic: topic, message: "WalletConnect session was deleted", origin: .sessionDeleted)
+                self?.rejectPendingRequests(topic: topic, message: "WalletConnect session was deleted")
                 self?.notifyStateChanged()
             }
             .store(in: &subscriptions)
@@ -605,7 +620,11 @@ private extension ReownPlugin {
                 guard let pending = self?.pendingRequests.expire(key: id) else {
                     return
                 }
-                rejectReownCall(pending.call.call, message: "Request expired", origin: .requestExpired)
+                rejectReownCall(
+                    pending.call.call,
+                    message: "Request expired",
+                    origin: .forExpiry(published: pending.published)
+                )
             }
             .store(in: &subscriptions)
 
@@ -706,9 +725,14 @@ private extension ReownPlugin {
 
     /// Reject the pending calls of one session topic, or of all sessions when the topic is nil.
     /// Each call is removed before it is rejected, so that a later response cannot settle it again.
-    func rejectPendingRequests(topic: String?, message: String, origin: ReownCallFailureOrigin) {
+    /// Each call takes its origin from its own published flag.
+    func rejectPendingRequests(topic: String?, message: String) {
         for entry in pendingRequests.removeAll(topic: topic) {
-            rejectReownCall(entry.call.call, message: message, origin: origin)
+            rejectReownCall(
+                entry.call.call,
+                message: message,
+                origin: .forDeletion(published: entry.published)
+            )
         }
     }
 

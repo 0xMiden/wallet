@@ -419,10 +419,25 @@ it('decodes the iOS code of each origin with the observations of its kind and no
     const failure = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`);
     expect(failure).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'confirmed' });
     expect(failure !== undefined && isReownIOSFailure(failure)).toBe(true);
-    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })).toBe(false);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })).toBe(true);
     expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'under_30s', published: 'confirmed' })).toBe(false);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'under_30s', published: 'unobserved' })).toBe(false);
+    const unpublished = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}_unpublished`);
+    expect(unpublished).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' });
+    expect(unpublished !== undefined && isReownIOSFailure(unpublished)).toBe(true);
   }
-  for (const origin of ['publish_error', 'wallet_error', 'other', '', 'request_expired ']) {
+  for (const origin of [
+    'publish_error',
+    'wallet_error',
+    'other',
+    '',
+    'request_expired ',
+    'session_deleted_unpublished ',
+    'wallet_error_unpublished',
+    '_unpublished',
+    'unconfigured_unpublished',
+    'request_call_error_unpublished'
+  ]) {
     expect(decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`)).toBeUndefined();
   }
   expect(

@@ -52,8 +52,10 @@ export type ReownNativeFailure = Readonly<
   )
 >;
 
-// A call origin fails a call before the relay publishes its request. A published origin ends a request the
-// relay did publish: the iOS plugin reports only the origin, so the age stays unknown. Both carry no wallet response.
+// A call origin fails a call before the relay publishes its request, so it is always unobserved. A published
+// origin ends a request that the plugin tracks. The plugin sends the plain origin when the relay send of the call
+// returned first (confirmed), and the origin with the suffix below when it did not (unobserved), as Android does.
+// The iOS plugin reports only the origin, so the age stays unknown. All of them carry no wallet response.
 const IOS_CALL_ORIGINS = [
   'unconfigured',
   'argument_validation',
@@ -61,6 +63,7 @@ const IOS_CALL_ORIGINS = [
   'request_call_error'
 ] as const;
 const IOS_PUBLISHED_ORIGINS = ['request_expired', 'session_deleted'] as const;
+const IOS_UNPUBLISHED_SUFFIX = '_unpublished';
 const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
   'argument_validation',
   'unconfigured',
@@ -82,7 +85,10 @@ export function isReownIOSFailure(failure: ReownNativeFailure): boolean {
   }
   switch (failure.published) {
     case 'unobserved':
-      return IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin);
+      return (
+        IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin) ||
+        IOS_PUBLISHED_ORIGINS.some(origin => origin === failure.nativeOrigin)
+      );
     case 'confirmed':
       return IOS_PUBLISHED_ORIGINS.some(origin => origin === failure.nativeOrigin);
   }
@@ -95,6 +101,12 @@ export function decodeReownIOSFailureCode(code: unknown): ReownNativeFailure | u
   const publishedOrigin = IOS_PUBLISHED_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
   if (publishedOrigin !== undefined) {
     return { nativeOrigin: publishedOrigin, requestAge: 'unknown', published: 'confirmed' };
+  }
+  const unpublishedOrigin = IOS_PUBLISHED_ORIGINS.find(
+    origin => code === REOWN_IOS_FAILURE_PREFIX + origin + IOS_UNPUBLISHED_SUFFIX
+  );
+  if (unpublishedOrigin !== undefined) {
+    return { nativeOrigin: unpublishedOrigin, requestAge: 'unknown', published: 'unobserved' };
   }
   return undefined;
 }
