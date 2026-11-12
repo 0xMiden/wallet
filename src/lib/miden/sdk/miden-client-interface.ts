@@ -1888,8 +1888,8 @@ export class MidenClientInterface {
           );
           return request.serialize();
         });
-        await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         await onStage?.('executing');
+        await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
         // under. Executing against the raw `accountId` would let the account the
         // request runs on diverge from the one its asset's vault key came from —
