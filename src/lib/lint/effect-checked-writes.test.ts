@@ -23,6 +23,9 @@ const lint = async (code: string, filePath: string) => {
 
 const WRITE = 'client.transactions.executeRequest(id, req);\n';
 
+// Each case starts ESLint with the full config, which takes seconds under a loaded coverage run.
+jest.setTimeout(60_000);
+
 describe('effect-checked write lint', () => {
   it('reports a raw write outside the allowlist', async () => {
     expect(await lint(WRITE, 'src/lib/miden/foo/bar.ts')).toEqual([MESSAGE]);
