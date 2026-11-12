@@ -12,14 +12,18 @@ const canonical = (id: string) => {
   return CANONICAL[head] ?? head;
 };
 
+// Each call stands for an SDK address parse, so a test can count them.
+const mockCanonical = jest.fn((id: string) => canonical(id));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  canonicalWalletAccountId: (id: string) => canonical(id),
-  sameWalletAccountId: (a: string, b: string) => canonical(a) === canonical(b)
+  canonicalWalletAccountId: (id: string) => mockCanonical(id),
+  sameWalletAccountId: (a: string, b: string) => mockCanonical(a) === mockCanonical(b)
 }));
 
 const mockToArray = jest.fn();
+const mockAnyOf = jest.fn((..._types: string[]) => ({ toArray: (...args: unknown[]) => mockToArray(...args) }));
+const mockWhere = jest.fn((_index: string) => ({ anyOf: (...types: string[]) => mockAnyOf(...types) }));
 jest.mock('lib/miden/repo', () => ({
-  transactions: { filter: jest.fn(() => ({ toArray: (...args: unknown[]) => mockToArray(...args) })) }
+  transactions: { where: (index: string) => mockWhere(index) }
 }));
 
 let mockContacts: WalletContact[] = [];
@@ -113,12 +117,56 @@ describe('isNewRecipient', () => {
   it('is never new for a blank recipient', () => {
     expect(check('  ')).toBe(false);
   });
+
+  it('canonicalizes each history row at most once, and skips the rows of other accounts', () => {
+    const rows = [
+      sendRow({ accountId: 'mtst1someoneelse', secondaryAccountId: 'mtst1other' }),
+      sendRow({ accountId: `${ACCOUNT}_suffix`, secondaryAccountId: 'mtst1sent_qr7route' })
+    ];
+    mockCanonical.mockClear();
+
+    expect(check('mtst1sentalias', rows)).toBe(false);
+    // The typed recipient and this account's one row; the other account's row costs nothing.
+    expect(mockCanonical).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('useIsNewRecipient', () => {
   beforeEach(() => {
     mockToArray.mockReset();
+    mockWhere.mockClear();
+    mockAnyOf.mockClear();
+    mockCanonical.mockClear();
     mockContacts = [];
+  });
+
+  it('reads only send rows, through the type index', async () => {
+    mockToArray.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useIsNewRecipient(ACCOUNT, 'mtst1sent'));
+    await waitFor(() => expect(result.current).toBe(true));
+
+    expect(mockWhere).toHaveBeenCalledWith('type');
+    expect(mockAnyOf).toHaveBeenCalledWith('send', 'bridged-send');
+  });
+
+  it('does not walk the history again when the contacts change', async () => {
+    mockToArray.mockResolvedValue([
+      sendRow({ accountId: 'mtst1someoneelse', secondaryAccountId: 'mtst1other' }),
+      sendRow({ accountId: `${ACCOUNT}_suffix`, secondaryAccountId: 'mtst1sent' })
+    ]);
+    const historyParses = () => mockCanonical.mock.calls.filter(([id]) => id === 'mtst1sent').length;
+
+    const { result, rerender } = renderHook(() => useIsNewRecipient(ACCOUNT, 'mtst1fresh'));
+    await waitFor(() => expect(result.current).toBe(true));
+    const before = historyParses();
+    expect(before).toBe(1);
+
+    mockContacts = [contact({ address: 'mtst1else' })];
+    rerender();
+
+    expect(historyParses() - before).toBe(0);
+    expect(result.current).toBe(true);
   });
 
   it('answers undefined until the history read lands, then true for a first send', async () => {

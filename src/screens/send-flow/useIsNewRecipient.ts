@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import * as Repo from 'lib/miden/repo';
-import { canonicalWalletAccountId, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { WalletContact } from 'lib/shared/types';
 import { detectAddressChain } from 'utils/miden';
 
@@ -20,6 +21,25 @@ export function recipientKey(address: string): string {
     : canonicalWalletAccountId(address.trim());
 }
 
+/**
+ * The keys of every recipient this account has sent to, from its non-failed `send` and `bridged-send`
+ * rows; a row restored from a backup file never counts. The account is matched on its address part, as
+ * the Recent list matches it, so no row costs an SDK parse until it is this account's.
+ */
+function knownRecipientKeys(rows: readonly ITransaction[], accountId: string): Set<string> {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (row.restoredFromBackup || row.status === ITransactionStatus.Failed) continue;
+    if (!compareAccountIds(row.accountId, accountId)) continue;
+    const recipient = recipientOf(row);
+    if (recipient) keys.add(recipientKey(recipient.address));
+  }
+  return keys;
+}
+
+const isUnknown = (key: string, known: ReadonlySet<string>, contacts: readonly WalletContact[]): boolean =>
+  !known.has(key) && !contacts.some(contact => recipientKey(contact.address) === key);
+
 export function isNewRecipient({
   to,
   accountId,
@@ -31,22 +51,13 @@ export function isNewRecipient({
   rows: readonly ITransaction[];
   contacts: readonly WalletContact[];
 }): boolean {
-  if (!to.trim()) return false;
-  const key = recipientKey(to);
-  if (contacts.some(contact => recipientKey(contact.address) === key)) return false;
-
-  return !rows.some(row => {
-    if (row.restoredFromBackup || row.status === ITransactionStatus.Failed) return false;
-    if (!sameWalletAccountId(row.accountId, accountId)) return false;
-    const recipient = recipientOf(row);
-    return recipient !== undefined && recipientKey(recipient.address) === key;
-  });
+  return !!to.trim() && isUnknown(recipientKey(to), knownRecipientKeys(rows, accountId), contacts);
 }
 
 interface HistoryRead {
   accountId: string;
   key: string;
-  rows: ITransaction[];
+  known: ReadonlySet<string>;
 }
 
 /**
@@ -66,10 +77,11 @@ export function useIsNewRecipient(accountId: string | null | undefined, to: stri
     if (!accountId || !key) return;
     let cancelled = false;
     Repo.transactions
-      .filter(row => (row.type === 'send' || row.type === 'bridged-send') && !row.restoredFromBackup)
+      .where('type')
+      .anyOf('send', 'bridged-send')
       .toArray()
       .then(rows => {
-        if (!cancelled) setRead({ accountId, key, rows });
+        if (!cancelled) setRead({ accountId, key, known: knownRecipientKeys(rows, accountId) });
       })
       .catch(err => console.warn('[useIsNewRecipient] history read failed', err));
     return () => {
@@ -79,8 +91,7 @@ export function useIsNewRecipient(accountId: string | null | undefined, to: stri
 
   const current = accountId && key && read?.accountId === accountId && read.key === key ? read : undefined;
   return useMemo(
-    () =>
-      accountId && current ? isNewRecipient({ to, accountId, rows: current.rows, contacts: allContacts }) : undefined,
-    [accountId, current, to, allContacts]
+    () => (current ? isUnknown(current.key, current.known, allContacts) : undefined),
+    [current, allContacts]
   );
 }
