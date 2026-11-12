@@ -2730,6 +2730,52 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void capsuleReturnToScreenStartCancelsAfterItsParentTransforms() throws Exception {
+        openMorph(true);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        int[] capsuleAt = new int[2], restOrigin = new int[2];
+        capsule.getLocationOnScreen(capsuleAt);
+        root.getLocationOnScreen(restOrigin);
+        float screenX = capsuleAt[0] + capsule.getWidth() / 2f;
+        float startY = capsuleAt[1] + capsule.getHeight() / 2f;
+        long downTime = android.os.SystemClock.uptimeMillis();
+        float returnedProgress = Float.NaN;
+        for (int index = 0; index <= 151; index++) {
+            int sample = Math.min(index, 150);
+            float travel = sample <= 50 ? sample / 50f : sample <= 100 ? 1f : (150 - sample) / 50f;
+            float screenY = startY + root.getHeight() * 0.6f * travel;
+            float[] local = { screenX - restOrigin[0], screenY - restOrigin[1] };
+            android.graphics.Matrix inverse = new android.graphics.Matrix();
+            assertTrue("the current moving parent remains invertible", root.getMatrix().invert(inverse));
+            inverse.mapPoints(local);
+            android.graphics.Rect bounds = new android.graphics.Rect(0, 0, capsule.getWidth(), capsule.getHeight());
+            ((ViewGroup) root).offsetDescendantRectToMyCoords(capsule, bounds);
+            int action = index == 0 ? android.view.MotionEvent.ACTION_DOWN
+                : index == 151 ? android.view.MotionEvent.ACTION_UP : android.view.MotionEvent.ACTION_MOVE;
+            long eventTime = downTime + (index == 151 ? 4000 : index * 20L);
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(
+                downTime, eventTime, action, screenX, screenY, 0);
+            // Android preserves raw screen coordinates while mapping a touch into the moving child.
+            event.offsetLocation(local[0] - bounds.left - screenX, local[1] - bounds.top - screenY);
+            try {
+                assertEquals(screenY, event.getRawY(), 0.01f);
+                assertTrue(capsule.dispatchTouchEvent(event));
+                if (index == 150) returnedProgress = driver().progress();
+            } finally {
+                event.recycle();
+            }
+        }
+        assertEquals("the page follows the contact back to its original screen position", 1f, returnedProgress, 0.01f);
+        assertEquals("a physical return to the contact's start cancels the collapse", 1f, driver().target(), 0f);
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+        BreadMorphControllerTest.settle();
+        assertEquals(1f, driver().progress(), 0f);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() throws Exception {
         openMorph(true);
         reveal();
