@@ -4066,6 +4066,10 @@
     "message": "Кошелек остановил эту транзакцию перед её подписанием, поскольку не смог подтвердить, что транзакция перемещает только то, что вы одобрили. Средства не были перемещены.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "Кошелек не смог прочитать размер сетевой комиссии, поэтому не подписал эту транзакцию. Ничего не было отправлено. Попробуйте ещё раз через некоторое время.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",
     "englishSource": "Amount must be less than balance"

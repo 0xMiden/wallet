@@ -893,6 +893,7 @@
   "insufficientFeeAsset": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "proposalEffectRefused": "A carteira interrompeu essa transação antes de assiná-la, pois não conseguiu confirmar que a transação movimentava apenas o que você aprovou. Nenhum valor foi movimentado.",
+  "chainFeeUnknown": "A carteira não conseguiu ler a taxa de rede, por isso não assinou esta transação. Nada foi enviado. Tente novamente daqui a pouco.",
   "amountMustBeLessThanBalance": "O valor deve ser inferior ao saldo",
   "autoConsumeSettings": "Aceitar automaticamente transferências USDCX",
   "autoConsumeSettingsDescription": "Aceita automaticamente as transferências USDCX recebidas no seu saldo - tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",

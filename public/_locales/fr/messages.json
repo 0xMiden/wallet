@@ -4066,6 +4066,10 @@
     "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "Le portefeuille n’a pas pu lire les frais de réseau et n’a donc pas signé cette transaction. Rien n’a été envoyé. Veuillez réessayer dans quelques instants.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
     "englishSource": "Amount must be less than balance"

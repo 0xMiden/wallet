@@ -309,7 +309,8 @@ export const CONSUME_DEFERRAL_CAUSES = [
   'guardian_rate_limited',
   'guardian_unreachable',
   'guardian_unauthorized',
-  'node_unreachable'
+  'node_unreachable',
+  'chain_fee_unknown'
 ] as const;
 
 export type ConsumeDeferralCause = (typeof CONSUME_DEFERRAL_CAUSES)[number];
