@@ -38,6 +38,12 @@ const setVisibility = (state: 'hidden' | 'visible') => {
     document.dispatchEvent(new Event('visibilitychange'));
   });
 };
+const rejectListener = (rejected: string) =>
+  mockAddListener.mockImplementation((event: string, cb: () => void) => {
+    if (event === rejected) return Promise.reject(new Error('no plugin'));
+    mockAppCallbacks.set(event, cb);
+    return Promise.resolve({ remove: mockAppRemove });
+  });
 const mount = async () => {
   const view = render(<BackgroundLockManager />);
   await act(async () => {});
@@ -172,6 +178,88 @@ describe('BackgroundLockManager', () => {
     await mount();
     expect(warn).toHaveBeenCalledWith('[background-lock] listener registration failed:', expect.any(Error));
     warn.mockRestore();
+  });
+
+  it('locks when pause is delivered at resume after the delay', async () => {
+    await mount();
+    advance(10 * MINUTE);
+    fire('pause');
+    fire('resume');
+    expect(mockRequestLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not lock when pause is delivered at resume after nine minutes', async () => {
+    await mount();
+    advance(9 * MINUTE);
+    fire('pause');
+    fire('resume');
+    expect(mockRequestLock).not.toHaveBeenCalled();
+  });
+
+  it('locks from the heartbeat when resume never registered', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rejectListener('resume');
+    await mount();
+    fire('pause');
+    advance(10 * MINUTE);
+    act(() => {
+      jest.advanceTimersByTime(BACKGROUND_LOCK_HEARTBEAT_MS);
+    });
+    expect(mockRequestLock).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('locks after the delay when the pause listener rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rejectListener('pause');
+    await mount();
+    act(() => {
+      jest.advanceTimersByTime(10 * MINUTE - BACKGROUND_LOCK_HEARTBEAT_MS);
+    });
+    expect(mockRequestLock).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(BACKGROUND_LOCK_HEARTBEAT_MS);
+    });
+    expect(mockRequestLock).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('a rejected resume does not lock a wallet that stays in the foreground', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rejectListener('resume');
+    await mount();
+    act(() => {
+      jest.advanceTimersByTime(30 * MINUTE);
+    });
+    expect(mockRequestLock).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('a listener that rejects after unmount opens no hide and locks nothing', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const rejecters: Array<(err: Error) => void> = [];
+    mockAddListener.mockImplementation(() => new Promise((_, reject) => rejecters.push(reject)));
+    const view = render(<BackgroundLockManager />);
+    view.unmount();
+    await act(async () => {
+      rejecters.forEach(reject => reject(new Error('no plugin')));
+    });
+    expect(rejecters).toHaveLength(2);
+    expect(mockRequestLock).not.toHaveBeenCalled();
+    expect(backgroundLockPending.get()).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('on desktop, the heartbeat locks a window that stays hidden', async () => {
+    mockPlatform.mobile = false;
+    mockPlatform.desktop = true;
+    await mount();
+    setVisibility('hidden');
+    act(() => {
+      jest.advanceTimersByTime(10 * MINUTE);
+    });
+    expect(mockRequestLock).toHaveBeenCalledTimes(1);
+    setVisibility('visible');
   });
 
   it('on desktop, locks when the window was hidden for the delay', async () => {

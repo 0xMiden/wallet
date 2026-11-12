@@ -50,19 +50,21 @@ export const BackgroundLockManager: FC = () => {
     if (mobile) {
       // Only pause and resume: `appStateChange` also fires for a Face ID prompt or Control Center, and the in-app dApp
       // browser leaves the document visible, none of which is time in the background.
-      const listen = (register: () => Promise<{ remove: () => Promise<void> }>) =>
+      const listen = (event: 'pause' | 'resume', register: () => Promise<{ remove: () => Promise<void> }>) =>
         register()
           .then(handle => {
             if (unmounted) void handle.remove();
             else removers.push(() => void handle.remove());
           })
           .catch(err => {
-            // The heartbeat catches a long absence only where the OS freezes JS in the background. Where timers keep
-            // running (Android) a missing pause listener leaves the clock blind to absences of any length.
+            // A rejected pause opens the hide while this effect is mounted, so the heartbeat measures from the
+            // failure instead of refreshing the foreground moment. A rejected resume only warns: a later pause
+            // opens the hide, and the heartbeat locks at the delay with no resume callback.
             console.warn('[background-lock] listener registration failed:', err);
+            if (event === 'pause' && !unmounted) onHidden();
           });
-      void listen(() => App.addListener('pause', onHidden));
-      void listen(() => App.addListener('resume', onVisible));
+      void listen('pause', () => App.addListener('pause', onHidden));
+      void listen('resume', () => App.addListener('resume', onVisible));
     } else {
       const onVisibility = () => (document.visibilityState === 'hidden' ? onHidden() : onVisible());
       document.addEventListener('visibilitychange', onVisibility);

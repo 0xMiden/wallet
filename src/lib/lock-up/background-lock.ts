@@ -19,21 +19,29 @@ export interface BackgroundLockClock {
 export function createBackgroundLockClock(delayMs: () => number, now: number): BackgroundLockClock {
   let lastSeen = now;
   let hiddenAt: number | null = null;
+  let hiddenSignal: number | null = null;
 
   return {
     hidden(at) {
-      // A pause delivered late must not claim the whole freeze as time the wallet was still in the foreground.
-      if (hiddenAt === null) hiddenAt = Math.min(at, lastSeen + BACKGROUND_LOCK_HEARTBEAT_MS);
+      // The first signal wins. More than a heartbeat after the last foreground moment it is a pause delivered late,
+      // so the absence is measured from that moment rather than counting the freeze as foreground. The signal's own
+      // time stays the floor below which a reading means the clock was set back.
+      if (hiddenAt !== null) return;
+      hiddenSignal = at;
+      hiddenAt = at - lastSeen <= BACKGROUND_LOCK_HEARTBEAT_MS ? at : lastSeen;
     },
     visible(at) {
       const since = hiddenAt ?? lastSeen;
+      const floor = hiddenSignal ?? lastSeen;
       hiddenAt = null;
+      hiddenSignal = null;
       lastSeen = at;
       // A clock set back across a background cannot prove how long it was, so it locks.
-      return at < since || at - since >= delayMs();
+      return at < floor || at - since >= delayMs();
     },
     tick(at) {
-      if (hiddenAt !== null) return false;
+      // While hidden the heartbeat decides as a resume would, so a resume that never arrives still locks.
+      if (hiddenAt !== null && hiddenSignal !== null) return at < hiddenSignal || at - hiddenAt >= delayMs();
       const gap = at - lastSeen;
       lastSeen = at;
       return gap >= delayMs();

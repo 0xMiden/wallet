@@ -25,12 +25,17 @@ describe('createBackgroundLockClock', () => {
     expect(clock.visible(601_000)).toBe(true);
   });
 
-  it('clamps a late hidden signal to one heartbeat after the last tick', () => {
+  it('a hidden signal later than one heartbeat measures from the last tick', () => {
     const clock = make();
     clock.tick(0);
-    clock.hidden(700_000);
-    expect(clock.visible(700_001)).toBe(true);
-    expect(BACKGROUND_LOCK_HEARTBEAT_MS).toBe(10_000);
+    clock.hidden(DELAY);
+    expect(clock.visible(DELAY)).toBe(true);
+  });
+
+  it('an on-time hidden signal is not pulled back to the last tick', () => {
+    const clock = make();
+    clock.hidden(BACKGROUND_LOCK_HEARTBEAT_MS);
+    expect(clock.visible(BACKGROUND_LOCK_HEARTBEAT_MS + DELAY - 1)).toBe(false);
   });
 
   it('a visible signal with no hidden one measures from the last heartbeat', () => {
@@ -51,16 +56,34 @@ describe('createBackgroundLockClock', () => {
     expect(live.tick(10_000)).toBe(false);
   });
 
-  it('ignores heartbeats while hidden', () => {
-    const clock = make();
-    clock.hidden(1_000);
-    expect(clock.tick(900_000)).toBe(false);
+  it('a heartbeat while hidden locks once the delay has passed, and leaves the hide open', () => {
+    const kept = make();
+    kept.hidden(1_000);
+    expect(kept.tick(2_000)).toBe(false);
+    expect(kept.visible(1_000 + DELAY)).toBe(true);
+    const held = make();
+    held.hidden(1_000);
+    expect(held.tick(1_000 + DELAY - 1)).toBe(false);
+    expect(held.tick(1_000 + DELAY)).toBe(true);
+  });
+
+  it('a heartbeat while hidden locks when the clock moves backward', () => {
+    const back = make();
+    back.hidden(1_000_000);
+    expect(back.tick(10)).toBe(true);
   });
 
   it('locks when the clock moved back across a background', () => {
     const clock = make();
     clock.hidden(1_000_000);
     expect(clock.visible(10)).toBe(true);
+  });
+
+  it('a visible signal with no hide open still sees a clock set back below the last one', () => {
+    const clock = make();
+    clock.hidden(1_000);
+    clock.visible(2_000_000);
+    expect(clock.visible(1_500_000)).toBe(true);
   });
 
   it('a heartbeat that sees the clock move back does not lock', () => {
