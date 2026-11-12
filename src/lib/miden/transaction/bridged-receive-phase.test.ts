@@ -44,6 +44,25 @@ describe('updateBridgedReceivePhase', () => {
     expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('received');
   });
 
+  it('changes the badge evidence revision when a mainnet phase changes', async () => {
+    const plain = await seed('ready');
+    await updateBridgedReceivePhase(plain, 'received', {}, { amount: 5n, faucetId: 'delivered-faucet' });
+    const plainRow = await Repo.transactions.get(plain);
+    expect(plainRow?.extraInputs.phase).toBe('received');
+    expect(plainRow).not.toHaveProperty('badgeEvidenceRevision');
+
+    const id = await seed('ready');
+    await Repo.transactions.update(id, { badgeNetwork: 'mainnet' });
+    const before = await Repo.transactions.get(id);
+    await updateBridgedReceivePhase(id, 'received', {}, { amount: 5n, faucetId: 'delivered-faucet' });
+    const after = await Repo.transactions.get(id);
+    expect(after?.extraInputs.phase).toBe('received');
+    expect(after?.badgeNetwork).toBe('mainnet');
+    expect(before?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(after?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(after?.badgeEvidenceRevision).not.toBe(before?.badgeEvidenceRevision);
+  });
+
   it('never moves a ready row back to delivering, but still lets it fail', async () => {
     const id = await seed('ready');
 
