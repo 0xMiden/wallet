@@ -111,24 +111,19 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
       const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
       const verify = (input: VerifyInput) => callDapp(dapp, 'verifySignature', input, ctx.deadline);
       // A summary is signed as before, so only the raw check applies; Blind and Arbitrary sign the domain commitment.
-      if (variant === 'summary') {
-        expect(
-          await verify({
-            kind: 'signingInputs',
-            payloadB64: signed.payloadB64,
-            signatureB64: signed.signatureB64,
-            publicKeyB64
-          })
-        ).toEqual({
-          verifies: true,
-          commitmentHex: me.publicKeyHex
-        });
-      } else {
-        expect(await expectDomainSignature(verify, signed, 'signingInputs', publicKeyB64)).toEqual({
-          verifies: true,
-          commitmentHex: me.publicKeyHex
-        });
-      }
+      const verdict =
+        variant === 'summary'
+          ? await verify({
+              kind: 'signingInputs',
+              payloadB64: signed.payloadB64,
+              signatureB64: signed.signatureB64,
+              publicKeyB64
+            })
+          : await expectDomainSignature(verify, signed, 'signingInputs', publicKeyB64);
+      expect(verdict).toEqual({
+        verifies: true,
+        commitmentHex: me.publicKeyHex
+      });
     }
   });
   const opaque = async (popup: Page) => {
