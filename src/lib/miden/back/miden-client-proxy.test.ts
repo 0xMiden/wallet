@@ -67,6 +67,30 @@ jest.mock('lib/miden/swap/fee-context', () => {
   return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
 });
 
+// A runtime id makes this realm an extension, so endpoint reset uses the polyfill's storage. The shared mock has
+// no remove; this file's copy does, and it forgets the key.
+jest.mock('webextension-polyfill', () => {
+  const actual = jest.requireActual('../../../../__mocks__/webextension-polyfill');
+  const browser = actual.default;
+  const stored: Record<string, unknown> = {};
+  const local = {
+    async get(keys: string[] | Record<string, unknown>) {
+      if (!Array.isArray(keys)) return { ...stored };
+      const items: Record<string, unknown> = {};
+      for (const key of keys) items[key] = stored[key];
+      return items;
+    },
+    async set(items: Record<string, unknown>) {
+      Object.assign(stored, items);
+    },
+    async remove(keys: string[]) {
+      for (const key of keys) delete stored[key];
+    }
+  };
+  const wrapped = { ...browser, storage: { ...browser.storage, local } };
+  return { __esModule: true, ...wrapped, default: wrapped };
+});
+
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
 import { decodeArg } from './offscreen-codec';
@@ -87,6 +111,8 @@ function installChromeMock(opts: { withOffscreen?: boolean } = {}) {
   docExists = false;
   fakeChrome = {
     runtime: {
+      id: 'this-extension',
+      getURL: (path: string) => `chrome-extension://this-extension/${path}`,
       sendMessage: jest.fn(),
       onMessage: {
         listeners: [] as OnMessageListener[],
@@ -118,7 +144,8 @@ function installChromeMock(opts: { withOffscreen?: boolean } = {}) {
 
 /** Resolve the reopen/open ready gate. */
 function fireReady() {
-  for (const l of fakeChrome.runtime.onMessage.listeners) l({ type: 'OFFSCREEN_READY' }, undefined, () => {});
+  const sender = { id: fakeChrome.runtime.id, url: fakeChrome.runtime.getURL('offscreen.html') };
+  for (const l of fakeChrome.runtime.onMessage.listeners) l({ type: 'OFFSCREEN_READY' }, sender, () => {});
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));

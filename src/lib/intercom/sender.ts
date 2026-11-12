@@ -19,6 +19,16 @@ export function isExtensionPageSender(
   return typeof sender.url === 'string' && sender.url.startsWith(extensionBaseUrl);
 }
 
+/**
+ * True for this extension's Chrome service worker, which arrives with this extension's id and neither a tab nor a
+ * url. The id must be a non-empty string, so a missing `chrome.runtime.id` does not accept a missing sender. A
+ * worker whose url is its script is an extension page instead.
+ */
+export function isExtensionServiceWorkerSender(sender: MessageSenderLike | undefined, extensionId: string): boolean {
+  if (!extensionId) return false;
+  return sender?.id === extensionId && sender.tab === undefined && sender.url === undefined;
+}
+
 /** True only for the extension's offscreen document: never in a tab, and at exactly its own URL. */
 export function isOffscreenDocumentSender(
   sender: MessageSenderLike | undefined,

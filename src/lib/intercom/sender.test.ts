@@ -1,4 +1,4 @@
-import { isExtensionPageSender, isOffscreenDocumentSender } from './sender';
+import { isExtensionPageSender, isExtensionServiceWorkerSender, isOffscreenDocumentSender } from './sender';
 
 const ID = 'own';
 const BASE = 'chrome-extension://own/';
@@ -23,6 +23,16 @@ describe('isExtensionPageSender', () => {
     expect(isExtensionPageSender({ id: ID, url: 'moz-extension://uuid/popup.html' }, ID, 'moz-extension://uuid/')).toBe(
       true
     );
+  });
+});
+
+describe('isExtensionServiceWorkerSender', () => {
+  it('accepts the id-only sender and rejects an empty id and a tabbed sender with no url', () => {
+    expect(isExtensionServiceWorkerSender({ id: ID }, ID)).toBe(true);
+    expect(isExtensionServiceWorkerSender({ id: '' }, '')).toBe(false);
+    expect(isExtensionServiceWorkerSender(undefined, '')).toBe(false);
+    expect(isExtensionServiceWorkerSender({ id: ID, url: 'https://dapp.example/' }, ID)).toBe(false);
+    expect(isExtensionServiceWorkerSender({ id: ID, tab: { id: 1 } }, ID)).toBe(false);
   });
 });
 

@@ -12,6 +12,8 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { isOffscreenDocumentSender } from 'lib/intercom/sender';
+
 import { OFFSCREEN_URL } from './offscreen-codec';
 import { isInOffscreenDocument } from './offscreen-realm';
 
@@ -179,12 +181,13 @@ function waitForOffscreenReady(): Promise<void> {
       chrome.runtime.onMessage.removeListener(handler);
       reject(new Error('Offscreen prover ready signal timed out (>30s)'));
     }, 30_000);
-    const handler = (msg: { type?: string }) => {
-      if (msg?.type === 'OFFSCREEN_READY') {
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(handler);
-        resolve();
-      }
+    const handler = (msg: { type?: string }, sender?: { id?: string; url?: string; tab?: unknown }) => {
+      // A page, the worker, a content script, or a missing sender leaves this listener in place.
+      if (msg?.type !== 'OFFSCREEN_READY') return;
+      if (!isOffscreenDocumentSender(sender, chrome.runtime.id, chrome.runtime.getURL(OFFSCREEN_URL))) return;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(handler);
+      resolve();
     };
     chrome.runtime.onMessage.addListener(handler);
   });
