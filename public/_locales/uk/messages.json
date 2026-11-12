@@ -5809,6 +5809,10 @@
     "message": "Відновлений",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Термін дії закінчився",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
@@ -8475,6 +8479,39 @@
   "nearIntentsDepositTitle": {
     "message": "Депозит",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Сплачуйте безпосередньо з",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Оплатіть за допомогою $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Не вдалося відкрити гаманець. Скопіюйте адресу та суму, щоб надіслати свій депозит.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Фантом",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "Надіслати точно",

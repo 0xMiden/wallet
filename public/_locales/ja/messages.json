@@ -5807,6 +5807,10 @@
     "message": "再生された",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "期限切れ",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet リクエスト",
     "englishSource": "Faucet Request"
@@ -8473,6 +8477,39 @@
   "nearIntentsDepositTitle": {
     "message": "預入",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "直接支払う",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$で支払う",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "ウォレットを開くことができませんでした。入金するには、アドレスと金額をコピーしてください。",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "レインボー",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "ファントム",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "正確に送信する",

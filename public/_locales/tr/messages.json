@@ -5808,6 +5808,10 @@
     "message": "Geri kazanılmış",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Süresi dolmuş",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Talep",
     "englishSource": "Faucet Request"
@@ -8474,6 +8478,39 @@
   "nearIntentsDepositTitle": {
     "message": "Para yatırma",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Doğrudan şuradan ödeme yapın",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$ ile ödeme yapın",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Cüzdanı açamadı. Para yatırmak için adresi ve tutarı kopyalayın.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Hayalet",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "Tam olarak gönderin",

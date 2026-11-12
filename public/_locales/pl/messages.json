@@ -5809,6 +5809,10 @@
     "message": "Odzyskane",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Wygasłe",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Prośba",
     "englishSource": "Faucet Request"
@@ -8475,6 +8479,39 @@
   "nearIntentsDepositTitle": {
     "message": "Wpłata",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Płać bezpośrednio z",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Płać za pomocą $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Nie udało się otworzyć portfela. Skopiuj adres i kwotę, aby wysłać wpłatę.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Phantom",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "Wysyłaj dokładnie",

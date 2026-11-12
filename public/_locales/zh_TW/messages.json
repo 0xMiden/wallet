@@ -5807,6 +5807,10 @@
     "message": "重獲",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "已過期",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 請求",
     "englishSource": "Faucet Request"
@@ -8473,6 +8477,39 @@
   "nearIntentsDepositTitle": {
     "message": "存款",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "直接從",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "使用 $wallet$ 付款",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "無法開啟錢包。請複製地址和金額以進行存款。",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "彩虹",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Phantom",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "精確傳送",

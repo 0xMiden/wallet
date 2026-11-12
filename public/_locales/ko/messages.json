@@ -5807,6 +5807,10 @@
     "message": "회수된",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "만료됨",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 요청",
     "englishSource": "Faucet Request"
@@ -8473,6 +8477,39 @@
   "nearIntentsDepositTitle": {
     "message": "입금",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "다음에서 직접 결제하세요",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$로 결제하기",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "지갑을 열 수 없습니다. 입금할 주소와 금액을 복사하십시오.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "팬텀",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "정확히 전송하십시오",

@@ -5811,6 +5811,10 @@
     "message": "Восстановленный",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Истекший срок действия",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Запрос",
     "englishSource": "Faucet Request"
@@ -8477,6 +8481,39 @@
   "nearIntentsDepositTitle": {
     "message": "Депозит",
     "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Оплачивайте напрямую с",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Оплатить с помощью $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Не удалось открыть кошелек. Скопируйте адрес и сумму, чтобы отправить депозит.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Фантом",
+    "englishSource": "Phantom"
   },
   "nearIntentsSendExactly": {
     "message": "Отправляйте точно",
