@@ -12,15 +12,33 @@ jest.mock('lib/intercom/client', () => ({
   IntercomClient: jest.fn().mockImplementation(() => mockIntercomClient)
 }));
 
+const wireView = {
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 1,
+  storageChanged: false
+};
+
 describe('store.simulateCustomTransaction', () => {
   beforeEach(() => {
     mockRequest.mockReset();
   });
 
-  it('sends a simulate request and returns { summaryBytes }', async () => {
+  it('returns the decoded view and note flow with bigint amounts', async () => {
     mockRequest.mockResolvedValueOnce({
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      summaryBytes: 'sumB64'
+      effects: {
+        view: { ...wireView, outgoing: [{ faucetId: 'fA', amount: '500' }], fee: { faucetId: 'fN', amount: '3' } },
+        noteFlow: {
+          inputCount: 0,
+          inputs: [],
+          outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount: '500' }] }]
+        }
+      }
     });
 
     const out = await useWalletStore.getState().simulateCustomTransaction('confirm-id-1');
@@ -29,10 +47,17 @@ describe('store.simulateCustomTransaction', () => {
       type: MidenMessageType.DAppSimulateTransactionRequest,
       id: 'confirm-id-1'
     });
-    expect(out).toEqual({ summaryBytes: 'sumB64', error: undefined });
+    expect(out).toEqual({
+      view: { ...wireView, outgoing: [{ faucetId: 'fA', amount: 500n }], fee: { faucetId: 'fN', amount: 3n } },
+      noteFlow: {
+        inputCount: 0,
+        inputs: [],
+        outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount: 500n }] }]
+      }
+    });
   });
 
-  it('passes through an { error }', async () => {
+  it('passes through an error with no view', async () => {
     mockRequest.mockResolvedValueOnce({
       type: MidenMessageType.DAppSimulateTransactionResponse,
       error: 'sim failed'
@@ -40,22 +65,20 @@ describe('store.simulateCustomTransaction', () => {
 
     const out = await useWalletStore.getState().simulateCustomTransaction('id');
 
-    expect(out).toEqual({ summaryBytes: undefined, error: 'sim failed' });
+    expect(out).toEqual({ error: 'sim failed' });
+    expect(out.view).toBeUndefined();
+    expect(out.noteFlow).toBeUndefined();
   });
 
-  it('passes through { executedBytes } for an already-fully-authorized account', async () => {
-    // web-sdk 0.16 produces no TransactionSummary for an ordinary single-sig
-    // account (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED), so the
-    // dry run returns the executed transaction instead. Dropping it here would
-    // blank the confirm screen's verified asset view for every such account.
+  it('rejects a malformed effects payload', async () => {
     mockRequest.mockResolvedValueOnce({
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      executedBytes: 'execB64'
+      effects: { view: { ...wireView, outgoing: [{ faucetId: 'fA', amount: '-1' }] } }
     });
 
-    const out = await useWalletStore.getState().simulateCustomTransaction('id');
-
-    expect(out).toEqual({ summaryBytes: undefined, executedBytes: 'execB64', error: undefined });
+    await expect(useWalletStore.getState().simulateCustomTransaction('id')).rejects.toThrow(
+      'malformed simulated effects'
+    );
   });
 
   it('names the unhandled request type when an adapter has no handler for it', async () => {

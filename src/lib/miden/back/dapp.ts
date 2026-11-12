@@ -29,7 +29,8 @@ import {
   type AssetAmount,
   type TxAssetView
 } from 'app/confirm/decode';
-import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from 'app/confirm/note-flow';
+import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -104,6 +105,7 @@ import {
   MidenDAppPrivateNotesConfirmationRequest,
   MidenDAppSession,
   MidenDAppSessions,
+  MidenDAppSimulateTransactionResponse,
   MidenDAppTransactionPayload,
   MidenMessageType,
   MidenRequest
@@ -1660,7 +1662,7 @@ export function buildCustomTxConfirmPayload(args: {
 
 /**
  * Builds the intercom handler that answers a `DAppSimulateTransactionRequest`
- * for THIS confirm popup (matched by id) with the ground-truth summary. Returns
+ * for THIS confirm popup (matched by id) with the dry run's decoded effects. Returns
  * `undefined` for non-matching requests so the caller keeps dispatching.
  */
 export function makeSimulateHandler(
@@ -1673,7 +1675,7 @@ export function makeSimulateHandler(
    */
   simulated?: { summaryBytes?: string; executedBytes?: string; error?: string }
 ) {
-  return async (req: MidenRequest): Promise<any | undefined> => {
+  return async (req: MidenRequest): Promise<MidenDAppSimulateTransactionResponse | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
@@ -1681,7 +1683,7 @@ export function makeSimulateHandler(
     // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
     // control - permanently unavailable for this confirm id, even once the lock frees.
     const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
-    const { summaryBytes, executedBytes, error } =
+    const result =
       reusable && simulated
         ? simulated
         : await simulateCustomTransaction({
@@ -1689,12 +1691,27 @@ export function makeSimulateHandler(
             transactionRequest: tx.transactionRequest,
             importNotes: tx.importNotes
           });
-    return {
-      type: MidenMessageType.DAppSimulateTransactionResponse,
-      summaryBytes,
-      executedBytes,
-      error: error === undefined ? undefined : dryRunFailureReason(error)
-    };
+    // The executed transaction is already authorized, so only its decoded view leaves the service worker.
+    let view: TxAssetView | undefined;
+    try {
+      view = simulatedBytesToView(result);
+    } catch (e) {
+      console.error('Failed to decode the dry run for the approval window', e);
+    }
+    if (!view) {
+      return {
+        type: MidenMessageType.DAppSimulateTransactionResponse,
+        error:
+          result.error === undefined ? 'the simulated transaction could not be read' : dryRunFailureReason(result.error)
+      };
+    }
+    let noteFlow: NoteFlow | undefined;
+    try {
+      noteFlow = noteFlowFromSimulatedBytes(result);
+    } catch (e) {
+      console.error('Custom transaction note details unavailable:', e);
+    }
+    return { type: MidenMessageType.DAppSimulateTransactionResponse, effects: toSimulatedEffectsWire(view, noteFlow) };
   };
 }
 
