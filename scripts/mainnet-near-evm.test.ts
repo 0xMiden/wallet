@@ -1,7 +1,8 @@
 /** @jest-environment node */
-import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256, type Address, type Hash } from 'viem';
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, getAddress, isHex, keccak256,
+  type Address, type Hash, type TransactionReceipt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createMainnetNearEvmBroadcast, inspectMainnetNearSignedTransfer, type MainnetNearBroadcastInput, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
+import { createMainnetNearEvmBroadcast, inspectMainnetNearForwardReceipt, inspectMainnetNearSignedTransfer, type MainnetNearBroadcastInput, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
 import type { MainnetNearCheckpoint } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 import { nativeNearFixture, nativeNearQuote } from './helpers/mainnet-near-fixture';
 const key = `0x${'0'.repeat(63)}1`;
@@ -72,6 +73,31 @@ it('rejects a fresh gas/native valuation that exhausts the original remaining lo
   if (!state.returnValuation) throw new Error('Missing unit return valuation');
   state.returnValuation.nativeUsdMicros = '200000000';
   await expect(inspectMainnetNearSignedTransfer(state, approved, raw)).rejects.toThrow();
+});
+function forwardEvidence() {
+  const state = authority(); const expectedHash = keccak256('0x01'); const payer = getAddress(`0x${'9'.repeat(40)}`);
+  const log = { address: getAddress(state.evm.token), blockHash: expectedHash, blockNumber: 1n, removed: false,
+    transactionHash: expectedHash, transactionIndex: 0, logIndex: 0,
+    topics: encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: payer, to: getAddress(state.evm.account) } }),
+    data: encodeAbiParameters([{ type: 'uint256' }], [1001000n]) };
+  const receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'> = { transactionHash: expectedHash, status: 'success', from: payer, logs: [log] };
+  return { state, expectedHash, receipt, log };
+}
+it('attributes only exact real ERC20 receipt transfers from the provider-reported forward transaction', () => {
+  const f = forwardEvidence(); expect(inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toBe(1001000n);
+});
+const invalidForward: Array<[string, (value: ReturnType<typeof forwardEvidence>) => void]> = [
+  ['foreign transaction', f => { f.receipt.transactionHash = keccak256('0x02'); }],
+  ['revert', f => { f.receipt.status = 'reverted'; }],
+  ['self-submitted transaction', f => { f.receipt.from = signer.address; }],
+  ['foreign token', f => { f.log.address = deposit; }],
+  ['foreign recipient', f => { f.log.topics = encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: deposit, to: deposit } }); }],
+  ['self-funded transfer', f => { f.log.topics = encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: signer.address, to: signer.address } }); }],
+  ['underfill', f => { f.log.data = encodeAbiParameters([{ type: 'uint256' }], [999999n]); }],
+  ['missing original reviewed authority', f => { delete f.state.forwardQuote; }]
+];
+it.each(invalidForward)('refuses %s instead of accepting a balance delta as forward settlement', (_name, change) => {
+  const f = forwardEvidence(); change(f); expect(() => inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toThrow();
 });
 function receipt(transactionHash: Hash, status: 'success' | 'reverted' = 'success') {
   return { transactionHash, status, gasUsed: 45000n, effectiveGasPrice: 1000000n };

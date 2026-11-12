@@ -54,6 +54,15 @@ describe('provider-scoped mainnet recovery discovery', () => {
     ] }), async () => ({ jobs: [] }), baseline, 'near');
     expect(selected).toEqual({ runId: baseline + 2, name: `mainnet-1click-execute-started-${baseline + 2}`, bootstrap: false });
   });
+  it('does not downgrade an attempted native NEAR send to its earlier read-only preflight when exact forward authority is missing', async () => {
+    await expect(chooseSwapCheckpoint(runs, async id => ({ artifacts: [artifact(`mainnet-1click-preflight-${id}`)] }),
+      async () => jobs('Run mainnet near forward'), baseline, 'near')).rejects.toThrow(/missing|forward/i);
+  });
+  it('can recover later complete return authority without requiring a deleted older native forward snapshot', async () => {
+    const selected = await chooseSwapCheckpoint(runs, async id => ({ artifacts: [artifact(`mainnet-1click-return-authorized-${id}`)] }),
+      async () => jobs('Run mainnet near forward'), baseline, 'near');
+    expect(selected.name).toBe(`mainnet-1click-return-authorized-${baseline + 2}`);
+  });
   it('does not bootstrap past an uncheckpointed legacy funded 1Click stage', async () => {
     await expect(chooseSwapCheckpoint(runs, async () => ({ artifacts: [] }),
       async () => jobs('Run funded 1Click swap-out and swap-back acceptance'), baseline, 'near')).rejects.toThrow(/missing/);

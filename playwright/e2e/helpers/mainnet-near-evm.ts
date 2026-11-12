@@ -1,8 +1,15 @@
 import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256, parseTransaction, recoverTransactionAddress,
-  type Address, type Hash, type Hex, type TransactionSerializedEIP1559 } from 'viem';
+  type Address, type Hash, type Hex, type TransactionReceipt, type TransactionSerializedEIP1559 } from 'viem';
 import { parseMainnetNearCheckpoint, type MainnetNearCheckpoint } from './mainnet-near-checkpoint';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import type { MainnetOneClickEvmSenderInput } from './mainnet-one-click-evm';
+
+export function inspectMainnetNearForwardReceipt(
+  _state: MainnetNearCheckpoint, _expectedHash: Hash,
+  _receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'>
+): bigint {
+  throw new Error('Actual provider-correlated native NEAR forward receipt inspection is not implemented');
+}
 
 export interface MainnetNearEvmEnvelope {
   chainId: number;
