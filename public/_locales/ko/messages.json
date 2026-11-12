@@ -3338,12 +3338,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "문자 8개, 숫자 1개",
-    "englishSource": "8 characters, 1 number"
+    "message": "최소 12자",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "최소 8자 이상이며, 그중 숫자가 1개 이상 포함되어야 합니다.",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "최소 12자 이상을 사용하십시오. 숫자, 기호 및 대소문자를 혼합하면 보안성이 강화됩니다.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "이 12개의 단어를 잘 간직하여 안전한 곳에 보관하세요.",

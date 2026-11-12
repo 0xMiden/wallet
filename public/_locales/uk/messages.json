@@ -3338,12 +3338,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 символів, 1 цифра",
-    "englishSource": "8 characters, 1 number"
+    "message": "Щонайменше 12 символів",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Щонайменше 8 символів, серед яких має бути принаймні 1 цифра",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Використовуйте щонайменше 12 символів. Цифри, символи та поєднання великих і малих літер роблять пароль надійнішим.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Збережіть ці 12 слів і покладіть їх у надійне місце.",
