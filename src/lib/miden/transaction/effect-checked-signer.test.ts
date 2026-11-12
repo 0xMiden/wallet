@@ -135,7 +135,9 @@ beforeEach(() => {
 
 afterEach(() => {
   // The inline signer runs inside the write's WASM client lock, so taking it here would deadlock.
-  expect(withWasmClientLock).not.toHaveBeenCalled();
+  if (jest.mocked(withWasmClientLock).mock.calls.length > 0) {
+    throw new Error('the effect-checked signer took the WASM client lock');
+  }
 });
 
 it('passes the base signer through untouched for an unchecked type', async () => {
