@@ -9,6 +9,44 @@ const steps = (name: string, conclusion: string | null = 'success') => ({
 });
 
 describe('mainnet swap recovery artifact discovery', () => {
+  it.each([
+    'Run native mainnet round trip',
+    'Run USDCx bridge loops',
+    'Run the mainnet AggLayer loop',
+    'Run mainnet round trip, USDCx bridge loops, and read-only 1Click preflight'
+  ])('blocks fresh spending after an interrupted legacy stage: %s', async name => {
+    const id = baseline + 1;
+    await expect(
+      chooseSwapCheckpoint(
+        [run(id), run(baseline)],
+        async () => ({ artifacts: [artifact(`mainnet-swap-final-${id}`)] }),
+        async () => steps(name, 'cancelled'),
+        baseline
+      )
+    ).rejects.toThrow(/legacy|unresolved/i);
+  });
+  it('does not hide an older failed legacy operation behind a newer complete swap artifact', async () => {
+    const id = baseline + 2;
+    await expect(
+      chooseSwapCheckpoint(
+        [run(id), run(id - 1), run(baseline)],
+        async () => ({ artifacts: [artifact(`mainnet-swap-final-${id}`)] }),
+        async prior => (prior === id ? { jobs: [] } : steps('Run USDCx bridge loops', 'failure')),
+        baseline
+      )
+    ).rejects.toThrow(/legacy|unresolved/i);
+  });
+  it.each(['success', 'skipped'])('allows proven terminal or unused legacy activity: %s', async conclusion => {
+    const id = baseline + 1;
+    await expect(
+      chooseSwapCheckpoint(
+        [run(id), run(baseline)],
+        async () => ({ artifacts: [artifact(`mainnet-swap-final-${id}`)] }),
+        async () => steps('Run the mainnet AggLayer loop', conclusion),
+        baseline
+      )
+    ).resolves.toEqual({ runId: id, name: `mainnet-swap-final-${id}`, bootstrap: false });
+  });
   it('prefers final then reverse authorization within the latest run, including failed runs', async () => {
     const result = await chooseSwapCheckpoint(
       [run(baseline + 2), run(baseline + 1), run(baseline)],
