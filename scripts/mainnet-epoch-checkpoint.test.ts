@@ -6,6 +6,7 @@ import {
   loadMainnetEpochCheckpoint, saveMainnetEpochCheckpoint, parseMainnetEpochCheckpoint,
   mainnetEpochNextAction, matchAuthorizedEpoch, type MainnetEpochCheckpoint, type EpochIntentEvidence
 } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
+import { planEpochRoundTrip } from '../playwright/e2e/helpers/mainnet-epoch-ui';
 import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
@@ -79,6 +80,32 @@ it('does not authorize a native return without the original reverse authority', 
 });
 it('does not authorize collateral refund after forward proceeds were recorded', () => {
   expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint('refund'), forwardReceived: '1001000' })).toThrow();
+});
+
+const valuation = () => ({ pricedAt: '2026-11-11T12:10:00.000Z', stableUsdMicros: '1000000', gasUsdMicros: '4000000000' });
+function valuedReverse() {
+  return { ...settled(), phase: 'reverse-authorized' as const, reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0,
+    reverseAuthority: { ...epochReverseAuthorityFixture(), valuation: valuation() } };
+}
+it('records fresh conservative market facts without replacing original authorization prices or budgets', () => {
+  const state = valuedReverse();
+  expect(parseMainnetEpochCheckpoint(state)).toEqual(state);
+  expect(state.evm.nativeUsdMicros).toBe('2000000000');
+  expect(state.evmFeeBudget).toBe(fixture().evmFeeBudget);
+  expect(state.authorizationRunId).toBe(fixture().authorizationRunId);
+});
+it('revalidates the whole original gas reserve at the conservative return-stage price', () => {
+  expect(planEpochRoundTrip(valuedReverse(), 1_000_501n).nativeFeesUsdMicros).toBe(5000n);
+  const expensive = valuedReverse(); expensive.reverseAuthority.valuation.gasUsdMicros = '3000000000000';
+  expect(() => planEpochRoundTrip(expensive, 1_000_501n)).toThrow(/budget|allowance|cost/i);
+});
+it.each([
+  { stableUsdMicros: '999999' }, { gasUsdMicros: '1999999999' }, { gasUsdMicros: '0' },
+  { pricedAt: 'not-a-time' }, { pricedAt: '2026-11-11T12:11:00.000Z' }, { arbitraryFees: 'must-not-be-authority' }
+])('refuses weaker, future or undeclared return valuation: %j', changed => {
+  const state = valuedReverse();
+  expect(() => parseMainnetEpochCheckpoint({ ...state,
+    reverseAuthority: { ...state.reverseAuthority, valuation: { ...valuation(), ...changed } } })).toThrow();
 });
 
 it('pins a bounded exact reverse compact authority before EVM signing', () => {
@@ -172,6 +199,11 @@ it('requires correlated round-trip evidence and an exact unique-portfolio cost',
   expect(parseMainnetEpochCheckpoint(complete)).toEqual(complete);
   expect(() => parseMainnetEpochCheckpoint({ ...complete, consumeAuthority: undefined })).toThrow();
   expect(() => parseMainnetEpochCheckpoint({ ...complete, realizedCostUsdMicros: '9517' })).toThrow();
+  const repriced = { ...complete, reverseAuthority: { ...complete.reverseAuthority, valuation: valuation() },
+    transactions: [{ kind: 'deposit', nonce: 0, hash, feeWei: '100000000000' }], paidEvmFees: '100000000000',
+    after: { ...complete.after, evmNative: '9999900000000000' }, realizedCostUsdMicros: '9915' };
+  expect(parseMainnetEpochCheckpoint(repriced)).toEqual(repriced);
+  expect(() => parseMainnetEpochCheckpoint({ ...repriced, realizedCostUsdMicros: '9715' })).toThrow();
 });
 it('matches the exact authorized actor, route, nonce and amount rather than an unrelated intent', () => {
   const valid = evidence();
