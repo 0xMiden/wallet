@@ -1,28 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { isRecord } from '../../../src/lib/update/guards';
-import type { TestMainnetSendScope } from '../../../src/lib/miden/sdk/test-send-request';
+import type { TestMainnetSendScope, TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
 import { TEST_SEND_AUTHORIZATION_KEY as KEY } from '../../../src/lib/miden/sdk/test-send-authorization';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 
-export interface MainnetSendHandle extends TestMainnetSendScope {
+export type MainnetSendHandle = (TestMainnetSendScope | TestMainnetSwapScope) & {
   nonce: string;
   expiresAt: number;
-}
+};
 export interface MainnetSendAuthority {
   nonce: string;
   noteId: string;
   sha256: string;
   canonicalSha256: string;
+  orderId?: string;
 }
 
 export async function armMainnetSendAuthorization(
   page: Pick<Page, 'evaluate'>,
-  scope: TestMainnetSendScope & { expiresAt: number }
+  scope: (TestMainnetSendScope | TestMainnetSwapScope) & { expiresAt: number }
 ): Promise<MainnetSendHandle> {
   if (
-    ![scope.accountId, scope.recipientId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
-    scope.accountId === scope.recipientId ||
+    ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
+    ('kind' in scope
+      ? scope.kind !== 'swap' || !/^0x[0-9a-f]{30}$/.test(scope.requestedFaucetId) ||
+        scope.requestedFaucetId === scope.faucetId || !/^[1-9]\d{0,18}$/.test(scope.requestedAmount)
+      : !/^0x[0-9a-f]{30}$/.test(scope.recipientId) || scope.accountId === scope.recipientId) ||
     !/^[1-9]\d{0,18}$/.test(scope.amount) ||
     !Number.isSafeInteger(scope.expiresAt) ||
     scope.expiresAt <= Date.now() ||
@@ -80,6 +84,11 @@ export async function releaseMainnetSendAuthorization(
         sha256: value.sha256,
         canonicalSha256: value.canonicalSha256
       };
+      if ('kind' in expected) {
+        if (typeof value.orderId !== 'string' || !/^\d{1,20}$/.test(value.orderId))
+          throw new Error('Missing actual PSWAP order identity');
+        authority.orderId = value.orderId;
+      }
       break;
     }
     if (value.status !== 'armed') throw new Error('Native send authorization is already used or blocked');
