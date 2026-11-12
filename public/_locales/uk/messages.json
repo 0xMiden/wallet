@@ -6350,6 +6350,10 @@
     "message": "Цей dApp надсилає запит на нестандартну транзакцію. Гаманець не зміг розшифрувати її деталі — продовжуйте лише в тому випадку, якщо ви точно знаєте, що вона собою являє.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Гаманець не зміг змоделювати цю транзакцію, тому не може показати, що саме відбувається. Ви не можете її затвердити.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Необроблене значення",
     "englishSource": "Raw value"

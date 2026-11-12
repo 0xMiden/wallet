@@ -6357,6 +6357,10 @@
     "message": "Diese dApp fordert eine benutzerdefinierte Transaktion an. Die Wallet konnte die Details nicht entschlüsseln – fahren Sie nur fort, wenn Sie genau wissen, was damit geschieht.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Die Wallet konnte diese Transaktion nicht simulieren, daher kann sie nicht anzeigen, was dabei geschieht. Sie können sie nicht genehmigen.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Rohwert",
     "englishSource": "Raw value"

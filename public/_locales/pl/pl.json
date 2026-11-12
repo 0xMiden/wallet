@@ -1384,6 +1384,7 @@
   "unverifiedTokenTitle": "Niezweryfikowany token",
   "couldNotVerifyBySimulation": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",
   "couldNotDecodeTransaction": "Ta aplikacja dApp wysyła niestandardową transakcję. Portfel nie zdołał odczytać jej szczegółów — kontynuuj tylko wtedy, gdy dokładnie wiesz, na czym ona polega.",
+  "customTransactionNotSimulated": "Portfel nie mógł zasymulować tej transakcji, więc nie może pokazać, na czym ona polega. Nie można jej zatwierdzić.",
   "rawValue": "Wartość surowa",
   "opaqueSignatureTitle": "Prośba o niejawny podpis",
   "opaqueSignatureWarning": "Ta strona poprosiła Cię o podpisanie surowej wartości. Portfel nie może wyświetlić, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",

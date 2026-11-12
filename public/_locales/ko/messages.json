@@ -6348,6 +6348,10 @@
     "message": "이 dApp은 사용자 지정 트랜잭션을 요청하고 있습니다. 지갑에서 해당 트랜잭션의 세부 정보를 해독할 수 없습니다. 이 트랜잭션이 정확히 무엇을 하는지 알고 있는 경우에만 계속 진행하십시오.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "지갑은 이 거래를 시뮬레이션할 수 없으므로, 해당 거래가 무엇을 하는지 보여줄 수 없습니다. 따라서 이 거래를 승인할 수 없습니다.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "원값",
     "englishSource": "Raw value"

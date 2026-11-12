@@ -1380,6 +1380,7 @@
   "unverifiedTokenTitle": "Token no verificado",
   "couldNotVerifyBySimulation": "No se ha podido verificar mediante simulación. Los importes mostrados son los declarados por la página web.",
   "couldNotDecodeTransaction": "Esta dApp solicita una transacción personalizada. La cartera no ha podido interpretar sus detalles. Continúa solo si sabes exactamente qué hace.",
+  "customTransactionNotSimulated": "El monedero no ha podido simular esta transacción, por lo que no puede mostrar lo que hace. No puedes aprobarla.",
   "rawValue": "Valor sin procesar",
   "opaqueSignatureTitle": "Solicitud para firmar datos sin procesar",
   "opaqueSignatureWarning": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",

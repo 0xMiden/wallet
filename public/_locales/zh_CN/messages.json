@@ -6348,6 +6348,10 @@
     "message": "该 dApp 正在发起一笔自定义交易。钱包无法解析其详细信息——请仅在您完全清楚该交易具体作用的情况下继续操作。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "该钱包无法模拟此交易，因此无法显示其操作过程。您无法批准此交易。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "原始值",
     "englishSource": "Raw value"

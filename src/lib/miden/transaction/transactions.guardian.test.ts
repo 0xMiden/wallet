@@ -189,6 +189,14 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
   prepareCustomRequestBytes: async (_client: unknown, _account: string, bytes: Uint8Array) => bytes
 }));
 
+// The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
+// gives the approved effects, so the row goes on to its proposal.
+const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock('./custom-effects', () => ({
+  customEffectsCheckAccess: (...args: unknown[]) => ({ args }),
+  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();
