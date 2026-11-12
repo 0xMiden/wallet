@@ -20,9 +20,11 @@ import { useWalletStore } from 'lib/store';
 import type { FeatureUnavailableFeature } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
+import { formatNearIntentsAmount, nearIntentsArrivalText, nearIntentsFeeUsd } from './near-intents-format';
 import { BridgeRoute } from './types';
 import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
+import type { NearIntentsSendQuote, NearIntentsSendQuoteErrorCode } from './useNearIntentsSendQuote';
 
 export interface RouteStepProps {
   accent?: FlowAccent;
@@ -51,7 +53,8 @@ export interface RouteCardProps {
   onSelect: () => void;
   fee: React.ReactNode;
   feeLabelKey?: string;
-  eta: string;
+  /** The arrival estimate: a text, or a skeleton while a quote loads. */
+  eta: React.ReactNode;
   testId?: string;
   accent: FlowAccent;
   disabled?: boolean;
@@ -132,15 +135,152 @@ export type RouteOptionsProps = Pick<
   showSlowRoute?: boolean;
   /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
   usdcxPayout?: UsdcxPayoutTarget;
+  /** The NEAR Intents card, when NEAR Intents offers the network. It shows after the other cards. */
+  nearIntentsCard?: React.ReactNode;
+  /** False when no bridge route (Epoch, Agglayer, USDCx) serves the network: only `nearIntentsCard` shows. */
+  bridgeRoutesAvailable?: boolean;
+};
+
+/** Why NEAR Intents gives no quote, for the route card and the review page. Nothing for a quote that is ready. */
+export const NearIntentsQuoteMessage: React.FC<{ quote: NearIntentsSendQuote; id?: string }> = ({ quote, id }) => {
+  const { t } = useTranslation();
+  switch (quote.status) {
+    case 'unsupported':
+      return (
+        <p id={id} className="text-caption text-muted" data-testid="near-intents-route-unsupported">
+          {t('nearIntentsSendUnsupported')}
+        </p>
+      );
+    case 'error': {
+      const errorId = nearIntentsQuoteErrorId(quote.errorCode);
+      return (
+        <Notice tone="warning" variant="inline" id={id} errorId={errorId} data-testid="near-intents-route-error">
+          {t(errorId)}
+        </Notice>
+      );
+    }
+    default:
+      return null;
+  }
+};
+
+/** The message (and the user-visible error id) of a refused NEAR Intents quote. */
+export function nearIntentsQuoteErrorId(
+  code: NearIntentsSendQuoteErrorCode | undefined
+): 'nearIntentsSendNoLiquidity' | 'nearIntentsSendInvalidRecipient' | 'oneClickQuoteUnavailable' {
+  switch (code) {
+    case 'no_liquidity':
+      return 'nearIntentsSendNoLiquidity';
+    case 'invalid_recipient':
+      return 'nearIntentsSendInvalidRecipient';
+    default:
+      return 'oneClickQuoteUnavailable';
+  }
+}
+
+const NEAR_INTENTS_NOTICE_ID = 'bridge-route-near-intents-status';
+// Built in plain JS (not JSX), so the dash does not trip the no-literal-string i18n lint.
+const NO_VALUE = '—';
+
+export interface NearIntentsRouteCardProps {
+  quote: NearIntentsSendQuote;
+  selected: boolean;
+  onSelect: () => void;
+  accent: FlowAccent;
+  /** Extra message for the selected card (e.g. a token or balance notice). */
+  hint?: React.ReactNode;
+}
+
+const NEAR_INTENTS_HINT_ID = 'bridge-route-near-intents-hint';
+
+/**
+ * The NEAR Intents route card. It has the same two metrics as the other cards: the bridge fee in USD and the arrival
+ * estimate. The amount the recipient gets is a caption under them. The card is disabled when NEAR Intents can give
+ * no quote for this send.
+ */
+export const NearIntentsRouteCard: React.FC<NearIntentsRouteCardProps> = ({
+  quote,
+  selected,
+  onSelect,
+  accent,
+  hint
+}) => {
+  const { t } = useTranslation();
+  const loading = quote.status === 'loading';
+  const ready = quote.status === 'ready' ? quote.quote : undefined;
+  const destination = quote.pair?.destination;
+  const receives =
+    ready && destination ? formatNearIntentsAmount(ready.quote.amountOut, destination.decimals) : undefined;
+  const feeUsd = ready ? nearIntentsFeeUsd(ready.quote) : undefined;
+  // Drawn as the Fast fee is: `$` and the adaptive precision, or the dash when there is no value.
+  const feeText = feeUsd !== undefined ? `$${toAdaptiveFixed(feeUsd)}` : NO_VALUE;
+  const fee = loading ? (
+    <Skeleton className="h-4 w-12" />
+  ) : (
+    <span className="text-base font-bold text-ink" data-testid="near-intents-route-fee">
+      {feeText}
+    </span>
+  );
+  const eta = loading ? (
+    <Skeleton className="h-4 w-12" />
+  ) : (
+    <span data-testid="near-intents-route-eta">
+      {ready ? nearIntentsArrivalText(t, ready.quote.timeEstimate) : NO_VALUE}
+    </span>
+  );
+  const hasMessage = quote.status === 'unsupported' || quote.status === 'error';
+  const shownHint = selected ? hint : undefined;
+  const receiveLine =
+    receives !== undefined && destination
+      ? t('nearIntentsSendYouReceive', { amount: receives, symbol: destination.symbol })
+      : undefined;
+  const describedBy = (() => {
+    if (hasMessage) return NEAR_INTENTS_NOTICE_ID;
+    if (shownHint) return NEAR_INTENTS_HINT_ID;
+    return undefined;
+  })();
+
+  return (
+    <RouteCard
+      emoji=""
+      label={t('bridgeRouteNearIntents')}
+      selected={selected}
+      onSelect={() => {
+        if (!selected) onSelect();
+      }}
+      fee={fee}
+      eta={eta}
+      disabled={hasMessage}
+      loading={loading}
+      describedBy={describedBy}
+      testId="bridge-route-near-intents"
+      accent={accent}
+      description={
+        hasMessage || shownHint || receiveLine ? (
+          <>
+            {/* Outside the two metrics, so a long amount wraps here and never runs into the second column. */}
+            {receiveLine && (
+              <p className="min-w-0 text-caption text-muted wrap-break-word" data-testid="near-intents-route-receives">
+                {receiveLine}
+              </p>
+            )}
+            <NearIntentsQuoteMessage quote={quote} id={NEAR_INTENTS_NOTICE_ID} />
+            {shownHint && (
+              <p id={NEAR_INTENTS_HINT_ID} className="text-caption text-muted">
+                {shownHint}
+              </p>
+            )}
+          </>
+        ) : undefined
+      }
+    />
+  );
 };
 
 /** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
-const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent'>> = ({
-  route,
-  onRouteChange,
-  usdcxPayout,
-  accent = 'brand'
-}) => {
+const UsdcxRouteOption: React.FC<
+  Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent' | 'nearIntentsCard'>
+> = ({ route, onRouteChange, usdcxPayout, accent = 'brand', nearIntentsCard }) => {
   const { t } = useTranslation();
   const nativeFaucetId = useNativeFeeFaucetId();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
@@ -174,6 +314,7 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
           <UsdcxPayoutRows chainId={usdcxPayout.chainId} />
         </DetailCard>
       )}
+      {nearIntentsCard}
     </div>
   );
 };
@@ -237,6 +378,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   slowAvailability,
   accent = 'brand',
   usdcxPayout,
+  nearIntentsCard,
+  bridgeRoutesAvailable = true,
   showFastRoute = true,
   showSlowRoute = true
 }) => {
@@ -266,8 +409,21 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     onRouteChange(next);
   };
 
+  // Only NEAR Intents serves this network (Solana, Bitcoin, NEAR, or an EVM chain with no bridge).
+  if (!bridgeRoutesAvailable) {
+    return <div className="mt-4 flex flex-col gap-4">{nearIntentsCard}</div>;
+  }
+
   if (usdcxAvailable) {
-    return <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} accent={accent} />;
+    return (
+      <UsdcxRouteOption
+        route={route}
+        onRouteChange={onRouteChange}
+        usdcxPayout={usdcxPayout}
+        accent={accent}
+        nearIntentsCard={nearIntentsCard}
+      />
+    );
   }
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
@@ -364,6 +520,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
           }
         />
       )}
+      {nearIntentsCard}
     </div>
   );
 };

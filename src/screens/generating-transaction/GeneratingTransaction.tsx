@@ -33,6 +33,7 @@ import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transact
 import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { isOneClickDeadlineError } from 'lib/one-click/deadline';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
@@ -42,7 +43,14 @@ import { navigate, Redirect } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
-import { EXPLORER_TITLE, stepsForFlow, SUCCESS_RECEIPT_DELAY_MS, TRANSACTION_LOOP_INTERVAL_MS } from './constants';
+import {
+  EXPLORER_TITLE,
+  NEAR_INTENTS_DEPOSIT_ADDRESS_STEP,
+  NEAR_INTENTS_SEND_STEP,
+  stepsForFlow,
+  SUCCESS_RECEIPT_DELAY_MS,
+  TRANSACTION_LOOP_INTERVAL_MS
+} from './constants';
 import {
   getActiveStepIndex,
   getProcessingTitleKey,
@@ -53,6 +61,8 @@ import {
   getTransactionStepState,
   isDirectGuardianSwitch,
   isUnconfirmedGuardianSwitch,
+  getNearIntentsSendStepState,
+  nearIntentsSendTracking,
   waitsToDeliverNote
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
@@ -166,7 +176,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [verdictPending]);
 
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
-  // row to the receipt (#1081).
+  // row to the receipt (#1081). A NEAR Intents send is done here when its Miden transaction completes: its delivery
+  // on the destination chain continues in Activity.
   const transactionComplete =
     status === ITransactionStatus.Completed ||
     status === ITransactionStatus.Failed ||
@@ -402,6 +413,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     () => stepsForFlow(isGuardian, signedLocally, deliversNote),
     [isGuardian, signedLocally, deliversNote]
   );
+  // A NEAR Intents send shows two steps: the deposit address (asked for on the review page, before the row
+  // existed, so always complete here) and the send to it, whose sub-steps are the Miden steps above.
+  const isNearIntentsSend = nearIntentsSendTracking(activeTransaction ?? completedTransaction) !== undefined;
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
@@ -428,6 +442,25 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     };
   }, [hasErrors, transactionComplete]);
 
+  // A NEAR Intents send is not requeueable: its deposit quote and funding deadline belong to the first attempt, and
+  // a replay could pay the old deposit address. When its Miden transaction failed for certain (the outcome is
+  // known), no funds moved; the page says so and offers a new send, which gets a new quote. An outcome that is not
+  // known gets the usual not-confirmed copy and no new send, because the first one can still land.
+  const nearIntentsFailureKey = (() => {
+    if (!isNearIntentsSend || !transactionComplete || !hasErrors || unconfirmed || failedRow === undefined) {
+      return undefined;
+    }
+    // The pipeline stores the message of the `OneClickDeadlineError` it throws when the deadline passed before submit.
+    if (isOneClickDeadlineError(failedRow.error) || isOneClickDeadlineError(failedRow.rawError)) {
+      return 'nearIntentsSendQuoteExpired';
+    }
+    // A refusal the submission feedback names keeps its own copy.
+    if (submission !== undefined) return undefined;
+    return 'nearIntentsSendNotSentDescription';
+  })();
+  const offerNewSend = isNearIntentsSend && transactionComplete && hasErrors && !unconfirmed && !canRetry;
+  const onStartNewSend = useCallback(() => navigate('/send'), []);
+
   const stepDurationLabels = useMemo(
     () =>
       getStepDurationsMs(steps, stageTimestamps).map(ms =>
@@ -447,6 +480,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [transactionComplete, hasErrors, unconfirmed, t, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
+    if (nearIntentsFailureKey !== undefined) return t(nearIntentsFailureKey);
     if (transactionComplete && hasErrors) {
       if (submission !== undefined) return submission.rowCopy ?? t(submission.messageKey);
       if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
@@ -464,6 +498,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (guardianBusy) return t('guardianBusyDescription');
     return t(getStageDescriptionKey(activeStage));
   }, [
+    nearIntentsFailureKey,
     transactionComplete,
     hasErrors,
     unconfirmed,
@@ -488,7 +523,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // During processing the title is type-based ("Sending Payment") rather than
   // stage-based, matching the redesign. `send` and `swap` have bespoke titles;
   // other types fall back to the generic label.
-  const processingTitleKey = getProcessingTitleKey(activeType);
+  const processingTitleKey = getProcessingTitleKey(activeType, activeTransaction ?? completedTransaction);
   const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const footerDescription =
@@ -555,9 +590,26 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 {t('retry')}
               </Button>
             )}
+            {/* A NEAR Intents send has no Retry; a new send asks 1Click for a new deposit address. */}
+            {offerNewSend && (
+              <Button
+                type="button"
+                variant={ButtonVariant.Primary}
+                accent={accent}
+                onClick={onStartNewSend}
+                className="w-full max-w-none"
+                data-testid="near-intents-start-new-send"
+              >
+                {t('nearIntentsSendStartNew')}
+              </Button>
+            )}
             <Button
               type="button"
-              variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+              variant={
+                transactionComplete && hasErrors && (canRetry || offerNewSend)
+                  ? ButtonVariant.Secondary
+                  : ButtonVariant.Primary
+              }
               accent={accent}
               onClick={onDoneClick}
               className="w-full max-w-none"
@@ -625,6 +677,23 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               accent === 'earn' ? classNames(outlineSurfaceClassName, 'face-heading') : 'bg-fill'
             )}
           >
+            {isNearIntentsSend && (
+              <>
+                <TransactionStepRow
+                  step={NEAR_INTENTS_DEPOSIT_ADDRESS_STEP}
+                  state="complete"
+                  accent={accent}
+                  isLast={false}
+                />
+                <TransactionStepRow
+                  step={NEAR_INTENTS_SEND_STEP}
+                  state={getNearIntentsSendStepState(transactionComplete, hasErrors, unconfirmed)}
+                  accent={accent}
+                  isLast={false}
+                />
+              </>
+            )}
+            {/* For a NEAR Intents send these are the sub-steps of "Sending to deposit address". */}
             {steps.map((step, index) => {
               const waitingOnGuardian = guardianBusy && index === 0;
               const state = waitingOnGuardian
@@ -639,6 +708,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                   accent={accent}
                   isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
+                  nested={isNearIntentsSend}
                 />
               );
             })}
@@ -652,6 +722,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               details={submission?.details ?? failedRow?.rawError ?? failedRow?.error}
               className="mt-2 w-full items-center"
             />
+          )}
+          {/* The NEAR Intents copy takes the place of the row's own error, so that error stays one tap away. */}
+          {nearIntentsFailureKey === 'nearIntentsSendNotSentDescription' && (
+            <ErrorDetails details={failedRow?.error ?? failedRow?.rawError} className="mt-2 w-full items-center" />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -7,19 +7,24 @@ import { isFeatureBlocked } from 'components/FeatureUnavailable';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 
-import { RouteOptions, RouteOptionsProps } from './Route';
+import { NearIntentsRouteCard, RouteOptions, RouteOptionsProps } from './Route';
 import { sendTokenRoutes } from './send-token-routes';
 import { SendStepLayout } from './SendStepLayout';
 import { useAgglayerEligibility } from './useAgglayerEligibility';
+import { useNearIntentsSendQuote } from './useNearIntentsSendQuote';
 
 export interface SendRouteProps extends Omit<
   RouteOptionsProps,
-  'slowStatus' | 'fastAvailability' | 'slowAvailability'
+  'slowStatus' | 'fastAvailability' | 'slowAvailability' | 'nearIntentsCard' | 'bridgeRoutesAvailable'
 > {
   faucetId: string;
   destinationChainId?: number;
   onBack: () => void;
   onConfirm: () => void;
+  /** Set when NEAR Intents offers the selected network. SendRoute then shows the NEAR Intents card and its quote. */
+  nearIntents?: { chainId: string; recipient: string; amount?: bigint };
+  /** False when no bridge route (Epoch, Agglayer, USDCx) serves the selected network; SendRoute then shows only the NEAR Intents card. */
+  bridgeRoutesAvailable: boolean;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
@@ -28,6 +33,8 @@ export const SendRoute: React.FC<SendRouteProps> = ({
   destinationChainId,
   onBack,
   onConfirm,
+  nearIntents,
+  bridgeRoutesAvailable,
   ...options
 }) => {
   const { t } = useTranslation();
@@ -53,16 +60,34 @@ export const SendRoute: React.FC<SendRouteProps> = ({
     routes?.agglayer === false && slowFeatureAvailability.state === 'available'
       ? { state: 'unavailable', reason: 'not-configured', detail: 'No AggLayer withdrawal on the selected chain' }
       : slowFeatureAvailability;
-  // The Circle route has its own availability check.
+  const nearIntentsQuote = useNearIntentsSendQuote({
+    chainId: nearIntents?.chainId,
+    faucetId,
+    amount: nearIntents?.amount,
+    recipient: nearIntents?.recipient,
+    enabled: nearIntents !== undefined
+  });
+  const { route, onRouteChange } = options;
+  const nearIntentsOffered = nearIntents !== undefined;
+
+  // With no bridge route, NEAR Intents is the only card, so it is the selected route.
+  useEffect(() => {
+    if (!bridgeRoutesAvailable && nearIntentsOffered && route !== 'near-intents') onRouteChange('near-intents');
+  }, [bridgeRoutesAvailable, nearIntentsOffered, route, onRouteChange]);
+
+  // The Circle route has its own availability check. NEAR Intents reads its own config: the quote is ready only when
+  // that config, the pair and the quote are there.
   const confirmBlocked = (() => {
-    switch (options.route) {
+    switch (route) {
+      case 'near-intents':
+        return nearIntents === undefined || nearIntentsQuote.status !== 'ready';
       case 'epoch':
-        return isFeatureBlocked(fastAvailability);
+        return !bridgeRoutesAvailable || isFeatureBlocked(fastAvailability);
       case 'agglayer':
-        return isFeatureBlocked(slowAvailability) || slowStatus !== 'allowed';
+        return !bridgeRoutesAvailable || isFeatureBlocked(slowAvailability) || slowStatus !== 'allowed';
       case 'usdcx':
       default:
-        return !options.usdcxAvailable;
+        return !bridgeRoutesAvailable || !options.usdcxAvailable;
     }
   })();
 
@@ -93,6 +118,18 @@ export const SendRoute: React.FC<SendRouteProps> = ({
         slowFeature="bridgeOut"
         slowAvailability={slowAvailability}
         accent="send"
+        bridgeRoutesAvailable={bridgeRoutesAvailable}
+        nearIntentsCard={
+          nearIntents !== undefined ? (
+            <NearIntentsRouteCard
+              quote={nearIntentsQuote}
+              selected={route === 'near-intents'}
+              onSelect={() => onRouteChange('near-intents')}
+              accent="send"
+              hint={options.notice}
+            />
+          ) : undefined
+        }
       />
     </SendStepLayout>
   );

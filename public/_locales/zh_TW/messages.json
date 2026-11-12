@@ -52,6 +52,159 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR 意圖",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ 秒",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ 分鐘",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "您將收到 $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents 並未在此網路中提供此代幣。",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "此金額過小，無法用於 NEAR Intents。請輸入較大的金額。",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents 無法將訊息傳送至此地址。請檢查地址及網路。",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "報價已變更，目前提供的金額低於您審閱的金額。請審閱新報價，然後再次確認。",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "報價在付款開始前已過期。請檢視新報價，然後再次確認。",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "若交換失敗，NEAR Intents 將向此 Miden 帳戶退還該筆金額。",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "已產生存款地址",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "發送至存款地址",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "開始新的轉帳",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "支付至存款地址的交易失敗，因此資金並未轉移。請重新發起一筆轉帳以取得新的存款地址。",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "生成存款地址",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "資金已發送至 NEAR Intents。發送至 $network$ 的過程仍在進行中。請在「活動」中追蹤其狀態。",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents 已透過 $network$ 完成付款。",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "收款人將獲得（估計）",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "交割狀態",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "發送至 NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "已送達收件人",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "已過期",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "付款已退還",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents 無法完成交換交易，並已將該金額退還至您的 Miden 帳戶。",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "交割失敗",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents 無法完成此筆付款。請開啟活動頁面查看詳細資訊。",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "交割已過期",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents 未能及時處理此筆付款。請開啟活動頁面以查看詳細資訊。",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "收件者收到",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "在 $network$ 區塊鏈瀏覽器上查看",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "此轉帳無法使用此路徑。您可以選擇其他可用的路徑繼續操作。此畫面尚未提交任何交易。",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -1168,10 +1321,6 @@
     "message": "返回",
     "englishSource": "Back"
   },
-  "backToSwap": {
-    "message": "返回交換頁面",
-    "englishSource": "Back to swap"
-  },
   "skip": {
     "message": "跳過",
     "englishSource": "Skip"
@@ -2260,8 +2409,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "輸入 Miden 或 Ethereum 位址",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "輸入地址",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "此錢包無法向此地址發送資金",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "比特幣",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "選擇金額",
@@ -2307,10 +2472,6 @@
   "swap": {
     "message": "交換",
     "englishSource": "Swap"
-  },
-  "confirmSwap": {
-    "message": "確認交換",
-    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "透過 In Protocol Dex",
@@ -7962,100 +8123,13 @@
     "message": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "oneClickSelectAsset": {
-    "message": "在 $network$ 上選擇一種代幣",
-    "englishSource": "Select a token on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickNoAssets": {
-    "message": "此網路中不存在任何已驗證的代幣。",
-    "englishSource": "No verified tokens are available on this network."
-  },
-  "oneClickRecipientSection": {
-    "message": "收件人",
-    "englishSource": "Recipient"
-  },
-  "oneClickRefundSection": {
-    "message": "退款帳戶",
-    "englishSource": "Refund account"
-  },
-  "oneClickRecipientAddress": {
-    "message": "收款地址",
-    "englishSource": "Recipient address"
-  },
-  "oneClickRefundAddress": {
-    "message": "來源網路上的退款地址",
-    "englishSource": "Refund address on the origin network"
-  },
-  "oneClickRefundAccount": {
-    "message": "退款帳戶",
-    "englishSource": "Refund account"
-  },
-  "oneClickConnectOriginWallet": {
-    "message": "連接 $network$ 錢包",
-    "englishSource": "Connect $network$ wallet",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickChooseForeignNetwork": {
-    "message": "請選擇 Miden 以外的來源或目的地網路。",
-    "englishSource": "Choose an origin or destination network outside Miden."
-  },
-  "oneClickDifferentNetworksRequired": {
-    "message": "請選擇兩個不同的網路。",
-    "englishSource": "Choose two different networks."
-  },
-  "oneClickMidenAssetRequired": {
-    "message": "請為此路徑的一端選擇一個已驗證的 Miden 代幣。",
-    "englishSource": "Choose a verified Miden token for one side of this route."
-  },
-  "oneClickSameUnderlyingBridge": {
-    "message": "此為跨鏈轉帳。請針對此資產使用現有的跨鏈流程。",
-    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
-  },
   "oneClickQuoteUnavailable": {
     "message": "此路徑無法取得報價。請檢查地址並重新嘗試。",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
-  "oneClickQuoteExpiresAt": {
-    "message": "報價失效",
-    "englishSource": "Quote expires"
-  },
-  "oneClickQuoteExpired": {
-    "message": "已過期。請刷新頁面後繼續。",
-    "englishSource": "Expired. Refresh before continuing."
-  },
-  "oneClickConfirmMidenDeposit": {
-    "message": "確認此筆 Miden 存款",
-    "englishSource": "Confirm this Miden deposit"
-  },
   "oneClickSubmitFailed": {
     "message": "無法提交存款。請檢查操作路徑並重試。",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
-  },
-  "oneClickRouteChanged": {
-    "message": "路徑已變更。請在繼續之前索取新的報價。",
-    "englishSource": "The route changed. Request a new quote before continuing."
-  },
-  "oneClickArrivalEstimate": {
-    "message": "約 $minutes$ 分鐘",
-    "englishSource": "About $minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefreshQuote": {
-    "message": "重新擷取報價",
-    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "最低收款金額",
@@ -8069,108 +8143,13 @@
     "message": "退款金額",
     "englishSource": "Refund amount"
   },
-  "oneClickNativeFee": {
-    "message": "預估 Miden 網路手續費",
-    "englishSource": "Estimated Miden network fee"
-  },
-  "oneClickAvailableBalance": {
-    "message": "可用外部餘額",
-    "englishSource": "Available external balance"
-  },
-  "oneClickBalanceChecking": {
-    "message": "檢查外部餘額",
-    "englishSource": "Checking external balance"
-  },
-  "oneClickBalanceCheckingBody": {
-    "message": "檢查已連結的帳戶，並預留足夠的資金以支付網路手續費。",
-    "englishSource": "Checking the connected account and reserving enough for the network fee."
-  },
-  "oneClickBalanceUnavailable": {
-    "message": "外部餘額不可用",
-    "englishSource": "External balance unavailable"
-  },
-  "oneClickBalanceUnavailableBody": {
-    "message": "錢包無法驗證已連線帳戶的餘額及網路手續費。請重新連線或稍後再試，然後繼續操作。",
-    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
-  },
-  "oneClickGasReserve": {
-    "message": "預留作為網路手續費：$amount$ $symbol$",
-    "englishSource": "Reserved for network fees: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "oneClickInsufficientTokenBalance": {
-    "message": "代幣餘額不足",
-    "englishSource": "Insufficient token balance"
-  },
-  "oneClickInsufficientTokenBalanceBody": {
-    "message": "該連結帳戶持有的此代幣數量不足以滿足報價的存款要求。",
-    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
-  },
-  "oneClickInsufficientGasBalance": {
-    "message": "網路手續費餘額不足",
-    "englishSource": "Insufficient network fee balance"
-  },
-  "oneClickInsufficientGasBalanceBody": {
-    "message": "該連結帳戶需要更多 $symbol$ 來支付預估的網路手續費。",
-    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
-    "placeholders": {
-      "symbol": {
-        "content": "$1"
-      }
-    }
-  },
   "oneClickArrival": {
     "message": "預計抵達時間",
     "englishSource": "Estimated arrival"
   },
-  "oneClickRecipient": {
-    "message": "收件人",
-    "englishSource": "Recipient"
-  },
-  "oneClickRoute": {
-    "message": "路由",
-    "englishSource": "Route"
-  },
-  "oneClickYouPayFrom": {
-    "message": "您需透過 $network$ 進行支付",
-    "englishSource": "You pay on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickYouReceiveOn": {
-    "message": "您將收到 $network$",
-    "englishSource": "You receive on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefundFee": {
-    "message": "退款手續費",
-    "englishSource": "Refund fee"
-  },
-  "oneClickWithdrawFee": {
-    "message": "提領手續費",
-    "englishSource": "Withdrawal fee"
-  },
   "oneClickDepositInstructions": {
     "message": "存款指示",
     "englishSource": "Deposit instructions"
-  },
-  "oneClickManualDepositNotice": {
-    "message": "請透過所選網路發送下方所示的確切金額。只有當轉帳到達存入地址後，兌換才會開始。",
-    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "網路",
@@ -8199,42 +8178,6 @@
   "oneClickOriginTransaction": {
     "message": "原始交易",
     "englishSource": "Origin transaction"
-  },
-  "oneClickTrackingSaved": {
-    "message": "此操作路徑已儲存於「活動」中，以便您日後追蹤。",
-    "englishSource": "This route is saved in Activity so you can track it later."
-  },
-  "oneClickBroadcastTrackingPending": {
-    "message": "該錢包已提交此筆存款，但尚未能儲存其交易紀錄。請勿再次發送。交易哈希值如下所示。",
-    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
-  },
-  "oneClickRefreshingExpiredQuote": {
-    "message": "刷新已過期的報價",
-    "englishSource": "Refreshing expired quote"
-  },
-  "oneClickRecoveryUnavailable": {
-    "message": "此路徑無法重新整理",
-    "englishSource": "This route cannot be refreshed"
-  },
-  "oneClickRecoveryUnavailableBody": {
-    "message": "帳戶、網路或已驗證的路徑已變更。請返回交易頁面，並在必要時建立新的路徑。",
-    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
-  },
-  "oneClickExpiredRefreshFailed": {
-    "message": "過期的報價無法更新。請在發送前重新嘗試以取得新的報價。",
-    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
-  },
-  "oneClickQuoteRefreshed": {
-    "message": "報價已更新",
-    "englishSource": "Quote refreshed"
-  },
-  "oneClickExpiredRefreshNotice": {
-    "message": "先前報價在您的存款送出前已過期。請檢視此更新後的交易路徑並確認以繼續。",
-    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
-  },
-  "oneClickDepositSubmitted": {
-    "message": "已提交存款",
-    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "發現存款交易",
@@ -8652,18 +8595,6 @@
   "nearIntentsNoLiquidity": {
     "message": "此金額的流動性不足。請嘗試其他金額。",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
-  },
-  "availableAmount": {
-    "message": "可用：$amount$ $symbol$",
-    "englishSource": "Available: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
   },
   "amountExceedsTokenDecimals": {
     "message": "此金額的小數位數超過該代幣所允許的範圍。",

@@ -1,6 +1,22 @@
 import { NetworkChipKind } from 'components/NetworkChip';
 import { BRIDGE_NETWORKS, BridgeNetwork, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
-import { detectAddressChain } from 'utils/miden';
+import { type AddressChain, detectAddressChain } from 'utils/miden';
+
+/**
+ * True when the address book can save an address of this chain. A contact is a Miden or an EVM address: the contact
+ * model has no network for a Solana, Bitcoin or NEAR address.
+ */
+export function isContactAddressChain(chain: AddressChain): boolean {
+  switch (chain) {
+    case 'miden':
+    case 'ethereum':
+      return true;
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return false;
+  }
+}
 
 export interface ContactNetwork {
   kind: NetworkChipKind;

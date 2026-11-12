@@ -52,6 +52,7 @@ import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
   earnWithdrawAmountFields,
   labelHistoryEntry,
+  nearIntentsSendHistoryFields,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -820,6 +821,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
     bridgeReclaimHeight: bridge?.reclaimHeight,
+    bridgeOneClickPhase: nearIntentsSendHistoryFields(tx).bridgeOneClickPhase,
     bridgeInPhase: bridgedReceive?.phase,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
     oneClickTracking: bridgedReceive?.oneClick,
@@ -1069,7 +1071,9 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      // Last: a NEAR Intents send takes its amount and symbol from its own tracking.
+      ...nearIntentsSendHistoryFields(tx)
     } as IHistoryEntry;
 
     return entry;
@@ -1208,7 +1212,9 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
-      earnDepositStatus: earnDeposit?.epochStatus
+      earnDepositStatus: earnDeposit?.epochStatus,
+      // Last: a NEAR Intents send takes its amount and symbol from its own tracking.
+      ...nearIntentsSendHistoryFields(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

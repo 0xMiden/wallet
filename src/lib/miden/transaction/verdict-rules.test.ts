@@ -70,6 +70,7 @@ describe('canAwaitVerdict', () => {
     ['execute', { type: 'execute' }, true],
     ['Agglayer bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }, true],
     ['USDCx bridged-send', { type: 'bridged-send', extraInputs: { provider: 'usdcx' } }, true],
+    ['NEAR Intents bridged-send', { type: 'bridged-send', extraInputs: { provider: 'near-intents' } }, true],
     ['Epoch bridged-send', { type: 'bridged-send', extraInputs: { provider: 'epoch' } }, false],
     ['bridged-send with no provider', { type: 'bridged-send' }, false],
     ['earn-deposit', { type: 'earn-deposit' }, false],

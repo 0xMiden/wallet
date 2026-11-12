@@ -149,7 +149,7 @@ function buildRowProps(
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
         ? {
-            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outLabel}`,
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.amountLabel}`,
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
             // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
             preformatted: true

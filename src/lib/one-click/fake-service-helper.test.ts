@@ -16,8 +16,7 @@ const assets: OneClickAsset[] = [
     blockchain: 'eth',
     symbol: 'USDC',
     decimals: 6,
-    contractAddress: '0x1111111111111111111111111111111111111111',
-    chainId: 1
+    contractAddress: '0x1111111111111111111111111111111111111111'
   },
   { assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6, faucetId }
 ];
@@ -75,11 +74,15 @@ describe('fake 1Click test service', () => {
     expect(first.quote.depositAddress).toBeUndefined();
   });
 
-  it('rejects malformed fee entries instead of signing a filtered request', async () => {
+  it.each([
+    ['a valid fee list', [{ recipient: 'wallet.near', fee: 10 }]],
+    ['an empty fee list', []],
+    ['a malformed fee list', [{ recipient: 'miden', fee: '10' }]]
+  ])('refuses a quote request that names %s, as the proxy does', async (_label, appFees) => {
     const response = await fetch(`${service.baseUrl}/v0/quote`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...requestBody(quoteRequest(true)), appFees: [{ recipient: 'miden', fee: '10' }] })
+      body: JSON.stringify({ ...requestBody(quoteRequest(true)), appFees })
     });
     expect(response.status).toBe(400);
   });

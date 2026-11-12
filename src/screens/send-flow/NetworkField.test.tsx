@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
+import type { SendNetwork } from './bridge-networks';
 import { NetworkField } from './NetworkField';
 import {
   selectContactNetwork,
@@ -12,11 +13,36 @@ import {
 } from '../../../playwright/e2e/helpers/contact-network';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [] }));
-const networks = [
-  { id: 'base', name: 'Base', chainId: 8453 },
-  { id: 'arbitrum', name: 'Arbitrum', chainId: 42161 }
+jest.mock('./bridge-networks', () => ({ EVM_SEND_NETWORKS: [] }));
+const networks: SendNetwork[] = [
+  { id: 'base', name: 'Base', kind: 'evm', chainId: 8453, bridge: true },
+  { id: 'arbitrum', name: 'Arbitrum', kind: 'evm', chainId: 42161, bridge: true }
 ];
+// The union list: EVM networks and the NEAR Intents chains of other address kinds.
+const unionNetworks: SendNetwork[] = [
+  ...networks,
+  { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false },
+  { id: 'bitcoin', name: 'Bitcoin', kind: 'bitcoin', nearIntentsChainId: 'btc', bridge: false }
+];
+
+it('shows a Solana address its one network as a fixed row with no picker', () => {
+  render(
+    <NetworkField chain="solana" networks={unionNetworks} network="solana" onSelect={jest.fn()} testIdPrefix="send" />
+  );
+  expect(screen.getByTestId('send-network-solana')).toHaveTextContent('Solana');
+  expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+  expect(screen.queryByText('Base')).not.toBeInTheDocument();
+});
+
+it('offers an EVM address only the EVM networks of the union list', () => {
+  render(
+    <NetworkField chain="ethereum" networks={unionNetworks} network="base" onSelect={jest.fn()} testIdPrefix="send" />
+  );
+  fireEvent.click(screen.getByTestId('send-network-picker'));
+  expect(screen.getByTestId('send-network-arbitrum')).toBeInTheDocument();
+  expect(screen.queryByTestId('send-network-solana')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('send-network-bitcoin')).not.toBeInTheDocument();
+});
 
 it('opens the destination list, changes network and closes the picker', () => {
   const select = jest.fn();

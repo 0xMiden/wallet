@@ -59,8 +59,7 @@ describe('fake 1Click default quote amounts', () => {
       assetId: 'nep141:eth.omft.near',
       blockchain: 'eth',
       symbol: 'ETH',
-      decimals: 18,
-      chainId: 1
+      decimals: 18
     };
     const usdcAsset: OneClickAsset = { assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6 };
     const service = new FakeOneClickService({ tokens: [ethAsset, usdcAsset] });

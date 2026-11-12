@@ -138,6 +138,7 @@ describe('HistoryItem', () => {
       inLabel: 'Test Epoch USDC',
       outLabel: 'Test Epoch USDC',
       outAmount: '4.98',
+      amountLabel: 'Test Epoch USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -146,6 +147,32 @@ describe('HistoryItem', () => {
     render(<HistoryItem entry={makeEntry({ txType: 'bridged-send' })} fullHistory lastEntry={false} />);
 
     expect(screen.getByText('4.98 Test Epoch USDC')).toBeInTheDocument();
+  });
+
+  it('shows a NEAR Intents send with the sent amount, its symbol and the destination chain', () => {
+    jest.mocked(bridgeRowDisplay).mockReturnValue({
+      inSymbol: 'ETH',
+      outSymbol: 'SOL',
+      inLabel: 'ETH',
+      outLabel: 'SOL',
+      outAmount: '0.0105',
+      amountLabel: 'ETH',
+      providerLabel: 'NEAR Intents',
+      network: 'Solana',
+      status: 'pending'
+    });
+
+    render(
+      <HistoryItem
+        entry={makeEntry({ txType: 'bridged-send', bridgeProvider: 'near-intents' })}
+        fullHistory
+        lastEntry={false}
+      />
+    );
+
+    expect(screen.getByText('0.0105 ETH')).toBeInTheDocument();
+    expect(screen.getByText('t:bridgeRowTitle')).toBeInTheDocument();
+    expect(screen.getByText('t:bridgeRowVia')).toBeInTheDocument();
   });
 
   it.each([
@@ -161,6 +188,7 @@ describe('HistoryItem', () => {
       inLabel: 'Miden USDCx',
       outLabel: 'Sepolia USDC',
       outAmount: '10',
+      amountLabel: 'Sepolia USDC',
       providerLabel: 'USDCx',
       network: 'Sepolia',
       status: 'pending'
@@ -542,6 +570,7 @@ describe('HistoryItem', () => {
         inLabel: 'USDC',
         outLabel: longToken,
         outAmount: longAmount.toString(),
+        amountLabel: longToken,
         providerLabel: 'Epoch',
         network: 'Sepolia',
         status: 'pending'

@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import type { IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { type IBridgedSendExtraInputs, type ITransaction, nearIntentsSendTrackingOf } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { detectAddressChain } from 'utils/miden';
+import { type AddressChain, detectAddressChain } from 'utils/miden';
 
-import { BRIDGE_NETWORKS } from './bridge-networks';
+import { BRIDGE_NETWORKS, getSendNetwork } from './bridge-networks';
 import { RecentRecipient } from './types';
 
 /** How many distinct recipients the "Recent" list shows. */
@@ -21,6 +21,23 @@ const EMPTY_RECENTS: RecentRecipient[] = [];
  * recipient comes from `extraInputs.destinationAddress` instead.
  */
 const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
+  // A NEAR Intents send (a `bridged-send` row, or a `send` row of an older build) pays a 1Click deposit address on
+  // Miden, which is used once and must never be offered again. The recipient the user chose is the quote's
+  // `recipient`, on the chain the config names. A row whose two recipient fields disagree gives no entry.
+  const oneClick = nearIntentsSendTrackingOf(row);
+  if (oneClick) {
+    if (oneClick.direction !== 'miden-to-evm') return undefined;
+    const address = oneClick.request.recipient.trim();
+    if (!address) return undefined;
+    if (row.type === 'bridged-send') {
+      const extraInputs: IBridgedSendExtraInputs | undefined = row.extraInputs;
+      if (extraInputs?.destinationAddress?.trim() !== address) return undefined;
+    }
+    const chainId = oneClick.destinationAsset.blockchain;
+    const chains = Array.isArray(oneClick.config.chains) ? oneClick.config.chains : [];
+    return { address, networkName: chains.find(chain => chain.id === chainId)?.name };
+  }
+
   if (row.type === 'send') {
     const address = row.secondaryAccountId?.trim();
     return address ? { address } : undefined;
@@ -36,6 +53,23 @@ const recipientOf = (row: ITransaction): { address: string; networkName?: string
   }
 
   return undefined;
+};
+
+/**
+ * The network name of a recent recipient. A Solana, Bitcoin or NEAR address takes the NEAR Intents chain name from
+ * the config (the send network id of these chains is the chain name), never the name of an EVM chain id on the row.
+ * A Miden or EVM address keeps the name from the row.
+ */
+const recentNetworkName = (chain: AddressChain, rowNetworkName: string | undefined): string | undefined => {
+  switch (chain) {
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return getSendNetwork(chain)?.name;
+    case 'miden':
+    case 'ethereum':
+      return rowNetworkName;
+  }
 };
 
 /** Newest first; a queued row has no `completedAt` yet, so fall back to `initiatedAt`. */
@@ -64,10 +98,11 @@ export const selectRecentRecipients = (rows: ITransaction[], accountId: string):
     if (seen.has(key) || compareAccountIds(recipient.address, accountId) || key === accountId.toLowerCase()) continue;
 
     seen.add(key);
+    const chain = detectAddressChain(recipient.address);
     recents.push({
       address: recipient.address,
-      chain: detectAddressChain(recipient.address),
-      networkName: recipient.networkName
+      chain,
+      networkName: recentNetworkName(chain, recipient.networkName)
     });
 
     if (recents.length === MAX_RECENT_RECIPIENTS) break;

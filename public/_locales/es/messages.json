@@ -52,6 +52,159 @@
     "message": "Lenta · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ segundos",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ minutos",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Recibes $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents no ofrece este token en esta red.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Esta cantidad es demasiado pequeña para NEAR Intents. Introduce una cantidad mayor.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents no puede realizar entregas en esta dirección. Comprueba la dirección y la red.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "La cotización ha cambiado y ahora ofrece menos de lo que habías revisado. Revisa la nueva cotización y, a continuación, vuelve a confirmar.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "La cotización caducó antes de que se iniciara el pago. Revisa la nueva cotización y, a continuación, vuelve a confirmar.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Si el intercambio falla, NEAR Intents reembolsa el importe a esta cuenta de Miden.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Dirección de depósito generada",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Envío a la dirección de depósito",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Iniciar un nuevo envío",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "El pago a la dirección de depósito ha fallado, por lo que no se han transferido fondos. Inicia un nuevo envío para obtener una nueva dirección de depósito.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Generación de una dirección de depósito",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Los fondos se envían a NEAR Intents. La entrega a $network$ continúa. Sigue su estado en «Actividad».",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents realizó el pago en $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "El destinatario recibe (estimación)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Estado de la entrega",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Envío a NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Entregado al destinatario",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Caducado",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Pago reembolsado",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents no ha podido completar el intercambio y ha reembolsado el importe a tu cuenta de Miden.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Entrega fallida",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents no ha podido realizar este pago. Abre la actividad para ver los detalles.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Plazo de entrega vencido",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents no procesó este pago a tiempo. Consulta la actividad abierta para obtener más detalles.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "El destinatario recibió",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Ver en el explorador de $network$",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -1168,10 +1321,6 @@
     "message": "Atrás",
     "englishSource": "Back"
   },
-  "backToSwap": {
-    "message": "Volver a «swap»",
-    "englishSource": "Back to swap"
-  },
   "skip": {
     "message": "Omitir",
     "englishSource": "Skip"
@@ -2260,8 +2409,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Introduce una dirección de Miden o Ethereum",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Introduce la dirección",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Esta cartera no puede realizar envíos a esta dirección",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Seleccionar importe",
@@ -2307,10 +2472,6 @@
   "swap": {
     "message": "Intercambiar",
     "englishSource": "Swap"
-  },
-  "confirmSwap": {
-    "message": "Confirmar el intercambio",
-    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Mediante In Protocol Dex",
@@ -7968,100 +8129,13 @@
     "message": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "oneClickSelectAsset": {
-    "message": "Selecciona un token en $network$",
-    "englishSource": "Select a token on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickNoAssets": {
-    "message": "No hay tokens verificados disponibles en esta red.",
-    "englishSource": "No verified tokens are available on this network."
-  },
-  "oneClickRecipientSection": {
-    "message": "Destinatario",
-    "englishSource": "Recipient"
-  },
-  "oneClickRefundSection": {
-    "message": "Cuenta de reembolso",
-    "englishSource": "Refund account"
-  },
-  "oneClickRecipientAddress": {
-    "message": "Dirección del destinatario",
-    "englishSource": "Recipient address"
-  },
-  "oneClickRefundAddress": {
-    "message": "Dirección de reembolso en la red de origen",
-    "englishSource": "Refund address on the origin network"
-  },
-  "oneClickRefundAccount": {
-    "message": "Cuenta de reembolso",
-    "englishSource": "Refund account"
-  },
-  "oneClickConnectOriginWallet": {
-    "message": "Conectar el monedero $network$",
-    "englishSource": "Connect $network$ wallet",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickChooseForeignNetwork": {
-    "message": "Elige una red de origen o destino ajena a Miden.",
-    "englishSource": "Choose an origin or destination network outside Miden."
-  },
-  "oneClickDifferentNetworksRequired": {
-    "message": "Elige dos redes diferentes.",
-    "englishSource": "Choose two different networks."
-  },
-  "oneClickMidenAssetRequired": {
-    "message": "Elige un token Miden verificado para una de las partes de esta ruta.",
-    "englishSource": "Choose a verified Miden token for one side of this route."
-  },
-  "oneClickSameUnderlyingBridge": {
-    "message": "Se trata de una transferencia de puente. Utiliza el flujo de puente existente para este activo.",
-    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
-  },
   "oneClickQuoteUnavailable": {
     "message": "No hay cotización disponible para esta ruta. Comprueba las direcciones e inténtalo de nuevo.",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
-  "oneClickQuoteExpiresAt": {
-    "message": "La cotización caduca",
-    "englishSource": "Quote expires"
-  },
-  "oneClickQuoteExpired": {
-    "message": "Caducado. Actualiza la página antes de continuar.",
-    "englishSource": "Expired. Refresh before continuing."
-  },
-  "oneClickConfirmMidenDeposit": {
-    "message": "Confirma este ingreso en Miden",
-    "englishSource": "Confirm this Miden deposit"
-  },
   "oneClickSubmitFailed": {
     "message": "No se ha podido enviar el depósito. Revisa la ruta e inténtalo de nuevo.",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
-  },
-  "oneClickRouteChanged": {
-    "message": "La ruta ha cambiado. Solicita un nuevo presupuesto antes de continuar.",
-    "englishSource": "The route changed. Request a new quote before continuing."
-  },
-  "oneClickArrivalEstimate": {
-    "message": "Aproximadamente $minutes$ min",
-    "englishSource": "About $minutes$ min",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefreshQuote": {
-    "message": "Actualizar cotización",
-    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "Mínimo recibido",
@@ -8075,108 +8149,13 @@
     "message": "Importe del reembolso",
     "englishSource": "Refund amount"
   },
-  "oneClickNativeFee": {
-    "message": "Tarifa estimada de la red Miden",
-    "englishSource": "Estimated Miden network fee"
-  },
-  "oneClickAvailableBalance": {
-    "message": "Saldo externo disponible",
-    "englishSource": "Available external balance"
-  },
-  "oneClickBalanceChecking": {
-    "message": "Comprobación del saldo externo",
-    "englishSource": "Checking external balance"
-  },
-  "oneClickBalanceCheckingBody": {
-    "message": "Comprobar la cuenta vinculada y reservar fondos suficientes para la comisión de red.",
-    "englishSource": "Checking the connected account and reserving enough for the network fee."
-  },
-  "oneClickBalanceUnavailable": {
-    "message": "Saldo externo no disponible",
-    "englishSource": "External balance unavailable"
-  },
-  "oneClickBalanceUnavailableBody": {
-    "message": "La cartera no ha podido verificar el saldo de la cuenta conectada ni la comisión de red. Vuelve a conectarte o inténtalo de nuevo antes de continuar.",
-    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
-  },
-  "oneClickGasReserve": {
-    "message": "Reservado para comisiones de red: $amount$ $symbol$",
-    "englishSource": "Reserved for network fees: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "oneClickInsufficientTokenBalance": {
-    "message": "Saldo insuficiente de tokens",
-    "englishSource": "Insufficient token balance"
-  },
-  "oneClickInsufficientTokenBalanceBody": {
-    "message": "La cuenta vinculada no dispone de suficientes tokens de este tipo para el depósito solicitado.",
-    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
-  },
-  "oneClickInsufficientGasBalance": {
-    "message": "Saldo insuficiente para la comisión de red",
-    "englishSource": "Insufficient network fee balance"
-  },
-  "oneClickInsufficientGasBalanceBody": {
-    "message": "La cuenta vinculada necesita más $symbol$ para cubrir la comisión de red estimada.",
-    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
-    "placeholders": {
-      "symbol": {
-        "content": "$1"
-      }
-    }
-  },
   "oneClickArrival": {
     "message": "Llegada estimada",
     "englishSource": "Estimated arrival"
   },
-  "oneClickRecipient": {
-    "message": "Destinatario",
-    "englishSource": "Recipient"
-  },
-  "oneClickRoute": {
-    "message": "Ruta",
-    "englishSource": "Route"
-  },
-  "oneClickYouPayFrom": {
-    "message": "Pagas en $network$",
-    "englishSource": "You pay on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickYouReceiveOn": {
-    "message": "Recibes en $network$",
-    "englishSource": "You receive on $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "oneClickRefundFee": {
-    "message": "Comisión de reembolso",
-    "englishSource": "Refund fee"
-  },
-  "oneClickWithdrawFee": {
-    "message": "Comisión por retirada",
-    "englishSource": "Withdrawal fee"
-  },
   "oneClickDepositInstructions": {
     "message": "Instrucciones de depósito",
     "englishSource": "Deposit instructions"
-  },
-  "oneClickManualDepositNotice": {
-    "message": "Envía la cantidad exacta que se indica a continuación desde la red seleccionada. El intercambio solo comienza una vez que la transferencia llega a la dirección de depósito.",
-    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "Red",
@@ -8205,42 +8184,6 @@
   "oneClickOriginTransaction": {
     "message": "Transacción de origen",
     "englishSource": "Origin transaction"
-  },
-  "oneClickTrackingSaved": {
-    "message": "Esta ruta se guarda en «Actividad» para que puedas realizar un seguimiento más adelante.",
-    "englishSource": "This route is saved in Activity so you can track it later."
-  },
-  "oneClickBroadcastTrackingPending": {
-    "message": "La cartera ha enviado este depósito, pero aún no ha podido guardar la transacción. No lo envíes de nuevo. A continuación se muestra el hash de la transacción.",
-    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
-  },
-  "oneClickRefreshingExpiredQuote": {
-    "message": "Actualización de una cotización caducada",
-    "englishSource": "Refreshing expired quote"
-  },
-  "oneClickRecoveryUnavailable": {
-    "message": "Esta ruta no se puede actualizar",
-    "englishSource": "This route cannot be refreshed"
-  },
-  "oneClickRecoveryUnavailableBody": {
-    "message": "La cuenta, la red o la ruta verificada han cambiado. Vuelve a la transacción e inicia una nueva ruta si es necesario.",
-    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
-  },
-  "oneClickExpiredRefreshFailed": {
-    "message": "No se ha podido actualizar la cotización caducada. Inténtalo de nuevo para obtener una nueva cotización antes de enviarla.",
-    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
-  },
-  "oneClickQuoteRefreshed": {
-    "message": "Cotización actualizada",
-    "englishSource": "Quote refreshed"
-  },
-  "oneClickExpiredRefreshNotice": {
-    "message": "La cotización anterior caducó antes de que se enviara tu depósito. Revisa esta ruta actualizada y confirma para continuar.",
-    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
-  },
-  "oneClickDepositSubmitted": {
-    "message": "Depósito enviado",
-    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "Se ha encontrado una transacción de depósito",
@@ -8658,18 +8601,6 @@
   "nearIntentsNoLiquidity": {
     "message": "No hay suficiente liquidez para este importe. Intenta con otro importe.",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
-  },
-  "availableAmount": {
-    "message": "Disponible: $amount$ $symbol$",
-    "englishSource": "Available: $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
   },
   "amountExceedsTokenDecimals": {
     "message": "Esta cantidad tiene más decimales de los que permite este token.",

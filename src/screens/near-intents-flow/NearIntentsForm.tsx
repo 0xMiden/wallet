@@ -19,7 +19,7 @@ import { TextField } from 'components/ui/TextField';
 import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { isValidNearIntentsAddress } from 'lib/one-click/address';
+import { isValidNearIntentsRefundAddress } from 'lib/one-click/address';
 import { requestOneClickQuote } from 'lib/one-click/client';
 import { persistNearIntentsDeposit } from 'lib/one-click/tracking';
 import type {
@@ -120,7 +120,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
 
   const trimmedRefund = refundAddress.trim();
   const refundValid =
-    chain !== undefined && trimmedRefund !== '' && isValidNearIntentsAddress(chain.addressKind, trimmedRefund);
+    chain !== undefined && trimmedRefund !== '' && isValidNearIntentsRefundAddress(chain.addressKind, trimmedRefund);
   // A user who types a preview placeholder as the refund address is refused: the guard in `submit` cannot tell
   // that address from the placeholder.
   const refundUsable = refundValid && !isPreviewRefundAddress(trimmedRefund);

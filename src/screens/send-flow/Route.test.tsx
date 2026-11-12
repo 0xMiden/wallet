@@ -7,11 +7,15 @@ import path from 'path';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import type { NearIntentsSendPair } from 'lib/one-click/send';
+import type { OneClickQuoteResponse } from 'lib/one-click/types';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
-import { Route, RouteOptions } from './Route';
+import { formatNearIntentsAmount, nearIntentsArrivalText, nearIntentsFeeUsd } from './near-intents-format';
+import { NearIntentsRouteCard, NearIntentsRouteCardProps, Route, RouteOptions, RouteOptionsProps } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
+import type { NearIntentsSendQuote, NearIntentsSendQuoteErrorCode } from './useNearIntentsSendQuote';
 
 jest.mock('lib/remote-config/runtime', () =>
   jest
@@ -27,7 +31,10 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     // A fee label names its asset and a payout row its amount; every other key reads as itself.
     t: (key: string, params?: { symbol?: string; amount?: string }) => {
-      const value = params?.symbol ?? params?.amount;
+      const value =
+        params?.amount !== undefined && params.symbol !== undefined
+          ? `${params.amount} ${params.symbol}`
+          : (params?.symbol ?? params?.amount);
       return value === undefined ? key : `${key}|${value}`;
     }
   })
@@ -521,6 +528,254 @@ describe('route availability report', () => {
     );
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport).not.toHaveBeenCalled();
+  });
+});
+
+describe('NEAR Intents route card', () => {
+  const PAIR: NearIntentsSendPair = {
+    chain: { id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] },
+    origin: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6, faucetId: '0xfaucet' },
+    destination: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 }
+  };
+  const quoteWith = (
+    amountOut: string,
+    timeEstimate: number,
+    usd: { amountInUsd: string; amountOutUsd: string } = { amountInUsd: '20', amountOutUsd: '19.65' }
+  ): OneClickQuoteResponse => ({
+    correlationId: 'correlation',
+    timestamp: '2026-11-11T00:00:00.000Z',
+    signature: 'signature',
+    quoteRequest: {
+      dry: true,
+      swapType: 'EXACT_INPUT',
+      slippageTolerance: 100,
+      originAsset: 'miden-usdc',
+      depositType: 'ORIGIN_CHAIN',
+      destinationAsset: 'sol-usdc',
+      amount: '20000000',
+      refundTo: 'mm1refund',
+      refundType: 'ORIGIN_CHAIN',
+      recipient: 'SoLaNa',
+      recipientType: 'DESTINATION_CHAIN',
+      deadline: '2026-11-11T00:05:00.000Z'
+    },
+    quote: {
+      amountIn: '20000000',
+      amountInFormatted: '20',
+      amountInUsd: usd.amountInUsd,
+      minAmountIn: '20000000',
+      amountOut,
+      amountOutFormatted: '19.65',
+      amountOutUsd: usd.amountOutUsd,
+      minAmountOut: '19400000',
+      timeEstimate
+    }
+  });
+  const renderCard = (quote: NearIntentsSendQuote, overrides: Partial<NearIntentsRouteCardProps> = {}) => {
+    const props: NearIntentsRouteCardProps = {
+      quote,
+      selected: false,
+      onSelect: jest.fn(),
+      accent: 'send',
+      ...overrides
+    };
+    render(<NearIntentsRouteCard {...props} />);
+    return props;
+  };
+
+  it('shows the bridge fee and the arrival estimate, as the other cards do, and what the recipient gets under them', () => {
+    const props = renderCard({ status: 'ready', pair: PAIR, quote: quoteWith('19650000', 32) });
+
+    const card = screen.getByTestId('bridge-route-near-intents');
+    expect(card).toHaveTextContent('bridgeRouteNearIntents');
+    expect(card).toHaveTextContent('bridgeRouteFee');
+    expect(card).toHaveTextContent('bridgeArrivalEstimate');
+    expect(card).not.toHaveTextContent('youReceive');
+    expect(screen.getByTestId('near-intents-route-fee')).toHaveTextContent('$0.35');
+    expect(screen.getByTestId('near-intents-route-fee')).toHaveClass('text-base', 'font-bold', 'text-ink');
+    expect(screen.getByTestId('near-intents-route-eta')).toHaveTextContent('nearIntentsSendArrivalSeconds');
+    // The amount is a caption outside the two metrics, so a long value cannot run into the second column.
+    const receives = screen.getByTestId('near-intents-route-receives');
+    expect(receives).toHaveTextContent('nearIntentsSendYouReceive|19.65 USDC');
+    expect(card).not.toContainElement(receives);
+    expect(card).toBeEnabled();
+    fireEvent.click(card);
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('rounds a long output amount on the receive line', () => {
+    const ether: NearIntentsSendPair = {
+      ...PAIR,
+      destination: { assetId: 'eth', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
+    };
+    renderCard({ status: 'ready', pair: ether, quote: quoteWith('962490256881558', 32) });
+
+    expect(screen.getByTestId('near-intents-route-receives')).toHaveTextContent(
+      'nearIntentsSendYouReceive|0.000962 ETH'
+    );
+  });
+
+  it('never shows a negative fee', () => {
+    renderCard({
+      status: 'ready',
+      pair: PAIR,
+      quote: quoteWith('19650000', 32, { amountInUsd: '19', amountOutUsd: '19.65' })
+    });
+
+    expect(screen.getByTestId('near-intents-route-fee')).toHaveTextContent('$0.00');
+  });
+
+  it.each([
+    ['an empty', { amountInUsd: '', amountOutUsd: '19.65' }],
+    ['a text', { amountInUsd: '20', amountOutUsd: 'n/a' }]
+  ])('shows the dash for the fee when 1Click gives %s USD value', (_case, usd) => {
+    renderCard({ status: 'ready', pair: PAIR, quote: quoteWith('19650000', 32, usd) });
+
+    expect(screen.getByTestId('near-intents-route-fee')).toHaveTextContent('—');
+  });
+
+  it('shows the dash for both metrics, and no receive line, when there is no quote', () => {
+    renderCard({ status: 'unsupported' });
+
+    expect(screen.getByTestId('near-intents-route-fee')).toHaveTextContent('—');
+    expect(screen.getByTestId('near-intents-route-eta')).toHaveTextContent('—');
+    expect(screen.queryByTestId('near-intents-route-receives')).not.toBeInTheDocument();
+  });
+
+  it('shows a skeleton in both metrics and takes a tap while the quote loads', () => {
+    renderCard({ status: 'loading', pair: PAIR });
+
+    const card = screen.getByTestId('bridge-route-near-intents');
+    expect(card).toHaveAttribute('aria-busy', 'true');
+    expect(card).toBeEnabled();
+    expect(screen.queryByTestId('near-intents-route-fee')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('near-intents-route-eta')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('near-intents-route-receives')).not.toBeInTheDocument();
+  });
+
+  it('greys out the card and says why when NEAR Intents has no pair for the token', () => {
+    jest.mocked(reportUserVisibleError).mockClear();
+    renderCard({ status: 'unsupported' });
+
+    expect(screen.getByTestId('bridge-route-near-intents')).toBeDisabled();
+    expect(screen.getByTestId('near-intents-route-unsupported')).toHaveTextContent('nearIntentsSendUnsupported');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<[NearIntentsSendQuoteErrorCode | undefined, string]>([
+    ['no_liquidity', 'nearIntentsSendNoLiquidity'],
+    ['invalid_recipient', 'nearIntentsSendInvalidRecipient'],
+    [undefined, 'oneClickQuoteUnavailable']
+  ])('greys out the card on the %s refusal and shows %s', (errorCode, message) => {
+    renderCard({ status: 'error', pair: PAIR, errorCode });
+
+    expect(screen.getByTestId('bridge-route-near-intents')).toBeDisabled();
+    expect(screen.getByTestId('near-intents-route-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('bridge-route-near-intents')).toHaveAttribute(
+      'aria-describedby',
+      'bridge-route-near-intents-status'
+    );
+  });
+
+  it.each([
+    [false, false],
+    [true, true]
+  ])('shows the hint on a card selected %s: %s', (selected, shown) => {
+    const quote: NearIntentsSendQuote = { status: 'ready', pair: PAIR, quote: quoteWith('19650000', 470) };
+    renderCard(quote, { hint: 'balance-hint', selected });
+    expect(screen.queryByText('balance-hint') !== null).toBe(shown);
+  });
+
+  it('keeps a long estimate in minutes', () => {
+    renderCard({ status: 'ready', pair: PAIR, quote: quoteWith('19650000', 470) });
+
+    expect(screen.getByTestId('near-intents-route-eta')).toHaveTextContent('nearIntentsSendArrivalMinutes');
+  });
+
+  describe('in RouteOptions', () => {
+    const card = <div data-testid="near-intents-slot" />;
+    const base: Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'fastQuoteLoading' | 'slowStatus'> = {
+      route: 'epoch',
+      onRouteChange: jest.fn(),
+      fastQuoteLoading: false,
+      slowStatus: 'allowed'
+    };
+
+    it('shows the bridge cards and the NEAR Intents card when both serve the network', () => {
+      render(<RouteOptions {...base} {...UP} nearIntentsCard={card} />);
+
+      expect(screen.getByTestId('bridge-route-fast')).toBeInTheDocument();
+      expect(screen.getByTestId('bridge-route-slow')).toBeInTheDocument();
+      expect(screen.getByTestId('near-intents-slot')).toBeInTheDocument();
+    });
+
+    it('shows the NEAR Intents card under the USDCx card', () => {
+      render(<RouteOptions {...base} {...UP} route="usdcx" usdcxAvailable nearIntentsCard={card} />);
+
+      expect(screen.getByTestId('bridge-route-usdcx')).toBeInTheDocument();
+      expect(screen.getByTestId('near-intents-slot')).toBeInTheDocument();
+      expect(screen.queryByTestId('bridge-route-fast')).not.toBeInTheDocument();
+    });
+
+    it('shows only the NEAR Intents card when no bridge route serves the network', () => {
+      render(<RouteOptions {...base} {...UP} bridgeRoutesAvailable={false} nearIntentsCard={card} />);
+
+      expect(screen.getByTestId('near-intents-slot')).toBeInTheDocument();
+      expect(screen.queryByTestId('bridge-route-fast')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('bridge-route-usdcx')).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('nearIntentsArrivalText', () => {
+  const t = (key: string, values?: Record<string, string>) => `${key}:${values?.seconds ?? values?.minutes}`;
+
+  it.each<[number, string]>([
+    [32, 'nearIntentsSendArrivalSeconds:30'],
+    [22, 'nearIntentsSendArrivalSeconds:20'],
+    [2, 'nearIntentsSendArrivalSeconds:5'],
+    [58, 'nearIntentsSendArrivalMinutes:1'],
+    [470, 'nearIntentsSendArrivalMinutes:8'],
+    [0, 'nearIntentsSendArrivalMinutes:1']
+  ])('reads %s s as %s', (seconds, text) => {
+    expect(nearIntentsArrivalText(t, seconds)).toBe(text);
+  });
+});
+
+describe('formatNearIntentsAmount', () => {
+  it.each<[string, number, string]>([
+    ['962490256881558', 18, '0.000962'],
+    ['19650000', 6, '19.65'],
+    ['20000000', 6, '20'],
+    ['1234567890', 6, '1234.56'],
+    ['123456789', 6, '123.456'],
+    ['500000', 6, '0.5'],
+    ['1234', 18, '0.0000000000000012'],
+    ['0', 6, '0']
+  ])('shows %s at %s decimals as %s', (value, decimals, text) => {
+    expect(formatNearIntentsAmount(value, decimals)).toBe(text);
+  });
+
+  it.each([['1.5'], ['-1'], [''], [undefined]])('gives nothing for %s', value => {
+    expect(formatNearIntentsAmount(value, 6)).toBeUndefined();
+  });
+});
+
+describe('nearIntentsFeeUsd', () => {
+  it.each<[string, string, number]>([
+    ['20', '19.65', 0.35],
+    ['19', '19.65', 0]
+  ])('reads %s in and %s out as %s', (amountInUsd, amountOutUsd, fee) => {
+    expect(nearIntentsFeeUsd({ amountInUsd, amountOutUsd })).toBeCloseTo(fee);
+  });
+
+  it.each<[string, string]>([
+    ['', '19.65'],
+    ['20', 'NaN'],
+    ['Infinity', '1']
+  ])('gives no fee for %s in and %s out', (amountInUsd, amountOutUsd) => {
+    expect(nearIntentsFeeUsd({ amountInUsd, amountOutUsd })).toBeUndefined();
   });
 });
 

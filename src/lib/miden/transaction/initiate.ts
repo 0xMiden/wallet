@@ -14,6 +14,7 @@ import {
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope, getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { nearIntentsEvmChainId } from 'lib/one-click/chains';
 import { assertOneClickQuoteBinding } from 'lib/one-click/client';
 import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
@@ -47,6 +48,7 @@ import {
   ITransaction,
   ITransactionStatus,
   IUsdcxBurn,
+  NEAR_INTENTS_NO_EVM_CHAIN_ID,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -967,8 +969,7 @@ export const initiateSendTransaction = async (
   delegateTransaction?: boolean,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
-  dappOrigin?: string,
-  oneClick?: IOneClickTrackingData
+  dappOrigin?: string
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -979,33 +980,6 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
-
-  if (oneClick) {
-    assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
-    const fundingDeadline = assertOneClickFundingDeadlineMatches(
-      oneClick.fundingDeadline,
-      oneClick.request.deadline,
-      oneClick.quote.quote.deadline
-    );
-    oneClick = { ...oneClick, fundingDeadline };
-    const midenAsset = oneClick.originAsset;
-    const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
-    if (
-      oneClick.direction !== 'miden-to-evm' ||
-      midenAsset.blockchain !== 'miden' ||
-      oneClick.destinationAsset.blockchain === 'miden' ||
-      oneClick.accountId !== senderAccountId ||
-      !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
-      !sameWalletAccountId(oneClick.accountAddress, senderAccountId) ||
-      oneClick.quote.quote.depositAddress !== recipientAccountId ||
-      oneClick.quote.quote.amountIn !== amount.toString() ||
-      oneClick.faucetId !== faucetId ||
-      !configuredAsset ||
-      configuredAsset.faucetId !== faucetId
-    ) {
-      throw new Error('The 1Click send does not match the signed Miden route.');
-    }
-  }
 
   if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
     throw new Error(
@@ -1022,8 +996,93 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
-  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
+  await queueOutgoingTransaction(
+    { ...dbTransaction, badgeNetwork: badgeNetwork() },
+    spendsOf(dbTransaction),
+    spendingLimitAuthorization
+  );
+
+  return dbTransaction.id;
+};
+
+/** The Miden send that a 1Click quote must bind: who sends, to which deposit address, which faucet and how much. */
+export interface OneClickMidenSend {
+  senderAccountId: string;
+  depositAddress: string;
+  faucetId: string;
+  amount: bigint;
+}
+
+/**
+ * Check that the 1Click tracking binds exactly this Miden send, before any row is queued: the quote signature and its
+ * binding to the request, the funding deadline, the direction, the sender, the refund address (this account), the
+ * deposit address (the note recipient), the amount (`amountIn`) and the configured faucet. Returns the tracking with
+ * its funding deadline. Throws on any difference.
+ */
+export const assertOneClickMidenSend = (
+  oneClick: IOneClickTrackingData,
+  send: OneClickMidenSend
+): IOneClickTrackingData => {
+  assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
+  const fundingDeadline = assertOneClickFundingDeadlineMatches(
+    oneClick.fundingDeadline,
+    oneClick.request.deadline,
+    oneClick.quote.quote.deadline
+  );
+  const midenAsset = oneClick.originAsset;
+  const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
+  if (
+    oneClick.direction !== 'miden-to-evm' ||
+    midenAsset.blockchain !== 'miden' ||
+    oneClick.destinationAsset.blockchain === 'miden' ||
+    oneClick.accountId !== send.senderAccountId ||
+    !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
+    !sameWalletAccountId(oneClick.accountAddress, send.senderAccountId) ||
+    oneClick.quote.quote.depositAddress !== send.depositAddress ||
+    oneClick.quote.quote.amountIn !== send.amount.toString() ||
+    oneClick.faucetId !== send.faucetId ||
+    !configuredAsset ||
+    configuredAsset.faucetId !== send.faucetId
+  ) {
+    throw new Error('The 1Click send does not match the signed Miden route.');
+  }
+  return { ...oneClick, fundingDeadline };
+};
+
+/**
+ * Queue a NEAR Intents send from Miden as a `bridged-send` row with `provider: 'near-intents'`. The Miden leg is a
+ * public P2ID note to the 1Click deposit address (`secondaryAccountId`) with no recall: the wallet must not take back
+ * a deposit that 1Click can already have swapped, and a refund comes back from 1Click to `refundTo`. The real
+ * recipient on the destination chain is `destinationAddress`. The row is a spend of `amount` of `faucetId` for the
+ * spending limit, as a plain send is.
+ */
+export const initiateNearIntentsSendTransaction = async (
+  send: OneClickMidenSend,
+  oneClick: IOneClickTrackingData,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
+): Promise<string> => {
+  const tracking = assertOneClickMidenSend(oneClick, send);
+  const chainId = tracking.destinationAsset.blockchain;
+  const chainName = tracking.config.chains.find(chain => chain.id === chainId)?.name ?? chainId;
+  const dbTransaction = new BridgedSendTransaction(
+    send.senderAccountId,
+    send.amount,
+    tracking.request.recipient,
+    nearIntentsEvmChainId(chainId) ?? NEAR_INTENTS_NO_EVM_CHAIN_ID,
+    'near-intents',
+    send.faucetId
+  );
+  dbTransaction.secondaryAccountId = send.depositAddress;
+  dbTransaction.noteType = NoteTypeEnum.Public;
+  dbTransaction.displayMessage = 'Sending through NEAR Intents';
+  dbTransaction.extraInputs = {
+    ...dbTransaction.extraInputs,
+    destinationChain: { id: chainId, name: chainName },
+    outputAmount: tracking.quote.quote.amountOutFormatted,
+    outputSymbol: tracking.destinationAsset.symbol,
+    oneClick: tracking
+  };
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),

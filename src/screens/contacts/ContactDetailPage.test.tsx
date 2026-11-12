@@ -81,6 +81,7 @@ jest.mock('components/NetworkChip', () => ({
 }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
+  EVM_SEND_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 1, bridge: false }],
   defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);

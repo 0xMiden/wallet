@@ -43,7 +43,11 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from 'lib/one-click/address';
+import { useNearIntentsConfig } from 'lib/one-click/config';
+import { isOneClickDeadlineError } from 'lib/one-click/deadline';
+import { NearIntentsSendQuoteChangedError, startNearIntentsSend } from 'lib/one-click/send';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
@@ -64,12 +68,15 @@ import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import {
   getBridgeNetwork,
-  BridgeNetworkId,
-  isBridgeNetworkId,
+  getSendNetwork,
   isEpochBridgeNetwork,
-  isUsdcxBridgeNetwork
+  isSendNetworkId,
+  isUsdcxBridgeNetwork,
+  SendNetworkId
 } from './bridge-networks';
+import { formatNearIntentsAmount, nearIntentsArrivalText } from './near-intents-format';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import { NearIntentsQuoteMessage } from './Route';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
@@ -78,6 +85,7 @@ import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
+import { nearIntentsErrorCode, useNearIntentsSendQuote } from './useNearIntentsSendQuote';
 
 const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
   useUserVisibleError(message ? errorId : null, 'review');
@@ -87,6 +95,40 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
     </p>
   );
 };
+
+/** The route of the review URL, or undefined for a value that is not a route. */
+function parseBridgeRoute(value: string | null): BridgeRoute | undefined {
+  switch (value) {
+    case 'epoch':
+    case 'agglayer':
+    case 'usdcx':
+    case 'near-intents':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+/** The message (and the user-visible error id) of a NEAR Intents send that did not start. */
+export function nearIntentsSendFailureId(
+  error: Error
+):
+  | 'nearIntentsSendQuoteChanged'
+  | 'nearIntentsSendQuoteExpired'
+  | 'nearIntentsSendNoLiquidity'
+  | 'nearIntentsSendInvalidRecipient'
+  | 'oneClickSubmitFailed' {
+  if (error instanceof NearIntentsSendQuoteChangedError) return 'nearIntentsSendQuoteChanged';
+  if (isOneClickDeadlineError(error)) return 'nearIntentsSendQuoteExpired';
+  switch (nearIntentsErrorCode(error)) {
+    case 'no_liquidity':
+      return 'nearIntentsSendNoLiquidity';
+    case 'invalid_recipient':
+      return 'nearIntentsSendInvalidRecipient';
+    default:
+      return 'oneClickSubmitFailed';
+  }
+}
 
 /**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
@@ -108,28 +150,32 @@ export const ReviewTransaction: React.FC = () => {
 
   const { signTransaction } = useMidenContext();
 
+  // A NEAR Intents network can come from the bridge config, so the id is kept as it is and read on each render.
   const { amount, to, tokenId, network, route } = useMemo<{
     amount: string;
     to: string;
     tokenId: string;
-    network?: BridgeNetworkId;
+    network?: SendNetworkId;
     route?: BridgeRoute;
   }>(() => {
     const params = new URLSearchParams(search);
-    const networkParam = params.get('network');
-    const routeParam = params.get('route');
     return {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
-      network: isBridgeNetworkId(networkParam) ? networkParam : undefined,
-      route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined
+      network: params.get('network') ?? undefined,
+      route: parseBridgeRoute(params.get('route'))
     };
   }, [search]);
 
-  // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
-  const isBridge = !!to && detectAddressChain(to) === 'ethereum';
+  // A recipient on another chain (EVM, Solana, Bitcoin, NEAR) leaves Miden instead of a same-chain send.
+  const isBridge = !!to && detectAddressChain(to) !== 'miden';
+  const isNearIntents = isBridge && route === 'near-intents';
   const bridgeNetworkObj = getBridgeNetwork(network);
+  const sendNetwork = isSendNetworkId(network) ? getSendNetwork(network) : undefined;
+  const nearIntentsConfig = useNearIntentsConfig();
+  // The address in the form that 1Click gets (lower case for an upper-case bech32 Bitcoin address).
+  const nearIntentsRecipient = sendNetwork ? normalizeNearIntentsAddress(sendNetwork.kind, to) : undefined;
   const bridgeFeature = (): BridgeFeature => {
     switch (route) {
       case 'agglayer':
@@ -141,11 +187,13 @@ export const ReviewTransaction: React.FC = () => {
     }
   };
   const selectedBridgeFeature = bridgeFeature();
+  // NEAR Intents is gated by its own config (`useNearIntentsConfig`), not by the Epoch and Agglayer features.
+  const usesBridgeFeature = isBridge && !isNearIntents;
   const bridgeAvailability = useFeatureAvailability(selectedBridgeFeature, {
-    hold: isBridge,
+    hold: usesBridgeFeature,
     chainId: bridgeNetworkObj?.chainId
   });
-  const bridgeBlocked = isBridge && isFeatureBlocked(bridgeAvailability);
+  const bridgeBlocked = usesBridgeFeature && isFeatureBlocked(bridgeAvailability);
 
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
@@ -195,8 +243,17 @@ export const ReviewTransaction: React.FC = () => {
     faucetId: token?.id,
     destinationAddress: to,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge && !isUsdcxBurn,
+    enabled: isBridge && !isUsdcxBurn && !isNearIntents,
     destinationChainId: bridgeNetworkObj?.chainId
+  });
+
+  // The NEAR Intents dry quote. It refreshes while the page is open, so the review shows the current rate.
+  const nearIntentsQuote = useNearIntentsSendQuote({
+    chainId: sendNetwork?.nearIntentsChainId,
+    faucetId: token?.id,
+    amount: amountBaseUnits,
+    recipient: nearIntentsRecipient,
+    enabled: isNearIntents
   });
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
@@ -281,6 +338,8 @@ export const ReviewTransaction: React.FC = () => {
   // From the press until the send settles, the choices it carries are frozen: the sheets stay
   // closed and ignore a change, so the page never shows anything but what the send carries.
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // True while a NEAR Intents send waits for its deposit address from 1Click.
+  const [requestingDepositAddress, setRequestingDepositAddress] = useState(false);
 
   // Recall-height handlers. All mark the choice as user-made so the seeding
   // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
@@ -469,48 +528,85 @@ export const ReviewTransaction: React.FC = () => {
       let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
-        if (route === 'usdcx') {
-          if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
-            throw new UsdcxBurnError('usdcxUnsupportedFaucet');
+        switch (route) {
+          case 'near-intents': {
+            const pair = nearIntentsQuote.pair;
+            const reviewed = nearIntentsQuote.quote;
+            if (!nearIntentsConfig || !pair || !reviewed || !nearIntentsRecipient) {
+              failureId = 'oneClickQuoteUnavailable';
+              throw new Error(t('oneClickQuoteUnavailable'));
+            }
+            // The deposit quote is asked for here, before the row exists, so this page names that wait. The
+            // refund address and the account address are the Miden address of this account.
+            setRequestingDepositAddress(true);
+            let txId: string;
+            try {
+              txId = await startNearIntentsSend({
+                config: nearIntentsConfig,
+                pair,
+                amount: amountBaseUnits,
+                recipient: nearIntentsRecipient,
+                refundTo: publicKey,
+                network: getEffectiveNetworkName(),
+                accountId: publicKey,
+                accountAddress: publicKey,
+                // The send stops when the new quote pays less than the minimum that the user saw here.
+                reviewedMinAmountOut: BigInt(reviewed.quote.minAmountOut),
+                authorization
+              });
+            } finally {
+              setRequestingDepositAddress(false);
+            }
+            if (isExtension()) requestSWTransactionProcessing();
+            goToGeneratingTransaction(txId);
+            break;
           }
-          const txId = await initiateUsdcxBurn({
-            senderPublicKey: publicKey,
-            faucetId: token.id,
-            amount: amountBaseUnits,
-            destinationAddress: to,
-            destinationChainId: bridgeNetworkObj.chainId,
-            spendingLimitAuthorization: authorization
-          });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
-        } else if (route === 'agglayer') {
-          // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
-          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
-            failureId = 'agglayerTokenUnsupported';
-            throw new Error(t('agglayerTokenUnsupported'));
+          case 'usdcx': {
+            if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
+              throw new UsdcxBurnError('usdcxUnsupportedFaucet');
+            }
+            const txId = await initiateUsdcxBurn({
+              senderPublicKey: publicKey,
+              faucetId: token.id,
+              amount: amountBaseUnits,
+              destinationAddress: to,
+              destinationChainId: bridgeNetworkObj.chainId,
+              spendingLimitAuthorization: authorization
+            });
+            if (isExtension()) requestSWTransactionProcessing();
+            goToGeneratingTransaction(txId);
+            break;
           }
-          const txId = await initiateB2AggBridge({
-            destinationChainId: bridgeNetworkObj?.chainId,
-            amount: amountBaseUnits,
-            faucetId: token.id,
-            destinationAddress: to as `0x${string}`,
-            senderPublicKey: publicKey,
-            guardianProvider: zustandProvider,
-            spendingLimitAuthorization: authorization
-          });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
-        } else {
-          await bridgeEpochSend({
-            destinationChainId: bridgeNetworkObj?.chainId,
-            amount: amountBaseUnits,
-            faucetId: token.id,
-            destinationAddress: to as `0x${string}`,
-            senderPublicKey: publicKey,
-            deps: { signTransaction, guardianProvider: zustandProvider },
-            onRowCreated: goToGeneratingTransaction,
-            spendingLimitAuthorization: authorization
-          });
+          case 'agglayer': {
+            // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
+            if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
+              failureId = 'agglayerTokenUnsupported';
+              throw new Error(t('agglayerTokenUnsupported'));
+            }
+            const txId = await initiateB2AggBridge({
+              destinationChainId: bridgeNetworkObj?.chainId,
+              amount: amountBaseUnits,
+              faucetId: token.id,
+              destinationAddress: to as `0x${string}`,
+              senderPublicKey: publicKey,
+              guardianProvider: zustandProvider,
+              spendingLimitAuthorization: authorization
+            });
+            if (isExtension()) requestSWTransactionProcessing();
+            goToGeneratingTransaction(txId);
+            break;
+          }
+          default:
+            await bridgeEpochSend({
+              destinationChainId: bridgeNetworkObj?.chainId,
+              amount: amountBaseUnits,
+              faucetId: token.id,
+              destinationAddress: to as `0x${string}`,
+              senderPublicKey: publicKey,
+              deps: { signTransaction, guardianProvider: zustandProvider },
+              onRowCreated: goToGeneratingTransaction,
+              spendingLimitAuthorization: authorization
+            });
         }
       } catch (error) {
         console.error(error);
@@ -534,6 +630,17 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
+        if (route === 'near-intents') {
+          // A NEAR Intents failure has a known message; the raw text of a 1Click error is not for the user.
+          const nearIntentsFailure = ((): UserErrorId => {
+            if (failureId !== 'raw_send_submit_failed') return failureId;
+            return error instanceof Error ? nearIntentsSendFailureId(error) : 'oneClickSubmitFailed';
+          })();
+          setSubmitErrorId(nearIntentsFailure);
+          setSubmitError(t(nearIntentsFailure));
+          setIsSubmitting(false);
+          return;
+        }
         setSubmitErrorId(
           error instanceof UsdcxBurnError && isUserErrorId(error.translationKey) ? error.translationKey : failureId
         );
@@ -551,6 +658,10 @@ export const ReviewTransaction: React.FC = () => {
       amountBaseUnits,
       bridgeNetworkObj,
       goToGeneratingTransaction,
+      nearIntentsConfig,
+      nearIntentsQuote.pair,
+      nearIntentsQuote.quote,
+      nearIntentsRecipient,
       openUnpricedChallenge,
       publicKey,
       route,
@@ -667,12 +778,30 @@ export const ReviewTransaction: React.FC = () => {
     !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
-  const bridgeParamsInvalid =
-    isBridge &&
-    (!bridgeNetworkObj ||
-      !route ||
-      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
-      (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
+  const bridgeParamsInvalid = (() => {
+    if (!isBridge) return false;
+    switch (route) {
+      case undefined:
+        return true;
+      case 'near-intents':
+        // A Solana, Bitcoin or NEAR network comes from the bridge config, so the page waits for the document.
+        if (bridgeConfig.status !== 'ready') return false;
+        return (
+          !sendNetwork?.nearIntentsChainId ||
+          !nearIntentsRecipient ||
+          !isValidNearIntentsAddress(sendNetwork.kind, nearIntentsRecipient)
+        );
+      case 'usdcx':
+        return (
+          detectAddressChain(to) !== 'ethereum' ||
+          !bridgeNetworkObj ||
+          !isUsdcxBridgeNetwork(network) ||
+          (!!token && !isUsdcxWithdrawalAvailable(token.id))
+        );
+      default:
+        return detectAddressChain(to) !== 'ethereum' || !bridgeNetworkObj || !isEpochBridgeNetwork(network);
+    }
+  })();
   const tokenInvalid =
     isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
     (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
@@ -709,22 +838,70 @@ export const ReviewTransaction: React.FC = () => {
   // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
   // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
   // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
-  const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
-  const youReceiveAmount =
-    route === 'agglayer'
-      ? formatMoneyAmount(amount, 'typed')
-      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
-  // AggLayer receives the sent token. A Fast output takes the bridge USDC label only when it is that token.
-  const youReceiveSymbol =
-    route === 'agglayer'
-      ? (token?.name ?? '')
-      : epochOutputIsBridgeUsdc(bridgeConfig, bridgeNetworkObj?.chainId, epochQuote.symbol, epochQuote.address)
-        ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
-        : epochQuote.symbol;
+  // NEAR Intents shows its dry quote: what the recipient gets, the minimum after slippage and the time estimate.
+  const nearIntentsDestination = nearIntentsQuote.pair?.destination;
+  const nearIntentsReady = nearIntentsQuote.status === 'ready' ? nearIntentsQuote.quote : undefined;
+  const nearIntentsMinimum =
+    nearIntentsReady && nearIntentsDestination
+      ? formatNearIntentsAmount(nearIntentsReady.quote.minAmountOut, nearIntentsDestination.decimals)
+      : undefined;
+  const youReceiveLoading =
+    isBridge && ((route === 'epoch' && epochQuote.loading) || (isNearIntents && nearIntentsQuote.status === 'loading'));
+  const youReceive = ((): { amount?: string | null; symbol: string } => {
+    switch (route) {
+      // AggLayer receives the sent token.
+      case 'agglayer':
+        return { amount: formatMoneyAmount(amount, 'typed'), symbol: token?.name ?? '' };
+      case 'near-intents':
+        return {
+          amount:
+            nearIntentsReady && nearIntentsDestination
+              ? formatNearIntentsAmount(nearIntentsReady.quote.amountOut, nearIntentsDestination.decimals)
+              : undefined,
+          symbol: nearIntentsDestination?.symbol ?? ''
+        };
+      // A Fast output takes the bridge USDC label only when it is that token.
+      default:
+        return {
+          amount: formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol),
+          symbol: epochOutputIsBridgeUsdc(
+            bridgeConfig,
+            bridgeNetworkObj?.chainId,
+            epochQuote.symbol,
+            epochQuote.address
+          )
+            ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
+            : epochQuote.symbol
+        };
+    }
+  })();
+  const youReceiveAmount = youReceive.amount;
+  const youReceiveSymbol = youReceive.symbol;
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
-  const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  const nearIntentsMinimumLabel =
+    nearIntentsMinimum !== undefined ? `${nearIntentsMinimum} ${youReceiveSymbol}` : youReceiveSymbol;
+  const nearIntentsArrival = nearIntentsReady ? nearIntentsArrivalText(t, nearIntentsReady.quote.timeEstimate) : '';
+  const { routeLabel, arrivalLabel } = ((): { routeLabel: string; arrivalLabel: string } => {
+    switch (route) {
+      case 'usdcx':
+        return { routeLabel: t('usdcxRouteLabel'), arrivalLabel: '' };
+      case 'agglayer':
+        return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
+      // NEAR Intents shows its arrival estimate in a row of its own, from the quote.
+      case 'near-intents':
+        return { routeLabel: t('bridgeRouteNearIntents'), arrivalLabel: '' };
+      default:
+        return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
+    }
+  })();
+  const sendNetworkName = sendNetwork?.name ?? bridgeNetworkObj?.name ?? t('ethereum');
+  // The CTA names the consequence of a non-default choice, so a public send is never confirmed by a button that
+  // reads like a private one.
+  const submitTitle = (() => {
+    if (requestingDepositAddress) return t('nearIntentsSendGeneratingDepositAddress');
+    return sharePrivately ? t('sendPayment') : t('sendPublicly');
+  })();
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg">
@@ -744,13 +921,13 @@ export const ReviewTransaction: React.FC = () => {
             )}
             <Button
               type="button"
-              // The CTA names the consequence of a non-default choice, so a public send is never
-              // confirmed by a button that reads like a private one.
-              title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
+              title={submitTitle}
               variant={ButtonVariant.Primary}
               accent="send"
               onClick={onSubmit}
-              isLoading={isSubmitting}
+              // While 1Click makes the deposit address the label names that wait instead of the spinner,
+              // which would hide the label.
+              isLoading={isSubmitting && !requestingDepositAddress}
               // Disabled rather than merely rejected on press: the reason is known
               // before the user reaches for the button, and letting them tap a live
               // CTA only to be refused reads as a wallet fault rather than a
@@ -761,7 +938,8 @@ export const ReviewTransaction: React.FC = () => {
                 isSubmitting ||
                 scaleIsUnknown ||
                 amountExceedsPrecision ||
-                (isUsdcxBurn && !!burnValidationError)
+                (isUsdcxBurn && !!burnValidationError) ||
+                (isNearIntents && nearIntentsQuote.status !== 'ready')
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -769,7 +947,9 @@ export const ReviewTransaction: React.FC = () => {
           </div>
         }
       >
-        {isBridge && <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />}
+        {usesBridgeFeature && (
+          <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />
+        )}
         {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
         {tokenHeld && (
           <Notice
@@ -807,7 +987,7 @@ export const ReviewTransaction: React.FC = () => {
                 ? [
                     {
                       from: { role: 'you' as const, name: '' },
-                      to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
+                      to: { role: 'recipient' as const, name: sendNetwork?.name ?? bridgeNetworkObj?.name ?? '' },
                       amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
                     }
                   ]
@@ -834,8 +1014,8 @@ export const ReviewTransaction: React.FC = () => {
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
           <DetailRow label={t('network')}>
             <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={sendNetwork?.id ?? bridgeNetworkObj?.id} />
+              {isBridge ? sendNetworkName : t('miden')}
             </span>
           </DetailRow>
 
@@ -859,7 +1039,7 @@ export const ReviewTransaction: React.FC = () => {
 
           {isBridge ? (
             <>
-              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`.trim()}</DetailRow>
               {isUsdcxBurn ? (
                 <>
                   <DetailRow
@@ -883,28 +1063,41 @@ export const ReviewTransaction: React.FC = () => {
                   )}
                 </>
               ) : (
-                <DetailRow
-                  label={t('youReceive')}
-                  sub={
-                    !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
-                      <TokenUsdValue
-                        amount={amount}
-                        decimals={token.decimals}
-                        faucetId={token.id}
-                        symbol={token.name}
-                      />
-                    ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
-                      <EvmUsdValue
-                        amount={epochQuote.amount}
-                        decimals={epochQuote.decimals ?? USDCX_DECIMALS}
-                        chainId={bridgeNetworkObj?.chainId}
-                        address={epochQuote.address}
-                      />
-                    ) : undefined
-                  }
-                >
-                  {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
-                </DetailRow>
+                <>
+                  <DetailRow
+                    label={t('youReceive')}
+                    data-testid="review-row-you-receive"
+                    sub={
+                      !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
+                        <TokenUsdValue
+                          amount={amount}
+                          decimals={token.decimals}
+                          faucetId={token.id}
+                          symbol={token.name}
+                        />
+                      ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
+                        <EvmUsdValue
+                          amount={epochQuote.amount}
+                          decimals={epochQuote.decimals ?? USDCX_DECIMALS}
+                          chainId={bridgeNetworkObj?.chainId}
+                          address={epochQuote.address}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+                  </DetailRow>
+                  {isNearIntents && (
+                    <>
+                      <DetailRow label={t('oneClickMinimumReceived')} data-testid="review-row-minimum-received">
+                        {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : nearIntentsMinimumLabel}
+                      </DetailRow>
+                      <DetailRow label={t('oneClickArrival')} data-testid="review-row-arrival">
+                        {youReceiveLoading ? <Skeleton className="h-6 w-20" /> : nearIntentsArrival}
+                      </DetailRow>
+                    </>
+                  )}
+                </>
               )}
             </>
           ) : (
@@ -960,6 +1153,14 @@ export const ReviewTransaction: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+        {isNearIntents && (
+          <div className="mt-3 flex flex-col gap-2 px-4">
+            <NearIntentsQuoteMessage quote={nearIntentsQuote} />
+            <p className="text-caption face-heading text-muted" data-testid="near-intents-refund-note">
+              {t('nearIntentsSendRefundNote')}
+            </p>
+          </div>
+        )}
         {isUsdcxBurn && (
           <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
             {t('usdcxWithdrawalNotice')}

@@ -1992,6 +1992,247 @@ describe('GeneratingTransaction stage + state rendering', () => {
   });
 });
 
+// A NEAR Intents send is a Miden send to a 1Click deposit address. The page shows the deposit address step, then the
+// send to it with the Miden steps as its sub-steps, and ends when the Miden transaction ends: Activity follows the
+// delivery.
+describe('NEAR Intents send steps', () => {
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockWalletStoreState.accounts = [];
+    mockWalletStoreState.currentAccount = { type: WalletType.Guardian };
+    mockWalletStoreState.lastCompletedTxHash = null;
+    safeGenerateTransactionsLoopMock.mockReset();
+    safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    isRequeueableTransactionMock.mockReset();
+    isRequeueableTransactionMock.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const oneClick = (phase: string, extra: Record<string, unknown> = {}) => ({
+    direction: 'miden-to-evm',
+    phase,
+    request: { recipient: 'SoLaNa' },
+    quote: { quote: { amountIn: '962490256881558', amountOut: '19650000', minAmountOut: '19400000' } },
+    config: { serviceUrl: 'https://one-click.example', midenAssets: [], chains: [{ id: 'sol', name: 'Solana' }] },
+    originAsset: { assetId: 'miden-eth', blockchain: 'miden', symbol: 'ETH', decimals: 18, faucetId: '0xfaucet' },
+    destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+    ...extra
+  });
+
+  // A new send is a `bridged-send` row with provider `near-intents`; an older build stored a `send` row.
+  const ROW_SHAPES: Array<[string, (phase: string) => Record<string, unknown>]> = [
+    [
+      'bridged-send',
+      phase => ({ type: 'bridged-send', extraInputs: { provider: 'near-intents', oneClick: oneClick(phase) } })
+    ],
+    ['send', phase => ({ type: 'send', extraInputs: { oneClick: oneClick(phase) } })]
+  ];
+
+  const renderPage = async (row: Record<string, unknown>) => {
+    mockRowState = { row: makeTx(row), loaded: true };
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    const states = () =>
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(step => [
+        step.getAttribute('data-transaction-step'),
+        step.getAttribute('data-state')
+      ]);
+    return { container, root, states };
+  };
+
+  const nested = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-transaction-step][data-nested="true"]')).map(step =>
+      step.getAttribute('data-transaction-step')
+    );
+
+  it.each(ROW_SHAPES)(
+    'shows the deposit address step, then the send to it with the Miden steps under it, for a %s row',
+    async (_shape, shape) => {
+      const { container, root, states } = await renderPage({ ...shape('depositing'), stage: 'submitting' });
+
+      expect(states()).toEqual([
+        ['near-intents-deposit-address', 'complete'],
+        ['near-intents-send', 'active'],
+        ['guardian-approving', 'complete'],
+        ['generating-proof', 'complete'],
+        ['submitting', 'active'],
+        ['syncing-guardian', 'pending']
+      ]);
+      expect(nested(container)).toEqual(['guardian-approving', 'generating-proof', 'submitting', 'syncing-guardian']);
+      expect(container.textContent).toContain('transactionStepNearIntentsDepositAddress');
+      expect(container.textContent).toContain('transactionStepNearIntentsSend');
+      expect(container.textContent).not.toContain('Delivering through NEAR Intents');
+      act(() => root.unmount());
+    }
+  );
+
+  it.each(ROW_SHAPES)(
+    'completes at once when the Miden transaction completes, whatever 1Click says, for a %s row',
+    async (_shape, shape) => {
+      const { container, root, states } = await renderPage({
+        ...shape('processing'),
+        status: ITransactionStatus.Completed,
+        stage: 'complete'
+      });
+
+      expect(states().map(([, state]) => state)).toEqual([
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'complete'
+      ]);
+      expect(container.textContent).toContain('transactionCompleted');
+      act(() => root.unmount());
+    }
+  );
+
+  it('fails the send step and its Miden sub-step when the Miden transaction fails', async () => {
+    const { root, states } = await renderPage({
+      ...ROW_SHAPES[0]![1]('depositing'),
+      status: ITransactionStatus.Failed,
+      stage: 'proving',
+      error: 'proof failed'
+    });
+
+    expect(states()).toEqual([
+      ['near-intents-deposit-address', 'complete'],
+      ['near-intents-send', 'failed'],
+      ['guardian-approving', 'complete'],
+      ['generating-proof', 'failed'],
+      ['submitting', 'pending'],
+      ['syncing-guardian', 'pending']
+    ]);
+    act(() => root.unmount());
+  });
+
+  it('names what was sent from the row quote, not the asset metadata the wallet lacks', async () => {
+    const { container, root } = await renderPage({
+      ...ROW_SHAPES[0]![1]('depositing'),
+      stage: 'submitting',
+      amount: 962490256881558n,
+      faucetId: '0xfaucet'
+    });
+
+    expect(container.textContent).toContain('0.000962 ETH');
+    expect(container.textContent).not.toContain('Unknown');
+    act(() => root.unmount());
+  });
+
+  describe('a failed NEAR Intents send', () => {
+    const woozie: { navigate: jest.Mock } = jest.requireMock('lib/woozie');
+    // The footer actions: the Button stub marks each with its variant.
+    const buttons = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('button[data-variant]')).map(button => [
+        button.textContent,
+        button.getAttribute('data-variant')
+      ]);
+    // The Button stub keeps no test id, so the action is found by its label.
+    const startNewSend = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'nearIntentsSendStartNew');
+
+    beforeEach(() => {
+      woozie.navigate.mockClear();
+    });
+
+    it.each(ROW_SHAPES)(
+      'offers a new send in place of Retry and says no funds moved, for a %s row',
+      async (_shape, shape) => {
+        const { container, root } = await renderPage({
+          ...shape('depositing'),
+          status: ITransactionStatus.Failed,
+          stage: 'proving',
+          error: 'proof failed'
+        });
+
+        expect(container.textContent).not.toContain('retry');
+        expect(container.textContent).toContain('nearIntentsSendNotSentDescription');
+        // The row's own error stays one tap away.
+        expect(container.textContent).toContain('showFullError');
+        expect(buttons(container).slice(0, 2)).toEqual([
+          ['nearIntentsSendStartNew', 'primary'],
+          ['done', 'secondary']
+        ]);
+        act(() => {
+          startNewSend(container)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        expect(woozie.navigate).toHaveBeenCalledWith('/send');
+        act(() => root.unmount());
+      }
+    );
+
+    it('names an expired quote when the deadline passed before submit', async () => {
+      const { container, root } = await renderPage({
+        ...ROW_SHAPES[0]![1]('depositing'),
+        status: ITransactionStatus.Failed,
+        stage: 'sending',
+        error: 'The 1Click quote has expired. Request a new quote before depositing.'
+      });
+
+      expect(container.textContent).toContain('nearIntentsSendQuoteExpired');
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      expect(startNewSend(container)).toBeDefined();
+      act(() => root.unmount());
+    });
+
+    it('offers no new send while the outcome is not known, because the first send can still land', async () => {
+      const { container, root } = await renderPage({
+        ...ROW_SHAPES[0]![1]('depositing'),
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting'
+      });
+
+      expect(startNewSend(container)).toBeUndefined();
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      act(() => root.unmount());
+    });
+
+    it('keeps Retry for a failed Epoch bridged send', async () => {
+      isRequeueableTransactionMock.mockReturnValue(true);
+      const { container, root } = await renderPage({
+        type: 'bridged-send',
+        extraInputs: { provider: 'epoch', destinationAddress: '0x1', destinationNetwork: 1 },
+        status: ITransactionStatus.Failed,
+        stage: 'proving',
+        error: 'proof failed'
+      });
+
+      expect(container.textContent).toContain('retry');
+      expect(startNewSend(container)).toBeUndefined();
+      expect(container.textContent).not.toContain('nearIntentsSendNotSentDescription');
+      act(() => root.unmount());
+    });
+  });
+
+  it('draws the plain step list for a send restored from a backup, which nothing reconciles', async () => {
+    const { container, root, states } = await renderPage({
+      ...ROW_SHAPES[1]![1]('processing'),
+      status: ITransactionStatus.Completed,
+      stage: 'complete',
+      restoredFromBackup: true
+    });
+
+    expect(states().map(([id]) => id)).not.toContain('near-intents-send');
+    expect(nested(container)).toEqual([]);
+    act(() => root.unmount());
+  });
+});
+
 describe('user-visible transaction errors', () => {
   let root: ReturnType<typeof createRoot>;
   let container: HTMLDivElement;

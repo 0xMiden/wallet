@@ -1,7 +1,15 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNumberSymbols } from 'lib/i18n/core';
-import { ITransactionStatus, type ITransactionStage, type ITransactionType } from 'lib/miden/db/types';
+import {
+  ITransactionStatus,
+  SendTransaction,
+  type IOneClickPhase,
+  type IOneClickTrackingData,
+  type ITransaction,
+  type ITransactionStage,
+  type ITransactionType
+} from 'lib/miden/db/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
@@ -13,6 +21,7 @@ import {
 import {
   formatStepSeconds,
   getActiveStepIndex,
+  getNearIntentsSendStepState,
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
@@ -20,6 +29,16 @@ import {
   getTransactionStepState,
   isDirectGuardianSwitch,
   isUnconfirmedGuardianSwitch,
+  nearIntentsDeliveredText,
+  nearIntentsDeliveryFailureKeys,
+  nearIntentsDeliveryOutcome,
+  nearIntentsDeliveryReason,
+  nearIntentsDestinationName,
+  nearIntentsMinimumText,
+  nearIntentsOutputText,
+  nearIntentsQuotedText,
+  nearIntentsSentText,
+  nearIntentsSendTracking,
   waitsToDeliverNote
 } from './helper';
 
@@ -551,5 +570,181 @@ describe('isUnconfirmedGuardianSwitch', () => {
         extraInputs: { commitUnconfirmed: true }
       } as never)
     ).toBe(false);
+  });
+});
+
+describe('NEAR Intents delivery', () => {
+  const tracking = (phase: IOneClickPhase, extra: Partial<IOneClickTrackingData> = {}): IOneClickTrackingData => ({
+    direction: 'miden-to-evm',
+    request: {
+      amount: '20000000',
+      originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6, faucetId: '0xfaucet' },
+      destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+      refundTo: 'mm1refund',
+      recipient: 'SoLaNa',
+      deadline: '2026-11-11T00:05:00.000Z',
+      slippageTolerance: 100
+    },
+    quote: {
+      correlationId: 'correlation',
+      timestamp: '2026-11-11T00:00:00.000Z',
+      signature: 'signed',
+      quoteRequest: {
+        dry: false,
+        swapType: 'EXACT_INPUT',
+        slippageTolerance: 100,
+        originAsset: 'miden-usdc',
+        depositType: 'ORIGIN_CHAIN',
+        destinationAsset: 'sol-usdc',
+        amount: '20000000',
+        refundTo: 'mm1refund',
+        refundType: 'ORIGIN_CHAIN',
+        recipient: 'SoLaNa',
+        recipientType: 'DESTINATION_CHAIN',
+        deadline: '2026-11-11T00:05:00.000Z'
+      },
+      quote: {
+        amountIn: '20000000',
+        amountInFormatted: '20',
+        amountInUsd: '20',
+        minAmountIn: '20000000',
+        amountOut: '19650000',
+        amountOutFormatted: '19.65',
+        amountOutUsd: '19.65',
+        minAmountOut: '19400000',
+        timeEstimate: 22
+      }
+    },
+    config: {
+      serviceUrl: 'https://one-click.example',
+      midenAssets: [],
+      chains: [{ id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] }]
+    },
+    network: 'mainnet',
+    accountId: 'mm1refund',
+    accountAddress: 'mm1refund',
+    originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6, faucetId: '0xfaucet' },
+    destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+    faucetId: '0xfaucet',
+    amount: '20000000',
+    phase,
+    ...extra
+  });
+  const sendRow = (oneClick: IOneClickTrackingData): SendTransaction => {
+    const row = new SendTransaction('mm1refund', 20_000_000n, 'mm1deposit', '0xfaucet', NoteTypeEnum.Public);
+    row.extraInputs = { oneClick };
+    return row;
+  };
+
+  it('reads the tracking of a send from Miden only', () => {
+    const outbound = tracking('processing');
+    expect(nearIntentsSendTracking(sendRow(outbound))).toBe(outbound);
+    expect(nearIntentsSendTracking(sendRow(tracking('processing', { direction: 'evm-to-miden' })))).toBeUndefined();
+    expect(nearIntentsSendTracking(undefined)).toBeUndefined();
+    const restored: ITransaction = { ...sendRow(outbound), restoredFromBackup: true };
+    expect(nearIntentsSendTracking(restored)).toBeUndefined();
+  });
+
+  it('reads the tracking of a bridged-send row only when its provider is NEAR Intents', () => {
+    const outbound = tracking('processing');
+    const bridged: ITransaction = {
+      ...sendRow(outbound),
+      type: 'bridged-send',
+      extraInputs: { provider: 'near-intents', destinationAddress: 'SoLaNa', oneClick: outbound }
+    };
+    expect(nearIntentsSendTracking(bridged)).toBe(outbound);
+    const epoch: ITransaction = { ...bridged, extraInputs: { provider: 'epoch', oneClick: outbound } };
+    expect(nearIntentsSendTracking(epoch)).toBeUndefined();
+    const consume: ITransaction = { ...bridged, type: 'consume' };
+    expect(nearIntentsSendTracking(consume)).toBeUndefined();
+  });
+
+  it('titles a NEAR Intents bridged-send row as a payment', () => {
+    const bridged: ITransaction = {
+      ...sendRow(tracking('processing')),
+      type: 'bridged-send',
+      extraInputs: { provider: 'near-intents', oneClick: tracking('processing') }
+    };
+    expect(getProcessingTitleKey('bridged-send', bridged)).toBe('transactionTitleSend');
+    // Another bridge keeps the generic title.
+    const epoch: ITransaction = { ...bridged, extraInputs: { provider: 'epoch' } };
+    expect(getProcessingTitleKey('bridged-send', epoch)).toBe('generatingTransaction');
+  });
+
+  it('titles a NEAR Intents send row that an older build stored as a payment', () => {
+    const legacy = sendRow(tracking('processing'));
+    expect(getProcessingTitleKey('send', legacy)).toBe('transactionTitleSend');
+  });
+
+  it.each<[boolean, boolean, boolean, string]>([
+    [false, false, false, 'active'],
+    [true, false, false, 'complete'],
+    [true, true, false, 'failed'],
+    [true, true, true, 'pending']
+  ])('reads the send step as complete=%s errors=%s unconfirmed=%s: %s', (complete, errors, unconfirmed, state) => {
+    expect(getNearIntentsSendStepState(complete, errors, unconfirmed)).toBe(state);
+  });
+
+  it('reads the sent side from the row quote and its Miden asset, rounded', () => {
+    const ether = tracking('processing', {
+      originAsset: { assetId: 'miden-eth', blockchain: 'miden', symbol: 'ETH', decimals: 18, faucetId: '0xfaucet' },
+      quote: {
+        ...tracking('processing').quote,
+        quote: { ...tracking('processing').quote.quote, amountIn: '962490256881558' }
+      }
+    });
+    expect(nearIntentsSentText(ether)).toBe('0.000962 ETH');
+    expect(nearIntentsQuotedText(ether)).toBe('19.65 USDC');
+    expect(nearIntentsMinimumText(ether)).toBe('19.4 USDC');
+    expect(nearIntentsDeliveredText(ether)).toBeUndefined();
+  });
+
+  it.each<[IOneClickPhase, string]>([
+    ['depositing', 'pending'],
+    ['known-deposit-tx', 'pending'],
+    ['pending-deposit', 'pending'],
+    ['processing', 'pending'],
+    ['incomplete-deposit', 'pending'],
+    ['arriving', 'delivered'],
+    ['delivered', 'delivered'],
+    ['refunded', 'failed'],
+    ['failed', 'failed'],
+    ['expired', 'failed']
+  ])('reads the phase %s as %s', (phase, outcome) => {
+    expect(nearIntentsDeliveryOutcome(phase)).toBe(outcome);
+  });
+
+  it('names the failure of each terminal phase', () => {
+    expect(nearIntentsDeliveryFailureKeys('refunded').title).toBe('nearIntentsSendRefundedTitle');
+    expect(nearIntentsDeliveryFailureKeys('expired').title).toBe('nearIntentsSendExpiredTitle');
+    expect(nearIntentsDeliveryFailureKeys('failed').title).toBe('nearIntentsSendFailedTitle');
+  });
+
+  it('gives the reason, the delivered output and the destination name from the row', () => {
+    const delivered = tracking('delivered', {
+      statusResponse: {
+        correlationId: 'correlation',
+        quoteResponse: tracking('delivered').quote,
+        status: 'SUCCESS',
+        updatedAt: '2026-11-11T00:01:00.000Z',
+        swapDetails: {
+          intentHashes: [],
+          nearTxHashes: [],
+          amountOut: '19700000',
+          refundReason: 'slippage',
+          originChainTxHashes: [],
+          destinationChainTxHashes: []
+        }
+      }
+    });
+    expect(nearIntentsOutputText(delivered)).toBe('19.7 USDC');
+    expect(nearIntentsOutputText(tracking('processing'))).toBe('19.65 USDC');
+    expect(nearIntentsDeliveryReason(delivered)).toBe('slippage');
+    expect(nearIntentsDeliveryReason(tracking('failed', { error: 'The 1Click swap failed.' }))).toBe(
+      'The 1Click swap failed.'
+    );
+    expect(nearIntentsDestinationName(delivered)).toBe('Solana');
+    const bitcoin = tracking('processing', { destinationAsset: { ...delivered.destinationAsset, blockchain: 'btc' } });
+    expect(nearIntentsDestinationName(bitcoin)).toBe('btc');
   });
 });

@@ -89,7 +89,16 @@ jest.mock('components/AmountInput', () => ({
     )
 }));
 jest.mock('./bridge-networks', () => ({
-  getBridgeNetwork: (id: string) => (id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 1 } : undefined)
+  getSendNetwork: (id: string) => {
+    switch (id) {
+      case 'sepolia':
+        return { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 1, bridge: true };
+      case 'solana':
+        return { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false };
+      default:
+        return undefined;
+    }
+  }
 }));
 
 const TOKEN = { id: 't', name: 'MIDEN', decimals: 6, balance: 12.345678, fiatPrice: 2, scaleIsKnown: true };
@@ -226,6 +235,13 @@ describe('SendAmount', () => {
 
     expect(screen.getByTestId('send-amount-recipient')).toHaveTextContent('Alice');
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
+  });
+
+  it('names a NEAR Intents chain as the network of a Solana recipient', () => {
+    renderAmount({ recipientAddress: 'So1anaRecipient', network: 'solana' });
+
+    expect(screen.getByText('Solana')).toBeInTheDocument();
+    expect(screen.queryByText('miden')).not.toBeInTheDocument();
   });
 
   it('turns a fee shortfall into a notice with a Receive link, leaving the amount unmarked', () => {

@@ -586,15 +586,21 @@ describe('HistoryDetails', () => {
     originBlockchain = 'eth',
     destinationBlockchain = 'miden',
     direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden',
-    phase: IOneClickPhase = 'arriving'
+    phase: IOneClickPhase = 'arriving',
+    chains?: { id: string; name: string; addressKind: string; tokens: [] }[],
+    bridgedSend = false
   ) => {
     const outbound = direction === 'miden-to-evm';
     const originAssetId = outbound ? 'miden-usdc' : 'usdc';
     const destinationAssetId = outbound ? 'usdc' : 'miden-usdc';
+    const rowType = (() => {
+      if (!outbound) return 'bridged-receive';
+      return bridgedSend ? 'bridged-send' : 'send';
+    })();
     setMockRow({
       ...baseSendTx,
       id: 'one-click-history',
-      type: outbound ? 'send' : 'bridged-receive',
+      type: rowType,
       extraInputs: {
         provider: 'near-intents',
         phase: 'submitting',
@@ -643,7 +649,8 @@ describe('HistoryDetails', () => {
           },
           config: {
             serviceUrl: 'https://service.example',
-            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }],
+            ...(chains === undefined ? {} : { chains })
           },
           network: 'mainnet',
           accountId: 'account',
@@ -681,8 +688,17 @@ describe('HistoryDetails', () => {
               destinationChainTxHashes: []
             }
           }
-        }
-      }
+        },
+        // A new NEAR Intents send is a `bridged-send` row: it names the recipient and pays the deposit address.
+        ...(bridgedSend
+          ? {
+              destinationAddress: '0x0000000000000000000000000000000000000001',
+              destinationNetwork: 1,
+              claimStatus: 'pending'
+            }
+          : {})
+      },
+      ...(bridgedSend ? { secondaryAccountId: 'mm1depositaddress' } : {})
     });
   };
   it('formats persisted 1Click amounts with their asset decimals and shows the friendly origin network name', async () => {
@@ -770,6 +786,83 @@ describe('HistoryDetails', () => {
 
     expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
     expect(screen.queryByTestId('history-near-intents-deposit-button')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['sol', 'Solana', 'solana'],
+    ['btc', 'Bitcoin', 'bitcoin'],
+    ['near', 'NEAR', 'near']
+  ])(
+    'names the %s destination of a NEAR Intents send by the chain name in its stored config',
+    async (id, name, kind) => {
+      setOneClickHistoryRow('miden', id, 'miden-to-evm', 'processing', [{ id, name, addressKind: kind, tokens: [] }]);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+      const details = screen.getAllByTestId('detail-row');
+      expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+        name
+      );
+    }
+  );
+
+  describe('a NEAR Intents send', () => {
+    // A new send is a `bridged-send` row with provider `near-intents`; an older build stored a `send` row.
+    const statusText = () => screen.getByTestId('near-intents-send-status').textContent;
+
+    it.each<[IOneClickPhase, string]>([
+      ['depositing', 'nearIntentsSendStatusSending'],
+      ['known-deposit-tx', 'oneClickStatusKnownDepositTx'],
+      ['pending-deposit', 'oneClickStatusPendingDeposit'],
+      ['incomplete-deposit', 'oneClickStatusIncompleteDeposit'],
+      ['processing', 'oneClickStatusProcessing'],
+      ['arriving', 'nearIntentsSendStatusDelivered'],
+      ['delivered', 'nearIntentsSendStatusDelivered'],
+      ['refunded', 'oneClickStatusRefunded'],
+      ['failed', 'oneClickStatusFailed'],
+      ['expired', 'nearIntentsSendStatusExpired']
+    ])('shows a live delivery status for the %s phase', async (phase, status) => {
+      setOneClickHistoryRow('miden', 'eth', 'miden-to-evm', phase, undefined, true);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+
+      expect(statusText()).toBe(status);
+    });
+
+    it.each(['bridged-send', 'send'])(
+      'shows the recipient and the 1Click rows, and no Epoch or Agglayer claim, for a %s row',
+      async shape => {
+        setOneClickHistoryRow(
+          'miden',
+          'sol',
+          'miden-to-evm',
+          'processing',
+          [{ id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] }],
+          shape === 'bridged-send'
+        );
+        await renderAndLoad({ transactionId: 'one-click-history' });
+
+        expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+        expect(screen.getByTestId('near-intents-send-recipient')).toHaveTextContent(
+          '0x0000000000000000000000000000000000000001'
+        );
+        const details = screen.getAllByTestId('detail-row');
+        expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+          'Solana'
+        );
+        expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+        // The sent amount comes from the row's own quote and Miden asset, not the faucet metadata.
+        expect(document.body.textContent).toContain('MID');
+      }
+    );
+  });
+
+  it('keeps the translated label of a known chain before the name in the stored config', async () => {
+    setOneClickHistoryRow('miden', 'eth', 'miden-to-evm', 'processing', [
+      { id: 'eth', name: 'Ethereum Mainnet', addressKind: 'evm', tokens: [] }
+    ]);
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+      /^Ethereum$/
+    );
   });
 
   it('keeps an unknown route network visible as its raw ID', async () => {

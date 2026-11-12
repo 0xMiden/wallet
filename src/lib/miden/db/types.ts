@@ -216,8 +216,15 @@ export interface IOneClickTrackingData {
 
 export interface ISendExtraInputs {
   recallBlocks?: number;
+  /** Written only by older builds: a NEAR Intents send is now a `bridged-send` row with `provider: 'near-intents'`. */
   oneClick?: IOneClickTrackingData;
 }
+
+/**
+ * `destinationNetwork` of a near-intents `bridged-send` whose chain has no EVM chain id that the wallet knows (Solana,
+ * Bitcoin, NEAR). A negative number is never a chain id or an agglayer network id, so no reader takes it for one.
+ */
+export const NEAR_INTENTS_NO_EVM_CHAIN_ID = -1;
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -443,10 +450,25 @@ export interface IBridgedSendExtraInputs {
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
-  /** 0x EVM recipient. */
+  /**
+   * The recipient on the destination chain. A 0x EVM address on the agglayer, epoch and usdcx routes. On the
+   * near-intents route it is the address that the user typed on any configured chain (EVM, Solana, Bitcoin or NEAR),
+   * never the 1Click deposit address, which is the Miden note recipient in `secondaryAccountId`.
+   */
   destinationAddress: string;
-  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
+  /**
+   * EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch, usdcx). On the
+   * near-intents route, the EVM chain id when the wallet knows the chain, else `NEAR_INTENTS_NO_EVM_CHAIN_ID`, which is
+   * no chain: read `destinationChain` for the name.
+   */
   destinationNetwork: number;
+  /** near-intents: the 1Click chain of the recipient (`eth`, `sol`, `btc`, `near`) and its display name. */
+  destinationChain?: { id: string; name: string };
+  /**
+   * near-intents: the signed 1Click quote and its tracking state. `reconcileOneClickSwaps` submits the Miden
+   * transaction id to 1Click and follows the swap until it is delivered, refunded, failed or expired.
+   */
+  oneClick?: IOneClickTrackingData;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
@@ -1686,6 +1708,27 @@ export class BridgedSendTransaction implements ITransaction {
     };
   }
 }
+
+/**
+ * The 1Click tracking of a NEAR Intents send from Miden: a `bridged-send` row with `provider: 'near-intents'`, or a
+ * `send` row that an older build wrote. Undefined for every other row, a NEAR Intents receive included.
+ */
+export const nearIntentsSendTrackingOf = (
+  tx: Pick<ITransaction, 'type' | 'extraInputs'>
+): IOneClickTrackingData | undefined => {
+  switch (tx.type) {
+    case 'send': {
+      const inputs: ISendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.oneClick;
+    }
+    case 'bridged-send': {
+      const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.provider === 'near-intents' ? inputs.oneClick : undefined;
+    }
+    default:
+      return undefined;
+  }
+};
 
 /**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator

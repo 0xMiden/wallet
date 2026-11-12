@@ -157,6 +157,7 @@ jest.mock('lib/miden/transaction/get', () => ({
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
+  nearIntentsSendTrackingOf: jest.requireActual('lib/miden/db/types').nearIntentsSendTrackingOf,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
 
@@ -177,6 +178,8 @@ jest.mock('./transactionUtils', () => ({
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
   // The real naming, so a label assertion runs the rule the list renders with.
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
+  // The real NEAR Intents projection: it reads only the row's own tracking.
+  nearIntentsSendHistoryFields: jest.requireActual('./transactionUtils').nearIntentsSendHistoryFields,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 

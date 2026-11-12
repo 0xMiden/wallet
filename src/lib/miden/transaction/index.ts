@@ -177,6 +177,7 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
+  nearIntentsSendTrackingOf,
   ReplaceHotKeyTransaction,
   SendTransaction,
   StageDetail,
@@ -2142,7 +2143,17 @@ const generateTransactionWithProvider = async (
           )
         );
       } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+        // A NEAR Intents send (a P2ID to the 1Click deposit address, whose quote deadline `sendTransaction` checks
+        // before its submit), or a legacy Epoch row. Only the NEAR Intents send can await a verdict, so only it is
+        // stamped and timed like a plain send.
+        const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+        result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          midenClientProxy.sendTransaction(
+            transaction as SendTransaction,
+            signCallback,
+            attempt && stageStampFor(transaction.id, attempt)
+          )
+        );
       }
       break;
     case 'execute':
@@ -3952,7 +3963,17 @@ const generateGuardianTransaction = async (
       // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
       // branch persists the P2IDE bytes it builds, so a retry would otherwise be
       // mistaken for the Agglayer (pre-built request) path.
-      if (bridgeTx.extraInputs?.provider === 'epoch') {
+      const bridgeProvider = bridgeTx.extraInputs?.provider;
+      if (bridgeProvider === 'near-intents') {
+        // NEAR Intents: a public P2ID note to the 1Click deposit address, with no recall window, as the
+        // ordinary send's non-recallable branch builds it. A bridged-send is not requeueable, so a transient
+        // 409 is waited out in process, as on the other bridge routes.
+        const depositAddress = bridgeTx.secondaryAccountId;
+        if (!depositAddress) throw new Error('The NEAR Intents send has no 1Click deposit address.');
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createSendProposal(depositAddress, bridgeTx.faucetId, BigInt(bridgeTx.amount), NoteType.Public)
+        );
+      } else if (bridgeProvider === 'epoch') {
         // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
         // note — it reads the note on-chain (a private note is "not found on-chain"),
         // validates its recall window (a plain P2ID has none and is rejected,
@@ -4426,7 +4447,8 @@ const generateGuardianTransaction = async (
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
-    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    // A NEAR Intents send (a `bridged-send` row, or a `send` row of an older build) must not submit past its deadline.
+    const oneClick = nearIntentsSendTrackingOf(transaction);
     const oneClickDeadline = oneClick
       ? assertOneClickFundingDeadlineMatches(
           oneClick.fundingDeadline,

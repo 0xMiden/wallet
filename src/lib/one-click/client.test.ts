@@ -27,8 +27,7 @@ const input: OneClickQuoteRequest = {
     blockchain: 'eth',
     symbol: 'ETH',
     decimals: 18,
-    contractAddress: 'native',
-    chainId: 1
+    contractAddress: 'native'
   },
   destinationAsset: {
     assetId: 'miden:usdc',
@@ -75,16 +74,14 @@ function requestForFixture(quote: OneClickQuoteResponse): OneClickQuoteRequest {
       blockchain: 'eth',
       symbol: 'USDC',
       decimals: 6,
-      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-      chainId: 1
+      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
     },
     destinationAsset: {
       assetId: signed.destinationAsset,
       blockchain: 'base',
       symbol: 'ETH',
       decimals: 18,
-      contractAddress: 'native',
-      chainId: 8453
+      contractAddress: 'native'
     },
     refundTo: signed.refundTo,
     recipient: signed.recipient,
@@ -326,6 +323,19 @@ describe('1Click client', () => {
       name: 'OneClickHttpError',
       status: 400,
       message: '1Click request failed (400)'
+    });
+  });
+
+  it.each([
+    ['no_liquidity', 'no_liquidity'],
+    ['invalid_recipient', 'invalid_recipient'],
+    ['upstream_request_failed', undefined]
+  ])('reads the proxy reason code %s of a refused request', async (error, code) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status: 400 }));
+    await expect(requestOneClickQuote(config, input)).rejects.toMatchObject({
+      name: 'OneClickHttpError',
+      status: 400,
+      code
     });
   });
 

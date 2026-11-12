@@ -387,9 +387,10 @@ function scaleBaseUnits(amount: bigint, fromDecimals: number, toDecimals: number
   return amount / 10n ** BigInt(-difference);
 }
 
+// As the proxy does, refuse a request that names fees: 1Click adds the fees of the partner key to each quote.
 function parseSignedRequest(value: Record<string, unknown>): OneClickSignedRequest | undefined {
-  const appFees = value.appFees;
   if (
+    'appFees' in value ||
     typeof value.dry !== 'boolean' ||
     value.swapType !== 'EXACT_INPUT' ||
     typeof value.slippageTolerance !== 'number' ||
@@ -406,8 +407,7 @@ function parseSignedRequest(value: Record<string, unknown>): OneClickSignedReque
     typeof value.recipient !== 'string' ||
     value.recipientType !== 'DESTINATION_CHAIN' ||
     typeof value.deadline !== 'string' ||
-    !Number.isFinite(Date.parse(value.deadline)) ||
-    (appFees !== undefined && (!Array.isArray(appFees) || appFees.length > 3 || !appFees.every(isAppFee)))
+    !Number.isFinite(Date.parse(value.deadline))
   )
     return undefined;
   return {
@@ -422,22 +422,8 @@ function parseSignedRequest(value: Record<string, unknown>): OneClickSignedReque
     refundType: 'ORIGIN_CHAIN',
     recipient: value.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    deadline: value.deadline,
-    ...(Array.isArray(appFees) ? { appFees } : {})
+    deadline: value.deadline
   };
-}
-
-function isAppFee(value: unknown): value is { recipient: string; fee: number } {
-  return (
-    isRecord(value) &&
-    typeof value.recipient === 'string' &&
-    value.recipient.length >= 2 &&
-    value.recipient.length <= 128 &&
-    Number.isSafeInteger(value.fee) &&
-    typeof value.fee === 'number' &&
-    value.fee >= 0 &&
-    value.fee <= 1000
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

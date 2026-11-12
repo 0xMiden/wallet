@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 
+import type { SendNetwork } from './bridge-networks';
 import { NetworkField } from './NetworkField';
 import { RouteOptions } from './Route';
 import {
@@ -32,7 +33,7 @@ jest.mock('react-i18next', () => ({
     }
   })
 }));
-jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [] }));
+jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [], EVM_SEND_NETWORKS: [] }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'mtst1usdcxnative' }));
 jest.mock('lib/store', () => ({
@@ -44,11 +45,11 @@ jest.mock('lib/miden/metadata/resolve', () => ({
   resolveDisplayMetadata: jest.fn(() => ({ symbol: 'USDCx', name: 'USDCx', decimals: 6 }))
 }));
 
-const NETWORKS = [
-  { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
-  { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
-  { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 }
+const NETWORKS: SendNetwork[] = [
+  { id: 'arc-testnet', name: 'Arc Testnet', kind: 'evm', chainId: 5042002, bridge: true },
+  { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 11155111, bridge: true },
+  { id: 'base-sepolia', name: 'Base Sepolia', kind: 'evm', chainId: 84532, bridge: true },
+  { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', kind: 'evm', chainId: 421614, bridge: true }
 ];
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 

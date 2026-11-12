@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { claimAccentColor } from 'app/templates/history/transactionUtils';
+import { claimAccentColor, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily } from 'lib/epoch/pools';
 import { GC_DECIMALS } from 'lib/miden/arcade/gc-sale';
 import { ITransaction } from 'lib/miden/db/types';
@@ -21,6 +21,8 @@ import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
 import { truncateAddress } from 'utils/string';
+
+import { nearIntentsOutputText, nearIntentsSendTracking, nearIntentsSentText } from './helper';
 
 export interface TransactionSummaryBadgeProps {
   /** Rendered before the separator. */
@@ -341,7 +343,9 @@ export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUs
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
+ *   NEAR Intents  →  {amount in} {Miden symbol} ->  {amount out} {destination symbol}   (from the row's quote;
+ *                    bridge slate arrow; a `bridged-send` or an older `send` row)
+ *   swap         →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
  *
@@ -362,6 +366,22 @@ export const useTransactionSummaryBadgeContent = (
   const { t } = useTranslation();
 
   return useMemo(() => {
+    // A NEAR Intents send (a `bridged-send`, or a `send` an older build stored) pays a 1Click deposit address. As for
+    // a GC purchase, both sides come from the row's own quote, never from `assetsMetadata`: the wallet can have no
+    // metadata for the faucet yet, and the pill read "Unknown". The right side is what the recipient gets on the
+    // other chain, with the bridge slate arrow.
+    const nearIntents = nearIntentsSendTracking(transaction);
+    if (nearIntents) {
+      const sent = nearIntentsSentText(nearIntents);
+      const output = nearIntentsOutputText(nearIntents);
+      if (!sent || !output) return undefined;
+      return {
+        lhs: sent,
+        rhs: <span className="min-w-0 truncate">{output}</span>,
+        fillForArrow: TRANSACTION_COLORS.bridge
+      };
+    }
+
     // An Arcade GC purchase carries both sides on the row, at scales the sale fixes (6 decimals each), so it never
     // waits on asset metadata: a wallet buying its first GC has none for the GC faucet and read "Unknown".
     const gcPurchase = transaction?.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;

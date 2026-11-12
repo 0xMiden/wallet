@@ -11,8 +11,7 @@ import {
   isNearIntentsDepositExpired,
   persistNearIntentsDeposit,
   phaseForProviderStatus,
-  reconcileOneClickSwaps,
-  updateOneClickTrackingPhase
+  reconcileOneClickSwaps
 } from './tracking';
 import { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
@@ -44,7 +43,9 @@ jest.mock('lib/one-click/client', () => ({
   resolveOneClickDestinationReceipts: jest.fn(),
   submitOneClickDeposit: (...args: unknown[]) => submitDeposit(...args)
 }));
-jest.mock('lib/miden/activity', () => ({ initiateSendTransaction: (...args: unknown[]) => initiateSend(...args) }));
+jest.mock('lib/miden/activity', () => ({
+  initiateNearIntentsSendTransaction: (...args: unknown[]) => initiateSend(...args)
+}));
 
 const originAsset: OneClickAsset = { assetId: 'miden-asset', blockchain: 'miden', symbol: 'MID', decimals: 6 };
 const destinationAsset: OneClickAsset = { assetId: 'eth-asset', blockchain: 'eth', symbol: 'ETH', decimals: 18 };
@@ -318,17 +319,6 @@ describe('1Click durable tracking', () => {
     expect(submitDeposit).not.toHaveBeenCalled();
   });
 
-  it.each(['refunded', 'expired'] as const)('maps an explicit %s phase to a terminal Activity state', async phase => {
-    const row = inboundRow(`explicit-${phase}-row`, { phase: 'pending-deposit' });
-    storedRows.push(row);
-
-    await updateOneClickTrackingPhase(row.id, phase);
-
-    expect(row.extraInputs.oneClick.phase).toBe(phase);
-    expect(row.extraInputs.phase).toBe('failed');
-    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('failed');
-  });
-
   it('stops polling an outbound swap after the provider reports success', async () => {
     const outboundRow = {
       id: 'outbound-success-row',
@@ -405,20 +395,219 @@ describe('1Click durable tracking', () => {
     expect(outboundRow.extraInputs.oneClick.phase).toBe('delivered');
   });
 
-  it('sends the selected Miden account-bound amount to the signed deposit address', async () => {
-    await initiateOneClickMidenDeposit(input);
+  const bridgedSendRow = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    type: 'bridged-send',
+    accountId: 'miden-account-id',
+    initiatedAt: Date.now(),
+    status: ITransactionStatus.Completed,
+    transactionId: `0x${'ef'.repeat(32)}`,
+    secondaryAccountId: 'miden-deposit-address',
+    ...overrides,
+    extraInputs: {
+      provider: 'near-intents',
+      destinationAddress: request.recipient,
+      destinationNetwork: 1,
+      sourceFaucetId: 'miden-faucet',
+      claimStatus: 'not-applicable',
+      oneClick: {
+        direction: 'miden-to-evm',
+        request,
+        quote,
+        config,
+        network: 'mainnet',
+        accountId: 'miden-account-id',
+        accountAddress: 'miden-account',
+        originAsset,
+        destinationAsset,
+        faucetId: 'miden-faucet',
+        amount: request.amount,
+        phase: 'depositing',
+        depositAddress: 'miden-deposit-address',
+        providerSubmitted: false
+      }
+    }
+  });
+
+  it('submits the Miden transaction id of a NEAR Intents bridged-send and follows it to delivery', async () => {
+    const row = bridgedSendRow('bridged-send-delivered');
+    storedRows.push(row);
+    submitDeposit.mockResolvedValue({ status: 'PROCESSING', swapDetails: {} });
+    fetchStatus.mockResolvedValue({ status: 'SUCCESS', swapDetails: {} });
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(submitDeposit).toHaveBeenCalledWith(config, 'miden-deposit-address', row.transactionId, undefined, quote);
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(row.extraInputs.oneClick).toMatchObject({ phase: 'delivered', providerSubmitted: true });
+    // Only a bridged-receive row carries a row-level phase.
+    expect(row.extraInputs).not.toHaveProperty('phase');
+  });
+
+  it('ends a NEAR Intents bridged-send as refunded', async () => {
+    const row = bridgedSendRow('bridged-send-refunded');
+    storedRows.push(row);
+    submitDeposit.mockResolvedValue({ status: 'REFUNDED', swapDetails: {} });
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(row.extraInputs.oneClick.phase).toBe('refunded');
+  });
+
+  it.each([
+    ['queued', { status: ITransactionStatus.Queued, transactionId: undefined }],
+    ['in progress', { status: ITransactionStatus.GeneratingTransaction, transactionId: undefined }],
+    ['unconfirmed', { status: ITransactionStatus.Unconfirmed, transactionId: undefined }],
+    ['failed', { status: ITransactionStatus.Failed }],
+    ['restored from a backup', { restoredFromBackup: true }]
+  ])('does not submit or poll a NEAR Intents bridged-send that is %s', async (_label, overrides) => {
+    storedRows.push(bridgedSendRow('bridged-send-waiting', overrides));
+
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).not.toHaveBeenCalled();
+    expect(fetchStatus).not.toHaveBeenCalled();
+  });
+
+  it('never reads an Epoch or Agglayer bridged-send row', async () => {
+    storedRows.push({
+      id: 'epoch-row',
+      type: 'bridged-send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: `0x${'aa'.repeat(32)}`,
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0x1',
+        destinationNetwork: 1,
+        claimStatus: 'not-applicable'
+      }
+    });
+
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).not.toHaveBeenCalled();
+    expect(fetchStatus).not.toHaveBeenCalled();
+  });
+
+  it('submits the Miden transaction id of a send to Solana and ends the row as refunded', async () => {
+    const solanaAsset: OneClickAsset = { assetId: 'sol-asset', blockchain: 'sol', symbol: 'SOL', decimals: 9 };
+    const solanaRecipient = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+    const midenDepositAddress = 'mm1arwrrznxhwfzky2feqrnvalc9qvzc7f6_qr7qqq9wr6w';
+    const midenTransactionId = `0x${'ab'.repeat(32)}`;
+    const outboundRow = {
+      id: 'outbound-solana-refund-row',
+      type: 'send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: midenTransactionId,
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: { ...request, destinationAsset: solanaAsset, recipient: solanaRecipient },
+          quote: { ...quote, quote: { ...quote.quote, depositAddress: midenDepositAddress } },
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset,
+          destinationAsset: solanaAsset,
+          faucetId: 'miden-faucet',
+          amount: request.amount,
+          phase: 'depositing',
+          depositAddress: midenDepositAddress,
+          providerSubmitted: false
+        }
+      }
+    };
+    storedRows.push(outboundRow);
+    submitDeposit.mockResolvedValue({ status: 'PROCESSING', swapDetails: {} });
+    fetchStatus.mockResolvedValue({ status: 'REFUNDED', swapDetails: { refundReason: 'price moved' } });
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(submitDeposit).toHaveBeenCalledWith(
+      config,
+      midenDepositAddress,
+      midenTransactionId,
+      undefined,
+      outboundRow.extraInputs.oneClick.quote
+    );
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(outboundRow.extraInputs.oneClick).toMatchObject({
+      phase: 'refunded',
+      providerStatus: 'REFUNDED',
+      providerSubmitted: true
+    });
+  });
+
+  it('ends a Miden send as refunded when the deposit submission reports the refund', async () => {
+    const outboundRow = {
+      id: 'outbound-submit-refund-row',
+      type: 'send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: `0x${'cd'.repeat(32)}`,
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request,
+          quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset,
+          destinationAsset,
+          faucetId: 'miden-faucet',
+          amount: request.amount,
+          phase: 'depositing',
+          depositAddress: 'miden-deposit-address',
+          providerSubmitted: false
+        }
+      }
+    };
+    storedRows.push(outboundRow);
+    submitDeposit.mockResolvedValue({ status: 'REFUNDED', swapDetails: {} });
+    fetchStatus.mockResolvedValue({ status: 'REFUNDED', swapDetails: {} });
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(outboundRow.extraInputs.oneClick.phase).toBe('refunded');
+  });
+
+  it('queues a NEAR Intents bridged-send of the account-bound amount to the signed deposit address', async () => {
+    const authorization = {
+      kind: 'unpriced' as const,
+      id: 'authorization',
+      accountId: 'miden-account-id',
+      spendsDigest: 'digest',
+      revision: '1',
+      issuedAt: 0,
+      expiresAt: Number.MAX_SAFE_INTEGER
+    };
+    await expect(initiateOneClickMidenDeposit(input, authorization)).resolves.toBe('send-row-id');
 
     expect(initiateSend).toHaveBeenCalledWith(
-      'miden-account-id',
-      'miden-deposit-address',
-      'miden-faucet',
-      expect.anything(),
-      1000000n,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      expect.objectContaining({ direction: 'miden-to-evm', quote: expect.any(Object) })
+      {
+        senderAccountId: 'miden-account-id',
+        depositAddress: 'miden-deposit-address',
+        faucetId: 'miden-faucet',
+        amount: 1000000n
+      },
+      expect.objectContaining({ direction: 'miden-to-evm', quote: expect.any(Object), phase: 'depositing' }),
+      authorization
     );
   });
 
@@ -456,24 +645,17 @@ describe('1Click durable tracking', () => {
       await initiateOneClickMidenDeposit({ ...input, request: signedRequest, quote: signedQuote });
 
       expect(initiateSend).toHaveBeenCalledWith(
-        'miden-account-id',
-        'miden-deposit-address',
-        'miden-faucet',
-        expect.anything(),
-        1000000n,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
+        expect.objectContaining({ depositAddress: 'miden-deposit-address', amount: 1000000n }),
         expect.objectContaining({
           fundingDeadline: new Date(
             Date.parse(signedRequestDeadline) < Date.parse(providerExpiry) ? signedRequestDeadline : providerExpiry
           ).toISOString(),
           request: expect.objectContaining({ deadline: signedRequestDeadline }),
           quote: signedQuote
-        })
+        }),
+        undefined
       );
-      const tracking = initiateSend.mock.calls[0]?.[9];
+      const tracking = initiateSend.mock.calls[0]?.[1];
       expect(tracking?.request).toEqual(signedRequest);
       expect(tracking?.quote).toEqual(signedQuote);
     }

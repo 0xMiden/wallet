@@ -18,10 +18,25 @@ import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { BridgeNetwork, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { BridgeNetworkId, EVM_SEND_NETWORKS, SendNetwork, SendNetworkId } from './bridge-networks';
 import { NetworkField } from './NetworkField';
+import { sendNetworkKind } from './send-network-kind';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
+
+/** The network badge of a recent recipient's avatar. Only Miden and EVM have a badge. */
+function recentAvatarNetwork(chain: AddressChain): 'miden' | 'ethereum' | undefined {
+  switch (chain) {
+    case 'miden':
+      return 'miden';
+    case 'ethereum':
+      return 'ethereum';
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return undefined;
+  }
+}
 
 // One easing for everything that reacts to the address changing, so the field
 // growing, the pills swapping and the chips arriving read as one movement.
@@ -29,17 +44,19 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
 export interface SelectRecipientProps {
-  networks?: readonly BridgeNetwork[];
+  /** The destination networks the wallet can send to. The field shows the ones that match the address chain. */
+  networks?: readonly SendNetwork[];
   address: string;
   isValidAddress: boolean;
   error?: string;
   errorDiagnostics?: UiEvidenceInput;
   /**
-   * Chain detected from the typed address. `ethereum` offers the cross-chain
-   * destination networks; `miden` is same-chain, so Miden is its only network.
+   * Chain detected from the typed address. `ethereum` offers the EVM destination
+   * networks; `solana`, `bitcoin` and `near` have one NEAR Intents network each;
+   * `miden` is same-chain, so Miden is its only network.
    */
   chain: AddressChain;
-  /** Selected network. Miden is available before an address is entered; EVM sends use a bridge network. */
+  /** Selected network. Miden is available before an address is entered; other sends use a `SendNetwork` id. */
   network?: SendNetworkId;
   /** Name of a saved contact matching the entered address. */
   recipientName?: string;
@@ -56,7 +73,7 @@ export interface SelectRecipientProps {
   onAddContact?: () => void;
   /** Fills the recipient from a "Recent" row. */
   onSelectRecent?: (recipient: RecentRecipient) => void;
-  /** Picks the destination network for a 0x recipient. */
+  /** Picks the destination network for a cross-chain recipient. */
   onSelectNetwork: (network: BridgeNetworkId) => void;
   /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
   onScan?: () => void;
@@ -108,10 +125,14 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
-  const isEthereum = chain === 'ethereum';
+  // Undefined for a Miden address: a same-chain send needs no destination network.
+  const networkKind = sendNetworkKind(chain);
+  const selectedNetwork =
+    networkKind === undefined
+      ? undefined
+      : (networks ?? EVM_SEND_NETWORKS).find(option => option.id === network && option.kind === networkKind);
   const hasAddress = address.trim().length > 0;
-  const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
+  const canConfirm = isValidAddress && (networkKind === undefined || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
   const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
@@ -119,6 +140,21 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   // The scanner's own key, already localised everywhere, rather than a second English literal:
   // sentence case, as the design system asks of a label.
   const scanQrCodeLabel = t('scanQrTitle');
+  // The second line of a recent recipient with no saved name: the network of the address.
+  const recentNetworkLabel = (recipient: RecentRecipient): string => {
+    switch (recipient.chain) {
+      case 'miden':
+        return t('miden');
+      case 'ethereum':
+        return recipient.networkName ?? t('ethereum');
+      case 'solana':
+        return recipient.networkName ?? t('networkSolana');
+      case 'bitcoin':
+        return recipient.networkName ?? t('networkBitcoin');
+      case 'near':
+        return recipient.networkName ?? t('networkNear');
+    }
+  };
 
   // Done label on the mobile keyboard. Set via the ref because this repo's
   // @types/react version types enterKeyHint on inputs but not textareas.
@@ -225,7 +261,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             <div className="pt-4">
               <NetworkField
                 networks={networks}
-                chain={isEthereum ? 'ethereum' : 'miden'}
+                chain={chain}
                 network={network === 'miden' ? undefined : network}
                 onSelect={onSelectNetwork}
                 testIdPrefix="send"
@@ -309,7 +345,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                     <ContactAvatar
                       address={recipient.address}
                       name={recipient.name}
-                      network={recipient.chain === 'miden' ? 'miden' : 'ethereum'}
+                      network={recentAvatarNetwork(recipient.chain)}
                     />
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate text-row-title text-ink">
@@ -318,11 +354,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       {/* The address once: with no saved name the line above already shows it, so
                           this line names the network instead. */}
                       <span className="truncate text-caption text-muted">
-                        {recipient.name
-                          ? truncateAddress(recipient.address)
-                          : recipient.chain === 'miden'
-                            ? t('miden')
-                            : (recipient.networkName ?? t('ethereum'))}
+                        {recipient.name ? truncateAddress(recipient.address) : recentNetworkLabel(recipient)}
                       </span>
                     </span>
                   </button>
