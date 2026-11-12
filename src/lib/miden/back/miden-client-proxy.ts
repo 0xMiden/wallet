@@ -412,10 +412,13 @@ const opDefaultSignerOps = new Set<string>();
 
 /**
  * op_id → the classified reason of that op's LAST failed reverse-IPC sign
- * (design §2.6). Recorded by the reverse-IPC handler; read by the write path so
+ * (design §2.6). Recorded by the reverse-IPC handler only while the op still
+ * holds a signer, and read by the write path after `inFlight` drops the op, so
  * a locked-mid-sign failure can be re-tagged onto the thrown error, making
  * `isLockedError(err)` in the tx loop DEFER (not Fail) the consume — the issue
- * #313 note-loss guard. Op-scoped (keyed by op_id) so it cannot bleed across ops.
+ * #313 note-loss guard. Released with the signer: the write `finally`, a signing
+ * read's `finally`, and the test critical dispatch. Op-scoped (keyed by op_id)
+ * so it cannot bleed across ops.
  */
 const opSignReasons = new Map<string, SignCallbackReason>();
 
@@ -735,6 +738,7 @@ async function dispatchSigningRead(method: string, args: unknown[], deadlineMs: 
     return await dispatchOp(op_id, method, args, deadlineMs, false);
   } finally {
     opDefaultSignerOps.delete(op_id);
+    opSignReasons.delete(op_id);
   }
 }
 
@@ -814,9 +818,11 @@ export function markOpStarted(op_id: string): void {
  * exit, so a slow/blocked sign never trips a kill.
  *
  * Locked-defer (§2.6, issue #313): on a sign failure the raw error is classified
- * exactly as the inline path does (`buildSignCallbackError`) and the reason is
- * recorded PER-OP (so the write path can re-tag the thrown error for
- * `isLockedError`; issue #260 flip-prep #1 removed the redundant global slot).
+ * exactly as the inline path does (`buildSignCallbackError`). The reason is
+ * recorded PER-OP only while the op still holds a signer, so the write path can
+ * re-tag the thrown error for `isLockedError`. A sign that fails after the op
+ * released its signer still returns the classified `{ ok: false }` and records
+ * nothing (issue #260 flip-prep #1 removed the redundant global slot).
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
@@ -835,9 +841,14 @@ export async function handleOffscreenSignRequest(
       const signature = await cb(publicKeyHex, signingInputsHex);
       return { ok: true, sign_id, signatureB64: bytesToB64(signature) };
     } catch (rawErr) {
-      // Classify identically to the inline path so a locked vault DEFERS.
+      // Classify identically to the inline path so a locked vault DEFERS. Record
+      // the reason only while this op still holds a signer: the write catch reads
+      // it after `inFlight` drops the op, and a failure after the op released its
+      // signer must not leave an entry behind.
       const classified = buildSignCallbackError(rawErr);
-      opSignReasons.set(op_id, classified.reason);
+      if (opSignCallbacks.has(op_id) || opDefaultSignerOps.has(op_id)) {
+        opSignReasons.set(op_id, classified.reason);
+      }
       return { ok: false, sign_id, error: classified.message, reason: classified.reason };
     }
   } finally {
@@ -1943,6 +1954,7 @@ export const __test = {
   isOpPaused: (op_id: string) => inFlight.get(op_id)?.paused ?? false,
   hasOpTimer: (op_id: string) => inFlight.get(op_id)?.timer != null,
   opSignCallbacksSize: () => opSignCallbacks.size,
+  opSignReasonsSize: () => opSignReasons.size,
   opStageCallbacksSize: () => opStageCallbacks.size,
   isOffscreenClientEnabled: () => USE_OFFSCREEN_CLIENT,
   writeDeadlineMs: () => WRITE_DEADLINE_MS,
@@ -1961,6 +1973,7 @@ export const __test = {
     const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => {
       decrementCriticalOp();
       opDefaultSignerOps.delete(op_id);
+      opSignReasons.delete(op_id);
     });
     return { op_id, promise };
   },

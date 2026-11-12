@@ -2069,6 +2069,47 @@ describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () =
     ]);
   });
 
+  it('flag ON → a dry run whose default signer throws settles with no sign reason', async () => {
+    const { midenClientProxy, handleOffscreenSignRequest, __test } = await loadProxy(true);
+    const defaultSigner = jest.fn(async () => {
+      throw new Error('signer unavailable');
+    });
+    let signResponse: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+      signResponse = await handleOffscreenSignRequest(signRequestFor(env.op_id), defaultSigner);
+      return { ok: false, op_id: env.op_id, error: 'sign failed in offscreen execute' };
+    });
+
+    const settled = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await settled;
+
+    // The failure is classified and returned; the reason is released with the signing read.
+    expect(signResponse).toEqual(expect.objectContaining({ ok: false, reason: 'internal' }));
+    expect(__test.opSignReasonsSize()).toBe(0);
+  });
+
+  it('records no sign reason when the op released its signer before the signer failed', async () => {
+    const { handleOffscreenSignRequest, __test } = await loadProxy(true);
+    let fail: (e: Error) => void = () => undefined;
+    const signer = jest.fn(
+      () =>
+        new Promise<Uint8Array>((_resolve, reject) => {
+          fail = reject;
+        })
+    );
+    const release = __test.allowDefaultSigner('op-late');
+
+    const pending = handleOffscreenSignRequest(signRequestFor('op-late'), signer);
+    await flush();
+    release();
+    fail(new Error('signer failed after the op ended'));
+
+    expect(await pending).toEqual(expect.objectContaining({ ok: false, sign_id: 'sign-op-late' }));
+    expect(__test.opSignReasonsSize()).toBe(0);
+  });
+
   it("refuses the dry run's op once it has settled", async () => {
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
     const defaultSigner = jest.fn(async () => new Uint8Array([0x7]));
