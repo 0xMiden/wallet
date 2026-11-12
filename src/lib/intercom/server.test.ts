@@ -349,6 +349,23 @@ describe('IntercomServer', () => {
       expect(mockPostMessage).toHaveBeenCalledTimes(2);
     });
 
+    it('queues a page request that arrives before handlers register and replays it once they do', async () => {
+      const pageRequest = { type: 'MIDEN_PAGE_REQUEST', origin: 'https://dapp.example', payload: { type: 'X' } };
+
+      await deliverFrom(contentPort, 'req-c8', pageRequest);
+      expect(mockPostMessage).not.toHaveBeenCalled();
+
+      const handler = jest.fn().mockResolvedValue({ type: 'MIDEN_PAGE_RESPONSE' });
+      server.onRequest(handler);
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(pageRequest, contentPort);
+      expect(mockPostMessage.mock.calls).toEqual([
+        [{ type: MessageType.Res, reqId: 'req-c8', data: { type: 'MIDEN_PAGE_RESPONSE' } }]
+      ]);
+    });
+
     it('serves every request type to an extension page running in a tab', async () => {
       const tabPage = {
         ...mockPort,
