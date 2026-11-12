@@ -88,12 +88,18 @@ function expectKeptWord(signed: object) {
   expect(handle.word.free).not.toHaveBeenCalled();
 }
 
+const valueAt = (values: bigint[], i: number): bigint => {
+  const value = values[i];
+  if (value === undefined) throw new Error(`no payload value at ${i}`);
+  return value;
+};
+
 const arbitrary = (...values: bigint[]) =>
   decoded(1, {
     arbitraryPayload: () =>
       mockArbitraryAsArray
         ? values.map(mockFelt)
-        : { length: () => values.length, get: (i: number) => mockFelt(values[i]), free: jest.fn() }
+        : { length: () => values.length, get: (i: number) => mockFelt(valueAt(values, i)), free: jest.fn() }
   });
 
 describe('signBytesInputs', () => {

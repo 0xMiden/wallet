@@ -68,6 +68,7 @@ type Wallet = {
   requestAssets: () => Promise<unknown>;
   requestLoginKey: () => Promise<{ loginKey: Uint8Array }>;
   signLoginBytes: (data: Uint8Array, kind: 'word') => Promise<{ signature: Uint8Array }>;
+  signBytes: (data: Uint8Array, kind: string) => Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
   off: (event: string, cb: (data: unknown) => void) => void;
   emit: (event: string, data: unknown) => void;
@@ -709,7 +710,7 @@ describe('login key', () => {
     const res = await request;
     expect(res.signedCommitment).toBeInstanceOf(Uint8Array);
     expect(Array.from(res.signature)).toEqual(Array.from(signature));
-    expect(Array.from(res.signedCommitment)).toEqual(Array.from(commitment));
+    expect(Array.from(res.signedCommitment ?? [])).toEqual(Array.from(commitment));
   });
 
   it('omits signedCommitment when the wallet sends none', async () => {
