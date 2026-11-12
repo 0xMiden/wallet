@@ -191,7 +191,7 @@ describe('the reviewed Epoch output minimum', () => {
     }));
     mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
     mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
-      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
       return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
     });
   });
