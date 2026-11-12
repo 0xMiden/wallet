@@ -42,10 +42,17 @@ describe('tauri command wiring', () => {
 
   it('every app command checks the wallet webview', () => {
     for (const file of rustFiles(TAURI_SRC)) {
-      const source = readFileSync(file, 'utf8');
-      const commands = source.split('#[tauri::command]').length - 1;
-      const guards = source.split('ensure_wallet_webview(&webview)?').length - 1;
-      expect({ file, guards }).toEqual({ file, guards: commands });
+      const [, ...commands] = readFileSync(file, 'utf8').split('#[tauri::command]');
+      for (const command of commands) {
+        // A top-level fn ends at the first closing brace in column 0 (rustfmt layout).
+        const fn = command.split(/\n}\n/)[0]!;
+        const name = /fn\s+(\w+)/.exec(fn)?.[1];
+        expect({ file, name, guarded: fn.includes('ensure_wallet_webview(&webview)?') }).toEqual({
+          file,
+          name,
+          guarded: true
+        });
+      }
     }
   });
 });
