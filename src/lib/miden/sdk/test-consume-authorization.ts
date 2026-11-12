@@ -29,6 +29,8 @@ export async function awaitTestConsumeAuthorization(
   if (await sha256(canonicalRequestBytes(bytes)) !== scope.canonicalSha256)
     throw new Error('Actual native consume request differs from its canonical authorization');
   const digest = await sha256(bytes);
+  const same = (value: unknown, status: string): boolean => isRecord(value) &&
+    Object.entries({ ...scope, sha256: digest, status }).every(([key, entry]) => value[key] === entry);
   const started = Date.now();
   // Only public request fingerprints cross storage; private note/request bytes stay in memory.
   await chrome.storage.local.set({ [KEY]: { ...scope, sha256: digest, status: 'waiting' } });
@@ -41,8 +43,13 @@ export async function awaitTestConsumeAuthorization(
       throw new Error('Native consume authorization changed during the request hold');
     if (live.status === 'released') {
       if (await sha256(request.serialize()) !== digest) throw new Error('Native request changed during authorization upload');
+      if (!same((await chrome.storage.local.get(KEY))[KEY], 'released'))
+        throw new Error('Native consume release changed during request verification');
       if (Date.now() < started || Date.now() - started >= 240_000) throw new Error('Native consume authorization timed out');
       await chrome.storage.local.set({ [KEY]: { ...scope, sha256: digest, status: 'spent' } });
+      if (!same((await chrome.storage.local.get(KEY))[KEY], 'spent'))
+        throw new Error('Native consume spent authority changed before execution');
+      if (Date.now() < started || Date.now() - started >= 240_000) throw new Error('Native consume authorization timed out');
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 500));

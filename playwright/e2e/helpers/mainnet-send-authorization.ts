@@ -5,14 +5,15 @@ import type { TestMainnetSendScope } from '../../../src/lib/miden/sdk/test-send-
 import { TEST_SEND_AUTHORIZATION_KEY as KEY } from '../../../src/lib/miden/sdk/test-send-authorization';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 
-export interface MainnetSendHandle extends TestMainnetSendScope { nonce: string }
+export interface MainnetSendHandle extends TestMainnetSendScope { nonce: string; expiresAt: number }
 export interface MainnetSendAuthority { nonce: string; noteId: string; sha256: string; canonicalSha256: string }
 
 export async function armMainnetSendAuthorization(
-  page: Pick<Page, 'evaluate'>, scope: TestMainnetSendScope
+  page: Pick<Page, 'evaluate'>, scope: TestMainnetSendScope & { expiresAt: number }
 ): Promise<MainnetSendHandle> {
   if (![scope.accountId, scope.recipientId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
-      scope.accountId === scope.recipientId || !/^[1-9]\d{0,18}$/.test(scope.amount))
+      scope.accountId === scope.recipientId || !/^[1-9]\d{0,18}$/.test(scope.amount) ||
+      !Number.isSafeInteger(scope.expiresAt) || scope.expiresAt <= Date.now() || scope.expiresAt > Date.now() + 600_000)
     throw new Error('Invalid native send authorization scope');
   const handle = { ...scope, nonce: randomUUID() };
   await page.evaluate(async ({ key, handle }) => {
@@ -30,7 +31,7 @@ export async function releaseMainnetSendAuthorization(
   const expected = { ...handle };
   let authority: MainnetSendAuthority | undefined;
   for (let poll = 0; poll < 480; poll++) {
-    if (options.signal.aborted) throw new Error('Native send authorization aborted');
+    if (options.signal.aborted || Date.now() >= expected.expiresAt) throw new Error('Native send authorization aborted or expired');
     const value: unknown = await page.evaluate(async key => (await chrome.storage.local.get(key))[key], KEY);
     if (!isRecord(value) || Object.entries(expected).some(([key, entry]) => value[key] !== entry))
       throw new Error('Native send request scope changed');
@@ -48,10 +49,10 @@ export async function releaseMainnetSendAuthorization(
   if (!authority) throw new Error('Actual native send request timed out');
   await options.persist(authority);
   await awaitMainnetLoopAuthorization(options.checkpointPath, options.gatePath, options.signal);
-  if (options.signal.aborted) throw new Error('Native send authorization aborted during upload');
+  if (options.signal.aborted || Date.now() >= expected.expiresAt) throw new Error('Native send authorization aborted or expired during upload');
   await page.evaluate(async ({ key, expected }) => {
     const value = (await chrome.storage.local.get(key))[key];
-    if (!value || value.status !== 'waiting' || Object.entries(expected).some(([name, entry]) => value[name] !== entry))
+    if (!value || value.status !== 'waiting' || Date.now() >= expected.expiresAt || Object.entries(expected).some(([name, entry]) => value[name] !== entry))
       throw new Error('Native send authority changed after its exact upload');
     await chrome.storage.local.set({ [key]: { ...expected, status: 'released' } });
   }, { key: KEY, expected: { ...expected, ...authority } });

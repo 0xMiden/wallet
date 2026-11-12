@@ -17,21 +17,22 @@ export async function awaitTestSendAuthorization(accountId: string, request: { s
       policy.nonce.length > 80 || typeof policy.accountId !== 'string' || typeof policy.recipientId !== 'string' ||
       typeof policy.faucetId !== 'string' || typeof policy.amount !== 'string' ||
       ![policy.accountId, policy.recipientId, policy.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
-      !/^[1-9]\d{0,18}$/.test(policy.amount))
+      !/^[1-9]\d{0,18}$/.test(policy.amount) || typeof policy.expiresAt !== 'number' || !Number.isSafeInteger(policy.expiresAt) ||
+      policy.expiresAt <= Date.now() || policy.expiresAt > Date.now() + 600_000)
     throw new Error('Invalid or already used native send authorization');
   const scope = { nonce: policy.nonce, accountId: policy.accountId, recipientId: policy.recipientId,
-    faucetId: policy.faucetId, amount: policy.amount };
+    faucetId: policy.faucetId, amount: policy.amount, expiresAt: policy.expiresAt };
   if (accountId !== scope.accountId) throw new Error('Native send SDK payer differs from its authorization');
   const started = Date.now();
   const active = () => {
-    if (Date.now() < started || Date.now() - started >= 240_000)
+    if (Date.now() < started || Date.now() - started >= 240_000 || Date.now() >= scope.expiresAt)
       throw new Error('Native send authorization timed out');
   };
   const bytes = request.serialize();
   const noteId = inspectTestMainnetSendRequest(scope, bytes);
   const sha = await sha256(bytes);
   const canonicalSha256 = await sha256(canonicalRequestBytes(bytes));
-  const same = (value: unknown, expected: Record<string, string>): boolean =>
+  const same = (value: unknown, expected: Record<string, string | number>): boolean =>
     isRecord(value) && Object.entries(expected).every(([key, entry]) => value[key] === entry);
   if (!same((await chrome.storage.local.get(KEY))[KEY], { ...scope, status: 'armed' }))
     throw new Error('Native send authority changed during request inspection');
@@ -51,6 +52,9 @@ export async function awaitTestSendAuthorization(accountId: string, request: { s
         throw new Error('Native send release changed during request verification');
       active();
       await chrome.storage.local.set({ [KEY]: { ...held, status: 'spent' } });
+      if (!same((await chrome.storage.local.get(KEY))[KEY], { ...held, status: 'spent' }))
+        throw new Error('Native send spent authority changed before execution');
+      active();
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 500));
