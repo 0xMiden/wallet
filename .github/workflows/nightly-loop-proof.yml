@@ -28,7 +28,8 @@ jobs:
           test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
           yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
-          node --test --test-concurrency=2 scripts/mainnet-epoch-evm.test.mjs
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
+          node --test --test-concurrency=2 scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-swap-request.test.mjs
       - name: Verify immutable source and mainnet helpers
         run: |
           test "$GITHUB_SHA" = "$(git rev-parse HEAD)"
@@ -43,7 +44,7 @@ jobs:
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
           yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-provider.mjs
-          node --test --test-concurrency=2 scripts/mainnet-send-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs
+          node --test --test-concurrency=2 scripts/mainnet-send-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs scripts/mainnet-swap-request.test.mjs
           node scripts/consume-request-equivalence.mjs
           yarn ts
       - name: Check public mainnet SDK reads without keys or writes
