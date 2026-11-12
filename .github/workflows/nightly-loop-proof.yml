@@ -57,11 +57,13 @@ jobs:
           try {
             const html = await boundedText(await fetch('https://explorer.mainnet.miden.io', { signal: AbortSignal.timeout(10000) }));
             if (!html.includes(`"GRAPHQL_URL":"${url}"`) || !html.includes('"MIDEN_NETWORK":"mainnet"')) throw new Error('Public explorer configuration changed');
-            const query = '{__schema{queryType{fields{name args{name type{kind name ofType{kind name ofType{kind name}}}} type{kind name ofType{kind name}}}}}}';
+            const shape = 'name kind fields{name args{name type{kind name ofType{kind name ofType{kind name}}}} type{kind name ofType{kind name ofType{kind name}}}} inputFields{name type{kind name ofType{kind name ofType{kind name}}}}';
+            const names = ['Transaction', 'TransactionInput', 'TransactionsInput', 'Note', 'NoteInput', 'NotesInput', 'NoteConnection', 'NoteEdge'];
+            const query = `{${names.map(name => `${name}:__type(name:"${name}"){${shape}}`).join(' ')}}`;
             const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ query }), signal: AbortSignal.timeout(10000) });
             const json = JSON.parse(await boundedText(response));
             console.log(JSON.stringify({ url, status: response.status, errors: json.errors?.length ?? 0,
-              queryFields: json.data?.__schema?.queryType?.fields?.slice(0, 100) ?? [] }));
+              types: json.data ?? {} }));
           } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
           NODE
