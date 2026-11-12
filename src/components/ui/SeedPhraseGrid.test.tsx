@@ -44,7 +44,7 @@ it('masked renders no word text and no seed-word test ids', () => {
   const words = Array.from({ length: 12 }, (_, i) => `word${i}`);
   const { container } = render(<SeedPhraseGrid words={words} masked data-testid="grid" />);
 
-  expect(screen.queryByText(words[0])).toBeNull();
+  expect(screen.queryByText('word0')).toBeNull();
   expect(screen.queryByTestId('seed-word-0')).toBeNull();
   expect(container.textContent).not.toContain('word');
   expect(screen.getByRole('group', { name: 'recoveryPhraseHidden' })).toBeInTheDocument();

@@ -22,7 +22,7 @@ function passwordConstants() {
     const source = readFileSync(file, 'utf8');
     return [...source.matchAll(PASSWORD_CONSTANT)]
       .filter(([, name]) => !(name === 'DEFAULT_PASSWORD' && PASSCODE_DIRS.some(dir => rel.startsWith(dir))))
-      .map(([, name, value]) => ({ where: `${rel} ${name}`, length: value.length }));
+      .map(([, name = '', value = '']) => ({ where: `${rel} ${name}`, length: value.length }));
   });
 }
 

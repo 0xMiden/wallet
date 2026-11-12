@@ -40,7 +40,9 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
     <div
       data-testid={dataTestId}
       className={cn('rounded-2xl bg-fill p-5', className)}
-      {...(masked ? { 'data-masked': 'true', role: 'group', 'aria-label': t('recoveryPhraseHidden') } : {})}
+      data-masked={masked ? 'true' : undefined}
+      role={masked ? 'group' : undefined}
+      aria-label={masked ? t('recoveryPhraseHidden') : undefined}
     >
       <div className="grid grid-cols-3 gap-x-4 gap-y-5">
         {words.map((word, idx) => (

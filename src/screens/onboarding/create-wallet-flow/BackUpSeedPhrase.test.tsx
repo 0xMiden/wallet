@@ -304,9 +304,9 @@ describe('BackUpSeedPhraseScreen', () => {
     it('on mobile the hidden words stay blurred text and a window blur does not hide them', () => {
       mockIsMobile = true;
       renderComponent();
-      const chips = screen.getAllByTestId(/^seed-word-\d+$/);
-      expect(chips[0]).toHaveTextContent('alpha');
-      expect(chips[0].querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:blur(8px)]');
+      const chip = screen.getByTestId('seed-word-0');
+      expect(chip).toHaveTextContent('alpha');
+      expect(chip.querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:blur(8px)]');
 
       fireEvent.click(screen.getByTestId('btn-show'));
       act(() => {
