@@ -8,10 +8,11 @@
  *
  * Two blind-approval regressions are covered here:
  *
- * 1. SIGN. `signBytes(bytes, 'signingInputs')` is a full transaction
- *    authorization (`Vault.signData` → `secretKey.signData(SigningInputs…)`).
- *    The sheet used to carry only `Kind` and `Account`, so a page could have the
- *    user sign away the whole balance with nothing on screen about assets.
+ * 1. SIGN. A `signingInputs` transaction summary is the full authorization,
+ *    signed as that summary. `word` and Blind or Arbitrary `signingInputs` are
+ *    signed under the domain tag and cannot authorize a transaction. The sheet
+ *    used to carry only `Kind` and `Account`, so a page could have the user sign
+ *    away the whole balance with nothing on screen about assets.
  *
  * 2. CUSTOM TRANSACTION. The sheet was four fixed strings plus `From` and a
  *    dApp-declared `Recipient`, none of it derived from `transactionRequest` —
@@ -21,6 +22,9 @@
  * only branch these rows reach; the extension renders `TransactionAssetView`
  * from the same decoders instead.
  */
+
+import fs from 'fs';
+import path from 'path';
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -596,5 +600,24 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     ).rejects.toThrow(DECLINED);
 
     expect(sheetRows()).toContain('Receiving, NFT 0xcdcdcdcd\u2026cdcdcd from faucet mtst1nftfaucetaaaaaaaaaaaaaaaaaa');
+  });
+});
+
+describe('signBytes developer documentation', () => {
+  it('says what the wallet signs for each kind and how to verify it', () => {
+    const guide = fs.readFileSync(path.join(__dirname, '../../../../docs/developers/index.html'), 'utf8');
+    const start = guide.indexOf('id="signing"');
+    const end = guide.indexOf('id="login"');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const section = guide.slice(start, end);
+    expect(section).toContain('signedCommitment');
+    expect(section).toContain('publicKey.verify');
+    expect(section).toContain('miden-wallet/sign-bytes/v1');
+
+    const source = fs.readFileSync(__filename, 'utf8');
+    const header = source.slice(0, source.indexOf('\nimport '));
+    expect(header).not.toContain('secretKey.signData(SigningInputs');
+    expect(header).toContain('cannot authorize');
   });
 });
