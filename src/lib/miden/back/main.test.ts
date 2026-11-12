@@ -222,6 +222,7 @@ jest.mock('lib/miden/back/actions', () => ({
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
+import type { MessageSenderLike } from 'lib/intercom/sender';
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -1632,7 +1633,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
 describe('scoped offscreen native identity relay', () => {
   const id = '0x817edea77acc5d71616e493afecea3';
   const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
-  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+  const invoke = (message: unknown, sender: MessageSenderLike = ownSender, reply = jest.fn()) =>
     capturedRuntimeListeners[0]?.(message, sender, reply);
   it.each([
     {
