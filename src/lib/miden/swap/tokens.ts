@@ -44,11 +44,9 @@ export interface SwapToken {
    */
   faucetId: string;
   decimals: number;
-  /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
-  logoSymbol: string;
   /**
    * The asset this token stands for, as the price feed names it. Set only where the feed prices
-   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   * that asset; absent means unpriced. Never inferred from the ticker.
    */
   priceSymbol?: string;
 }
@@ -67,16 +65,6 @@ export const subscribeSwapTokens = (listener: () => void): (() => void) => {
   };
 };
 
-/** The marks `components/TokenLogo` ships. */
-const TOKEN_MARKS: readonly string[] = ['MIDEN', 'ETH', 'USDC', 'BTC'];
-
-// The solver names no logo. Its tokens carry the ticker of the asset they stand for behind an 'I'
-// (IETH, IBTC, IMIDEN), so that asset's mark is the fallback; any other token keeps its own ticker.
-function logoSymbolFor(ticker: string): string {
-  const bare = ticker.startsWith('I') ? ticker.slice(1) : ticker;
-  return TOKEN_MARKS.includes(bare) ? bare : ticker;
-}
-
 // A faucet the reviewed document prices (bridged ETH, the Earn USDC) keeps the document's symbol: the solver's
 // assets can be stand-ins, and every reader of a token's price must agree with the spending cap.
 function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet[]): SwapToken {
@@ -87,7 +75,6 @@ function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet
     symbol: token.ticker,
     faucetId,
     decimals: token.decimals,
-    logoSymbol: logoSymbolFor(token.ticker),
     ...(priceSymbol === undefined ? {} : { priceSymbol })
   };
 }
@@ -124,8 +111,7 @@ export const getSwapTokens = (): SwapToken[] => {
     {
       symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata.decimals,
-      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
+      decimals: nativeMetadata.decimals
     },
     ...listed
   ];

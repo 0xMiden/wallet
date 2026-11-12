@@ -143,7 +143,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             valueClassName="font-extrabold"
             visual={
               <TokenLogo
-                symbol={symbol}
                 faucetId={tokenId}
                 size="2xl"
                 // An unverified token carries the warning on its own mark, where the eye already is.

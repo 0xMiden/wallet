@@ -19,7 +19,8 @@ import {
   EarnSubjectSubtitle,
   earnSubjectTitle,
   EarnVaultClosedNotice,
-  MetricCard
+  MetricCard,
+  useEarnAssetFaucetId
 } from './components';
 import { EARN_PLACEHOLDER, formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
@@ -32,6 +33,7 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
+  const assetFaucetId = useEarnAssetFaucetId();
   const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
@@ -53,7 +55,13 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       onBack={goBack}
       headerActions={
         found && (
-          <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+          <EarnAssetMark
+            asset={found.asset}
+            network={found.network}
+            faucetId={assetFaucetId}
+            fundingAsset={found.fundingAsset}
+            decorative
+          />
         )
       }
       footer={

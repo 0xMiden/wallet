@@ -4028,6 +4028,10 @@
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
   },
+  "proposalEffectRefused": {
+    "message": "Кошелек остановил эту транзакцию перед её подписанием, поскольку не смог подтвердить, что транзакция перемещает только то, что вы одобрили. Средства не были перемещены.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",
     "englishSource": "Amount must be less than balance"
