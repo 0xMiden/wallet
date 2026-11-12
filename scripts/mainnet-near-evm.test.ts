@@ -1,7 +1,7 @@
 /** @jest-environment node */
-import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256 } from 'viem';
+import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256, type Address, type Hash } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { inspectMainnetNearSignedTransfer, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
+import { createMainnetNearEvmBroadcast, inspectMainnetNearSignedTransfer, type MainnetNearBroadcastInput, type MainnetNearEvmEnvelope } from '../playwright/e2e/helpers/mainnet-near-evm';
 import type { MainnetNearCheckpoint } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 import { nativeNearFixture, nativeNearQuote } from './helpers/mainnet-near-fixture';
 const key = `0x${'0'.repeat(63)}1`;
@@ -72,6 +72,83 @@ it('rejects a fresh gas/native valuation that exhausts the original remaining lo
   if (!state.returnValuation) throw new Error('Missing unit return valuation');
   state.returnValuation.nativeUsdMicros = '200000000';
   await expect(inspectMainnetNearSignedTransfer(state, approved, raw)).rejects.toThrow();
+});
+function receipt(transactionHash: Hash, status: 'success' | 'reverted' = 'success') {
+  return { transactionHash, status, gasUsed: 45000n, effectiveGasPrice: 1000000n };
+}
+function broadcastFixture() {
+  const state = authority(); const abort = new AbortController(); const events: string[] = [];
+  const client = {
+    getChainId: jest.fn(async () => 42161), getTransactionCount: jest.fn(async (_input: { address: Address; blockTag: 'latest' | 'pending' }) => 0),
+    getBalance: jest.fn(async () => BigInt(state.evm.nativeBalance)),
+    readTokenBalance: jest.fn(async () => BigInt(state.evm.tokenBalance) + 1001000n),
+    sendRawTransaction: jest.fn(async ({ serializedTransaction }: { serializedTransaction: `0x${string}` }) => {
+      events.push('broadcast'); return keccak256(serializedTransaction);
+    }),
+    waitForTransactionReceipt: jest.fn(async ({ hash }: { hash: `0x${string}` }) => receipt(hash))
+  };
+  const sign = jest.fn(async (transaction: MainnetNearEvmEnvelope) => signer.signTransaction({ ...transaction, type: 'eip1559' }));
+  const persist = jest.fn(async (_state: MainnetNearCheckpoint) => { events.push('persist'); });
+  const input: MainnetNearBroadcastInput = { client, sign, persist, signal: abort.signal };
+  return { state, abort, events, client, sign, persist, input };
+}
+it('journals the actual signed hash before one broadcast and records only the actual bounded receipt fee', async () => {
+  const f = broadcastFixture(); const send = createMainnetNearEvmBroadcast(f.state, f.input);
+  const hash = await send(envelope());
+  expect(f.state.transactions).toEqual([{ kind: 'transfer', nonce: 0, hash, feeWei: '45000000000' }]);
+  expect(f.state.paidEvmFees).toBe('45000000000'); expect(f.events).toEqual(['persist', 'broadcast', 'persist']);
+});
+it('holds the exact signed journal until upload acknowledgement and preserves it if cancelled while waiting', async () => {
+  const f = broadcastFixture(); let entered: () => void = () => {}; let release: () => void = () => {};
+  const waiting = new Promise<void>(resolve => { entered = resolve; }); const acknowledgement = new Promise<void>(resolve => { release = resolve; });
+  f.persist.mockImplementation(async () => { entered(); await acknowledgement; });
+  const outcome = createMainnetNearEvmBroadcast(f.state, f.input)(envelope());
+  const checked = outcome.then(value => ({ value }), error => ({ error }));
+  await Promise.race([waiting, checked.then(() => { throw new Error('Broadcast settled before its signed journal was uploaded'); })]);
+  expect(f.state.transactions).toHaveLength(1); expect(f.client.sendRawTransaction.mock.calls.length).toBe(0);
+  f.abort.abort(); release(); await expect(outcome).rejects.toThrow(); expect(f.client.sendRawTransaction.mock.calls.length).toBe(0);
+});
+it('keeps the real signed journal but never broadcasts when durable persistence fails', async () => {
+  const f = broadcastFixture(); f.persist.mockRejectedValue(new Error('Artifact unavailable'));
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow();
+  expect(f.state.transactions).toHaveLength(1); expect(f.client.sendRawTransaction.mock.calls.length).toBe(0);
+});
+it('refuses actual signer byte substitution before persisting or broadcasting', async () => {
+  const f = broadcastFixture(); f.sign.mockImplementation(async transaction => signer.signTransaction({ ...transaction, value: 1n, type: 'eip1559' }));
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow();
+  expect(f.persist.mock.calls.length).toBe(0); expect(f.client.sendRawTransaction.mock.calls.length).toBe(0);
+});
+it('refuses authority mutation during upload rather than signing or sending a revised deposit', async () => {
+  const f = broadcastFixture(); f.persist.mockImplementation(async () => { f.state.lossBudgetUsdMicros = '2000000'; });
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow();
+  expect(f.state.transactions).toHaveLength(1); expect(f.client.sendRawTransaction.mock.calls.length).toBe(0);
+});
+it('retains actual revert fees and never retries the transfer', async () => {
+  const f = broadcastFixture(); f.client.waitForTransactionReceipt.mockImplementation(async ({ hash }) => receipt(hash, 'reverted'));
+  const send = createMainnetNearEvmBroadcast(f.state, f.input);
+  await expect(send(envelope())).rejects.toThrow(); expect(f.state.paidEvmFees).toBe('45000000000');
+  await expect(send(envelope())).rejects.toThrow(); expect(f.client.sendRawTransaction.mock.calls.length).toBe(1);
+});
+it('refuses an existing pending nonce before any signing', async () => {
+  const f = broadcastFixture(); f.client.getTransactionCount.mockImplementation(async ({ blockTag }) => blockTag === 'pending' ? 1 : 0);
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow(); expect(f.sign.mock.calls.length).toBe(0);
+});
+it('refuses another live chain before any signing', async () => {
+  const f = broadcastFixture(); f.client.getChainId.mockResolvedValue(1);
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow(); expect(f.sign.mock.calls.length).toBe(0);
+});
+it('does not spend an unrelated token credit as if it were the attributed forward receipt', async () => {
+  const f = broadcastFixture(); f.client.readTokenBalance.mockResolvedValue(4001001n);
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow(); expect(f.sign.mock.calls.length).toBe(0);
+});
+it('keeps an unknown receipt unresolved instead of recording invented fees', async () => {
+  const f = broadcastFixture(); f.client.waitForTransactionReceipt.mockImplementation(async () => receipt(`0x${'b'.repeat(64)}`));
+  await expect(createMainnetNearEvmBroadcast(f.state, f.input)(envelope())).rejects.toThrow();
+  expect(f.state.transactions).toHaveLength(1); expect(f.state.paidEvmFees).toBe('0');
+});
+it('refuses a second broadcast after successful settlement', async () => {
+  const f = broadcastFixture(); const send = createMainnetNearEvmBroadcast(f.state, f.input); await send(envelope());
+  await expect(send(envelope())).rejects.toThrow(); expect(f.client.sendRawTransaction.mock.calls.length).toBe(1);
 });
 it('rejects signing after the original provider deposit deadline', async () => {
   const approved = envelope(); const raw = await signer.signTransaction({ ...approved, type: 'eip1559' });

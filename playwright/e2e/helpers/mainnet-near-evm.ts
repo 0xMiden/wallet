@@ -2,6 +2,7 @@ import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256, parseTransa
   type Address, type Hash, type Hex, type TransactionSerializedEIP1559 } from 'viem';
 import { parseMainnetNearCheckpoint, type MainnetNearCheckpoint } from './mainnet-near-checkpoint';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
+import type { MainnetOneClickEvmSenderInput } from './mainnet-one-click-evm';
 
 export interface MainnetNearEvmEnvelope {
   chainId: number;
@@ -13,6 +14,27 @@ export interface MainnetNearEvmEnvelope {
   maxFeePerGas: bigint;
   maxPriorityFeePerGas: bigint;
 }
+export interface MainnetNearBroadcastInput {
+  signal: AbortSignal;
+  client: {
+    getChainId(): Promise<number>;
+    getTransactionCount(input: { address: Address; blockTag: 'latest' | 'pending' }): Promise<number>;
+    getBalance(input: { address: Address }): Promise<bigint>;
+    readTokenBalance(): Promise<bigint>;
+    sendRawTransaction(input: { serializedTransaction: Hex }): Promise<Hash>;
+    waitForTransactionReceipt(input: { hash: Hash; timeout: number }): Promise<{
+      transactionHash: Hash; status: 'success' | 'reverted'; gasUsed: bigint; effectiveGasPrice: bigint;
+    }>;
+  };
+  sign(transaction: MainnetNearEvmEnvelope): Promise<Hex>;
+  persist(state: MainnetNearCheckpoint): Promise<void>;
+}
+export function createMainnetNearEvmBroadcast(
+  _state: MainnetNearCheckpoint, _input: MainnetNearBroadcastInput
+): MainnetOneClickEvmSenderInput['broadcast'] {
+  return async () => { throw new Error('Durable native NEAR signed broadcast is not implemented'); };
+}
+
 const signed1559 = (raw: Hex): raw is TransactionSerializedEIP1559 => raw.startsWith('0x02') && isHex(raw, { strict: true });
 export async function inspectMainnetNearSignedTransfer(
   state: MainnetNearCheckpoint, envelope: MainnetNearEvmEnvelope, raw: Hex
