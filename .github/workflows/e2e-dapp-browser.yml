@@ -35,6 +35,7 @@ on:
           - auth-tab
           - presentation-compare
           - presentation-gesture-api36
+          - presentation-gesture-ios
         default: all
       baseline_sha:
         description: Exact base commit for the Android presentation comparison
@@ -57,7 +58,7 @@ concurrency:
 jobs:
   ios-dapp-browser:
     name: dApp Browser (iOS)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-gesture-ios'
     runs-on: macos-26-xlarge
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 135 || 60 }}
@@ -216,10 +217,45 @@ jobs:
           }
 
       - name: Run dApp browser E2E (iOS)
+        if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all'
         # --retries=2 absorbs the CDP "no pages found" / degraded-CoreSimulator
         # hiccups the other iOS jobs see. Each retry re-installs and re-launches
         # from scratch, so a transient runner fault gets a clean attempt.
         run: yarn playwright test --config playwright.ios.dapp.config.ts --retries=2
+
+      - name: Verify installed idb HID contract
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-ios'
+        run: |
+          mkdir -p test-results-ios/presentation-gesture
+          brew list --versions idb-companion > test-results-ios/presentation-gesture/idb-companion-version.txt
+          python3 -m unittest discover -s playwright/e2e/ios/helpers -p idb_hid_path_test.py -v > test-results-ios/presentation-gesture/idb-hid-selfcheck.log 2>&1
+          cat test-results-ios/presentation-gesture/idb-hid-selfcheck.log
+          grep -E '^Ran 5 tests in ' test-results-ios/presentation-gesture/idb-hid-selfcheck.log
+
+      - name: Run native iOS capsule gesture acceptance
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-ios'
+        env:
+          DAPP_PRESENTATION_GESTURE_IOS: '1'
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          yarn playwright test --config playwright.ios.presentation-gesture.config.ts --retries=0
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = 'test-results-ios/presentation-gesture';
+          const r = JSON.parse(fs.readFileSync(path.join(root, 'results.json'), 'utf8'));
+          if (r.stats.expected !== 1 || r.stats.unexpected !== 0 || r.stats.skipped !== 0 || r.stats.flaky !== 0)
+            throw new Error('Exactly one native-input test must pass without skips/retries');
+          const find = dir => fs.readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+            const file = path.join(dir, entry.name);
+            return entry.isDirectory() ? find(file) : entry.name === 'capsule-gesture-cases.json' ? [file] : [];
+          });
+          const evidence = find(root);
+          if (evidence.length !== 1) throw new Error('Native gesture case evidence is missing or duplicated');
+          const result = JSON.parse(fs.readFileSync(evidence[0], 'utf8'));
+          if (result.sourceSha !== process.env.GITHUB_SHA || result.caseCount !== 3 || result.cases.length !== 3)
+            throw new Error('Expected three executed native gesture cases on the exact workflow source');
+          NODE
 
       - name: Upload artifacts
         if: always()
