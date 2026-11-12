@@ -3,6 +3,8 @@
 ## 1.17.12 (TBD)
 
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.
+- [FIX][all] Recover a Guardian transaction whose proof went stale before its submit, keep a refused transaction in review until the chain rules, and show the Guardian hold before Retry in local time with a countdown.
+- [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
 - [FIX][all] Token pickers and token details keep unread balances in a loading state instead of showing a confirmed zero-dollar value.
 - [FIX][all] Asset rows keep the full token quantity and its symbol visible, wrapping onto a taller row when the line does not fit.
 
