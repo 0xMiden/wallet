@@ -1,19 +1,58 @@
+import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
+import { isRecord } from '../../../src/lib/update/guards';
 import type { TestMainnetSendScope } from '../../../src/lib/miden/sdk/test-send-request';
+import { TEST_SEND_AUTHORIZATION_KEY as KEY } from '../../../src/lib/miden/sdk/test-send-authorization';
+import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 
 export interface MainnetSendHandle extends TestMainnetSendScope { nonce: string }
 export interface MainnetSendAuthority { nonce: string; noteId: string; sha256: string; canonicalSha256: string }
 
 export async function armMainnetSendAuthorization(
-  _page: Pick<Page, 'evaluate'>, _scope: TestMainnetSendScope
+  page: Pick<Page, 'evaluate'>, scope: TestMainnetSendScope
 ): Promise<MainnetSendHandle> {
-  throw new Error('Native send authorization coordinator is not implemented');
+  if (![scope.accountId, scope.recipientId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
+      scope.accountId === scope.recipientId || !/^[1-9]\d{0,18}$/.test(scope.amount))
+    throw new Error('Invalid native send authorization scope');
+  const handle = { ...scope, nonce: randomUUID() };
+  await page.evaluate(async ({ key, handle }) => {
+    if ((await chrome.storage.local.get(key))[key] !== undefined) throw new Error('Unresolved existing native send authority');
+    await chrome.storage.local.set({ [key]: { ...handle, status: 'armed' } });
+  }, { key: KEY, handle });
+  return handle;
 }
 
 export async function releaseMainnetSendAuthorization(
-  _page: Pick<Page, 'evaluate'>, _handle: MainnetSendHandle,
-  _options: { checkpointPath: string; gatePath: string; signal: AbortSignal;
+  page: Pick<Page, 'evaluate'>, handle: MainnetSendHandle,
+  options: { checkpointPath: string; gatePath: string; signal: AbortSignal;
     persist: (authority: MainnetSendAuthority) => Promise<void> }
 ): Promise<void> {
-  throw new Error('Native send authorization coordinator is not implemented');
+  const expected = { ...handle };
+  let authority: MainnetSendAuthority | undefined;
+  for (let poll = 0; poll < 480; poll++) {
+    if (options.signal.aborted) throw new Error('Native send authorization aborted');
+    const value: unknown = await page.evaluate(async key => (await chrome.storage.local.get(key))[key], KEY);
+    if (!isRecord(value) || Object.entries(expected).some(([key, entry]) => value[key] !== entry))
+      throw new Error('Native send request scope changed');
+    if (value.status === 'waiting') {
+      if (typeof value.noteId !== 'string' || !/^0x[0-9a-f]{64}$/.test(value.noteId) ||
+          typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256) ||
+          typeof value.canonicalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.canonicalSha256))
+        throw new Error('Invalid actual native send fingerprints');
+      authority = { nonce: expected.nonce, noteId: value.noteId, sha256: value.sha256, canonicalSha256: value.canonicalSha256 };
+      break;
+    }
+    if (value.status !== 'armed') throw new Error('Native send authorization is already used or blocked');
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  if (!authority) throw new Error('Actual native send request timed out');
+  await options.persist(authority);
+  await awaitMainnetLoopAuthorization(options.checkpointPath, options.gatePath, options.signal);
+  if (options.signal.aborted) throw new Error('Native send authorization aborted during upload');
+  await page.evaluate(async ({ key, expected }) => {
+    const value = (await chrome.storage.local.get(key))[key];
+    if (!value || value.status !== 'waiting' || Object.entries(expected).some(([name, entry]) => value[name] !== entry))
+      throw new Error('Native send authority changed after its exact upload');
+    await chrome.storage.local.set({ [key]: { ...expected, status: 'released' } });
+  }, { key: KEY, expected: { ...expected, ...authority } });
 }
