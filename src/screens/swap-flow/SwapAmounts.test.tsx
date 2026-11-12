@@ -125,7 +125,6 @@ jest.mock('../send-flow/SelectAmount', () => ({
         data-valid={String(props.isValidAmount)}
         data-error={props.error}
         data-hide-error-text={String(Boolean(props.hideErrorText))}
-        data-logo={props.logoSymbol}
         data-token-label={props.tokenLabel}
         data-token={JSON.stringify(props.token)}
       >
@@ -151,15 +150,13 @@ type SwapToken = SwapAmountsProps['offerToken'];
 const offerToken: SwapToken = {
   symbol: 'IMIDEN',
   faucetId: 'faucet-offer',
-  decimals: 8,
-  logoSymbol: 'MIDEN'
+  decimals: 8
 };
 
 const requestToken: SwapToken = {
   symbol: 'IETH',
   faucetId: 'faucet-req',
-  decimals: 8,
-  logoSymbol: 'ETH'
+  decimals: 8
 };
 
 const renderComponent = (props: Partial<SwapAmountsProps> = {}) => {
@@ -257,10 +254,6 @@ describe('SwapAmounts', () => {
       // Amounts are forwarded verbatim.
       expect(pay).toHaveAttribute('data-amount', '10');
       expect(receive).toHaveAttribute('data-amount', '5');
-
-      // logoSymbol overrides come straight from the SwapToken.
-      expect(pay).toHaveAttribute('data-logo', 'MIDEN');
-      expect(receive).toHaveAttribute('data-logo', 'ETH');
     });
 
     it('shows spendable-balance shortcuts only on You Pay', () => {
@@ -282,18 +275,16 @@ describe('SwapAmounts', () => {
       });
     });
 
-    it("hands each field the token's own symbol and faucet id, and the registry logo symbol for its fallback", () => {
+    it("hands each field the token's own symbol and faucet id, the faucet keying its logo", () => {
       renderComponent({
-        offerToken: { symbol: 'IETH', faucetId: 'faucet-ieth', decimals: 8, logoSymbol: 'ETH' },
-        requestToken: { symbol: 'IBTC', faucetId: 'faucet-ibtc', decimals: 8, logoSymbol: 'BTC' }
+        offerToken: { symbol: 'IETH', faucetId: 'faucet-ieth', decimals: 8 },
+        requestToken: { symbol: 'IBTC', faucetId: 'faucet-ibtc', decimals: 8 }
       });
       const pay = screen.getByTestId('select-amount-youPay');
       const receive = screen.getByTestId('select-amount-youReceive');
 
       expect(parseToken(pay)).toMatchObject({ name: 'IETH', id: 'faucet-ieth' });
       expect(parseToken(receive)).toMatchObject({ name: 'IBTC', id: 'faucet-ibtc' });
-      expect(pay).toHaveAttribute('data-logo', 'ETH');
-      expect(receive).toHaveAttribute('data-logo', 'BTC');
     });
 
     it('maps the request SwapToken to a UIToken with the default zero balance', () => {

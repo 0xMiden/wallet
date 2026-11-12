@@ -138,10 +138,10 @@ jest.mock('components/ui/SearchInput', () => ({
 }));
 
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
-// surfaces the `symbol`/`size` props the row passes through.
+// surfaces the `faucetId`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId, size }: { symbol: string; faucetId?: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} data-size={size} />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 

@@ -823,6 +823,10 @@
     "message": "Esta revisão foi preparada para um token de depósito diferente. Volte e insira o valor novamente.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "A note de garantia deve usar o token revisado, o valor revisado e o alocador configurado. Nada foi enviado. Volte e tente novamente.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganho",
     "englishSource": "Total earned"
@@ -4023,6 +4027,10 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "A carteira interrompeu essa transação antes de assiná-la, pois não conseguiu confirmar que a transação movimentava apenas o que você aprovou. Nenhum valor foi movimentado.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
