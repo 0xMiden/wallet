@@ -84,7 +84,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
       >
         {label}
         {info}
-        {badge && (
+        {badge != null && (
           <span data-slot="badge" className="ml-1">
             {badge}
           </span>
