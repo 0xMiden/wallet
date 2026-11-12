@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import * as Repo from 'lib/miden/repo';
@@ -23,14 +22,24 @@ export function recipientKey(address: string): string {
 
 /**
  * The keys of every recipient this account has sent to, from its non-failed `send` and `bridged-send`
- * rows; a row restored from a backup file never counts. The account is matched on its address part, as
- * the Recent list matches it, so no row costs an SDK parse until it is this account's.
+ * rows; a row restored from a backup file never counts. The account is matched with
+ * `canonicalWalletAccountId`, since a dApp may name its sender in hex, once per distinct id in the read.
  */
 function knownRecipientKeys(rows: readonly ITransaction[], accountId: string): Set<string> {
+  const canonicalIds = new Map<string, string>();
+  const canonicalOf = (id: string): string => {
+    let canonical = canonicalIds.get(id);
+    if (canonical === undefined) {
+      canonical = canonicalWalletAccountId(id);
+      canonicalIds.set(id, canonical);
+    }
+    return canonical;
+  };
+  const account = canonicalOf(accountId);
   const keys = new Set<string>();
   for (const row of rows) {
     if (row.restoredFromBackup || row.status === ITransactionStatus.Failed) continue;
-    if (!compareAccountIds(row.accountId, accountId)) continue;
+    if (canonicalOf(row.accountId) !== account) continue;
     const recipient = recipientOf(row);
     if (recipient) keys.add(recipientKey(recipient.address));
   }

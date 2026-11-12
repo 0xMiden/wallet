@@ -5,8 +5,13 @@ import { WalletContact } from 'lib/shared/types';
 
 import { isNewRecipient, useIsNewRecipient } from './useIsNewRecipient';
 
-// Both routing forms of the same account must collapse to one key, as the real SDK helper does.
-const CANONICAL: Record<string, string> = { mtst1sent: 'acct-sent', mtst1sentalias: 'acct-sent' };
+// Both routing forms of the same account must collapse to one key, as the real SDK helper does; `0xself`
+// is this wallet's account in hex, the form a dApp may name its sender in.
+const CANONICAL: Record<string, string> = {
+  mtst1sent: 'acct-sent',
+  mtst1sentalias: 'acct-sent',
+  '0xself': 'mtst1account'
+};
 const canonical = (id: string) => {
   const head = id.split('_')[0];
   return CANONICAL[head] ?? head;
@@ -104,6 +109,12 @@ describe('isNewRecipient', () => {
     expect(check('mtst1sent', [sendRow({ accountId: 'mtst1someoneelse' })])).toBe(true);
   });
 
+  it('counts a send stored under a hex encoding of this account', () => {
+    expect(check('mtst1sentalias', [sendRow({ accountId: '0xself', secondaryAccountId: 'mtst1sent_qr7route' })])).toBe(
+      false
+    );
+  });
+
   it('knows a saved contact in another address form', () => {
     expect(check('mtst1sentalias', [], [contact({ address: 'mtst1sent_qr7route' })])).toBe(false);
   });
@@ -118,16 +129,32 @@ describe('isNewRecipient', () => {
     expect(check('  ')).toBe(false);
   });
 
-  it('canonicalizes each history row at most once, and skips the rows of other accounts', () => {
+  it('parses the current account and each distinct stored account id once', () => {
     const rows = [
-      sendRow({ accountId: 'mtst1someoneelse', secondaryAccountId: 'mtst1other' }),
-      sendRow({ accountId: `${ACCOUNT}_suffix`, secondaryAccountId: 'mtst1sent_qr7route' })
+      sendRow({ accountId: '0xrestored', secondaryAccountId: 'mtst1restored', restoredFromBackup: true }),
+      sendRow({ accountId: '0xfailed', secondaryAccountId: 'mtst1failed', status: ITransactionStatus.Failed }),
+      sendRow({ accountId: '0xself', secondaryAccountId: 'mtst1other' }),
+      sendRow({ accountId: '0xself', secondaryAccountId: 'mtst1elsewhere' }),
+      sendRow({ accountId: 'mtst1someoneelse', secondaryAccountId: 'mtst1sent' }),
+      sendRow({ accountId: 'mtst1someoneelse', secondaryAccountId: 'mtst1elsewhere2' }),
+      sendRow({ accountId: `${ACCOUNT}_suffix`, secondaryAccountId: 'mtst1sent_qr7route' }),
+      sendRow({ accountId: ACCOUNT, secondaryAccountId: 'mtst1ownform' })
     ];
     mockCanonical.mockClear();
+    const parsesOf = (id: string) => mockCanonical.mock.calls.filter(([arg]) => arg === id);
 
     expect(check('mtst1sentalias', rows)).toBe(false);
-    // The typed recipient and this account's one row; the other account's row costs nothing.
-    expect(mockCanonical).toHaveBeenCalledTimes(2);
+    for (const id of ['0xself', ACCOUNT, `${ACCOUNT}_suffix`, 'mtst1someoneelse']) {
+      expect(parsesOf(id)).toHaveLength(1);
+    }
+    // Skipped rows cost nothing, and another account's recipient is never parsed.
+    for (const id of ['0xrestored', '0xfailed', 'mtst1sent']) {
+      expect(parsesOf(id)).toHaveLength(0);
+    }
+    for (const id of ['mtst1other', 'mtst1elsewhere', 'mtst1sent_qr7route', 'mtst1ownform', 'mtst1sentalias']) {
+      expect(parsesOf(id)).toHaveLength(1);
+    }
+    expect(mockCanonical).toHaveBeenCalledTimes(9);
   });
 });
 
