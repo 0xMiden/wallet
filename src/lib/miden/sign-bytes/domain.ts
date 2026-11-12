@@ -1,5 +1,5 @@
-import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import { Felt, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 // @miden-sdk/miden-sdk 0.17.10 exports this word as domainSeparatedSignCommitment; drop this module for it once
 // package.json pins a release that exports it.
