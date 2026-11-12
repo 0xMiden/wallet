@@ -315,6 +315,16 @@ describe('BackUpSeedPhraseScreen', () => {
 
       expect(screen.getByTestId('seed-word-0').querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:none]');
     });
+
+    it('on mobile a hidden word is kept out of the accessibility tree until Show', () => {
+      mockIsMobile = true;
+      renderComponent();
+      expect(screen.getByText('alpha')).toHaveAttribute('aria-hidden', 'true');
+
+      fireEvent.click(screen.getByTestId('btn-show'));
+
+      expect(screen.getByText('alpha')).not.toHaveAttribute('aria-hidden');
+    });
   });
 
   // The navigator owns the one back chevron; a step no longer carries its own footer Back. The

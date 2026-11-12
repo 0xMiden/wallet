@@ -99,7 +99,10 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
                     {masked ? (
                       <span aria-hidden="true" className="my-auto h-1.5 flex-1 rounded-full bg-fill-pressed" />
                     ) : (
-                      <span className="truncate">{word}</span>
+                      // A blurred word is still text, so it stays out of the accessibility tree until shown.
+                      <span className="truncate" aria-hidden={isWordsVisible ? undefined : true}>
+                        {word}
+                      </span>
                     )}
                   </span>
                 </Pill>
