@@ -15,18 +15,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: 'ce8d2d7e3c80ecde34ec792556124c70a45a7326'
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
-      - uses: ./.github/actions/yarn-install
+      - name: Install frozen dependencies
+        timeout-minutes: 5
+        shell: bash
+        run: yarn install --frozen-lockfile --network-timeout 600000
       - name: Run the frozen batch regressions
+        shell: bash
         env:
           EXPECTED_SOURCE_SHA: 'ce8d2d7e3c80ecde34ec792556124c70a45a7326'
+          EXPECTED_SOURCE_TREE: 'b7200b899c35006a68dcc83dd2325f126e74888d'
+          QA_WORKFLOW_HEAD: ${{ github.sha }}
+          QA_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          QA_WORKFLOW_REF: ${{ github.workflow_ref }}
           REGRESSION_PATTERN: 'recovery signer preservation|chooses the newest eligible claim row per note'
         run: |
+          set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
-          git rev-parse HEAD > qa-batch01-red-source.txt
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_SOURCE_TREE"
+          git diff --exit-code
+          {
+            printf 'tested_source=%s\n' "$(git rev-parse HEAD)"
+            printf 'tested_tree=%s\n' "$(git rev-parse HEAD^{tree})"
+            printf 'workflow_head=%s\n' "$QA_WORKFLOW_HEAD"
+            printf 'workflow_sha=%s\n' "$QA_WORKFLOW_SHA"
+            printf 'workflow_ref=%s\n' "$QA_WORKFLOW_REF"
+            sha256sum src/lib/miden/guardian/index.test.ts src/app/hooks/useClaimNotes.test.ts package.json yarn.lock
+          } > qa-batch01-red-source.txt
           yarn jest --runTestsByPath src/lib/miden/guardian/index.test.ts src/app/hooks/useClaimNotes.test.ts --testNamePattern "$REGRESSION_PATTERN" --maxWorkers=2 --coverage=false --json --outputFile=qa-batch01-red-results.json 2>&1 | tee qa-batch01-red.log
       - uses: actions/upload-artifact@v4
         if: always()
