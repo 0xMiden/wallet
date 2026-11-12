@@ -49,7 +49,10 @@ function input(command: { op: string; points?: Point[]; steps?: number; label?: 
     socket.on('connect', () => socket.write(JSON.stringify({ id, ...command }) + '\n'));
     socket.on('data', chunk => {
       buffer += String(chunk);
-      if (buffer.length > 16_384) return socket.destroy(new Error('Oversized native gesture reply'));
+      if (buffer.length > 16_384) {
+        socket.destroy(new Error('Oversized native gesture reply'));
+        return;
+      }
       let end: number;
       while ((end = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, end);
@@ -139,7 +142,40 @@ test.describe('API36 managed presentation gestures', () => {
       pickPageUrl: fixture.urlFor('alpha')
     });
     expect(await page.eval(`return document.querySelector('meta[name="bread-display"]')?.content;`)).toBe('fullscreen');
-    expect(await page.eval('return window.__breadPresentationState?.display;')).toBe('fullscreen');
+    const webViewProvider = await adb('shell', 'dumpsys', 'webviewupdate');
+    const readiness = await page.evalAsync<{ ok: boolean; error?: string }>(`
+      var done = arguments[arguments.length - 1];
+      var presentation = window.bread && window.bread.presentation;
+      if (!presentation || typeof presentation.ready !== 'function') {
+        done({ ok: false, error: 'Native presentation ready API is missing' });
+        return;
+      }
+      presentation.ready().then(
+        function () { done({ ok: true }); },
+        function (error) { done({ ok: false, error: String(error.message) }); }
+      );
+    `);
+    await writeFile(
+      `${OUTPUT}/presentation-readiness.json`,
+      JSON.stringify(
+        {
+          sourceSha: process.env.GITHUB_SHA,
+          webViewProvider,
+          userAgent: await page.eval('return navigator.userAgent;'),
+          readiness,
+          display: await page.eval('return window.__breadPresentationState?.display;')
+        },
+        null,
+        2
+      )
+    );
+    expect(readiness.ok, readiness.error ?? 'native presentation must acknowledge this document').toBe(true);
+    await expect
+      .poll(() => page.eval('return window.__breadPresentationState?.display;'), {
+        message: 'native confirmation must apply the real fullscreen policy before capsule input',
+        timeout: 10_000
+      })
+      .toBe('fullscreen');
     const session = await driver.foregroundSession();
     if (!session) throw new Error('No live managed fixture session');
     sessionId = session.id;
@@ -250,13 +286,14 @@ test.describe('API36 managed presentation gestures', () => {
         const after = await footprint(afterFile);
         expect(after.width).toBe(before.width);
         expect(after.height).toBe(before.height);
-        if (!commit) {
-          expect(after.count / before.count).toBeGreaterThan(0.95);
-          expect(after.count / before.count).toBeLessThan(1.05);
-          expect(Math.abs(after.top - before.top)).toBeLessThan(4);
-          expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(4);
-          await driver.expectDappPainted('alpha', `${name}-restored`);
-        } else expect(after.count).toBeLessThan(before.count * 0.8);
+        const expectedGeometry = commit
+          ? { minimumRatio: 100 / before.count, maximumRatio: 0.8, maximumEdgeShift: before.height }
+          : { minimumRatio: 0.95, maximumRatio: 1.05, maximumEdgeShift: 4 };
+        expect(after.count / before.count).toBeGreaterThan(expectedGeometry.minimumRatio);
+        expect(after.count / before.count).toBeLessThan(expectedGeometry.maximumRatio);
+        expect(Math.abs(after.top - before.top)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+        expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+        if (!commit) await driver.expectDappPainted('alpha', `${name}-restored`);
         await writeFile(
           testInfo.outputPath(`${name}.json`),
           JSON.stringify(

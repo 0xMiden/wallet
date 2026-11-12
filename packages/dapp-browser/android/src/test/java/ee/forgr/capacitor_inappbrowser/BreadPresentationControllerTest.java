@@ -2904,6 +2904,81 @@ public class BreadPresentationControllerTest {
         assertEquals(eventsBeforeInvoke, morphEventCount());
     }
 
+    private OnBackAnimationCallback startRevocableBackGesture() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        callback.onBackProgressed(new BackEvent(280, 0, 1f, BackEvent.EDGE_LEFT));
+        return callback;
+    }
+
+    private void assertRevokedBackDoesNotAcquireRestoredAuthority(OnBackAnimationCallback callback) {
+        if (ReflectionHelpers.<Boolean>getField(controller, "posed")) {
+            assertTrue(expand(card(), "restored-after-revocation"));
+            BreadMorphControllerTest.settle();
+        }
+        reveal();
+        assertTrue("the restored presentation could accept a fresh gesture", controller.canMinimizeFromBack());
+        callback.onBackInvoked();
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotAcquireAuthorityAfterHideAndShow() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        controller.visibility(false, null, nextSequence());
+        controller.visibility(true, (int) controller.state.policyRevision(), nextSequence());
+        assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotAcquireAuthorityAfterForegroundResume() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        controller.foreground(false);
+        controller.foreground(true);
+        assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotAcquireANewDocumentsAuthority() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        controller.navigate();
+        float previousProgress = driver().progress();
+        callback.onBackProgressed(new BackEvent(100, 0, 0.2f, BackEvent.EDGE_LEFT));
+        assertEquals("revoked input cannot steer the replacement document", previousProgress, driver().progress(), 0f);
+        controller.state.configure("replacement", false, true);
+        assertTrue(controller.state.ready());
+        acknowledgePolicy();
+        assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotAcquireAReplacementPolicy() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        controller.state.configure("doc", true, true);
+        acknowledgePolicy();
+        assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotAcquireAReplacementManagedLifetime() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        dialog.configureManagedClose("doc", new JSObject().put("token", "replacement"), ignored -> {});
+        assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
+    }
+
+    @Test @Config(sdk = 34, shadows = PaintWebView.class)
+    public void predictiveBackCannotMinimizeAfterClose() throws Exception {
+        OnBackAnimationCallback callback = startRevocableBackGesture();
+        controller.close();
+        callback.onBackInvoked();
+        verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
+    }
+
     @Test @Config(sdk = 34, shadows = PaintWebView.class)
     public void predictiveBackInvokeMinimizesAfterNoPreviewCollapseSettles() throws Exception {
         openMorph(false);

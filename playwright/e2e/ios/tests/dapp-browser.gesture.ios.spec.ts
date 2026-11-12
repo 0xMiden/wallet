@@ -208,7 +208,7 @@ test.describe('iOS native capsule gestures', () => {
         expect(nativeResult.upSamples).toBe(1);
         expect(nativeResult.downSamples).toBeGreaterThan(1);
         expect(observedTracking, 'actual HID contact must enter native gesture tracking').toBe(true);
-        expect(firstDownMs).toBeGreaterThan(0);
+        expect(firstDownMs > 0, 'the first native DOWN timestamp must be positive').toBe(true);
         expect(beforeUpMs).toBeGreaterThan(firstDownMs);
         expect(
           samples.some(
@@ -241,14 +241,14 @@ test.describe('iOS native capsule gestures', () => {
         const after = await footprint(afterFile);
         expect(after.width).toBe(before.width);
         expect(after.height).toBe(before.height);
-        if (commit) expect(after.count).toBeLessThan(before.count * 0.8);
-        else {
-          expect(after.count / before.count).toBeGreaterThan(0.95);
-          expect(after.count / before.count).toBeLessThan(1.05);
-          expect(Math.abs(after.top - before.top)).toBeLessThan(4);
-          expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(4);
-          await driver.expectDappPainted('alpha', `${name}-restored`);
-        }
+        const expectedGeometry = commit
+          ? { minimumRatio: 100 / before.count, maximumRatio: 0.8, maximumEdgeShift: before.height }
+          : { minimumRatio: 0.95, maximumRatio: 1.05, maximumEdgeShift: 4 };
+        expect(after.count / before.count).toBeGreaterThan(expectedGeometry.minimumRatio);
+        expect(after.count / before.count).toBeLessThan(expectedGeometry.maximumRatio);
+        expect(Math.abs(after.top - before.top)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+        expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+        if (!commit) await driver.expectDappPainted('alpha', `${name}-restored`);
         cases.push({
           name,
           points,

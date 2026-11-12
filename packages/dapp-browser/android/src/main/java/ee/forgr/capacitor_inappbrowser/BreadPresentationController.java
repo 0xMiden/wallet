@@ -113,6 +113,7 @@ final class BreadPresentationController {
     private boolean capsuleReducedMotion;
     private boolean interactiveCollapse;
     private boolean backGestureStarted;
+    private long backGestureAuthority;
     private boolean backPreview;
     private float downX;
     private float downY;
@@ -1041,7 +1042,10 @@ final class BreadPresentationController {
 
     void beginBackGesture() {
         backGestureStarted = true;
+        backGestureAuthority = state.inputAuthority();
     }
+
+    boolean backGestureIsCurrent() { return backGestureAuthority == state.inputAuthority(); }
 
     boolean finishBackGesture() {
         boolean started = backGestureStarted;
@@ -1059,8 +1063,12 @@ final class BreadPresentationController {
     }
 
     void progressBackPreview(float progress) {
-        if (!backPreview || !tracking || !Float.isFinite(progress)) return;
+        if (!backPreview || !tracking || !backGestureIsCurrent() || !Float.isFinite(progress)) return;
         morph.track(1 - Math.max(0, Math.min(1, progress)));
+    }
+
+    void discardBackPreview() {
+        if (backPreview) endTracking();
     }
 
     void cancelBackPreview() {

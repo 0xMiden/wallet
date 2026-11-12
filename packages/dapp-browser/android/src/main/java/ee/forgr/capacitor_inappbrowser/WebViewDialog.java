@@ -142,8 +142,10 @@ public class WebViewDialog extends Dialog {
         }
     }
     void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
-        if (options != null && !options.getString("token", "").isEmpty())
+        if (options != null && !options.getString("token", "").isEmpty()) {
+            if (managedClose != null && presentation != null) presentation.state.revokeInputAuthority();
             managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
+        }
     }
     void requestClose(Runnable completion) {
         if (managedClose != null) managedClose.request(completion);
@@ -248,7 +250,12 @@ public class WebViewDialog extends Dialog {
             if (preview && presentation != null) presentation.cancelBackPreview();
             return;
         }
-        performBackAction(action, preview);
+        if (gestureStarted && !presentation.backGestureIsCurrent()) {
+            presentation.discardBackPreview();
+            return;
+        }
+        // Preview teardown on resize does not revoke the accepted minimize intent.
+        performBackAction(action, preview || gestureStarted);
     }
 
     private void invokeBackWithoutPreview() {
