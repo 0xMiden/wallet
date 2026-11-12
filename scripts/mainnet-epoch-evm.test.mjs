@@ -281,7 +281,7 @@ async function recoveryFixture() {
   const evidence = raw.map(bytes => {
     const tx = parseTransaction(bytes);
     const hash = keccak256(bytes);
-    return { transaction: { ...tx, hash, from: c.account.address, input: tx.data },
+    return { transaction: { ...tx, hash, from: c.account.address, input: tx.data, value: tx.value ?? 0n },
       receipt: { transactionHash: hash, status: 'success', gasUsed: 1000n, effectiveGasPrice: 1n } };
   });
   c.state.phase = 'recovery-required'; c.state.paidEvmFees = '0';

@@ -13,8 +13,52 @@ export interface EpochEvmRecoveryEvidence {
     chainId?: number; gas: bigint; maxFeePerGas?: bigint; type: string };
   receipt: { transactionHash: Hash; status: 'success' | 'reverted'; gasUsed: bigint; effectiveGasPrice: bigint };
 }
-export function reconcileEpochEvmReceipts(_state: MainnetEpochCheckpoint, _evidence: readonly EpochEvmRecoveryEvidence[]): boolean {
-  throw new Error('Epoch EVM receipt reconciliation is not implemented');
+export function reconcileEpochEvmReceipts(state: MainnetEpochCheckpoint, evidence: readonly EpochEvmRecoveryEvidence[]): boolean {
+  parseMainnetEpochCheckpoint(state);
+  const journal = state.transactions;
+  const authority = state.reverseAuthority;
+  if (!journal?.length || journal.length > 3 || evidence.length !== journal.length ||
+      !authority || state.evmNonceBefore === undefined) throw new Error('Missing exact Epoch recovery journal');
+  const original: MainnetEpochCheckpoint = { ...state, phase: 'reverse-authorized' };
+  const reconciled: EpochEvmTransaction[] = [];
+  let paid = 0n; let reset = false; let approved = false; let deposited = false; let successful = true;
+  for (const [index, entry] of journal.entries()) {
+    const item = evidence[index];
+    if (!item) throw new Error('Missing Epoch transaction evidence');
+    const { transaction: tx, receipt } = item;
+    if (!tx.to || tx.hash !== entry.hash || receipt.transactionHash !== entry.hash ||
+        getAddress(tx.from) !== getAddress(state.evm.account) || tx.chainId !== state.evm.chainId ||
+        tx.type !== 'eip1559' || tx.nonce !== state.evmNonceBefore + index || tx.nonce !== entry.nonce ||
+        tx.gas <= 0n || tx.maxFeePerGas === undefined || tx.maxFeePerGas <= 0n ||
+        tx.gas * tx.maxFeePerGas > BigInt(state.evmFeeBudget) - paid || receipt.gasUsed <= 0n ||
+        receipt.gasUsed > tx.gas || receipt.effectiveGasPrice < 0n || receipt.effectiveGasPrice > tx.maxFeePerGas)
+      throw new Error('Epoch receipt differs from its signed journal or original fee envelope');
+    let kind: 'approve' | 'deposit' | undefined;
+    // Historical byte validation only; never refresh authority or enable another signature.
+    for (let expiry = BigInt(authority.minimumExpiry); expiry <= BigInt(authority.maximumExpiry); expiry++) {
+      try {
+        kind = inspectEpochEvmTransaction(original, { to: tx.to, data: tx.input, value: tx.value }, expiry, Date.parse(authority.preparedAt));
+        break;
+      } catch { /* Search only the original uploaded expiry range. */ }
+    }
+    if (!kind || kind !== entry.kind || deposited) throw new Error('Unapproved Epoch recovery execution bytes or sequence');
+    if (kind === 'approve') {
+      const decoded = decodeFunctionData({ abi: erc20Abi, data: tx.input });
+      if (decoded.functionName !== 'approve' || approved) throw new Error('Repeated Epoch recovery approval');
+      if (decoded.args[1] === 0n) {
+        if (reset) throw new Error('Repeated Epoch recovery reset');
+        reset = true;
+      } else approved = true;
+    } else deposited = true;
+    const fee = receipt.gasUsed * receipt.effectiveGasPrice;
+    if (entry.feeWei !== undefined && BigInt(entry.feeWei) !== fee) throw new Error('Contradictory saved Epoch receipt fee');
+    reconciled.push({ ...entry, feeWei: fee.toString() }); paid += fee;
+    if (receipt.status !== 'success') successful = false;
+  }
+  if (BigInt(state.paidEvmFees) > paid) throw new Error('Saved Epoch fees exceed their actual receipts');
+  state.transactions = reconciled;
+  state.paidEvmFees = paid.toString();
+  return deposited && successful;
 }
 
 export interface EpochEvmEnvelope {
