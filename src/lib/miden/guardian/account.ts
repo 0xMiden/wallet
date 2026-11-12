@@ -398,7 +398,7 @@ export async function fetchGuardianCreateKey(
  * @param createKey - The guardian's key and rate-limit budget, from
  *   `fetchGuardianCreateKey`.
  * @param coldSeed - HD-derived seed for the cold key only; the account's own
- *   seed is derived from it (`deriveGuardianAccountSeed`). Random if absent
+ *   seed is derived from it and both other keys (`deriveGuardianAccountSeed`). Random if absent
  *   (only appropriate for tests / non-recoverable flows).
  * @param assertLive - The caller's WASM lock hold re-check. Every WASM call
  *   after a parking await runs it first; an evicted flow is abandoned, not
@@ -416,8 +416,7 @@ export async function createGuardianAccount(
   }
 
   try {
-    // The only await before the keys, re-checked at once so an evicted flow mints nothing.
-    const accountSeed = await deriveGuardianAccountSeed(coldSeed);
+    // Re-checked before either key exists, so an evicted flow mints nothing.
     assertLive('before the keys');
 
     // Cold key — HD-derived, lives in SDK keystore, used for cold-routed flows
@@ -436,6 +435,8 @@ export async function createGuardianAccount(
     // wrapped under SE (iOS) or Keystore/StrongBox (Android) inside the native
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
+    // Bound to the hot and guardian keys the config carries, so it waits for the hot key.
+    const accountSeed = await deriveGuardianAccountSeed(coldSeed, hot.commitmentHex, createKey.guardianCommitment);
 
     const client = new MultisigClient(webClient, {
       guardianEndpoint: createKey.guardianEndpoint,

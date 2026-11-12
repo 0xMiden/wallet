@@ -26,17 +26,34 @@ export const GUARDIAN_ACCOUNT_PROCEDURE_THRESHOLDS: readonly ProcedureThreshold[
   }
 ];
 
-export const GUARDIAN_ACCOUNT_SEED_DOMAIN = 'miden-wallet/guardian-account-seed/v1';
+export const GUARDIAN_ACCOUNT_SEED_DOMAIN = 'miden-wallet/guardian-account-seed/v2';
 
 /**
- * The builder's account seed, derived one-way from the cold key's seed so the
- * seed a new account stores never carries key material.
+ * The builder's account seed: SHA-256 over the domain, the cold seed's length (4 bytes, big-endian), the cold
+ * seed, then the hot and guardian key commitments (unprefixed lower-case hex). One-way, so the seed a new account
+ * stores never carries key material. The builder can store this seed in the account itself, so it is bound to the
+ * account's hot and guardian keys: known, it rebuilds only the account those keys were created with.
  */
-export async function deriveGuardianAccountSeed(coldSeed: Uint8Array): Promise<Uint8Array> {
-  const domain = new TextEncoder().encode(GUARDIAN_ACCOUNT_SEED_DOMAIN);
-  const input = new Uint8Array(domain.length + coldSeed.length);
-  input.set(domain);
-  input.set(coldSeed, domain.length);
+export async function deriveGuardianAccountSeed(
+  coldSeed: Uint8Array,
+  hotCommitment: string,
+  guardianCommitment: string
+): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const commitments = [hotCommitment, guardianCommitment].map(commitment => {
+    const hex = commitment.replace(/^0x/i, '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hex)) throw new Error('A Guardian account seed needs 32-byte hex key commitments');
+    return encoder.encode(hex);
+  });
+  const length = new Uint8Array(4);
+  new DataView(length.buffer).setUint32(0, coldSeed.length);
+  const parts = [encoder.encode(GUARDIAN_ACCOUNT_SEED_DOMAIN), length, coldSeed, ...commitments];
+  const input = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    input.set(part, offset);
+    offset += part.length;
+  }
   return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
 }
 
@@ -73,8 +90,9 @@ interface AccountInsertClient {
 }
 
 // `createMultisigAccount` declares a whole MidenClient but calls only `accounts.insert`. A method
-// signature is checked bivariantly, which lets it take the narrower client; the real-SDK node test
-// (test/guardian-account-recipe.node.test.mjs) runs it on exactly this client.
+// signature is checked bivariantly, so assigning it here is an unchecked assertion that the narrower
+// client suffices, equivalent to a cast. The real-SDK node test (test/guardian-account-recipe.node.test.mjs)
+// guards it at runtime by building through exactly this client.
 interface AccountBuild {
   build(client: AccountInsertClient, config: MultisigConfig): Promise<CreateAccountResult>;
 }

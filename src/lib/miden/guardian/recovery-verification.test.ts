@@ -199,15 +199,17 @@ describe('recovery verification', () => {
   describe('assertUndeployedStateFromSeed', () => {
     const rebuild = jest.mocked(rebuildGuardianAccount);
     const coldSeed = new Uint8Array(32).fill(7);
+    const hot = 'aa'.repeat(32);
+    const guardianKey = 'bb'.repeat(32);
     const served = (overrides: Partial<ServedGuardianState> = {}): ServedGuardianState => ({
       bytes: new Uint8Array(),
       accountIdHex: '0xacc',
       nonce: 0n,
       isNew: true,
       commitment: 'abcd',
-      hotCommitment: 'aa',
+      hotCommitment: hot,
       coldCommitment: 'cc',
-      guardianCommitment: 'gg',
+      guardianCommitment: guardianKey,
       ...overrides
     });
     const same = { accountIdHex: '0xacc', commitment: '0xABCD' };
@@ -240,10 +242,10 @@ describe('recovery verification', () => {
       await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).resolves.toBeUndefined();
       expect(rebuild).toHaveBeenCalledTimes(1);
       expect(rebuild).toHaveBeenCalledWith({
-        hotCommitment: 'aa',
+        hotCommitment: hot,
         coldCommitment: '0xcold',
-        guardianCommitment: 'gg',
-        initSeed: await deriveGuardianAccountSeed(coldSeed)
+        guardianCommitment: guardianKey,
+        initSeed: await deriveGuardianAccountSeed(coldSeed, hot, guardianKey)
       });
     });
 
@@ -253,11 +255,25 @@ describe('recovery verification', () => {
       await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).resolves.toBeUndefined();
       expect(rebuild).toHaveBeenCalledTimes(2);
       expect(rebuild.mock.calls[1]?.[0]).toEqual({
-        hotCommitment: 'aa',
+        hotCommitment: hot,
         coldCommitment: '0xcold',
-        guardianCommitment: 'gg',
+        guardianCommitment: guardianKey,
         initSeed: coldSeed
       });
+    });
+
+    it('refuses a served key commitment that is not 32-byte hex, rebuilding nothing', async () => {
+      await expect(
+        assertUndeployedStateFromSeed(served({ hotCommitment: 'aa' }), coldSeed, '0xcold')
+      ).rejects.toMatchObject(refusal);
+      expect(rebuild).not.toHaveBeenCalled();
+    });
+
+    it('refuses a served account the builder will not build, such as an everyday key equal to the recovery key', async () => {
+      rebuild.mockRejectedValue(new Error(`duplicate signer commitment: 0x${hot}`));
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, `0x${hot}`)).rejects.toMatchObject(refusal);
+      expect(rebuild).toHaveBeenCalledTimes(1);
     });
 
     it('refuses when neither rebuild has the served id', async () => {

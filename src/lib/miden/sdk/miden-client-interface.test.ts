@@ -2463,6 +2463,9 @@ describe('MidenClientInterface', () => {
     // limit ends the scan (a hold per match is two holds; one hoisted around the index's matches
     // would be one). The lock mock counts holds and records labels; the adoption and the key insert
     // refuse a call made outside a hold; the hold check throws the poison error once revoked.
+    // Every served account's hot and guardian slots; the account seed binds both.
+    const SERVED_HOT = 'd0'.repeat(32);
+    const SERVED_GUARDIAN = 'be'.repeat(32);
     const setupRecovery = async (
       onLookup?: (client: MidenClientInterfaceType) => void,
       { finds = true, network = 'testnet', endpoint = 'https://guardian.example' } = {}
@@ -2551,13 +2554,14 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount: jest.fn(),
-        getSignerDetailsFromAccount: jest.fn(async (acc: { id: () => { toString: () => string } }) => {
+        getSignerDetailsFromAccount: jest.fn(async (acc: { id: () => { toString: () => string } }, cold = false) => {
           events.push('verify');
+          if (!cold) return { commitment: SERVED_HOT };
           const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
           // Accounts 1 and 2 are served at index 0, account 3 at index 1.
           return { commitment: signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002') };
         }),
-        getGuardianCommitmentFromAccount: jest.fn(() => 'beef'),
+        getGuardianCommitmentFromAccount: jest.fn(() => SERVED_GUARDIAN),
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
@@ -2769,8 +2773,8 @@ describe('MidenClientInterface', () => {
         expect.objectContaining({ accountId: 'recovered-c', hdIndex: 2 })
       ]);
       expect(rebuild.mock.calls.map(([recipe]) => [recipe.coldCommitment, recipe.initSeed])).toEqual([
-        ['0xC001', await deriveGuardianAccountSeed(new Uint8Array(32).fill(1))],
-        ['0xC003', await deriveGuardianAccountSeed(new Uint8Array(32).fill(3))]
+        ['0xC001', await deriveGuardianAccountSeed(new Uint8Array(32).fill(1), SERVED_HOT, SERVED_GUARDIAN)],
+        ['0xC003', await deriveGuardianAccountSeed(new Uint8Array(32).fill(3), SERVED_HOT, SERVED_GUARDIAN)]
       ]);
     });
 

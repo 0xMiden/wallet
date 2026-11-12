@@ -76,14 +76,49 @@ test('rebuilds an account created from the same seed and keys', async () => {
   assert.deepEqual(await rebuildGuardianAccount(recipe), account);
 });
 
+const derivedSeed = (coldSeed, { hotCommitment, guardianCommitment }) =>
+  deriveGuardianAccountSeed(coldSeed, hotCommitment, guardianCommitment);
+
 test('rebuilds an account created from the derived account seed', async () => {
   const coldSeed = seed();
-  const recipe = { ...keys(), initSeed: await deriveGuardianAccountSeed(coldSeed) };
-  const account = await created(guardianAccountConfig(recipe));
+  const ks = keys();
+  const account = await created(guardianAccountConfig({ ...ks, initSeed: await derivedSeed(coldSeed, ks) }));
 
-  assert.deepEqual(
-    await rebuildGuardianAccount({ ...recipe, initSeed: await deriveGuardianAccountSeed(coldSeed) }),
-    account
+  assert.deepEqual(await rebuildGuardianAccount({ ...ks, initSeed: await derivedSeed(coldSeed, ks) }), account);
+});
+
+test('an account seed bound to one everyday key rebuilds no account with another, even when that seed is known', async () => {
+  const seedA = seed();
+  const { hotCommitment: hot1, guardianCommitment } = keys();
+  const coldCommitment = commitmentOf(seedA);
+  const hot2 = commitmentOf(seed());
+  const honestSeed = await deriveGuardianAccountSeed(seedA, hot1, guardianCommitment);
+  const honest = await created(
+    guardianAccountConfig({ hotCommitment: hot1, coldCommitment, guardianCommitment, initSeed: honestSeed })
+  );
+  // Built with the honest account's own init seed, the same recovery key and guardian, and another everyday key.
+  const other = await created(
+    guardianAccountConfig({ hotCommitment: hot2, coldCommitment, guardianCommitment, initSeed: honestSeed })
+  );
+
+  for (const initSeed of [await deriveGuardianAccountSeed(seedA, hot2, guardianCommitment), seedA]) {
+    const rebuilt = await rebuildGuardianAccount({ hotCommitment: hot2, coldCommitment, guardianCommitment, initSeed });
+    assert.notEqual(rebuilt.accountIdHex, other.accountIdHex);
+  }
+  const rebuiltHonest = await rebuildGuardianAccount({
+    hotCommitment: hot1,
+    coldCommitment,
+    guardianCommitment,
+    initSeed: await deriveGuardianAccountSeed(seedA, hot1, guardianCommitment)
+  });
+  assert.deepEqual(rebuiltHonest, honest);
+});
+
+test('the builder refuses a served account whose everyday key is its recovery key, without a trap', async () => {
+  const { coldCommitment, guardianCommitment } = keys();
+  await assert.rejects(
+    rebuildGuardianAccount({ hotCommitment: coldCommitment, coldCommitment, guardianCommitment, initSeed: seed() }),
+    error => !(error instanceof WebAssembly.RuntimeError) && /duplicate signer commitment/.test(error.message)
   );
 });
 
@@ -121,9 +156,7 @@ test('the derived and legacy seeds give different accounts', async () => {
   const coldSeed = seed();
   const recipe = keys();
   const legacy = await created(guardianAccountConfig({ ...recipe, initSeed: coldSeed }));
-  const derived = await created(
-    guardianAccountConfig({ ...recipe, initSeed: await deriveGuardianAccountSeed(coldSeed) })
-  );
+  const derived = await created(guardianAccountConfig({ ...recipe, initSeed: await derivedSeed(coldSeed, recipe) }));
 
   assert.notEqual(derived.accountIdHex, legacy.accountIdHex);
 });
