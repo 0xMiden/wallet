@@ -122,6 +122,7 @@ describe('guardianPredatesProposalAbandon', () => {
     ['0.19.2', false],
     ['1.0.0', false],
     ['0.18', false],
+    ['v0.18.3', false],
     ['nightly', false],
     [undefined, false]
   ])('reads %s as %s', async (version, expected) => {
