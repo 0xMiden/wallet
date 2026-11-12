@@ -184,6 +184,13 @@ test('signs bounded approval/deposit once each, persisting exact signed hashes b
   await assert.rejects(sender.send(deposit(c.state, c.expiry), activeSignal()));
   assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 });
 });
+test('accepts canonically signed zero-priority-fee approval and deposit without weakening any actual fee bound', async () => {
+  const c = senderFixture(); c.input.client.estimateFeesPerGas = async () => ({ maxFeePerGas: 2n, maxPriorityFeePerGas: 0n });
+  const sender = c.build();
+  await sender.send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  await sender.send(deposit(c.state, c.expiry), activeSignal());
+  assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 }); assert.equal(c.state.paidEvmFees, '2000');
+});
 test('binds the actual SDK deposit expiry within the uploaded window instead of assuming a dry-quote timestamp stays unchanged', async () => {
   const c = senderFixture(); c.setAllowance(BigInt(c.state.returnAmount));
   await c.build().send(deposit(c.state, c.expiry + 150n), activeSignal());
