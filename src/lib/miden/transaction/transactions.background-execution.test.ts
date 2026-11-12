@@ -56,7 +56,8 @@ jest.mock('../sdk/miden-client', () => ({
     syncState: jest.fn(async () => ({ blockNum: () => 42 })),
     newTransaction: mockNewTransaction
   })),
-  withWasmClientLock: jest.fn((callback: () => unknown) => callback())
+  withWasmClientLock: jest.fn((callback: () => unknown) => callback()),
+  withHoldSigner: (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 
@@ -93,6 +94,12 @@ jest.mock('../activity/notes', () => ({
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }
+}));
+
+// A single-key write reads the chain fee before it signs; a known fee lets the attempt run.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 const signCallback = jest.fn(async () => new Uint8Array());

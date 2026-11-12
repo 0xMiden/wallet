@@ -60,7 +60,8 @@ import {
   MidenDAppConsumableNotesRequest,
   MidenDAppConsumableNotesResponse,
   MidenDAppWaitForTxRequest,
-  MidenDAppWaitForTxResponse
+  MidenDAppWaitForTxResponse,
+  DAppConsumableNote
 } from 'lib/adapter/types';
 import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
@@ -788,10 +789,10 @@ const generatePromisifySign = async (
       }
       // The entry gate ran before the sheet opened; the session or the current account may have changed since (#1419).
       await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-      const signature = await withUnlocked(async ({ vault }) =>
+      const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
-      resolve({ type: MidenDAppMessageType.SignResponse, signature });
+      resolve({ type: MidenDAppMessageType.SignResponse, signature, signedCommitment });
     } catch (e) {
       reject(dappSendFailure(e));
     }
@@ -837,18 +838,13 @@ const generatePromisifySign = async (
           try {
             // See the mobile/desktop arm: same post-approval re-check.
             await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-            let signature = await withUnlocked(async ({ vault }) => {
-              const signDataResult = await vault.signData(
-                req.sourcePublicKey,
-                req.payload,
-                req.kind,
-                req.sourceAccountId
-              );
-              return signDataResult;
-            });
+            const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
+              vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
+            );
             resolve({
               type: MidenDAppMessageType.SignResponse,
-              signature
+              signature,
+              signedCommitment
             });
           } catch (e) {
             reject(dappSendFailure(e));
@@ -1199,7 +1195,7 @@ export const generatePromisifyRequestConsumableNotes = (
   req: MidenDAppConsumableNotesRequest,
   sessionId?: string
 ) =>
-  servePrivateDataRead<InputNoteDetails[], MidenDAppConsumableNotesResponse>(
+  servePrivateDataRead<DAppConsumableNote[], MidenDAppConsumableNotesResponse>(
     resolve,
     reject,
     origin,
@@ -1217,8 +1213,8 @@ export const generatePromisifyRequestConsumableNotes = (
     }
   );
 
-async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]> {
-  let consumableNotes: InputNoteDetails[] = [];
+async function getConsumableNotes(accountId: string): Promise<DAppConsumableNote[]> {
+  let consumableNotes: DAppConsumableNote[] = [];
   try {
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
@@ -1232,11 +1228,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
-        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1, plus
+        // whether the note is a P2ID/P2IDE payment so a dApp can tell it from
+        // another script's note.
         const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
           assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
-        return notes.flatMap<InputNoteDetails>(note => {
+        return notes.flatMap<DAppConsumableNote>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
@@ -1250,7 +1248,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               senderAccountId: note.senderAccountId,
               nullifier: note.nullifier,
               state: note.state,
-              assets: note.assets
+              assets: note.assets,
+              standardPayment: note.standardPayment === true
             }
           ];
         });
@@ -3732,6 +3731,9 @@ async function formatMaxNetworkFee(): Promise<string | null> {
 const OPAQUE_SIGNATURE_WARNING =
   'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
 
+/** The wallet signs a domain-separated commitment for these requests, so the signature cannot authorize a transaction. */
+const OPAQUE_SIGNATURE_NOT_A_TRANSACTION = 'Note, this signature cannot authorize a transaction from your account.';
+
 /**
  * Asset movement of a decoded transaction view, as `Label, value` rows.
  *
@@ -3786,9 +3788,10 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
 /**
  * What the mobile modal / desktop overlay show for `signBytes`.
  *
- * A `signingInputs` payload is a full TRANSACTION authorization — `Vault.signData`
- * runs `wasmSecretKey.signData(SigningInputs.deserialize(...))` on it — so
- * approving one can move the whole balance. The extension decodes it
+ * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
+ * authorization, signed as decoded, so approving one can move the whole balance.
+ * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
+ * (`signBytesInputs`) and never authorize a transaction. The extension decodes it
  * (`SigningInputsPayloadContent` in ConfirmPage) and renders the summary's asset
  * movement; off-extension `signBytes` had no approval sheet at all — it fell into
  * `requestConfirm`'s throw and the dApp's promise never settled (see
@@ -3805,7 +3808,7 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
 async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
   const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
   if (req.kind !== 'signingInputs') {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
 
@@ -3822,7 +3825,7 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
   }
 
   if (!summary) {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
 

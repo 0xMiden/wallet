@@ -36,7 +36,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     // TransactionResult on the SW side.
     TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
     // The inline dry run deserializes the request it executes.
-    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) },
+    // A write's effect-checked signer reads what the offscreen execute asks it to sign.
+    SigningInputs: { deserialize: (...a: any[]) => g.__px.signingInputsDeserialize(...a) },
+    SigningInputsType: { TransactionSummary: 0, Arbitrary: 1, Blind: 2 }
   };
 });
 
@@ -56,7 +59,10 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     },
     // The flag-off consume takes the CALLER lock itself (byte-identical to the
     // old switch-under-lock); route through the control so tests can assert it.
-    withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a)
+    withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a),
+    withHoldSigner: (...a: any[]) => g.__px.withHoldSigner(...a),
+    retireWasmClientForCaughtTrap: (...a: any[]) => g.__px.retireWasmClientForCaughtTrap(...a),
+    retireWasmClientForUnheldTrap: (...a: any[]) => g.__px.retireWasmClientForUnheldTrap(...a)
   };
 });
 
@@ -131,6 +137,7 @@ function resetControl() {
     // Slice 5: rehydrate a serialized TransactionResult on the SW side.
     txResultDeserialize: jest.fn((bytes: Uint8Array) => ({ __txResult: Array.from(bytes) })),
     txRequestDeserialize: jest.fn((bytes: Uint8Array) => ({ __request: Array.from(bytes) })),
+    signingInputsDeserialize: jest.fn(() => ({ variantType: 1, free: jest.fn() })),
     prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
@@ -209,6 +216,9 @@ function resetControl() {
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: (hold: unknown) => Promise<unknown>) => fn(G.__px.inlineHold)),
+    withHoldSigner: jest.fn(async (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()),
+    retireWasmClientForCaughtTrap: jest.fn(),
+    retireWasmClientForUnheldTrap: jest.fn(),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
@@ -2232,20 +2242,21 @@ const consumeTx = () => ({
 });
 
 describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
-  it('flag OFF → consumeNoteId runs inline under withWasmClientLock, the per-write signer unused', async () => {
+  it('flag OFF → consumeNoteId runs inline under withWasmClientLock, signed by the per-write signer for its hold', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = consumeTx();
     const result = await midenClientProxy.consumeNoteId(tx as any, signCallback);
-    expect(signCallback).not.toHaveBeenCalled();
 
     // The caller lock wraps the op (exactly as the old switch-under-lock did).
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
     // The write hands the lock nothing but the op, and asks for the singleton with no
-    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    // options: its signer is registered for its own hold, never built into a client (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledTimes(1);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledWith(G.__px.inlineHold, signCallback, expect.any(Function));
     // The inline client's consumeNoteId ran on the full tx object.
     expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, undefined);
     expect(result).toEqual({ __inlineTxResult: true });
@@ -2410,6 +2421,64 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  it("refuses at the op's own effect-checked signer when its row's check fails, never reaching the base signer", async () => {
+    // The chain fee is decided before the write runs, so it is known here.
+    jest.doMock('lib/miden-chain/native-asset', () => ({
+      ...jest.requireActual('lib/miden-chain/native-asset'),
+      getVerificationBaseFee: jest.fn(async () => 0)
+    }));
+    const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
+    const { bytesToB64 } = await import('./offscreen-codec');
+    const { withEffectCheckedSigner } = await import('lib/miden/transaction/effect-checked-signer');
+    const { ProposalEffectRefusedError } = await import('lib/miden/transaction/constants');
+    jest.dontMock('lib/miden-chain/native-asset');
+    // The offscreen execute asks for a signature over something that is not the row's summary.
+    G.__px.signingInputsDeserialize.mockReturnValue({ variantType: 1, free: jest.fn() });
+    const base = jest.fn(async () => new Uint8Array([0xaa]));
+    const fallback = jest.fn(async () => new Uint8Array([0xff]));
+    let signResp: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      signResp = await handleOffscreenSignRequest(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: env.op_id,
+          sign_id: 's',
+          publicKeyB64: bytesToB64(new Uint8Array([1])),
+          signingInputsB64: bytesToB64(new Uint8Array([2]))
+        } as any,
+        fallback
+      );
+      return { ok: false, op_id: env.op_id, error: 'sign failed in offscreen execute' };
+    });
+    const execute = {
+      id: 'execute',
+      type: 'execute',
+      accountId: 'mtst1qacc',
+      status: 1,
+      initiatedAt: 0,
+      displayIcon: 'DEFAULT',
+      approvedOutflow: []
+    };
+    const written = withEffectCheckedSigner(execute as any, base, signer =>
+      midenClientProxy.newTransaction('mtst1qacc', new Uint8Array([4, 4]), false, signer)
+    ).catch((e: unknown) => e);
+    // The signer looks the chain fee up before the write dispatches, so wait for the document it opens.
+    for (let i = 0; i < 100 && fakeChrome.offscreen.createDocument.mock.calls.length === 0; i++) await flush();
+    await flush();
+    fireReady();
+    const refused = await written;
+
+    expect(signResp).toMatchObject({
+      ok: false,
+      reason: 'internal',
+      error: expect.stringContaining('Refused to sign this execute transaction')
+    });
+    expect(base).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+  });
+
   it('handleOffscreenSignRequest falls back to the default callback when no op is registered', async () => {
     const { handleOffscreenSignRequest } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');
@@ -2428,6 +2497,34 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     expect(fallback).toHaveBeenCalledWith('0a', '0b');
     expect((resp as any).ok).toBe(true);
   });
+
+  it.each([
+    ['a current hold', { mock: 'inline-hold' }, 'retireWasmClientForCaughtTrap'],
+    ['no hold', null, 'retireWasmClientForUnheldTrap']
+  ])(
+    'handleOffscreenSignRequest rethrows a WebAssembly.RuntimeError when there is %s, and the retire helper ran',
+    async (_holdCase, hold, helper) => {
+      const { handleOffscreenSignRequest } = await loadProxy(true);
+      const { bytesToB64 } = await import('./offscreen-codec');
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      G.__px.inlineHold = hold;
+      const response = handleOffscreenSignRequest(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: 'unregistered',
+          sign_id: 's',
+          publicKeyB64: bytesToB64(new Uint8Array([1])),
+          signingInputsB64: bytesToB64(new Uint8Array([2]))
+        } as any,
+        jest.fn(async () => {
+          throw trap;
+        })
+      );
+      await expect(response).rejects.toBe(trap);
+      expect(G.__px[helper]).toHaveBeenCalledWith(...(hold ? [hold, trap] : [trap]));
+    }
+  );
 
   it('locked vault mid-sign → DEFER: op-keyed error tag (isLockedError) — issue #313', async () => {
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
@@ -2874,19 +2971,20 @@ const swapTx = () => ({
 });
 
 describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
-  it('flag OFF → sendTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
+  it('flag OFF → sendTransaction runs inline under withWasmClientLock, signed by the per-write signer for its hold', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = sendTx();
     const result = await midenClientProxy.sendTransaction(tx as any, signCallback);
-    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
     // The write hands the lock nothing but the op, and asks for the singleton with no
-    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    // options: its signer is registered for its own hold, never built into a client (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledTimes(1);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledWith(G.__px.inlineHold, signCallback, expect.any(Function));
     // The inline client's sendTransaction ran on the full tx object. The trailing
     // `onStage` is the PR #524 stage stamp, passed straight through (undefined here
     // — this caller supplied none).
@@ -3336,19 +3434,20 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, fee);
   });
 
-  it('flag OFF → swapTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
+  it('flag OFF → swapTransaction runs inline under withWasmClientLock, signed by the per-write signer for its hold', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = swapTx();
     const result = await midenClientProxy.swapTransaction(tx as any, signCallback);
-    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
     // The write hands the lock nothing but the op, and asks for the singleton with no
-    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    // options: its signer is registered for its own hold, never built into a client (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledTimes(1);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledWith(G.__px.inlineHold, signCallback, expect.any(Function));
     expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, {
       scope: 'testnet|default',
       nativeAssetId: 'mtst1qfee',
@@ -3446,18 +3545,19 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
 describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', () => {
   const reqBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
-  it('flag OFF → newTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
+  it('flag OFF → newTransaction runs inline under withWasmClientLock, signed by the per-write signer for its hold', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const result = await midenClientProxy.newTransaction('mtst1qacc', reqBytes, false, signCallback);
-    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
     // The write hands the lock nothing but the op, and asks for the singleton with no
-    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    // options: its signer is registered for its own hold, never built into a client (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledTimes(1);
+    expect(G.__px.withHoldSigner).toHaveBeenCalledWith(G.__px.inlineHold, signCallback, expect.any(Function));
     // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
     expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false, undefined);
     expect(result).toEqual({ __inlineNewResult: true });

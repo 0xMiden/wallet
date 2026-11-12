@@ -48,8 +48,11 @@ export interface SheetPlan {
 }
 
 const SHEET_POLL_MS = 250;
-/** The spike's sheets closed 542-680 ms after a click. */
-const SHEET_CLOSE_MS = 10_000;
+/**
+ * The spike's sheets closed 542-680 ms after a click, but on a loaded Android emulator the close queues behind the
+ * browser hide, so it gets the same budget as a native press.
+ */
+const SHEET_CLOSE_MS = 30_000;
 const PRESS_MS = 30_000;
 /** An answer reached the driver 288-898 ms after the sheet closed, and the next command 4-7 ms after (plan change 9). */
 const RESULT_GRACE_MS = 10_000;

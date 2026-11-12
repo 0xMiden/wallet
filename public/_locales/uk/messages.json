@@ -4066,6 +4066,10 @@
     "message": "Гаманець зупинив цю транзакцію перед її підписанням, оскільки не зміг підтвердити, що транзакція переміщує лише те, що ви затвердили. Кошти не були переміщені.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "Гаманець не зміг зчитати комісію мережі, тому не підписав цю транзакцію. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сума повинна бути меншою за залишок на рахунку",
     "englishSource": "Amount must be less than balance"
@@ -6365,6 +6369,10 @@
   "opaqueSignatureTitle": {
     "message": "Запит на підпис із прихованим вмістом",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Цей підпис не може авторизувати транзакцію з вашого рахунку.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що саме він авторизує. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
