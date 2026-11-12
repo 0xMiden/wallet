@@ -1,4 +1,4 @@
-import { assertResponse, request } from 'lib/miden/front';
+import { assertResponse, request } from 'lib/miden/front/client';
 import { WalletMessageType } from 'lib/shared/types';
 
 /** Kept apart from `checks.ts`, which imports webextension-polyfill and throws outside an extension. */
