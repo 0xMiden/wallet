@@ -40,6 +40,51 @@ for (const width of [320, 360, 402]) {
         path: screenshotPath,
         contentType: 'image/png'
       });
+
+      // Text ranges expose the glyphs hidden by ellipsis that DOM visibility alone misses.
+      const quantityGeometry = await row.getByText('123456.123456 WTEST', { exact: true }).evaluate(element => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        let unitNode: Node | null = null;
+        let unitOffset = -1;
+        while ((unitNode = walker.nextNode())) {
+          unitOffset = unitNode.textContent?.indexOf('WTEST') ?? -1;
+          if (unitOffset >= 0) break;
+        }
+        if (!unitNode || unitOffset < 0) throw new Error('Missing fixture token unit');
+
+        const range = document.createRange();
+        range.setStart(unitNode, unitOffset);
+        range.setEnd(unitNode, unitOffset + 'WTEST'.length);
+        const unit = range.getBoundingClientRect();
+        const amountBox = element.getBoundingClientRect();
+        const rowElement = element.closest('[data-testid="token-value-row"]')!;
+        const rowBox = rowElement.getBoundingClientRect();
+        const trailing = rowElement.querySelector('[data-slot="trailing"]')!.getBoundingClientRect();
+        const inside = (inner: DOMRect, outer: DOMRect) =>
+          inner.left >= outer.left - 1 &&
+          inner.right <= outer.right + 1 &&
+          inner.top >= outer.top - 1 &&
+          inner.bottom <= outer.bottom + 1;
+
+        range.selectNodeContents(element);
+        const quantityRects = Array.from(range.getClientRects());
+        return {
+          unitInsideAmount: unit.width > 0 && unit.height > 0 && inside(unit, amountBox),
+          quantityInsideRow: quantityRects.length > 0 && quantityRects.every(rect => inside(rect, rowBox)),
+          separateFromPrice: quantityRects.every(
+            rect =>
+              rect.right <= trailing.left ||
+              rect.left >= trailing.right ||
+              rect.bottom <= trailing.top ||
+              rect.top >= trailing.bottom
+          ),
+          noHorizontalClipping: element.scrollWidth <= element.clientWidth + 1
+        };
+      });
+      expect(quantityGeometry.unitInsideAmount, 'WTEST is fully inside the amount box').toBe(true);
+      expect(quantityGeometry.quantityInsideRow, 'Full token quantity is inside the row').toBe(true);
+      expect(quantityGeometry.separateFromPrice, 'Token quantity does not overlap the price or check').toBe(true);
+      expect(quantityGeometry.noHorizontalClipping, 'Full token quantity has no horizontal clipping').toBe(true);
     });
   }
 }
