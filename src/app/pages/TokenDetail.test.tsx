@@ -464,6 +464,22 @@ describe('TokenDetail', () => {
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
   });
 
+  it('shows a distinct metadata name in token information while keeping the symbol as the page title', () => {
+    const name = 'Synthetic Testnet Asset Name 32';
+    renderPage({
+      balances: [
+        {
+          tokenId: TOKEN_ID,
+          balance: 12.5,
+          metadata: { name, symbol: 'IETH', decimals: 8, description: 'Synthetic test asset.' }
+        }
+      ]
+    });
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('IETH');
+    expect(within(screen.getByTestId('token-detail-name')).getByText(name)).toBeInTheDocument();
+  });
+
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
       balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
