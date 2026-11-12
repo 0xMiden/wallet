@@ -1,6 +1,7 @@
 import browser, { Runtime } from 'webextension-polyfill';
 
 import { serializeInternalError } from './helpers';
+import { isExtensionPageSender } from './sender';
 import { MessageType, RequestMessage, ResponseMessage, ErrorMessage, SubscriptionMessage } from './types';
 
 type ReqHandler = (payload: any, port: Runtime.Port) => Promise<any>;
@@ -12,8 +13,11 @@ export class IntercomServer {
   private initializedHandlers: boolean = false;
   private disconnectListeners: Array<() => void> = [];
   private notFoundFallback: NotFoundFallback | undefined;
+  private contentScriptRequestTypes: ReadonlySet<string>;
 
-  constructor() {
+  /** `contentScriptRequestTypes`: the only request types served to a sender that is not one of the extension's pages. */
+  constructor(options: { contentScriptRequestTypes?: ReadonlySet<string> } = {}) {
+    this.contentScriptRequestTypes = options.contentScriptRequestTypes ?? new Set();
     browser.runtime.onConnect.addListener(port => {
       this.addPort(port);
 
@@ -85,6 +89,16 @@ export class IntercomServer {
 
   private handleMessage(msg: any, port: Runtime.Port) {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
+      // Checked before the idle answer and the replay queue, so a refused request is neither answered nor replayed.
+      if (!this.servesSender(port, msg.data?.type)) {
+        this.send(port, {
+          type: MessageType.Err,
+          reqId: msg.reqId,
+          data: serializeInternalError(new Error('Not Found'))
+        });
+        return;
+      }
+
       // If no request handler registered yet, respond with a default "Idle" state
       // for GetStateRequest so the UI can render (onboarding/unlock screen).
       // Other messages are queued for replay when the handler is registered.
@@ -123,6 +137,11 @@ export class IntercomServer {
 
       this.processMessage(msg as RequestMessage, port);
     }
+  }
+
+  private servesSender(port: Runtime.Port, requestType: unknown) {
+    if (isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL(''))) return true;
+    return typeof requestType === 'string' && this.contentScriptRequestTypes.has(requestType);
   }
 
   private processMessage(msg: RequestMessage, port: Runtime.Port) {
