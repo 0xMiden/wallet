@@ -883,6 +883,7 @@
   "invalidMidenAccountId": "Nieprawidłowy identyfikator konta Miden",
   "midenAddressWrongNetwork": "Ten adres należy do innej sieci Miden",
   "cannotSendToSelf": "Nie można wysłać przesyłki na swój własny adres",
+  "newRecipient": "Nowy odbiorca",
   "networkFee": "Network Fee",
   "networkFeeMax": "Maksymalna opłata sieciowa",
   "networkFeeEstimateNote": "Dokładna opłata zależy od transakcji i zazwyczaj jest niższa. Kwotę, którą zapłaciłeś, zobaczysz na potwierdzeniu.",
