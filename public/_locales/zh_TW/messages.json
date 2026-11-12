@@ -4026,6 +4026,10 @@
     "message": "您無法寄送至您自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新收款人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -6347,6 +6351,10 @@
   "couldNotDecodeTransaction": {
     "message": "此 dApp 正在請求一筆自訂交易。錢包無法解碼其詳細資訊——請僅在您確切了解其運作方式的情況下繼續。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "該錢包無法模擬此交易，因此無法顯示其運作方式。您無法批准此交易。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "原始值",

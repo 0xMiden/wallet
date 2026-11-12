@@ -4026,6 +4026,10 @@
     "message": "You can't send to your own address",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "New recipient",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -6359,6 +6363,10 @@
   "couldNotDecodeTransaction": {
     "message": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
+  },
+  "customTransactionNotSimulated": {
+    "message": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
   },
   "rawValue": {
     "message": "Raw value",

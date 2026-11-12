@@ -591,6 +591,25 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/** The text of a Failed `execute` row whose generation-time effects are not the approved effects. */
+export const CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR =
+  'The wallet stopped this transaction because its effects are not the ones you approved. No funds moved.';
+
+/**
+ * The wallet refuses to propose an `execute` row because the generation-time dry run does not give the effects that
+ * the user approved. The failure is before the proposal, so nothing moved. `difference` names the first field that
+ * is not equal, for the log only.
+ */
+export class CustomTransactionEffectsChangedError extends Error {
+  readonly difference: string;
+
+  constructor(difference: string) {
+    super(`Custom transaction effects changed after approval: ${difference}`);
+    this.name = 'CustomTransactionEffectsChangedError';
+    this.difference = difference;
+  }
+}
+
 /**
  * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
  * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
@@ -746,6 +765,9 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  if ([...causeChain(error)].some(link => link instanceof CustomTransactionEffectsChangedError)) {
+    return CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR;
   }
   if (error instanceof ProposalEffectRefusedError) {
     return error.displayMessage;

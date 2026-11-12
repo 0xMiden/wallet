@@ -298,14 +298,16 @@ describe('priceSymbolFor', () => {
     expect(priceSymbolFor(`testnet:${TEST_TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
   });
 
-  it('prices the E2E fixture symbol TST by symbol only in an E2E build', () => {
+  it.each(['TST', 'SWPA', 'SWPB'])('prices fixture %s by symbol only in an E2E build', symbol => {
     const previous = process.env.MIDEN_E2E_TEST;
     try {
       process.env.MIDEN_E2E_TEST = 'true';
-      expect(priceSymbolFor('mtst1fixture', 'TST')).toBe('TST');
-      expect(priceSymbolFor('mtst1fixture', 'USDC')).toBeUndefined();
-      delete process.env.MIDEN_E2E_TEST;
-      expect(priceSymbolFor('mtst1fixture', 'TST')).toBeUndefined();
+      expect(priceSymbolFor('mtst1fixture', symbol)).toBe(symbol);
+      for (const forged of ['USDC', 'SWPA_FAKE', 'SWPBX', 'swpa', '__proto__']) {
+        expect(priceSymbolFor('mtst1fixture', forged)).toBeUndefined();
+      }
+      process.env.MIDEN_E2E_TEST = 'false';
+      expect(priceSymbolFor('mtst1fixture', symbol)).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
       else process.env.MIDEN_E2E_TEST = previous;

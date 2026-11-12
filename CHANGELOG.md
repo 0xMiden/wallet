@@ -2,6 +2,8 @@
 
 ## 1.17.12 (TBD)
 
+- [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
+- [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.

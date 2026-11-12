@@ -86,8 +86,10 @@ const txStore: any[] = _g.__txExtTest.rows;
 // starts. This is what the atomic-dedup fix relies on — tests run concurrent callers and
 // assert only one row is added.
 let _dbTxChain: Promise<unknown> = Promise.resolve();
-function _serializedDbTransaction<T>(_mode: string, _table: unknown, cb: () => Promise<T>): Promise<T> {
-  const next = _dbTxChain.then(() => cb());
+function _serializedDbTransaction<T>(...args: unknown[]): Promise<T> {
+  const callback = args[args.length - 1];
+  if (typeof callback !== 'function') return Promise.reject(new Error('db.transaction mock expected a callback'));
+  const next = _dbTxChain.then(() => (callback as () => Promise<T>)());
   _dbTxChain = next.catch(() => undefined);
   return next;
 }
@@ -95,6 +97,9 @@ function _serializedDbTransaction<T>(_mode: string, _table: unknown, cb: () => P
 jest.mock('lib/miden/repo', () => ({
   db: {
     transaction: _serializedDbTransaction
+  },
+  spendingLimits: {
+    get: jest.fn(async () => undefined)
   },
   transactions: {
     add: jest.fn(async (tx: any) => {
@@ -216,7 +221,8 @@ jest.mock('../helpers', () => ({
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
   // Mirrors the real helper for the consume dedup's note-holding read: a `_<suffix>` names the same account.
-  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0],
+  canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id
 }));
 
 const mockGetIntercom = jest.fn(() => ({
