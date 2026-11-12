@@ -34,7 +34,7 @@ import pinned from './dapp-pinned.json';
 import { beforeMobileDeadline } from './mobile-store-reads';
 import { TOKEN, TOKEN_DECIMALS } from './money-path';
 import { ECDSA_SCHEME_TAG, recoverEcdsaPublicKey } from './signature-recovery';
-import { unwrap } from './test-dapp';
+import { expectDomainSignature, unwrap } from './test-dapp';
 import type { ConnectedView, Outcome, RawArg, SessionView, SignatureView } from '../test-dapp/protocol';
 
 /**
@@ -166,15 +166,11 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
       expect(signature.schemeTag).toBe(ECDSA_SCHEME_TAG);
       // On Guardian the key behind the signature must be the one connect handed the dApp.
       expect(
-        await j.call(
-          'verifySignature',
-          {
-            kind,
-            payloadB64: signature.payloadB64,
-            signatureB64: signature.signatureB64,
-            publicKeyB64: recoverEcdsaPublicKey(signature.signatureB64, signature.messageB64)
-          },
-          ctx.deadline
+        await expectDomainSignature(
+          input => j.call('verifySignature', input, ctx.deadline),
+          signature,
+          kind,
+          recoverEcdsaPublicKey(signature.signatureB64, signature.messageB64)
         )
       ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
     }

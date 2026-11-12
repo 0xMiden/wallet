@@ -51,12 +51,13 @@ import {
   answerPrompt,
   bytesArg,
   callDapp,
+  expectDomainSignature,
   expectNoPrompt,
   pendingNoteIds,
   popupBlock,
   unwrap
 } from '../../helpers/test-dapp';
-import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
+import type { ConnectedView, RawArg, VerifyInput } from '../../test-dapp/protocol';
 
 // The first limb is below the modulus only in little-endian order; the real SDK must accept the wallet's gate.
 const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
@@ -65,6 +66,8 @@ const SUMMARY_AMOUNT = tst(0.5);
 // en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
 // inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
+// en.json's `opaqueSignatureNotATransaction`, shown beside it.
+const OPAQUE_NOT_A_TRANSACTION = 'This signature cannot authorize a transaction from your account.';
 // en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no
 // test id.
 const LOGIN_TITLE = 'Sign in to ';
@@ -104,23 +107,32 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
       );
       // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature.
       const signed = unwrap(result, `signBytes(signingInputs, ${variant})`, ctx);
-      expect(
-        await callDapp(
-          dapp,
-          'verifySignature',
-          {
+      const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
+      const verify = (input: VerifyInput) => callDapp(dapp, 'verifySignature', input, ctx.deadline);
+      // A summary is signed as before, so only the raw check applies; Blind and Arbitrary sign the domain commitment.
+      if (variant === 'summary') {
+        expect(
+          await verify({
             kind: 'signingInputs',
             payloadB64: signed.payloadB64,
             signatureB64: signed.signatureB64,
-            publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-          },
-          ctx.deadline
-        )
-      ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
+            publicKeyB64
+          })
+        ).toEqual({
+          verifies: true,
+          commitmentHex: me.publicKeyHex
+        });
+      } else {
+        expect(await expectDomainSignature(verify, signed, 'signingInputs', publicKeyB64)).toEqual({
+          verifies: true,
+          commitmentHex: me.publicKeyHex
+        });
+      }
     }
   });
   const opaque = async (popup: Page) => {
     await expect(popup.getByText(OPAQUE_WARNING)).toBeVisible();
+    await expect(popup.getByText(OPAQUE_NOT_A_TRANSACTION)).toBeVisible();
   };
   return {
     G1: {
@@ -137,16 +149,11 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
         // Rk3: on Guardian the key behind the signature must be the one connect handed the dApp.
         expect(
-          await callDapp(
-            dapp,
-            'verifySignature',
-            {
-              kind: 'word',
-              payloadB64: signed.payloadB64,
-              signatureB64: signed.signatureB64,
-              publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-            },
-            ctx.deadline
+          await expectDomainSignature(
+            input => callDapp(dapp, 'verifySignature', input, ctx.deadline),
+            signed,
+            'word',
+            recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
           )
         ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
       }
