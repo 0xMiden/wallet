@@ -2,7 +2,7 @@
 
 import { GuardianHttpError, RequestAuthPayload } from '@openzeppelin/guardian-client';
 
-import { abandonCandidateByNonce } from './legacy-abandon';
+import { abandonCandidateByNonce, guardianPredatesProposalAbandon } from './legacy-abandon';
 
 // The suite-wide stub neither canonicalizes request payloads nor parses error bodies, and this request depends on both.
 jest.mock('@openzeppelin/guardian-client', () =>
@@ -108,5 +108,28 @@ describe('abandonCandidateByNonce', () => {
       code: 'authentication_replay'
     });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('guardianPredatesProposalAbandon', () => {
+  const reporting = (version: unknown) => ({ getStatus: jest.fn(async () => ({ version })) }) as never;
+
+  it.each([
+    ['0.18.3', true],
+    ['0.18.0-rc.2', true],
+    ['0.9.1', true],
+    ['0.19.0-rc.1', false],
+    ['0.19.2', false],
+    ['1.0.0', false],
+    ['0.18', false],
+    ['nightly', false],
+    [undefined, false]
+  ])('reads %s as %s', async (version, expected) => {
+    await expect(guardianPredatesProposalAbandon(reporting(version))).resolves.toBe(expected);
+  });
+
+  it('reads a failing status as false', async () => {
+    const guardian = { getStatus: jest.fn(async () => Promise.reject(new Error('down'))) } as never;
+    await expect(guardianPredatesProposalAbandon(guardian)).resolves.toBe(false);
   });
 });

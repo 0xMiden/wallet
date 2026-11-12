@@ -1,4 +1,4 @@
-import { GuardianHttpError, RequestAuthPayload } from '@openzeppelin/guardian-client';
+import { GuardianHttpError, type GuardianHttpClient, RequestAuthPayload } from '@openzeppelin/guardian-client';
 
 import type { WalletSigner } from './signer';
 
@@ -59,3 +59,17 @@ const answeredCommitment = (answer: unknown): string | undefined =>
   typeof answer === 'object' && answer !== null && 'commitment' in answer && typeof answer.commitment === 'string'
     ? answer.commitment
     : undefined;
+
+/**
+ * Whether `guardian` reports a version before 0.19, which refuses the proposal-bound abandon the 0.19 client signs.
+ * A status that fails, or a version that does not parse, reads as false: such a refusal is not known to be the
+ * version's, so the caller rethrows it.
+ */
+export async function guardianPredatesProposalAbandon(guardian: GuardianHttpClient): Promise<boolean> {
+  try {
+    const match = /^(\d+)\.(\d+)\./.exec((await guardian.getStatus()).version);
+    return match !== null && Number(match[1]) === 0 && Number(match[2]) < 19;
+  } catch {
+    return false;
+  }
+}

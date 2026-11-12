@@ -40,7 +40,7 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
-import { abandonCandidateByNonce } from './legacy-abandon';
+import { abandonCandidateByNonce, guardianPredatesProposalAbandon } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
@@ -284,6 +284,9 @@ export interface AbandonTicket {
 /** The Guardian holds no delta at that nonce. Duck-typed like the other Guardian error checks. */
 const isGuardianDeltaNotFound = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && 'code' in err && err.code === 'delta_not_found';
+
+const isGuardianAuthenticationFailed = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'authentication_failed';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -927,11 +930,30 @@ export class MultisigService {
    * exception is a submit the node then discarded: that transaction is no longer in
    * the mempool and never lands, and the Guardian still refuses the abandon if it did.
    *
-   * `_proposalId` names the proposal that left the candidate, undefined for a record kept before records carried it.
-   * The request sent is the nonce-only one that every Guardian from 0.18 on takes, signed by this service's request
-   * signer, so a service built without one refuses.
+   * `proposalId` names the proposal that left the candidate, undefined for a record kept before records carried it.
+   * With one the SDK sends the proposal-bound request. A Guardian before 0.19 refuses it with `authentication_failed`
+   * (it verifies a body without `proposal_id`), so that refusal alone, from a Guardian whose status reports such a
+   * version, retries once with the nonce-only request, signed by this service's request signer. A record without an
+   * id sends the nonce-only request directly, so a service built without a request signer refuses it.
    */
-  async abandonCandidate(nonce: number, _proposalId: string | undefined): Promise<AbandonTicket> {
+  async abandonCandidate(nonce: number, proposalId: string | undefined): Promise<AbandonTicket> {
+    if (proposalId !== undefined) {
+      try {
+        const { commitment } = await this.multisig.abandonCandidate(nonce, proposalId);
+        return { commitment, legacy: false };
+      } catch (error) {
+        if (
+          !isGuardianAuthenticationFailed(error) ||
+          !(await guardianPredatesProposalAbandon(this.registrationGuardian))
+        ) {
+          throw error;
+        }
+      }
+    }
+    return this.abandonCandidateByNonce(nonce);
+  }
+
+  private async abandonCandidateByNonce(nonce: number): Promise<AbandonTicket> {
     if (this.requestSigner === undefined) {
       throw new Error(`No request signer to abandon the candidate at nonce ${nonce} on ${this.guardianEndpoint}`);
     }

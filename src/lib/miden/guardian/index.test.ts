@@ -281,6 +281,7 @@ jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUAR
 // The wallet's own nonce-only abandon request, covered against the real client in legacy-abandon.test.ts.
 const mockAbandonCandidateByNonce = jest.fn(async (..._args: unknown[]): Promise<{ commitment?: string }> => ({}));
 jest.mock('./legacy-abandon', () => ({
+  ...jest.requireActual('./legacy-abandon'),
   abandonCandidateByNonce: (...a: unknown[]) => mockAbandonCandidateByNonce(...a)
 }));
 // The chain wait in front of a switch's registration, covered against the node read in direct-switch.test.ts.
@@ -1622,33 +1623,76 @@ describe('MultisigService', () => {
       );
     });
 
-    it('abandonCandidate sends the nonce-only request to its Guardian, signed by its request signer', async () => {
-      const multisig = makeMultisig();
-      const signer = { publicKey: '0x02aa' };
-      const service = new MultisigService(multisig as never, {} as never, 'https://x', signer as never);
+    const unauthenticated = { code: 'authentication_failed', status: 401 };
+    const serviceWithStatus = (multisig: unknown, getStatus: jest.Mock) =>
+      new MultisigService(multisig as never, { guardianClient: { getStatus } } as never, 'https://x', {
+        publicKey: '0x02aa'
+      } as never);
+
+    it('abandonCandidate asks the SDK with the proposal id and returns its commitment', async () => {
+      const multisig = makeMultisig({
+        abandonCandidate: jest.fn(async () => ({ state: 'pending', commitment: '0xc0ffee' }))
+      });
+      const getStatus = jest.fn();
+      const service = serviceWithStatus(multisig, getStatus);
+
+      await expect(service.abandonCandidate(7, 'prop-7')).resolves.toEqual({ commitment: '0xc0ffee', legacy: false });
+
+      expect(multisig.abandonCandidate).toHaveBeenCalledWith(7, 'prop-7');
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+      expect(getStatus).not.toHaveBeenCalled();
+    });
+
+    it('a 401 from a Guardian reporting 0.18.3 retries once with the nonce-only request', async () => {
+      const multisig = makeMultisig({ abandonCandidate: jest.fn(async () => Promise.reject(unauthenticated)) });
+      const service = serviceWithStatus(
+        multisig,
+        jest.fn(async () => ({ version: '0.18.3' }))
+      );
       mockAbandonCandidateByNonce.mockResolvedValueOnce({ commitment: '0xc0ffee' });
 
       await expect(service.abandonCandidate(7, 'prop-7')).resolves.toEqual({ commitment: '0xc0ffee', legacy: true });
 
+      expect(multisig.abandonCandidate).toHaveBeenCalledTimes(1);
       expect(mockAbandonCandidateByNonce).toHaveBeenCalledTimes(1);
-      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', signer, 'acc-id', 7);
-      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', { publicKey: '0x02aa' }, 'acc-id', 7);
     });
 
-    it('abandonCandidate sends the same request for a record kept without a proposal id', async () => {
-      const signer = { publicKey: '0x02aa' };
-      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x', signer as never);
+    it.each([
+      ['reports 0.19.0-rc.1', jest.fn(async () => ({ version: '0.19.0-rc.1' })), unauthenticated],
+      ['status throws', jest.fn(async () => Promise.reject(new Error('down'))), unauthenticated],
+      ['version does not parse', jest.fn(async () => ({ version: 'nightly' })), unauthenticated],
+      [
+        '401 is another code',
+        jest.fn(async () => ({ version: '0.18.3' })),
+        { code: 'timestamp_out_of_window', status: 401 }
+      ]
+    ])('a 401 is rethrown unchanged when the Guardian %s', async (_label, getStatus, error) => {
+      const multisig = makeMultisig({ abandonCandidate: jest.fn(async () => Promise.reject(error)) });
+      const service = serviceWithStatus(multisig, getStatus);
+
+      await expect(service.abandonCandidate(7, 'prop-7')).rejects.toBe(error);
+
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+    });
+
+    it('a record without a proposal id goes straight to the nonce-only request', async () => {
+      const multisig = makeMultisig();
+      const getStatus = jest.fn();
+      const service = serviceWithStatus(multisig, getStatus);
 
       await expect(service.abandonCandidate(7, undefined)).resolves.toEqual({ legacy: true });
 
-      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', signer, 'acc-id', 7);
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', { publicKey: '0x02aa' }, 'acc-id', 7);
+      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+      expect(getStatus).not.toHaveBeenCalled();
     });
 
     it('abandonCandidate refuses without a request signer and sends nothing', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      await expect(service.abandonCandidate(7, 'prop-7')).rejects.toThrow(/request signer/);
+      await expect(service.abandonCandidate(7, undefined)).rejects.toThrow(/request signer/);
 
       expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
       expect(multisig.abandonCandidate).not.toHaveBeenCalled();
