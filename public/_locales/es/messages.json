@@ -864,6 +864,10 @@
     "message": "No se ha podido comprobar tu saldo con Epoch. Inténtalo de nuevo.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "No se ha podido cargar tu saldo. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "La función «Earn» no está disponible en esta red",
     "englishSource": "Earn is not available on this network"
