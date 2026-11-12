@@ -881,6 +881,17 @@ final class BreadPresentationController {
     // The dialog routes every touch here first: the posed page owns a gesture that starts on it, and a
     // gesture the page already had when a motion began is cancelled for it, then swallowed.
     private boolean handleCapsuleTouch(View view, MotionEvent event) {
+        MotionEvent screen = MotionEvent.obtain(event);
+        try {
+            screen.transform(container.getMatrix());
+            screen.offsetLocation(event.getRawX() - screen.getX(), event.getRawY() - screen.getY());
+            return handleCapsuleScreenTouch(view, screen);
+        } finally {
+            screen.recycle();
+        }
+    }
+
+    private boolean handleCapsuleScreenTouch(View view, MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             capsuleTouchDown = true;
