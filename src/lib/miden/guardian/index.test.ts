@@ -18,6 +18,7 @@ import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mo
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
+import { deviceSignersAfterRevocation } from './device-signers';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
   GuardianReRegisterRefusedError,
@@ -32,6 +33,7 @@ import {
   SignerSetFullError
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import { WalletSigner } from './signer';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -2930,6 +2932,80 @@ describe('MultisigService', () => {
       const service = await MultisigService.init(account, '0xcold-pub', '0xcoldcommit', async () => 'sig', 'https://x');
       return { service, account };
     };
+
+    describe('recovery signer preservation', () => {
+      const original = `0x${'11'.repeat(32)}`;
+      const recovery = `0x${'22'.repeat(32)}`;
+      const added = `0x${'33'.repeat(32)}`;
+      const newHot = `0x${'44'.repeat(32)}`;
+
+      it('preserves recovery after adding a device and revoking the original device', async () => {
+        const remaining = deviceSignersAfterRevocation([original, recovery, added], original, added, recovery, 1);
+        expect(remaining).toEqual([recovery, added]);
+        const multisig = makeMultisig({ threshold: 1 });
+        const initialized = await initRotationService(multisig);
+        const service = new MultisigService(
+          multisig,
+          initialized.service.client,
+          'https://x',
+          new WalletSigner('recovery-pub', recovery, async () => 'sig')
+        );
+        mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: added.slice(2) });
+        mockFindOwnSignerCommitment.mockImplementation(async (...args: unknown[]) =>
+          args[1] === 'recovery-pub' || args[1] === '0xrecovery-pub' ? recovery : undefined
+        );
+
+        await service.createReplaceHotKeyProposal(initialized.account, newHot);
+
+        expect(mockBuildUpdateSignersTransactionRequest.mock.calls[0]?.[2]).toEqual([newHot, recovery]);
+        expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
+          expect.anything(),
+          1,
+          [newHot, recovery],
+          expect.anything()
+        );
+        expect(multisig.createProposal).toHaveBeenCalledWith(
+          expect.any(Number),
+          expect.any(String),
+          expect.objectContaining({ targetSignerCommitments: [newHot, recovery], targetThreshold: 1 })
+        );
+        expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      });
+
+      it('refuses replacement when the recovery key is absent from the signer set', async () => {
+        const multisig = makeMultisig({ threshold: 1 });
+        const initialized = await initRotationService(multisig);
+        const service = new MultisigService(
+          multisig,
+          initialized.service.client,
+          'https://x',
+          new WalletSigner('recovery-pub', recovery, async () => 'sig')
+        );
+        mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: added.slice(2) });
+        mockFindOwnSignerCommitment.mockResolvedValue(undefined);
+
+        await expect(service.createReplaceHotKeyProposal(initialized.account, newHot)).rejects.toThrow(
+          'Guardian account acc-id: the recovery (cold) key is not an on-chain signer of this account'
+        );
+
+        expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+        expect(multisig.createProposal).not.toHaveBeenCalled();
+      });
+
+      it('refuses replacement when the service has no recovery key', async () => {
+        const multisig = makeMultisig({ threshold: 1 });
+        const initialized = await initRotationService(multisig);
+        const service = new MultisigService(multisig, initialized.service.client, 'https://x');
+        mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: added.slice(2) });
+
+        await expect(service.createReplaceHotKeyProposal(initialized.account, newHot)).rejects.toThrow(
+          'Guardian account acc-id is missing coldPublicKey - re-create the wallet'
+        );
+
+        expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+        expect(multisig.createProposal).not.toHaveBeenCalled();
+      });
+    });
 
     it('syncs the chain and adopts the guardian state before it builds, and reads the threshold after (#904)', async () => {
       const multisig = makeMultisig({ threshold: 1 });
