@@ -3,7 +3,7 @@ import { COMPACT_ABI } from '@epoch-protocol/epoch-intents-sdk/dist/abis/compact
 import { getAllocatorId, getTokenId } from '@epoch-protocol/epoch-intents-sdk/dist/helpers/chains.js';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isHex, keccak256,
   parseTransaction, recoverTransactionAddress, toBytes, zeroAddress, zeroHash,
-  type Address, type Hash, type Hex } from 'viem';
+  type Address, type Hash, type Hex, type TransactionSerializedEIP1559 } from 'viem';
 
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochEvmTransaction } from './mainnet-epoch-checkpoint';
@@ -32,7 +32,7 @@ export interface EpochEvmSenderInput {
       transactionHash: Hash; status: 'success' | 'reverted'; gasUsed: bigint; effectiveGasPrice: bigint;
     }>;
   };
-  sign: (transaction: EpochEvmEnvelope) => Promise<Hex>;
+  sign: (transaction: EpochEvmEnvelope) => Promise<TransactionSerializedEIP1559>;
   persist: (state: MainnetEpochCheckpoint) => Promise<void>;
 }
 export function createEpochEvmSender(
