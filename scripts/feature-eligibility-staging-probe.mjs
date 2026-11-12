@@ -404,7 +404,7 @@ export function createProbeController(effects) {
     if (totalCount !== undefined && scripts.length !== totalCount) fail('inventory_incomplete');
     return scripts;
   };
-  const owned = async (manifest, onMismatch) => {
+  const owned = async (manifest, { readiness = true, onMismatch } = {}) => {
     const mismatch = (gate, read = () => UNAVAILABLE, expected) => {
       try {
         onMismatch?.({ gate, form: ownershipForm(read, expected) });
@@ -423,7 +423,6 @@ export function createProbeController(effects) {
       mismatch('compatibility_date', () => ownershipData(settings, 'compatibility_date'), config.compatibility_date);
     if ((settings.compatibility_flags?.length || 0) !== 0)
       mismatch('compatibility_flags', () => ownershipData(settings, 'compatibility_flags'), []);
-    if (settings.logpush !== false) mismatch('logpush', () => ownershipData(settings, 'logpush'), false);
     const observationSwitches = [
       ['observability', ['observability', 'enabled']],
       ['observability_logs', ['observability', 'logs', 'enabled']],
@@ -440,9 +439,12 @@ export function createProbeController(effects) {
       }
       if (value !== false && (required || value !== undefined)) mismatch(gate, () => value, false);
     };
-    for (const [gate, path] of observationSwitches) checkSwitch(settings, path, gate, false);
-    if ((settings.tail_consumers?.length || 0) !== 0)
-      mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
+    if (readiness) {
+      if (settings.logpush !== false) mismatch('logpush', () => ownershipData(settings, 'logpush'), false);
+      for (const [gate, path] of observationSwitches) checkSwitch(settings, path, gate, false);
+      if ((settings.tail_consumers?.length || 0) !== 0)
+        mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
+    }
     if (settings.assets) mismatch('assets', () => ownershipData(settings, 'assets'));
     if (settings.migration_tag) mismatch('migration_tag', () => ownershipData(settings, 'migration_tag'));
     if (settings.cache_options?.enabled)
@@ -494,19 +496,21 @@ export function createProbeController(effects) {
       ])
     )
       mismatch('binding_names');
-    const scriptSettings = (await api(`${prefix}/script-settings`)).result;
-    for (const [gate, path] of observationSwitches) checkSwitch(scriptSettings, path, `script_${gate}`, true);
-    if (scriptSettings.logpush !== undefined && scriptSettings.logpush !== false)
-      mismatch('script_logpush', () => ownershipData(scriptSettings, 'logpush'), false);
-    if (
-      scriptSettings.tail_consumers !== undefined &&
-      (!Array.isArray(scriptSettings.tail_consumers) || scriptSettings.tail_consumers.length !== 0)
-    )
-      mismatch('script_tail_consumers', () => ownershipData(scriptSettings, 'tail_consumers'), []);
-    const subdomain = (await api(`${prefix}/subdomain`)).result;
-    if (subdomain?.enabled !== true) mismatch('subdomain_enabled', () => ownershipData(subdomain, 'enabled'), true);
-    if (subdomain.previews_enabled !== false)
-      mismatch('subdomain_previews', () => ownershipData(subdomain, 'previews_enabled'), false);
+    if (readiness) {
+      const scriptSettings = (await api(`${prefix}/script-settings`)).result;
+      for (const [gate, path] of observationSwitches) checkSwitch(scriptSettings, path, `script_${gate}`, true);
+      if (scriptSettings.logpush !== undefined && scriptSettings.logpush !== false)
+        mismatch('script_logpush', () => ownershipData(scriptSettings, 'logpush'), false);
+      if (
+        scriptSettings.tail_consumers !== undefined &&
+        (!Array.isArray(scriptSettings.tail_consumers) || scriptSettings.tail_consumers.length !== 0)
+      )
+        mismatch('script_tail_consumers', () => ownershipData(scriptSettings, 'tail_consumers'), []);
+      const subdomain = (await api(`${prefix}/subdomain`)).result;
+      if (subdomain?.enabled !== true) mismatch('subdomain_enabled', () => ownershipData(subdomain, 'enabled'), true);
+      if (subdomain.previews_enabled !== false)
+        mismatch('subdomain_previews', () => ownershipData(subdomain, 'previews_enabled'), false);
+    }
     const content = await effects.providerAPI(`${prefix}/content/v2`, { method: 'GET' });
     if (!content.ok) mismatch('content_status');
     const bytes = await boundedBytes(content, 256 * 1024);
@@ -547,8 +551,11 @@ export function createProbeController(effects) {
       await validManifest(manifest);
       await authenticate();
       if (
-        !(await owned(manifest, check => {
-          ownershipCheck = check;
+        !(await owned(manifest, {
+          readiness: false,
+          onMismatch: check => {
+            ownershipCheck = check;
+          }
         }))
       )
         return { cleanup: 'absent', reason: 'complete' };
@@ -775,8 +782,10 @@ export function createProbeController(effects) {
     try {
       await validManifest(manifest);
       await authenticate();
-      const present = await owned(manifest, check => {
-        ownershipCheck = check;
+      const present = await owned(manifest, {
+        onMismatch: check => {
+          ownershipCheck = check;
+        }
       });
       return { inspection: present ? 'verified' : 'absent', reason: 'complete' };
     } catch (error) {

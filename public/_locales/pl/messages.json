@@ -4066,6 +4066,10 @@
     "message": "Portfel zatrzymał tę transakcję przed jej podpisaniem, ponieważ nie mógł potwierdzić, że transakcja przenosi wyłącznie to, na co wyraziłeś zgodę. Żadne środki nie zostały przeniesione.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "Portfel nie mógł odczytać opłaty sieciowej, więc nie podpisał tej transakcji. Nic nie zostało wysłane. Spróbuj ponownie za chwilę.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Kwota musi być mniejsza niż saldo",
     "englishSource": "Amount must be less than balance"
@@ -6365,6 +6369,10 @@
   "opaqueSignatureTitle": {
     "message": "Prośba o niejawny podpis",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Ten podpis nie upoważnia do autoryzacji transakcji z Twojego konta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "Ta strona poprosiła Cię o podpisanie surowej wartości. Portfel nie może wyświetlić, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
