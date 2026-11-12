@@ -1,6 +1,8 @@
 import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import { Felt, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 
+// @miden-sdk/miden-sdk 0.17.10 exports this word as domainSeparatedSignCommitment; drop this module for it once
+// package.json pins a release that exports it.
 export const SIGN_BYTES_DOMAIN = 'miden-wallet/sign-bytes/v1';
 
 // Poseidon2 of SIGN_BYTES_DOMAIN, one element per UTF-8 byte; a real-SDK test re-derives it. The first element is not

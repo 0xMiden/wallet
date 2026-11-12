@@ -68,3 +68,8 @@ test('a signature over the inputs verifies against their commitment and not agai
   const raw = sdk.Word.deserialize(fromBase64(wordOneToFour));
   assert.equal(publicKey.verify(raw, signature), false);
 });
+
+test('names the SDK export that replaces this module', async () => {
+  const source = await readFile(new URL('../src/lib/miden/sign-bytes/domain.ts', import.meta.url), 'utf8');
+  assert.match(source, /domainSeparatedSignCommitment/);
+});
