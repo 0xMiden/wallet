@@ -99,6 +99,18 @@ it('blocks request mutation during the uploaded-authorization hold', async () =>
   data[KEY] = { ...data[KEY] as object, status: 'released' };
   await jest.advanceTimersByTimeAsync(500); await rejected;
 });
+it('rechecks the deadline after an asynchronous release read instead of signing after a suspended hold', async () => {
+  const promise = run(); await waitForHeld(promise);
+  const outcome = promise.then(() => 'released', error => error.message);
+  data[KEY] = { ...data[KEY] as object, status: 'released' };
+  get.mockImplementationOnce(async () => {
+    jest.setSystemTime(Date.now() + 240_001);
+    return structuredClone(data);
+  });
+  await jest.advanceTimersByTimeAsync(500);
+  expect(await outcome).toMatch(/timeout|timed out/i);
+  expect(data[KEY]).not.toMatchObject({ status: 'spent' });
+});
 it('times out closed without consuming release authority', async () => {
   const promise = run(); await waitForHeld(promise);
   const rejected = expect(promise).rejects.toThrow(/timeout|timed out/i);
