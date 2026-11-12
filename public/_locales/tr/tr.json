@@ -1,4 +1,5 @@
 {
+  "refresh": "Yenile",
   "deviceRevokedBody": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Kurtarma ifadesini kullanarak bu cihazı tekrar ana cihaz yapın veya cüzdanı bu cihazdan kaldırın.",
   "deviceRevokedBodyNoRecoveryKey": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Cüzdanı bu cihazdan kaldırın. Kurtarma ifadesini kullanarak erişimi geri yükleyebilirsiniz.",
   "deviceRevokeAuthentication": "Bu cihazı iptal etmek için kimlik doğrulaması yapın.",

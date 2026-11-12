@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "Оновити",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "Цей пристрій було видалено зі списку підписантів облікового запису, і він більше не може підписувати транзакції. Використовуйте фразу відновлення, щоб знову зробити його основним пристроєм, або видаліть гаманець з цього пристрою.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

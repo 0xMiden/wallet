@@ -1,4 +1,5 @@
 {
+  "refresh": "Actualiser",
   "deviceRevokedBody": "Cet appareil a été supprimé de la liste des signataires du compte et ne peut plus signer de transactions. Utilisez la phrase de récupération pour en faire à nouveau l’appareil principal, ou supprimez le portefeuille de cet appareil.",
   "deviceRevokedBodyNoRecoveryKey": "Cet appareil a été supprimé de la liste des signataires du compte et ne peut plus signer de transactions. Supprimez le portefeuille de cet appareil. Vous pouvez rétablir l’accès à l’aide de la phrase de récupération.",
   "deviceRevokeAuthentication": "Authentifiez-vous pour révoquer ce dispositif.",

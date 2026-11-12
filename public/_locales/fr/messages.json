@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "Actualiser",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "Cet appareil a été supprimé de la liste des signataires du compte et ne peut plus signer de transactions. Utilisez la phrase de récupération pour en faire à nouveau l’appareil principal, ou supprimez le portefeuille de cet appareil.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

@@ -1,4 +1,5 @@
 {
+  "refresh": "Actualizar",
   "deviceRevokedBody": "Este dispositivo se ha eliminado de los firmantes de la cuenta y ya no puede firmar transacciones. Utiliza la frase de recuperación para volver a convertirlo en el dispositivo principal, o elimina la cartera de este dispositivo.",
   "deviceRevokedBodyNoRecoveryKey": "Este dispositivo se ha eliminado de los firmantes de la cuenta y ya no puede firmar transacciones. Elimina el monedero de este dispositivo. Puedes restaurar el acceso con la frase de recuperación.",
   "deviceRevokeAuthentication": "Autentifícate para revocar este dispositivo.",

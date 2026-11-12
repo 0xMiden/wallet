@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "Aktualisieren",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr unterzeichnen. Verwenden Sie die Wiederherstellungsphrase, um es wieder zum Hauptgerät zu machen, oder entfernen Sie die Wallet von diesem Gerät.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."

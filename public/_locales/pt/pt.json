@@ -1,4 +1,5 @@
 {
+  "refresh": "Atualizar",
   "deviceRevokedBody": "Este dispositivo foi removido da lista de signatários da conta e não pode mais assinar transações. Use a frase de recuperação para torná-lo o dispositivo principal novamente ou remova a carteira deste dispositivo.",
   "deviceRevokedBodyNoRecoveryKey": "Este dispositivo foi removido da lista de signatários da conta e não pode mais assinar transações. Remova a carteira deste dispositivo. Você pode restaurar o acesso com a frase de recuperação.",
   "deviceRevokeAuthentication": "Autentifique-se para revogar este dispositivo.",

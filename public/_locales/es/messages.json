@@ -1,4 +1,8 @@
 {
+  "refresh": {
+    "message": "Actualizar",
+    "englishSource": "Refresh"
+  },
   "deviceRevokedBody": {
     "message": "Este dispositivo se ha eliminado de los firmantes de la cuenta y ya no puede firmar transacciones. Utiliza la frase de recuperación para volver a convertirlo en el dispositivo principal, o elimina la cartera de este dispositivo.",
     "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
