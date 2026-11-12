@@ -11,6 +11,12 @@ export interface EpochCollateralReview {
   bindingHash: string;
 }
 
+export function inspectEpochForwardQuote(
+  _state: MainnetEpochCheckpoint, _payload: unknown, _currentBlock: number
+): { bindingHash: string; mandateReclaimHeight: number } {
+  throw new Error('Epoch forward quote binding is not implemented');
+}
+
 export function inspectEpochCollateralRequest(
   state: MainnetEpochCheckpoint,
   bytes: Uint8Array,

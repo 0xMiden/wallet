@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getWrappedSdk } from '@miden-sdk/miden-sdk';
+import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
+import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -12,6 +14,53 @@ const sender = () => sdk.Address.fromBech32(actor.split('_')[0]).accountId();
 const state = () => ({ ...epochCheckpointFixture(), account: actor, accountHex: sender().toString() });
 const bindingHash = `0x${'11'.repeat(32)}`;
 const review = { currentBlock: 1000, reclaimHeight: 7200, bindingHash };
+function forwardPayload() {
+  const snapshot = { ...state(), virtualChainId: 999999999 };
+  const { sdk: epoch } = epochReadOnlyProvider(snapshot.allocatorUrl, snapshot.virtualChainId, snapshot.evm.account);
+  const task = epoch.getTaskData({
+    taskType: epoch.TaskType.GetTokenOut,
+    intentData: { isNative: false, depositTokenAddress: `0x${'0'.repeat(40)}`, tokenInAmount: snapshot.principal,
+      outputTokenAddress: snapshot.evm.token, minTokenOut: snapshot.forwardMinimum,
+      destinationChainId: String(snapshot.evm.chainId), protocolHashIdentifier: `0x${'0'.repeat(64)}`, recipient: snapshot.evm.account },
+    extraDataTypestring: `uint256 midenReclaimHeight,${epoch.MIDEN_TO_EVM_EXTRA_TYPESTRING}`,
+    extraData: { midenSourceAccount: snapshot.accountHex, midenFaucetId: snapshot.native.hex,
+      midenNoteType: 'P2IDE', midenNoteId: '', midenReclaimHeight: '2200' }
+  });
+  const payload = { chainId: String(snapshot.virtualChainId), witnessTypeString: task.taskTypeString,
+    sponsorSignature: '0x', isRegisteredOnchain: false,
+    compact: { sponsor: snapshot.evm.account, nonce: snapshot.forwardNonce, amount: snapshot.principal,
+      token: `0x${'0'.repeat(40)}`, mandate: task.intentData } };
+  return { snapshot, payload };
+}
+
+test('binds the actual SDK forward mandate, not unsigned labels or an assumed dry-quote nonce', () => {
+  const { snapshot, payload } = forwardPayload();
+  assert.deepEqual(inspectEpochForwardQuote(snapshot, payload, 1000), {
+    bindingHash: getSimpleWitnessHash(payload.compact.mandate, payload.witnessTypeString), mandateReclaimHeight: 2200
+  });
+});
+for (const [name, mutate] of [
+  ['nonce changed after prepare', body => { body.compact.nonce = '10'; }],
+  ['another sponsor', body => { body.compact.sponsor = `0x${'9'.repeat(40)}`; }],
+  ['another recipient', body => { body.compact.mandate.recipient = `0x${'9'.repeat(40)}`; }],
+  ['another faucet', body => { body.compact.mandate.midenFaucetId = `0x${'ab'.repeat(15)}`; }],
+  ['another source account', body => { body.compact.mandate.midenSourceAccount = `0x${'ab'.repeat(15)}`; }],
+  ['another output token', body => { body.compact.mandate.tokenOut = `0x${'9'.repeat(40)}`; }],
+  ['another compact amount', body => { body.compact.amount = '1010001'; }],
+  ['another mandate input amount', body => { body.compact.mandate.tokenInAmount = '1010001'; }],
+  ['zero output floor', body => { body.compact.mandate.minTokenOut = '0'; }],
+  ['weaker output floor', body => { body.compact.mandate.minTokenOut = '999999'; }],
+  ['a testnet source chain', body => { body.chainId = '999'; }],
+  ['a changed witness shape', body => { body.witnessTypeString += ',bytes32 extra'; }],
+  ['uncommitted extra mandate fields', body => { body.compact.mandate.instructions = 'other execution'; }],
+  ['already allocated collateral', body => { body.compact.mandate.midenNoteId = `0x${'1'.repeat(64)}`; }],
+  ['stale reclaim estimate', body => { body.compact.mandate.midenReclaimHeight = '999'; }]
+]) test(`refuses forward collateral binding with ${name}`, () => {
+  const { snapshot, payload } = forwardPayload();
+  mutate(payload);
+  assert.throws(() => inspectEpochForwardQuote(snapshot, payload, 1000));
+});
+
 const bindingFelts = [0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111n];
 
 function request(options = {}) {
