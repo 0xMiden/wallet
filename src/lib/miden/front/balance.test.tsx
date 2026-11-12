@@ -69,6 +69,7 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
 // otherwise hold its address into the next test.
 beforeEach(() => {
   fetchingAddresses.clear();
+  useWalletStore.setState({ balanceReadFailed: {}, balanceReadInFlight: {} });
 });
 
 describe('useAllBalances infinite loop protection', () => {
@@ -697,6 +698,145 @@ describe('the first read for an address (#1123)', () => {
     expect(useWalletStore.getState().balancesLoading['unmounted-address']).toBe(false);
   });
 
+  it("reports the owner's read failure to a consumer that skipped the in-flight address", async () => {
+    jest.useFakeTimers();
+    let rejectRead!: (error: Error) => void;
+    let rejectRetry!: (error: Error) => void;
+    fetchBalancesMock()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRetry = reject)));
+    const ownerContainer = document.createElement('div');
+    const siblingContainer = document.createElement('div');
+    const ownerRoot = createRoot(ownerContainer);
+    const siblingRoot = createRoot(siblingContainer);
+    let siblingIsLoading = false;
+    let siblingReadFailed = false;
+    let siblingReadInFlight = false;
+    const Owner = () => {
+      useAllBalances('shared-address', {});
+      return <div />;
+    };
+    const Sibling = () => {
+      const { isLoading, readFailed, balanceReadInFlight } = useAllBalances('shared-address', {});
+      siblingIsLoading = isLoading;
+      siblingReadFailed = readFailed;
+      siblingReadInFlight = balanceReadInFlight;
+      return <div />;
+    };
+
+    try {
+      await act(async () => {
+        ownerRoot.render(<Owner />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchingAddresses.has('shared-address')).toBe(true);
+
+      await act(async () => {
+        siblingRoot.render(<Sibling />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        rejectRead(new Error('evicted'));
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingIsLoading).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(true);
+
+      await act(async () => {
+        rejectRetry(new Error('evicted'));
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(false);
+    } finally {
+      try {
+        ownerRoot.unmount();
+        siblingRoot.unmount();
+      } finally {
+        ownerContainer.remove();
+        siblingContainer.remove();
+        jest.useRealTimers();
+      }
+    }
+  });
+
+  it('publishes a rejected native read to the sibling that stayed mounted', async () => {
+    let rejectRead!: (error: Error) => void;
+    fetchBalancesMock().mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)));
+    const ownerContainer = document.createElement('div');
+    const siblingContainer = document.createElement('div');
+    const ownerRoot = createRoot(ownerContainer);
+    const siblingRoot = createRoot(siblingContainer);
+    let siblingIsLoading = false;
+    let siblingReadFailed = true;
+    let siblingReadInFlight = false;
+    const Owner = () => {
+      useAllBalances('owner-unmount-address', {});
+      return <div />;
+    };
+    const Sibling = () => {
+      const { isLoading, readFailed, balanceReadInFlight } = useAllBalances('owner-unmount-address', {});
+      siblingIsLoading = isLoading;
+      siblingReadFailed = readFailed;
+      siblingReadInFlight = balanceReadInFlight;
+      return <div />;
+    };
+
+    try {
+      await act(async () => {
+        ownerRoot.render(<Owner />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchingAddresses.has('owner-unmount-address')).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        siblingRoot.render(<Sibling />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(siblingReadInFlight).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        ownerRoot.render(null);
+      });
+      expect(siblingReadInFlight).toBe(true);
+      expect(siblingReadFailed).toBe(false);
+
+      await act(async () => {
+        rejectRead(new Error('evicted'));
+        await Promise.resolve();
+      });
+
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(false);
+      expect(siblingIsLoading).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    } finally {
+      ownerRoot.unmount();
+      siblingRoot.unmount();
+      ownerContainer.remove();
+      siblingContainer.remove();
+    }
+  });
+
   it('does not queue a second read behind a Ready-time read that is still in flight', async () => {
     // The import path: the store's Ready-time read is queued, then Home mounts before it lands.
     fetchBalancesMock().mockImplementation(() => new Promise(() => {}));
@@ -713,6 +853,44 @@ describe('the first read for an address (#1123)', () => {
 
     await mount('import-address');
 
+    expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a Ready-time rejection on a hook that mounted while that read was in flight', async () => {
+    let rejectRead!: (error: Error) => void;
+    fetchBalancesMock().mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)));
+    const account = { publicKey: 'ready-time-address', name: 'Account 1', isPublic: true, hdIndex: 0 };
+    useWalletStore.setState({ status: WalletStatus.Locked });
+    useWalletStore.getState().syncFromBackend({
+      status: WalletStatus.Ready,
+      accounts: [account],
+      currentAccount: account,
+      networks: [],
+      settings: { contacts: [] },
+      ownMnemonic: true
+    } as any);
+    let isLoading = false;
+    let readFailed = false;
+    let balanceReadInFlight = false;
+
+    await mount('ready-time-address', (loading, failed, inFlight) => {
+      isLoading = loading;
+      readFailed = failed;
+      balanceReadInFlight = inFlight;
+    });
+    expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    expect(balanceReadInFlight).toBe(true);
+    expect(readFailed).toBe(false);
+    expect(isLoading).toBe(true);
+
+    await act(async () => {
+      rejectRead(new Error('evicted'));
+      await Promise.resolve();
+    });
+
+    expect(readFailed).toBe(true);
+    expect(balanceReadInFlight).toBe(false);
+    expect(isLoading).toBe(true);
     expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
   });
 

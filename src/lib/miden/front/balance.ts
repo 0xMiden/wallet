@@ -17,7 +17,6 @@ import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { AssetMetadata } from '../metadata';
 import { fetchFromStorage, onStorageChanged } from './storage';
-import { isSyncFused } from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
 
 export interface TokenBalanceData {
@@ -84,6 +83,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const balancesLoadingMap = useWalletStore(s => s.balancesLoading);
   const balancesLastFetchedMap = useWalletStore(s => s.balancesLastFetched);
+  const balanceReadFailed = useWalletStore(s => s.balanceReadFailed[address] ?? false);
+  const balanceReadInFlightFromStore = useWalletStore(s => s.balanceReadInFlight[address] ?? false);
   const hasCompletedInitialSync = useWalletStore(s => s.hasCompletedInitialSync);
   const extension = isExtension();
   const [readStatusByAddress, setReadStatusByAddress] = useState<Record<string, BalanceReadStatus>>({});
@@ -131,8 +132,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     !readStatus.extensionRetryActive &&
     !hasLandedBalances &&
     Boolean(connectivitySnapshot?.network.active || connectivitySnapshot?.node.active);
-  const readFailed = readStatus.readFailed || connectivityFailed;
-  const balanceReadInFlight = readStatus.balanceReadInFlight;
+  const readFailed = balanceReadFailed || readStatus.readFailed || connectivityFailed;
+  const balanceReadInFlight = balanceReadInFlightFromStore || readStatus.balanceReadInFlight;
 
   useEffect(() => {
     mounted.current = true;
@@ -236,25 +237,16 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
       return;
     }
 
-    updateReadStatus(address, { balanceReadInFlight: true });
     try {
-      // The action stores what lands whether or not this component is still mounted: every
-      // other reader skipped the address in favour of this read (#1123).
+      // The action stores what lands, and the shared read outcome, whether or not this component is
+      // still mounted: every other reader skipped the address in favour of this read (#1123).
       await useWalletStore.getState().fetchBalances(address, tokenMetadatasRef.current);
-      const landed = useWalletStore.getState().balances[address] !== undefined;
-      if (mounted.current && landed) updateReadStatus(address, { readFailed: false });
-      else if (mounted.current && isSyncFused('balances')) updateReadStatus(address, { readFailed: true });
     } catch (error) {
       // Loading is left as it was: with nothing read yet, clearing it would show the zero
       // placeholder as a real "$0.00". The next tick retries.
       console.error('Failed to fetch balances:', error);
-      if (mounted.current && useWalletStore.getState().balances[address] === undefined) {
-        updateReadStatus(address, { readFailed: true });
-      }
-    } finally {
-      if (mounted.current) updateReadStatus(address, { balanceReadInFlight: false });
     }
-  }, [address, updateReadStatus]);
+  }, [address]);
 
   // Manual mutate function for compatibility
   const mutate = useCallback(() => {
