@@ -178,6 +178,10 @@ test.describe('Seed Phrase Backup and Verification', () => {
       const verdict = challenge.getByTestId('verify-seed-prompt');
       await expect(verdict).toBeVisible({ timeout: 30_000 });
 
+      // Off mobile the challenge hides the words until Show. The toggle stays
+      // outside <article>, as the submit button does.
+      await challenge.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
+
       // The word chips, in the order the screen shuffled them. The submit
       // button is outside <article>, so this locator is exactly the 12 chips.
       const chips = challenge.locator('article button');
