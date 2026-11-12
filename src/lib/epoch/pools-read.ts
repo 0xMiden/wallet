@@ -5,11 +5,11 @@ import type { EarnMarket } from 'lib/remote-config/values';
 import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
-import { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
+import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_PAGE_LIMIT } from './positions-budget';
 
 /**
  * The raw reader of the Earn vault catalogue. The catalogue is the `/pools` route of Epoch's positions service:
- * every market of the route's USDC on one chain. The bridge-config document's `earn.vaults` list decides which of
+ * every market of one token on one chain. The bridge-config document's `earn.vaults` list decides which of
  * them the wallet offers, in which order and under which name: a market no entry names is not offered.
  *
  * This module has no wallet state. The caller gives the fetch, the timeout and the document's list, so the
@@ -94,12 +94,12 @@ export function earnMarketForVault(vault: EarnVaultInfo): EarnMarket {
 export interface EarnVaultRoute {
   positionsUrl: string;
   chainId: number;
-  /** The route's USDC contract on `chainId`, in any case. */
+  /** The market's underlying token contract on `chainId`, in any case. */
   underlying: string;
   /** The document's `earn.vaults`. The read keeps only the markets of this route that it names. */
   listed: readonly EarnVaultConfig[];
-  /** The symbol and decimals the positions fallback gives the underlying. The default is USDC with 6 decimals. */
-  fallbackUnderlying?: { symbol: string; decimals: number };
+  /** The positions fallback's token metadata: null drops the vault; undefined defaults to USDC with 6 decimals. */
+  fallbackUnderlying?: { symbol: string; decimals: number } | null;
 }
 
 export interface EarnVaultsRead {
@@ -281,6 +281,9 @@ function readPositionsCatalogItem(item: unknown, route: EarnVaultRoute, listing:
   if (typeof lenderName !== 'string' || !isFiniteNumber(depositApr)) {
     return { state: 'dropped', marketUid: listed.marketUid, reason: 'positions item has no name or APR' };
   }
+  if (route.fallbackUnderlying === null) {
+    return { state: 'dropped', marketUid: listed.marketUid, reason: 'positions fallback has no token metadata' };
+  }
   const { symbol, decimals } = route.fallbackUnderlying ?? DEFAULT_FALLBACK_UNDERLYING;
   const lenderFamily = earnLenderFamily(lenderKey);
   return {
@@ -358,8 +361,8 @@ async function readPositionsFallbackCatalog(
   listing: RouteListing,
   timeoutMs: number
 ): Promise<EarnVaultsRead> {
-  while (!notePositionsRequests(1)) {
-    await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+  while (!notePositionsRequests(1, POSITIONS_PAGE_LIMIT)) {
+    await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1, POSITIONS_PAGE_LIMIT)));
   }
   const body = await fetchBoundedJson(
     fetchFn,

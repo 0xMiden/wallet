@@ -896,6 +896,11 @@
     "message": "Diese Überprüfung wurde für einen anderen Einzahlungstoken erstellt. Gehen Sie zurück und geben Sie den Betrag erneut ein.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Gesamtverdienst",
     "englishSource": "Total earned"
@@ -928,6 +933,10 @@
   "earnPositionsLoadError": {
     "message": "Ihre Positionen konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Ihr Kontostand konnte mit Epoch nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "„Earn“ ist in diesem Netzwerk nicht verfügbar",
@@ -4149,6 +4158,10 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "Die Wallet hat diese Transaktion vor der Signierung gestoppt, da sie nicht bestätigen konnte, dass die Transaktion ausschließlich den von Ihnen genehmigten Betrag bewegt. Es wurden keine Gelder bewegt.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",

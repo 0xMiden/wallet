@@ -29,6 +29,11 @@ import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import {
+  ForeignNoteClaimRefusedError,
+  isOwnClaimableNote,
+  requiresOwnClaimableNotes
+} from '../claimable-note-ownership';
+import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
   ConsumeTransaction,
@@ -110,7 +115,11 @@ export const requestCustomTransaction = async (
   spentAssetTotals?: IConsumedAssetTotal[],
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  /** The NFTs the approval-time dry run showed leaving; see `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[],
+  /** The per-faucet outflow the approval-time dry run showed; see `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[]
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
@@ -124,6 +133,8 @@ export const requestCustomTransaction = async (
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
+  if (approvedNftOutflow !== undefined) transaction.approvedNftOutflow = approvedNftOutflow;
+  if (approvedOutflow !== undefined) transaction.approvedOutflow = approvedOutflow;
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
@@ -631,6 +642,13 @@ const queueConsumeRows = async (
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
+  }
+  // A claim from the claim list takes only this account's notes, whatever list the
+  // caller read: a stale or older list can still name another trader's PSWAP order,
+  // and consuming it fills that order from this account's balance (#2118).
+  if (requiresOwnClaimableNotes(entryPoint)) {
+    const foreign = notes.filter(note => !isOwnClaimableNote(note)).map(note => note.id);
+    if (foreign.length > 0) throw new ForeignNoteClaimRefusedError(foreign);
   }
 
   // This pre-pass saves a WASM probe only; the rw transaction still decides what may be written.

@@ -896,6 +896,10 @@
     "message": "Cette vérification a été préparée pour un jeton de dépôt différent. Revenez en arrière et saisissez à nouveau le montant.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "La note de garantie doit utiliser le token validé, le montant validé et l’allocateur configuré. Rien n’a été envoyé. Revenez en arrière et réessayez.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total gagné",
     "englishSource": "Total earned"
@@ -928,6 +932,10 @@
   "earnPositionsLoadError": {
     "message": "Impossible de charger vos positions. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Impossible de vérifier votre solde avec Epoch. Veuillez réessayer.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "La fonctionnalité « Earn » n’est pas disponible sur ce réseau",
@@ -4149,6 +4157,10 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",

@@ -16,7 +16,7 @@ describe('EARN_VAULT_PROTOCOLS', () => {
 });
 
 type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
-/** The testnet document's one Earn vault, as written: the dummy lender's market of the route's USDC. */
+/** The testnet document's one Earn vault, as written: the dummy lender's market of Sepolia USDC. */
 const DUMMY_VAULT = {
   id: 'dummy-lending-sepolia-usdc',
   marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
@@ -782,7 +782,7 @@ describe('the Earn vaults', () => {
   const withVault = (fields: Record<string, ConfigValue>) => withVaults([{ ...DUMMY_VAULT, ...fields }]);
   const without = (field: string) =>
     withVaults([Object.fromEntries(Object.entries(DUMMY_VAULT).filter(([key]) => key !== field))]);
-  // A second Epoch-less chain, so a vault can name a listed chain that has no Epoch route.
+  // A second chain with no Epoch route. A vault can name it: the document lists it.
   const withArc = (vaults: ConfigValue) => {
     const base = withVaults(vaults);
     return {
@@ -895,6 +895,23 @@ describe('the Earn vaults', () => {
     expect(parsed?.earn?.vaults.map(vault => vault.id)).toEqual(['dummy-lending-sepolia-usdc', 'future']);
   });
 
+  it('reads a vault in any token on a chain the document lists, with or without an Epoch route', () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const parsed = parseBridgeConfig(
+      withArc([
+        DUMMY_VAULT,
+        { ...DUMMY_VAULT, id: 'aave-v3-sepolia-weth', marketUid: `AAVE_V3:11155111:${WETH}` },
+        { ...DUMMY_VAULT, id: 'arc-vault', marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }
+      ]),
+      'testnet'
+    );
+    expect(parsed?.earn?.vaults.map(vault => vault.marketUid)).toEqual([
+      `dummy_lending:11155111:${SEPOLIA_USDC}`,
+      `aave_v3:11155111:${WETH}`,
+      `dummy_lending:5042002:${SEPOLIA_USDC}`
+    ]);
+  });
+
   it('reads a vault on an Epoch route left out for want of provider values', () => {
     const body = withSection('epoch', { allocatorUrl: undefined });
     const parsed = parseBridgeConfig(body, 'testnet');
@@ -932,14 +949,6 @@ describe('the Earn vaults', () => {
     ['a chain id with a leading zero', withVault({ marketUid: `DUMMY_LENDING:011155111:${SEPOLIA_USDC}` })],
     ['a chain id that is not a number', withVault({ marketUid: `DUMMY_LENDING:sepolia:${SEPOLIA_USDC}` })],
     ['a chain the document does not list', withVault({ marketUid: `DUMMY_LENDING:1:${SEPOLIA_USDC}` })],
-    [
-      'a listed chain with no Epoch route',
-      withArc([{ ...DUMMY_VAULT, marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }])
-    ],
-    [
-      'a token other than the route USDC',
-      withVault({ marketUid: 'DUMMY_LENDING:11155111:0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' })
-    ],
     [
       'a checksummed token',
       withVault({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })

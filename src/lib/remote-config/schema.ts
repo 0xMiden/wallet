@@ -683,31 +683,29 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
 
 const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
 
-// The USDC contract of each Epoch route, lowercase, by chain id: the markets a vault can name. Read from the document
-// as written, as the config repo's validator reads it, so a chain or route this build leaves out (a newer build's
-// chain, a route with no provider values) still names its vaults. A route with no USDC address names none.
-function epochUsdcByChain(value: unknown): Map<number, string | undefined> {
-  const routes = new Map<number, string | undefined>();
-  if (!isRecord(value)) return routes;
+// The chain ids of the document's `supportedEvmChains`: the chains a vault can name. The parser reads them from the
+// document as written, as the config repo's validator reads them. Thus a chain that this build leaves out (a newer
+// build's chain, a chain with no usable bridge) still names its vaults. The vault's token does not have to be a
+// bridge token of that chain.
+function evmChainIds(value: unknown): Set<number> {
+  const chainIds = new Set<number>();
+  if (!isRecord(value)) return chainIds;
   for (const entry of Object.values(value)) {
     const chainId = member(entry, 'chainId');
-    const epoch = member(member(entry, 'bridges'), 'epoch');
-    if (!isPositiveSafeInteger(chainId) || !isRecord(epoch)) continue;
-    const usdc = member(member(member(epoch, 'tokens'), 'USDC'), 'contractAddress');
-    routes.set(chainId, typeof usdc === 'string' ? usdc.toLowerCase() : undefined);
+    if (isPositiveSafeInteger(chainId)) chainIds.add(chainId);
   }
-  return routes;
+  return chainIds;
 }
 
-// `LENDER_KEY:chainId:underlying` of an Epoch route's own USDC, lowercase.
-function earnMarketUid(value: unknown, routes: Map<number, string | undefined>): string {
+// `LENDER_KEY:chainId:underlying`, lowercase. The chain is one of `chainIds`. The underlying is any EVM address in
+// lower case.
+function earnMarketUid(value: unknown, chainIds: ReadonlySet<number>): string {
   if (typeof value !== 'string') return invalid();
   const parts = value.split(':');
   const [lenderKey = '', chainId = '', underlying = ''] = parts;
   if (parts.length !== 3 || !EARN_LENDER_KEY.test(lenderKey) || !EARN_CHAIN_ID.test(chainId)) return invalid();
   if (!LOWERCASE_EVM_ADDRESS.test(underlying) || !Number.isSafeInteger(Number(chainId))) return invalid();
-  const usdc = routes.get(Number(chainId));
-  return usdc !== undefined && usdc === underlying ? value.toLowerCase() : invalid();
+  return chainIds.has(Number(chainId)) ? value.toLowerCase() : invalid();
 }
 
 // Literal text, shown as written: 1 to `maxLength` characters. Unlike a Guardian's text, neither the config repo's
@@ -726,7 +724,7 @@ function oneOf<T extends string>(values: readonly T[], value: unknown): T {
   return values.find(known => known === value) ?? invalid();
 }
 
-function readEarnVault(value: unknown, routes: Map<number, string | undefined>): EarnVaultConfig {
+function readEarnVault(value: unknown, chainIds: ReadonlySet<number>): EarnVaultConfig {
   if (!isRecord(value)) return invalid();
   if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
   const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
@@ -734,7 +732,7 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
   const logo = read(value, 'logo', earnVaultLogo);
   return {
     id: value.id,
-    marketUid: earnMarketUid(value.marketUid, routes),
+    marketUid: earnMarketUid(value.marketUid, chainIds),
     name: earnVaultText(value.name, MAX_EARN_VAULT_NAME_LENGTH),
     protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
     ...(about === undefined ? {} : { about }),
@@ -749,8 +747,8 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
 function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
   if (value === undefined) return earnEnabled ? invalid() : undefined;
   if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
-  const routes = epochUsdcByChain(chains);
-  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, routes));
+  const chainIds = evmChainIds(chains);
+  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, chainIds));
   const ids = new Set(vaults.map(vault => vault.id));
   const markets = new Set(vaults.map(vault => vault.marketUid));
   if (ids.size !== vaults.length || markets.size !== vaults.length) return invalid();

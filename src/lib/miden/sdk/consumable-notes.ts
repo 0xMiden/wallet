@@ -111,7 +111,7 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
 /** Whether `details`' recipient runs a standard P2ID/P2IDE payment script, read off
  * the details already fetched for the assets list (never a second `record.details()`
  * call). A recipient or script that cannot be read is not a standard payment. */
-function isStandardPayment(details: NoteDetails): boolean {
+export function isStandardPayment(details: Pick<NoteDetails, 'recipient'>): boolean {
   try {
     return standardPaymentScriptRoots().has(details.recipient().script().root().toHex());
   } catch {

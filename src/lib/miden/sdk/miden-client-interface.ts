@@ -76,7 +76,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
-import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { buildGcSaleRequest } from './gc-sale-request';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -243,6 +243,8 @@ export type InputNoteDetails = {
   state: InputNoteState;
   /** Who alone can consume the note, when its script settles that; read by the dApp consume guard, never sent to a dApp. */
   restriction?: ConsumeRestriction;
+  /** True only for a standard P2ID or P2IDE script. Used by the wallet consume guard. */
+  standardPayment?: boolean;
 };
 
 export type FungibleAssetDetails = {
@@ -286,6 +288,7 @@ function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
       state: note.state(),
       assets,
       nonFungibleAssets: note.details().assets().nonFungibleAssets().map(toNft),
+      standardPayment: isStandardPayment(note.details()),
       ...(restriction !== undefined && { restriction })
     }
   ];
