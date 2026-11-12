@@ -47,4 +47,14 @@ describe('Guardian pins', () => {
     expect(step).toContain('GUARDIAN_B_IMAGE_TAG_INPUT: ${{ inputs.guardian_b_image_tag }}');
     expect(step).not.toMatch(/run: \|[\s\S]*\$\{\{ inputs\./);
   });
+
+  // Guardian A sits in profile `guardian` and B in `guardian-switch`; a listing under one profile hides the other's
+  // image, so a cross-version run could not show which server A ran.
+  it('the lifecycle workflow prints the image each Guardian resolves to', () => {
+    const workflow = read('.github/workflows/pr-e2e-guardian-lifecycle.yml');
+    const start = workflow.indexOf('- name: Bring up both guardians');
+    const step = workflow.slice(start, workflow.indexOf('- name: Start note-transport'));
+    expect(step).toContain('--profile guardian --profile guardian-switch config --format json');
+    expect(step).toContain('select(.key == "guardian" or .key == "guardian-b")');
+  });
 });

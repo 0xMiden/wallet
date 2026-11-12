@@ -217,7 +217,8 @@ jobs:
             [[ "$GUARDIAN_B_IMAGE_TAG_INPUT" =~ $tag_re ]] || { echo "guardian_b_image_tag is not a vX.Y.Z[-rc.N] tag" >&2; exit 1; }
             export GUARDIAN_B_IMAGE_TAG="$GUARDIAN_B_IMAGE_TAG_INPUT"
           fi
-          docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch config --images
+          docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian --profile guardian-switch config --format json \
+            | jq -r '.services | to_entries[] | select(.key == "guardian" or .key == "guardian-b") | "\(.key): \(.value.image)"'
           for attempt in 1 2 3; do
             docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres && exit 0
             echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
