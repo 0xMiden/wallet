@@ -66,6 +66,30 @@ afterEach(() => {
 });
 
 describe('TokenAmountInput', () => {
+  it('normalizes token text and keeps the canonical token amount through denomination switches', () => {
+    render(<Owner initial="" />);
+    fireEvent.change(field(), { target: { value: '00012.34' } });
+    expect(field()).toHaveValue('12.34');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('12.34');
+    fireEvent.click(toggle());
+    fireEvent.click(toggle());
+    expect(field()).toHaveValue('12.34');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('12.34');
+  });
+
+  it('normalizes USD text while keeping its converted token amount through denomination switches', () => {
+    render(<Owner initial="" />);
+    fireEvent.click(toggle());
+    fireEvent.change(field(), { target: { value: '0003.00' } });
+    expect(field()).toHaveValue('3.00');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('1');
+    fireEvent.click(toggle());
+    expect(field()).toHaveValue('1');
+    fireEvent.click(toggle());
+    expect(field()).toHaveValue('3');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('1');
+  });
+
   it('waits for an asset before presenting denomination choices', () => {
     render(<Owner symbol="" assetId="" scaleIsKnown={false} />);
     expect(screen.queryByTestId('amount-denomination-toggle')).not.toBeInTheDocument();

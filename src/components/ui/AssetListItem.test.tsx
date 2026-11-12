@@ -73,9 +73,16 @@ describe('AssetListItem', () => {
     });
 
     it('omits the price when absent', () => {
-      renderItem();
+      const { container } = renderItem();
 
       expect(screen.queryByText('$1.23')).toBeNull();
+      expect(container.querySelector('[data-slot="price"]')).toBeInTheDocument();
+    });
+
+    it('keeps a status in the same right aligned slot as the price', () => {
+      const { container } = renderItem({ priceStatus: 'Loading...' });
+
+      expect(container.querySelector('[data-slot="price"]')).toHaveTextContent('Loading...');
     });
   });
 
@@ -127,10 +134,12 @@ describe('AssetListItem', () => {
     expect(trailing).toHaveClass('shrink-0');
   });
 
-  it('truncates a long amount on one line, so it never runs under the price or the check', () => {
+  it('wraps a long amount so the full quantity and its unit stay on the row', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
 
-    expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+    const amount = screen.getByText('123456789.12345678 AVERYLONGSYMBOL');
+    expect(amount).toHaveClass('break-words', 'min-w-0');
+    expect(amount).not.toHaveClass('truncate');
   });
 
   describe('badge rendering', () => {
