@@ -8,7 +8,7 @@ import { awaitTestSendAuthorization, TEST_SEND_AUTHORIZATION_KEY as KEY } from '
 
 const account = `0x${'11'.repeat(15)}`; const noteId = `0x${'22'.repeat(32)}`;
 const scope = { nonce: '11111111-1111-4111-8111-111111111111', accountId: account,
-  recipientId: `0x${'33'.repeat(15)}`, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010000' };
+  recipientId: `0x${'33'.repeat(15)}`, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010000', expiresAt: Date.now() + 60_000 };
 const bytes = new Uint8Array(200); new DataView(bytes.buffer).setBigUint64(0, 2n, true);
 bytes.fill(1, 8, 40); bytes.fill(2, 104, 136);
 const digest = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -86,6 +86,19 @@ it('refuses a release after an asynchronously suspended deadline', async () => {
   const promise = run(); await held(promise); const outcome = promise.then(() => 'released', () => 'blocked');
   patch({ status: 'released' }); get.mockImplementation(async () => { jest.setSystemTime(Date.now() + 240_001); return structuredClone(data); });
   await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked');
+});
+it('rejects release after the original quote deadline even inside its local upload hold', async () => {
+  const promise = run(); await held(promise); const outcome = promise.then(() => 'released', () => 'blocked');
+  patch({ status: 'released' }); jest.setSystemTime(scope.expiresAt + 1);
+  await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked');
+});
+it('never executes after a suspended final spent-state write exceeds its original deadline', async () => {
+  const promise = run(); await held(promise); const outcome = promise.then(() => 'released', () => 'blocked');
+  set.mockImplementation(async value => {
+    Object.assign(data, structuredClone(value)); const current = data[KEY];
+    if (isRecord(current) && current.status === 'spent') jest.setSystemTime(Date.now() + 240_001);
+  });
+  patch({ status: 'released' }); await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked');
 });
 it('does not inspect or execute when storage is unavailable', async () => {
   get.mockRejectedValue(new Error('storage unavailable')); await expect(run()).rejects.toThrow();

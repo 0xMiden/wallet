@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { createHash, webcrypto } from 'node:crypto';
+import { isRecord } from '../src/lib/update/guards';
 import { canonicalRequestBytes } from './canonical-request-bytes.mjs';
 import { awaitTestConsumeAuthorization, TEST_CONSUME_AUTHORIZATION_KEY as KEY } from '../src/lib/miden/sdk/test-consume-authorization';
 
@@ -60,6 +61,23 @@ for (const invalid of [null, { ...policy(), nonce: '' }, { ...policy(), accountI
 it('does not touch the request when authorization storage is unavailable', async () => {
   get.mockRejectedValue(new Error('storage unavailable'));
   await expect(run()).rejects.toThrow('storage unavailable'); expect(serialize).not.toHaveBeenCalled();
+});
+it('never executes after an asynchronously suspended final spent-state write exceeds the original hold', async () => {
+  const promise = run(); await waitForHeld(promise); const outcome = promise.then(() => 'released', () => 'blocked');
+  set.mockImplementation(async value => {
+    Object.assign(data, structuredClone(value)); const current = data[KEY];
+    if (isRecord(current) && current.status === 'spent') jest.setSystemTime(Date.now() + 240_001);
+  });
+  const current = data[KEY]; if (!isRecord(current)) throw new Error('Missing unit held policy');
+  data[KEY] = { ...current, status: 'released' }; await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked');
+});
+it('never overwrites a replacement consume authority installed during asynchronous final byte verification', async () => {
+  const promise = run(); await waitForHeld(promise); const outcome = promise.then(() => 'released', () => 'blocked');
+  const replacement = { ...policy(), nonce: '22222222-2222-4222-8222-222222222222' };
+  serialize.mockImplementation(() => { data[KEY] = replacement; return Uint8Array.from(bytes); });
+  const current = data[KEY]; if (!isRecord(current)) throw new Error('Missing unit held policy');
+  data[KEY] = { ...current, status: 'released' }; await jest.advanceTimersByTimeAsync(500);
+  expect(await outcome).toBe('blocked'); expect(data[KEY]).toEqual(replacement);
 });
 it('holds the actual request and publishes ONLY digests until its exact release, then consumes authority once', async () => {
   let finished = false;

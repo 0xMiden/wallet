@@ -11,7 +11,7 @@ jest.mock('../playwright/e2e/helpers/mainnet-loop-authorization', () => ({ await
 jest.mock('../src/lib/miden/sdk/test-send-authorization', () => ({ TEST_SEND_AUTHORIZATION_KEY: 'e2e_mainnet_send_authorization' }));
 const KEY = 'e2e_mainnet_send_authorization';
 const scope = { accountId: `0x${'11'.repeat(15)}`, recipientId: `0x${'33'.repeat(15)}`,
-  faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010000' };
+  faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010000', expiresAt: Date.now() + 60_000 };
 const handle = { ...scope, nonce: '11111111-1111-4111-8111-111111111111' };
 const authority = { nonce: handle.nonce, noteId: `0x${'22'.repeat(32)}`, sha256: '4'.repeat(64), canonicalSha256: '5'.repeat(64) };
 const waitingPolicy = () => ({ ...handle, ...authority, status: 'waiting' });
@@ -42,6 +42,7 @@ beforeEach(() => {
   } } } });
 });
 afterEach(() => {
+  jest.useRealTimers();
   rmSync(directory, { recursive: true, force: true });
   if (oldChrome) Object.defineProperty(globalThis, 'chrome', oldChrome); else Reflect.deleteProperty(globalThis, 'chrome');
 });
@@ -54,6 +55,12 @@ it('arms exactly the existing payer and signed native route with a fresh nonce',
 for (const status of ['armed', 'waiting', 'spent']) it(`never replaces an existing ${status} send authority`, async () => {
   data[KEY] = { ...handle, status };
   await expect(armMainnetSendAuthorization(page, scope)).rejects.toThrow(); expect(data[KEY]).toEqual({ ...handle, status });
+});
+it('never releases a native request whose original quote expired while its exact checkpoint was uploading', async () => {
+  jest.useFakeTimers().setSystemTime(scope.expiresAt - 1000);
+  data[KEY] = waitingPolicy(); const promise = release(); await uploaded;
+  jest.setSystemTime(scope.expiresAt + 1); finish(); await expect(promise).rejects.toThrow();
+  expect(data[KEY]).toMatchObject({ status: 'waiting', expiresAt: scope.expiresAt });
 });
 it('persists only exact actual note identity and fingerprints before uploading, then releases once', async () => {
   data[KEY] = waitingPolicy(); const promise = release();
