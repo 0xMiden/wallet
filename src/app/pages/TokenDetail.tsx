@@ -222,25 +222,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
           />
 
-          {(quoteContext || quoteNotice) && (
-            <Notice
-              variant="inline"
-              tone={quoteStatus === 'stale' ? 'warning' : 'neutral'}
-              role={quoteReady ? 'note' : 'status'}
-              title={
-                quoteStatus === 'stale'
-                  ? t('tokenDetailQuoteStaleTitle')
-                  : quoteNotice
-                    ? t('tokenDetailQuoteUnavailableTitle')
-                    : undefined
-              }
-              className="-mt-3"
-              data-testid="token-detail-quote-context"
-            >
-              {quoteContext ? quoteDetails : t('tokenDetailQuoteUnavailableBody')}
-            </Notice>
-          )}
-
           {verification === 'unverified' && (
             // A token's name and logo are whatever its creator chose; only the list vouches for it. One
             // outline pill names it, and opens the sheet that says why.
@@ -260,6 +241,25 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               </Pill>
               <UnverifiedTokenSheet open={unverifiedSheetOpen} onOpenChange={setUnverifiedSheetOpen} />
             </div>
+          )}
+
+          {(quoteContext || quoteNotice) && (
+            <Notice
+              variant="inline"
+              tone={quoteStatus === 'stale' ? 'warning' : 'neutral'}
+              role={quoteReady ? 'note' : 'status'}
+              title={
+                quoteStatus === 'stale'
+                  ? t('tokenDetailQuoteStaleTitle')
+                  : quoteNotice
+                    ? t('tokenDetailQuoteUnavailableTitle')
+                    : undefined
+              }
+              className="-mt-3"
+              data-testid="token-detail-quote-context"
+            >
+              {quoteContext ? quoteDetails : t('tokenDetailQuoteUnavailableBody')}
+            </Notice>
           )}
 
           <div className="flex gap-2.5">
