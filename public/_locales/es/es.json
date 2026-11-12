@@ -892,6 +892,7 @@
   "insufficientFeeAsset": "Necesitas USDCX para pagar la comisión de red. Obtén algo de USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "proposalEffectRefused": "El monedero detuvo esta transacción antes de firmarla, porque no pudo confirmar que la transacción solo transfiriera lo que tú habías aprobado. No se transfirieron fondos.",
+  "chainFeeUnknown": "El monedero no ha podido leer la comisión de red, por lo que no ha firmado esta transacción. No se ha enviado nada. Inténtalo de nuevo dentro de un momento.",
   "amountMustBeLessThanBalance": "El importe debe ser inferior al saldo",
   "autoConsumeSettings": "Aceptar automáticamente las transferencias USDCX",
   "autoConsumeSettingsDescription": "Acepta automáticamente las transferencias USDCX entrantes en tu saldo, igual que si pulsaras Aceptar. No acepta con más frecuencia ni cuesta más comisiones que pulsar Aceptar tú mismo.",

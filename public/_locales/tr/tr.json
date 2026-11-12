@@ -892,6 +892,7 @@
   "insufficientFeeAsset": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "proposalEffectRefused": "Cüzdan, işlemin yalnızca sizin onayladığınız tutarı aktardığını doğrulayamadığı için, imzalamadan önce bu işlemi durdurdu. Hiçbir fon aktarılmadı.",
+  "chainFeeUnknown": "Cüzdan ağ ücretini okuyamadı, bu nedenle bu işlemi imzalamadı. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
   "autoConsumeSettings": "USDCX transferlerini otomatik kabul et",
   "autoConsumeSettingsDescription": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",

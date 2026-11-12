@@ -892,6 +892,7 @@
   "insufficientFeeAsset": "您需要 USDCX 來支付網路手續費。請領取一些 USDCX 以繼續操作。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "proposalEffectRefused": "該錢包在簽署前已中止此筆交易，因為無法確認該交易僅轉移您所批准的金額。資金並未實際轉移。",
+  "chainFeeUnknown": "錢包無法讀取網路手續費，因此未對此筆交易進行簽名。未發送任何內容。請稍後重試。",
   "amountMustBeLessThanBalance": "金額必須小於餘額",
   "autoConsumeSettings": "自動接受 USDCX 轉帳",
   "autoConsumeSettingsDescription": "自動將收到的 USDCX 轉帳接受到您的餘額中，與點擊「接受」相同。它不會更頻繁地接受，也不會比您自己點擊「接受」產生更多手續費。",

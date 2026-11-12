@@ -4062,6 +4062,10 @@
     "message": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
+  "chainFeeUnknown": {
+    "message": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
