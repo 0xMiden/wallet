@@ -1,3 +1,4 @@
+import { getTestAuthorizationStorage, setTestAuthorizationStorage } from './test-authorization-storage';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { isRecord } from '../../update/guards';
 
@@ -17,7 +18,7 @@ export async function awaitTestConsumeAuthorization(
   request: { serialize(): Uint8Array }
 ): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
-  const stored = await chrome.storage.local.get([KEY, `${KEY}_required`]);
+  const stored = await getTestAuthorizationStorage([KEY, `${KEY}_required`]);
   const policy: unknown = stored[KEY];
   const required: unknown = stored[`${KEY}_required`];
   if (policy === undefined) {
@@ -55,15 +56,15 @@ export async function awaitTestConsumeAuthorization(
   const same = (value: unknown, expected: Record<string, string>): boolean =>
     isRecord(value) && Object.entries(expected).every(([key, entry]) => value[key] === entry);
   const started = Date.now();
-  if (!same((await chrome.storage.local.get(KEY))[KEY], { ...scope, status: 'armed' }))
+  if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...scope, status: 'armed' }))
     throw new Error('Native consume authority changed during request inspection');
   if (Date.now() < started || Date.now() - started >= 240_000)
     throw new Error('Native consume authorization timed out');
   // Only public request fingerprints cross storage; private note/request bytes stay in memory.
-  await chrome.storage.local.set({ [KEY]: { ...scope, sha256: digest, status: 'waiting' } });
+  await setTestAuthorizationStorage({ [KEY]: { ...scope, sha256: digest, status: 'waiting' } });
   for (let poll = 0; poll < 480; poll++) {
     if (Date.now() < started || Date.now() - started >= 240_000) break;
-    const live: unknown = (await chrome.storage.local.get(KEY))[KEY];
+    const live: unknown = (await getTestAuthorizationStorage(KEY))[KEY];
     if (
       !isRecord(live) ||
       live.nonce !== scope.nonce ||
@@ -77,12 +78,12 @@ export async function awaitTestConsumeAuthorization(
     if (live.status === 'released') {
       if ((await sha256(request.serialize())) !== digest)
         throw new Error('Native request changed during authorization upload');
-      if (!same((await chrome.storage.local.get(KEY))[KEY], { ...scope, sha256: digest, status: 'released' }))
+      if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...scope, sha256: digest, status: 'released' }))
         throw new Error('Native consume release changed during request verification');
       if (Date.now() < started || Date.now() - started >= 240_000)
         throw new Error('Native consume authorization timed out');
-      await chrome.storage.local.set({ [KEY]: { ...scope, sha256: digest, status: 'spent' } });
-      if (!same((await chrome.storage.local.get(KEY))[KEY], { ...scope, sha256: digest, status: 'spent' }))
+      await setTestAuthorizationStorage({ [KEY]: { ...scope, sha256: digest, status: 'spent' } });
+      if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...scope, sha256: digest, status: 'spent' }))
         throw new Error('Native consume spent authority changed before execution');
       if (Date.now() < started || Date.now() - started >= 240_000)
         throw new Error('Native consume authorization timed out');

@@ -586,8 +586,11 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
       const reviewed = await prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum);
       const handle = await armMainnetSendAuthorization(walletB.page, {
-        kind: 'swap', accountId: Address.fromBech32(authorized.account).accountId().toString(),
-        faucetId: offered.hex, amount: amount.toString(), requestedFaucetId: requested.hex,
+        kind: 'swap',
+        accountId: Address.fromBech32(authorized.account).accountId().toString(),
+        faucetId: offered.hex,
+        amount: amount.toString(),
+        requestedFaucetId: requested.hex,
         requestedAmount: reviewed.minimumReceive,
         expiresAt: Date.parse(authorized.pricedAt) + (leg === 'forward' ? 300_000 : 600_000)
       });
@@ -595,13 +598,22 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         const controller = new AbortController();
         try {
           await Promise.all([
-            reviewed.submit().catch(error => { controller.abort(); throw error; }),
+            reviewed.submit().catch(error => {
+              controller.abort();
+              throw error;
+            }),
             releaseMainnetSendAuthorization(walletB.page, handle, {
-              checkpointPath: STATE_PATH, gatePath: gate, signal: controller.signal,
+              checkpointPath: STATE_PATH,
+              gatePath: gate,
+              signal: controller.signal,
               persist: async authority => {
                 if (authority.orderId === undefined) throw new Error('Missing actual SDK PSWAP order identity');
-                const request = { ...authority, orderId: authority.orderId,
-                  minimumReceive: reviewed.minimumReceive, expiresAt: handle.expiresAt };
+                const request = {
+                  ...authority,
+                  orderId: authority.orderId,
+                  minimumReceive: reviewed.minimumReceive,
+                  expiresAt: handle.expiresAt
+                };
                 if (leg === 'forward') {
                   authorized.forwardRequestAuthority = request;
                   authorized.forwardOrderId = request.orderId;
@@ -614,7 +626,9 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
             })
           ]);
           return snapshot;
-        } finally { controller.abort(); }
+        } finally {
+          controller.abort();
+        }
       };
     },
     () => {

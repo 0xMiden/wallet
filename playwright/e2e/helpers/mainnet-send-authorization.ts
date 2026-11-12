@@ -24,8 +24,10 @@ export async function armMainnetSendAuthorization(
   if (
     ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
     ('kind' in scope
-      ? scope.kind !== 'swap' || !/^0x[0-9a-f]{30}$/.test(scope.requestedFaucetId) ||
-        scope.requestedFaucetId === scope.faucetId || !/^[1-9]\d{0,18}$/.test(scope.requestedAmount)
+      ? scope.kind !== 'swap' ||
+        !/^0x[0-9a-f]{30}$/.test(scope.requestedFaucetId) ||
+        scope.requestedFaucetId === scope.faucetId ||
+        !/^[1-9]\d{0,18}$/.test(scope.requestedAmount)
       : !/^0x[0-9a-f]{30}$/.test(scope.recipientId) || scope.accountId === scope.recipientId) ||
     !/^[1-9]\d{0,18}$/.test(scope.amount) ||
     !Number.isSafeInteger(scope.expiresAt) ||
