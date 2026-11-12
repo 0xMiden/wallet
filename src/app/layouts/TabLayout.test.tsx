@@ -10,6 +10,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
+import { setHomePagerPreview } from './home-pager-preview';
 import {
   PageActiveContext,
   PageMountedByReturnContext,
@@ -162,12 +163,24 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
+  SegmentedActionBar: ({ items, activeId, displayId, onChange, className }: any) => {
     const tabActive = jest.requireActual('app/layouts/page-active').useTabActive();
     return (
-      <div data-testid="action-bar" data-active={activeId} data-tab-active={String(tabActive)} className={className}>
+      <div
+        data-testid="action-bar"
+        data-active={displayId ?? activeId}
+        data-tab-active={String(tabActive)}
+        className={className}
+      >
         {items.map((it: any) => (
-          <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+          <button
+            key={it.id}
+            data-testid={`action-${it.id}`}
+            onClick={() => {
+              if (it.id === activeId) return;
+              onChange(it.id);
+            }}
+          >
             {it.icon}
             {it.label}
           </button>
@@ -190,6 +203,7 @@ const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  act(() => setHomePagerPreview(null));
   mockLocation.pathname = '/';
   mockPlatform.isMobile = false;
   mockPlatform.isDesktop = false;
@@ -484,6 +498,24 @@ describe('TabLayout — action change handling (handleActionChange)', () => {
     renderLayout();
     fireEvent.click(screen.getByTestId('action-send'));
     expect(mockNavigate).toHaveBeenCalledWith('/send');
+  });
+
+  it('navigates when the previewed Send segment is tapped while the route is still Overview', () => {
+    mockLocation.pathname = '/';
+    act(() => setHomePagerPreview('send'));
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+    fireEvent.click(screen.getByTestId('action-send'));
+    expect(mockNavigate).toHaveBeenCalledWith('/send');
+  });
+
+  it('keeps the current Overview segment silent while Send is previewed', () => {
+    mockLocation.pathname = '/';
+    act(() => setHomePagerPreview('send'));
+    renderLayout();
+    fireEvent.click(screen.getByTestId('action-overview'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockHaptic).not.toHaveBeenCalled();
   });
 
   it('is a no-op when the tapped action is already the current route', () => {

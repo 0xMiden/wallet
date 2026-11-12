@@ -16,6 +16,12 @@ import { b64ToU8 } from 'lib/shared/helpers';
 
 export type { NftAsset };
 
+/**
+ * An NFT as a decoded view lists it: what the sheet shows, plus `key`, the complete identity (`nftKey`: faucet and the
+ * whole value word) that the short `assetId` cannot give. The signing-time check matches approved NFTs by `key` only.
+ */
+export type ViewNft = NftAsset & { key?: string };
+
 export interface AssetAmount {
   faucetId: string;
   amount: bigint;
@@ -28,10 +34,10 @@ export interface TxAssetView {
   outgoing: AssetAmount[];
   /** Assets entering the account (consumed notes / added vault assets). */
   incoming: AssetAmount[];
-  /** NFTs leaving the account. Always empty on the summary path, which cannot list them: see `unlistedAssets`. */
-  outgoingNfts: NftAsset[];
-  /** NFTs entering the account (consumed notes). Always empty on the summary path. */
-  incomingNfts: NftAsset[];
+  /** NFTs leaving the account, from the notes created; a vault change no note explains is in `unlistedAssets`. */
+  outgoingNfts: ViewNft[];
+  /** NFTs entering the account, from the notes consumed. */
+  incomingNfts: ViewNft[];
   /**
    * Vault changes the view cannot list. The summary path reads a vault delta whose non-fungible side the SDK does
    * not expose, so it counts them instead: `numAssets()` less the fungible entries it did list. Non-zero must be
@@ -79,8 +85,10 @@ function noteNftAssets(note: NoteWithAssets | undefined): NonFungibleAsset[] {
   return note?.assets()?.nonFungibleAssets() ?? [];
 }
 
-function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
-  return noteNftAssets(note).map(toNft);
+const viewNft = (asset: NonFungibleAsset): ViewNft => ({ ...toNft(asset), key: nftKey(asset) });
+
+function noteNfts(note: NoteWithAssets | undefined): ViewNft[] {
+  return noteNftAssets(note).map(viewNft);
 }
 
 /**
@@ -91,7 +99,7 @@ function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
 function importedNoteContents(
   b64: string,
   options: NoteDecodeOptions = {}
-): { amounts: AssetAmount[]; nfts: NftAsset[] } {
+): { amounts: AssetAmount[]; nfts: ViewNft[] } {
   const bytes = b64ToU8(b64);
   const contentsOf = (note: NoteWithAssets | undefined) => ({ amounts: noteAssets(note), nfts: noteNfts(note) });
   try {
@@ -121,12 +129,12 @@ export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {})
 function netNfts(
   created: NonFungibleAsset[],
   consumed: NonFungibleAsset[]
-): { leaving: NftAsset[]; entering: NftAsset[] } {
+): { leaving: ViewNft[]; entering: ViewNft[] } {
   const createdKeys = new Set(created.map(nftKey));
   const consumedKeys = new Set(consumed.map(nftKey));
   return {
-    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(toNft),
-    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(toNft)
+    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(viewNft),
+    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(viewNft)
   };
 }
 
@@ -229,6 +237,10 @@ export function simulatedBytesToView(result: {
  * ids "can name a note the user already holds". Crediting those let a dApp consume a pending 1000
  * of the user's and send 1050 while only 50 was charged. The caller computes `credit` behind the
  * wallet's own provenance check, so membership cannot be forged from the request.
+ *
+ * A credit belongs only on an EXECUTED view (`executedBytesToView`), whose `outgoing` is the gross output notes. A
+ * SUMMARY view's `outgoing` is the vault's net change, already net of every note the transaction consumed, so a credit
+ * there subtracts the carried notes a second time: importing 50 and sending 100 showed 50 leaving and charged 0.
  *
  * ONE ENTRY PER CANONICAL FAUCET. The executed view flat-maps over output notes, so two notes on
  * one faucet arrive as two entries, and the same faucet can arrive under two spellings. Both

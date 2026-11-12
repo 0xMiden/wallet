@@ -823,6 +823,10 @@
     "message": "Этот обзор был подготовлен для другого депозитного токена. Вернитесь и введите сумму заново.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "В залоговой note необходимо использовать проверенный токен, проверенную сумму и настроенный аллокатор. Ничего не было отправлено. Вернитесь и попробуйте ещё раз.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"
@@ -4023,6 +4027,10 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "Кошелек остановил эту транзакцию перед её подписанием, поскольку не смог подтвердить, что транзакция перемещает только то, что вы одобрили. Средства не были перемещены.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",

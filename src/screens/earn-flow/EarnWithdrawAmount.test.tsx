@@ -16,6 +16,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), goBack: jest.fn() }));
 jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('./components', () => ({
+  useEarnAssetFaucetId: () => undefined,
   EarnSubjectSubtitle: () => null,
   EarnAssetMark: () => null,
   EarnAmountUnit: ({ symbol }: { symbol: string }) => <span>{symbol}</span>,
