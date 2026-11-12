@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import {
-  AccountId, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
+  AccountId, Note, NoteArray, NoteAssets, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -10,18 +9,8 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
-import { inspectMainnetReturnNote } from './mainnet-miden-request';
-export { inspectMainnetReturnNote };
-
-export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
-  if (noteFile.length < 1 || noteFile.length > 1_048_576)
-    throw new Error('Invalid mainnet consume note size');
-  const note = NoteFile.deserialize(noteFile).note();
-  if (!note) throw new Error('Missing full note for exact mainnet consume inspection');
-  const expected = new TransactionRequestBuilder().withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]))
-    .withExpirationDelta(600).build();
-  return createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex');
-}
+import { inspectMainnetReturnNote, mainnetConsumeRequestHash } from './mainnet-miden-request';
+export { inspectMainnetReturnNote, mainnetConsumeRequestHash };
 
 export function assertMainnetConsumeRequestHash(noteFile: Uint8Array, canonicalSha256: string): void {
   if (!/^[0-9a-f]{64}$/.test(canonicalSha256) || mainnetConsumeRequestHash(noteFile) !== canonicalSha256)

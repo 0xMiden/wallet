@@ -1,4 +1,16 @@
-import { AccountId, Note, NoteAssets, NoteAttachment, NoteFile, NoteType } from '@miden-sdk/miden-sdk';
+import { createHash } from 'node:crypto';
+import { AccountId, Note, NoteAndArgs, NoteAndArgsArray, NoteAssets, NoteAttachment, NoteFile, NoteType, TransactionRequestBuilder } from '@miden-sdk/miden-sdk';
+import { canonicalRequestBytes } from '../../../scripts/canonical-request-bytes.mjs';
+
+export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
+  if (noteFile.length < 1 || noteFile.length > 1_048_576)
+    throw new Error('Invalid mainnet consume note size');
+  const note = NoteFile.deserialize(noteFile).note();
+  if (!note) throw new Error('Missing full note for exact mainnet consume inspection');
+  const expected = new TransactionRequestBuilder().withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]))
+    .withExpirationDelta(600).build();
+  return createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex');
+}
 
 export interface MainnetReturnNoteScope {
   noteId: string;
