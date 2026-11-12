@@ -22,7 +22,6 @@ import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
 import {
-  declaredTransactionRequestToView,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryToView,
@@ -2345,20 +2344,12 @@ const generatePromisifyTransaction = async (
     return;
   }
 
-  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error. The decode and
-  // its summary share one hold, so a trap in either reaches the lock, which retires the client before the refusal.
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error.
+  // A decode trap reaches the lock, which retires the client before the refusal.
   await ensureSdkWasmReady();
-  let declared: TxAssetView | undefined;
   try {
-    declared = await withWasmClientLock(async () => {
-      const request = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
-      try {
-        return declaredTransactionRequestToView(request, customTransaction.importNotes ?? [], { rethrowTraps: true });
-      } catch (e) {
-        if (e instanceof WebAssembly.RuntimeError) throw e;
-        console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
-        return undefined;
-      }
+    await withWasmClientLock(async () => {
+      TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
     });
   } catch (e) {
     // A kill during the decode says nothing about the bytes, so it answers retryable, as the other previews do.
@@ -2367,12 +2358,6 @@ const generatePromisifyTransaction = async (
   }
 
   const prepare = async () => {
-    let declaredMessages: string[];
-    try {
-      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction, declared));
-    } catch (e) {
-      throw dappReadFailure(e);
-    }
     // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
     // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
     // platform split because the spending-limit gate below needs the dry run's outgoing totals on
@@ -2407,14 +2392,14 @@ const generatePromisifyTransaction = async (
       });
     } catch (e) {
       if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) return releaseRefusedRequest(e);
-      throw e;
+      throw pipelineKillIn(e) ?? e;
     }
     try {
       const approval = approvedSimulationOrRefusal(simulated);
       const simulatedEffects = await formatSimulatedCustomEffects(simulated, approval.view);
       const customLimit = await customSpendingLimitState(customTransaction.address, approval.spends);
       return {
-        transactionMessages: [...declaredMessages, ...simulatedEffects.messages],
+        transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...simulatedEffects.messages],
         simulated,
         customLimit,
         approvedEffects: approval.effects,
@@ -3849,22 +3834,12 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
 /**
  * What the mobile modal / desktop overlay show for a custom transaction.
  */
-async function formatCustomTransactionPreview(
-  payload: MidenCustomTransaction,
-  declared: TxAssetView | undefined
-): Promise<string[]> {
+function formatCustomTransactionPreview(payload: MidenCustomTransaction): string[] {
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
     `From, ${truncateAddress(payload.address)}`
   ];
-
-  if (declared) {
-    messages.push('Declared by the site, the wallet has not verified these amounts');
-    messages.push(...(await formatAssetViewRows(declared)));
-  } else {
-    messages.push('Warning, the wallet could not decode this transaction request, so it cannot show what it does');
-  }
 
   if (payload.recipientAddress) {
     messages.push(`Recipient (declared by the site), ${truncateAddress(payload.recipientAddress)}`);
