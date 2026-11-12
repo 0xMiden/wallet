@@ -2122,6 +2122,12 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       logger: { warning: jest.fn(), error: jest.fn() }
     }));
 
+    // The execute is effect-checked, so the chain fee is decided before it runs.
+    jest.doMock('lib/miden-chain/native-asset', () => ({
+      ...jest.requireActual('lib/miden-chain/native-asset'),
+      getVerificationBaseFee: jest.fn(async () => 0)
+    }));
+
     jest.doMock('./cancel', () => {
       const actual = jest.requireActual('./cancel');
       return {

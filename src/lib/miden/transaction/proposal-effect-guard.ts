@@ -1,6 +1,10 @@
 import { netOutflowByFaucet, summaryBytesToView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
+import {
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, ITransaction, ITransactionType } from '../db/types';
@@ -76,6 +80,27 @@ export const effectRefusal = (transaction: ITransaction, detail: string, cause?:
     cause === undefined ? undefined : { cause }
   );
 
+/** Decode `transaction`'s view and refuse it when it moves more than the row was approved to move. */
+async function assertDecodedViewApproved(
+  transaction: ITransaction,
+  decode: () => TxAssetView | Promise<TxAssetView>
+): Promise<void> {
+  let view: TxAssetView;
+  try {
+    view = await decode();
+  } catch (error) {
+    if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
+    throw effectRefusal(transaction, 'the transaction summary could not be read', error);
+  }
+  let detail: string | undefined;
+  try {
+    detail = proposalEffectRefusal(transaction, view);
+  } catch (error) {
+    throw effectRefusal(transaction, 'its approved amounts could not be read', error);
+  }
+  if (detail !== undefined) throw effectRefusal(transaction, detail);
+}
+
 /**
  * Refuse a checked-type transaction whose decoded view moves more than its row was approved to move. `decode` is a
  * thunk because the chain-fee lookup must run first: the decoder reads the fee that lookup fills. A decode that throws
@@ -93,20 +118,23 @@ export async function assertViewEffectApproved(
   const chainFee = await getVerificationBaseFee();
   if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
-  let view: TxAssetView;
-  try {
-    view = await decode();
-  } catch (error) {
-    if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
-    throw effectRefusal(transaction, 'the transaction summary could not be read', error);
-  }
-  let detail: string | undefined;
-  try {
-    detail = proposalEffectRefusal(transaction, view);
-  } catch (error) {
-    throw effectRefusal(transaction, 'its approved amounts could not be read', error);
-  }
-  if (detail !== undefined) throw effectRefusal(transaction, detail);
+  await assertDecodedViewApproved(transaction, decode);
+}
+
+/**
+ * The signer's effect check. The write decided the chain fee before it ran, and this reads that cache. A null while
+ * the probe has not found the fee absent throws, and the summary stays unread. A number, 0 included, and a null the
+ * probe found absent, both continue into the same decode as `assertViewEffectApproved`.
+ */
+export async function assertCachedViewEffectApproved(
+  transaction: ITransaction,
+  decode: () => TxAssetView | Promise<TxAssetView>
+): Promise<void> {
+  if (!isEffectChecked(transaction.type)) return;
+  const chainFee = getVerificationBaseFeeSync();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+  await assertDecodedViewApproved(transaction, decode);
 }
 
 /**

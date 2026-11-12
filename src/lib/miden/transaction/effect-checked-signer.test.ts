@@ -1,7 +1,11 @@
 import { SigningInputs } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import {
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { withEffectCheckedSigner, type RawSigner } from './effect-checked-signer';
@@ -121,6 +125,10 @@ beforeEach(() => {
   jest.mocked(SigningInputs.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
+  jest.mocked(getVerificationBaseFeeSync).mockReset();
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
+  jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
+  jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -149,6 +157,7 @@ it('passes a summary within the approval to the base signer and returns what run
   expect(signatures).toEqual([SIGNATURE]);
   expect(sign).toHaveBeenCalledWith('pk', 'aa');
   expect(SigningInputs.deserialize).toHaveBeenCalledWith(new Uint8Array([0xaa]));
+  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
 it('refuses a summary that moves more than the row allows, and rejects with the same error the signer threw', async () => {
@@ -189,7 +198,7 @@ it('rejects with the first refusal even when run swallows it, and signs nothing 
 });
 
 it('keeps the refusal that landed first when two signs of one write fail at once', async () => {
-  // The non-summary is refused before the over-allowance summary's fee lookup settles.
+  // The non-summary is refused at once, before the over-allowance summary's check settles.
   givenSigningByHex({ aa: summaryInputs(pswapFill('acct-a')), bb: { variantType: 2 } });
   const settled: unknown[] = [];
   const outcome = withEffectCheckedSigner(claim, baseSigner(), async signer => {
@@ -205,23 +214,13 @@ it('keeps the refusal that landed first when two signs of one write fail at once
 
 it('refuses a summary within the approval whose check was still running when a sibling sign failed', async () => {
   givenSigningByHex({ aa: summaryInputs(tokenPayment('acct-a')), bb: { variantType: 2 } });
-  // The prefetch answers at once; the passing summary's own lookup waits until the sibling has failed.
-  let releaseFee: (fee: number) => void = () => undefined;
-  jest
-    .mocked(getVerificationBaseFee)
-    .mockImplementationOnce(async () => 2)
-    .mockImplementationOnce(
-      () =>
-        new Promise<number>(resolve => {
-          releaseFee = resolve;
-        })
-    );
+  // The passing summary's check is still awaiting its decode when the non-summary, refused at once, records its
+  // refusal.
   const sign = baseSigner();
   const settled: unknown[] = [];
   const outcome = withEffectCheckedSigner(claim, sign, async signer => {
     const passing = refusalOf(signer, 'aa');
     settled.push(await refusalOf(signer, 'bb'));
-    releaseFee(2);
     settled.push(await passing);
     return 'signed';
   });
@@ -230,6 +229,7 @@ it('refuses a summary within the approval whose check was still running when a s
   expect(settled[1]).toBe(settled[0]);
   expect(refused).toBe(settled[0]);
   expect(sign).not.toHaveBeenCalled();
+  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
 it("leaves the base signer's own failure unrecorded, so the write rejects with run's error and signs again", async () => {
@@ -338,24 +338,44 @@ it.each([
   expect(sign).not.toHaveBeenCalled();
 });
 
-it('rejects with the unknown fee the check met, without decoding the summary', async () => {
+it('rejects an unknown fee with ProposalFeeUnknownError and run is not called', async () => {
   const sign = baseSigner();
   const fill = pswapFill('acct-a');
   givenSigning(summaryInputs(fill));
   jest.mocked(getVerificationBaseFee).mockResolvedValue(null);
-  let thrown: unknown;
-  const outcome = withEffectCheckedSigner(execute, sign, async signer => {
-    thrown = await refusalOf(signer, 'aa');
-    throw new Error('Sign callback failed (internal)');
-  });
-  const refused = await outcome.catch((error: unknown) => error);
+  const run = jest.fn(async (signer: RawSigner) => signer('pk', 'aa'));
+  const refused = await withEffectCheckedSigner(execute, sign, run).catch((error: unknown) => error);
   expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
-  expect(refused).toBe(thrown);
+  expect(refused).toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
+  expect(run).not.toHaveBeenCalled();
   expect(fill.vault).not.toHaveBeenCalled();
   expect(sign).not.toHaveBeenCalled();
+  expect(SigningInputs.deserialize).not.toHaveBeenCalled();
 });
 
-it('looks the chain fee up before the write runs', async () => {
+it('propagates a fee lookup rejection before the write runs', async () => {
+  const failure = new Error('node down');
+  jest.mocked(getVerificationBaseFee).mockRejectedValue(failure);
+  const run = jest.fn();
+  await expect(withEffectCheckedSigner(execute, baseSigner(), run)).rejects.toBe(failure);
+  expect(run).not.toHaveBeenCalled();
+});
+
+it('rejects from the signer when the cached fee is unknown, without decoding the summary', async () => {
+  const fill = pswapFill('acct-a');
+  givenSigning(summaryInputs(fill));
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+  const sign = baseSigner();
+  const run = jest.fn(async (signer: RawSigner) => signer('pk', 'aa'));
+  const refused = await withEffectCheckedSigner(execute, sign, run).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(fill.vault).not.toHaveBeenCalled();
+  expect(sign).not.toHaveBeenCalled();
+  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
+});
+
+it('looks the chain fee up once, before the write runs', async () => {
   const order: string[] = [];
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
     order.push('fee');
@@ -366,7 +386,8 @@ it('looks the chain fee up before the write runs', async () => {
     order.push('run');
     return signer('pk', 'aa');
   });
-  expect(order.slice(0, 2)).toEqual(['fee', 'run']);
+  expect(order).toEqual(['fee', 'run']);
+  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
 it('checks each write of one account against its own row while both run', async () => {

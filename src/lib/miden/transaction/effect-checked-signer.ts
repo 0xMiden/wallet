@@ -2,9 +2,11 @@ import { SigningInputs, SigningInputsType, type TransactionSummary } from '@mide
 import { Buffer } from 'buffer';
 
 import { summaryToView } from 'app/confirm/decode';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getMessage } from 'lib/i18n/core';
+import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
 
-import { assertViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
+import { ProposalFeeUnknownError } from './constants';
+import { assertCachedViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
 import type { ITransaction } from '../db/types';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from '../sdk/helpers';
 
@@ -33,7 +35,7 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
       throw effectRefusal(transaction, 'the summary is for another account');
     }
     const signed = summary;
-    await assertViewEffectApproved(transaction, () => summaryToView(signed));
+    await assertCachedViewEffectApproved(transaction, () => summaryToView(signed));
   } finally {
     // Both hold WASM memory until freed; optional because not every binding declares `free`.
     summary?.free?.();
@@ -59,9 +61,10 @@ export async function withEffectCheckedSigner<T>(
   run: (signer: RawSigner) => Promise<T>
 ): Promise<T> {
   if (!isEffectChecked(transaction.type)) return run(sign);
-  // Looked up here, outside any lock, so the check reads a cached fee rather than waiting on the node inside the
-  // write's hold. Only the check judges the answer, and a failure here only leaves it to look again.
-  await getVerificationBaseFee().catch(() => null);
+  // The fee is decided here, before the write, and the signer reads the cache.
+  const chainFee = await getVerificationBaseFee();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   const check: { failed?: { error: unknown } } = {};
   const refuseAfterFailure = (): void => {
     if (check.failed) throw check.failed.error;

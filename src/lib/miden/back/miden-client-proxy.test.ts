@@ -2418,10 +2418,16 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
   });
 
   it("refuses at the op's own effect-checked signer when its row's check fails, never reaching the base signer", async () => {
+    // The chain fee is decided before the write runs, so it is known here.
+    jest.doMock('lib/miden-chain/native-asset', () => ({
+      ...jest.requireActual('lib/miden-chain/native-asset'),
+      getVerificationBaseFee: jest.fn(async () => 0)
+    }));
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);
     const { bytesToB64 } = await import('./offscreen-codec');
     const { withEffectCheckedSigner } = await import('lib/miden/transaction/effect-checked-signer');
     const { ProposalEffectRefusedError } = await import('lib/miden/transaction/constants');
+    jest.dontMock('lib/miden-chain/native-asset');
     // The offscreen execute asks for a signature over something that is not the row's summary.
     G.__px.signingInputsDeserialize.mockReturnValue({ variantType: 1, free: jest.fn() });
     const base = jest.fn(async () => new Uint8Array([0xaa]));
