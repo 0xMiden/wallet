@@ -993,7 +993,7 @@ describe('MultisigService', () => {
 
       it.each(paths)(
         '$path: abandons the candidate at the proposal nonce with the derived commitment, then fails',
-        async ({ path, sdk, create }) => {
+        async ({ sdk, create }) => {
           const { multisig, service, abandonCandidate } = arrange(sdk, OTHER_ID);
 
           await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
