@@ -5,6 +5,7 @@ import {
   isSwapTransaction,
   localSwapOrders,
   orderIdString,
+  settlesUnattended,
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -160,10 +161,9 @@ export async function classifySwapSettlementSnapshot(
   }
 
   for (const order of orders) {
-    // Recovery writes Auto accept off on every recovered order, so that setting is not the user's ask there.
     const recovered = isRecoveredReturnOrder(order);
     const recoveredRef = recovered ? recoveredSwapOrderRef(order) : undefined;
-    if (order.extraInputs.autoConsume === false && !recovered) continue;
+    if (!settlesUnattended(order)) continue;
     const expiresAt = order.extraInputs.expiresAt;
     if (!swapOrderExpired(expiresAt, nowSeconds)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
@@ -328,8 +328,7 @@ export async function reconcileSwapOrderNotes(
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));
 
   for (const order of orders) {
-    // A recovered order this wallet's Cancel stamped is let through: recovery, not the user, wrote its Auto accept.
-    if (order.extraInputs.autoConsume === false && !isRecoveredReturnOrder(order)) continue;
+    if (!settlesUnattended(order)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
     const orderNotes = notes.filter(note => note.swapOrder?.orderId === orderId);
     if (orderNotes.length === 0) {
