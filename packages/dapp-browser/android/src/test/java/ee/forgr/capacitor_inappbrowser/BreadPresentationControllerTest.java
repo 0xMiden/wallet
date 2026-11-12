@@ -2775,6 +2775,80 @@ public class BreadPresentationControllerTest {
         assertTrue(dialog.isShowing());
     }
 
+    private void dispatchPhysicalCapsulePacket(ImageButton capsule, android.view.MotionEvent physical, int[] restOrigin) {
+        android.view.MotionEvent local = android.view.MotionEvent.obtain(physical);
+        try {
+            android.graphics.Matrix inverse = new android.graphics.Matrix();
+            assertTrue("the moving root must have an inverse", root.getMatrix().invert(inverse));
+            local.offsetLocation(-restOrigin[0], -restOrigin[1]);
+            local.transform(inverse);
+            android.graphics.Rect bounds = new android.graphics.Rect(0, 0, capsule.getWidth(), capsule.getHeight());
+            ((ViewGroup) root).offsetDescendantRectToMyCoords(capsule, bounds);
+            local.offsetLocation(-bounds.left, -bounds.top);
+            assertEquals(physical.getRawY(), local.getRawY(), 0.01f);
+            assertEquals(physical.getHistorySize(), local.getHistorySize());
+            assertTrue(capsule.dispatchTouchEvent(local));
+        } finally {
+            local.recycle();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms() throws Exception {
+        openMorph(true);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        int[] capsuleAt = new int[2], restOrigin = new int[2];
+        capsule.getLocationOnScreen(capsuleAt);
+        root.getLocationOnScreen(restOrigin);
+        float x = capsuleAt[0] + capsule.getWidth() / 2f;
+        float y = capsuleAt[1] + capsule.getHeight() / 2f;
+        long t = android.os.SystemClock.uptimeMillis();
+        android.view.MotionEvent down = android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, x, y, 0);
+        android.view.MotionEvent first = android.view.MotionEvent.obtain(t, t + 10, android.view.MotionEvent.ACTION_MOVE, x, y + 5, 0);
+        first.addBatch(t + 20, x, y + 15, 1f, 1f, 0);
+        first.addBatch(t + 30, x, y + 40, 1f, 1f, 0);
+        android.view.MotionEvent second = android.view.MotionEvent.obtain(t, t + 40, android.view.MotionEvent.ACTION_MOVE, x, y + 140, 0);
+        second.addBatch(t + 50, x, y + 145, 1f, 1f, 0);
+        second.addBatch(t + 60, x, y + 148, 1f, 1f, 0);
+        List<android.view.MotionEvent> packets = List.of(down, first, second);
+        android.view.VelocityTracker physical = android.view.VelocityTracker.obtain();
+        // Robolectric's estimator ignores history, so also inspect the real tracker's input packets.
+        List<android.view.MotionEvent> consumed = new ArrayList<>();
+        try {
+            physical.addMovement(down);
+            dispatchPhysicalCapsulePacket(capsule, down, restOrigin);
+            android.view.VelocityTracker actual = spy(ReflectionHelpers.<android.view.VelocityTracker>getField(controller, "tracker"));
+            ReflectionHelpers.setField(controller, "tracker", actual);
+            doAnswer(call -> {
+                consumed.add(android.view.MotionEvent.obtain(call.getArgument(0)));
+                return call.callRealMethod();
+            }).when(actual).addMovement(any(android.view.MotionEvent.class));
+            for (android.view.MotionEvent packet : List.of(first, second)) {
+                physical.addMovement(packet);
+                dispatchPhysicalCapsulePacket(capsule, packet, restOrigin);
+                if (packet == first) assertTrue("the second packet must use a changed root matrix", root.getScaleX() < 1f);
+            }
+            physical.computeCurrentVelocity(1000);
+            actual.computeCurrentVelocity(1000);
+            assertEquals("capsule velocity must match raw physical event history", physical.getYVelocity(), actual.getYVelocity(), 1f);
+            assertEquals(2, consumed.size());
+            for (int index = 0; index < consumed.size(); index++) {
+                android.view.MotionEvent expected = packets.get(index + 1), recorded = consumed.get(index);
+                assertEquals("capsule velocity must retain every historical sample", expected.getHistorySize(), recorded.getHistorySize());
+                for (int history = 0; history < expected.getHistorySize(); history++) {
+                    assertEquals("capsule historical velocity geometry must remain physical", expected.getHistoricalY(history),
+                        recorded.getHistoricalY(history), 0.01f);
+                }
+            }
+        } finally {
+            physical.recycle();
+            for (android.view.MotionEvent packet : packets) packet.recycle();
+            for (android.view.MotionEvent packet : consumed) packet.recycle();
+        }
+    }
+
     @Test @Config(shadows = PaintWebView.class)
     public void capsuleTouchRemainsOwnedByItsButtonWhenCollapsePosesThePage() throws Exception {
         openMorph(true);
