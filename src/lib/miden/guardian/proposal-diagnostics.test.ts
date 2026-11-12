@@ -2,13 +2,19 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { u8ToB64 } from 'lib/shared/helpers';
 import { annotateCrash, snapshotCrashDiagnostics, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import { MultisigService, ProposalChainSyncError } from './index';
 
 const hold = {};
 const mockChainSync = jest.fn(async () => {});
-const mockGetMidenClient = jest.fn(async () => ({ client: { syncChain: () => mockChainSync() } }));
+const mockGetMidenClient = jest.fn(async () => ({
+  client: {
+    syncChain: () => mockChainSync(),
+    accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) }
+  }
+}));
 const mockLockAdmission = jest.fn(async () => {});
 const mockAssertHold = jest.fn((_hold: object, _label: string) => {});
 const mockRetireTrap = jest.fn();
@@ -21,12 +27,14 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
   createTransactionProposalRequest: async () => 'private-request',
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
-  createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args)
+  createProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  getEffectiveThreshold: () => 1
 }));
 
 const mockRequestDeserialize = jest.fn((_bytes: Uint8Array) => ({ expectedOutputOwnNotes: () => [], free: () => {} }));
 // The custom proposal id check derives this commitment locally; it is the id the custom proposal mock returns.
 const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  serialize: () => Uint8Array.of(9),
   toCommitment: () => ({ toHex: () => 'private-reclaim-proposal', free: () => {} }),
   free: () => {}
 }));
@@ -49,6 +57,7 @@ jest.mock('../sdk/helpers', () => ({
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
   executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
+  summaryBoundBlockNum: () => 100,
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);
@@ -272,7 +281,13 @@ it('returns successful ordinary and reclaim proposals with unchanged request byt
     })
   ).toEqual({ id: 'private-reclaim-proposal', nonce: 8 });
   expect(persisted).toEqual([new Uint8Array([3, 4])]);
-  expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([3, 4]), 'custom_transaction');
+  expect(mockReclaimProposal).toHaveBeenCalledWith(41, u8ToB64(Uint8Array.of(9)), {
+    boundBlockNum: 100,
+    proposalType: 'custom',
+    description: '',
+    rawProposalType: 'custom_transaction',
+    requiredSignatures: 1
+  });
 });
 
 describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
@@ -320,7 +335,13 @@ describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
     mockReclaimProposal.mockRejectedValueOnce(error);
     const loaded = await service();
     await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
-    expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([5, 6]), 'swap');
+    expect(mockReclaimProposal).toHaveBeenCalledWith(41, u8ToB64(Uint8Array.of(9)), {
+      boundBlockNum: 100,
+      proposalType: 'custom',
+      description: '',
+      rawProposalType: 'swap',
+      requiredSignatures: 1
+    });
     expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
   });
 

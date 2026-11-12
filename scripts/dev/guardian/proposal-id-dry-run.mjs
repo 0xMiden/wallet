@@ -60,18 +60,13 @@ import {
   requestBoundBlockNum,
   requestSaltHex
 } from '@openzeppelin/miden-multisig-client';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
-// The multisig client calls `free()` on SDK objects, as the browser (wasm-bindgen) build needs. The Node (napi)
-// build has no `free`: its objects are released by the garbage collector. Give each SDK class without one a no-op
-// `free`, so the client's code runs unchanged on Node. This changes no value the check compares.
+import { installWordFreeShim, proposeKnownNonce, solveFaucetPow } from './proposal-id-dry-run-lib.mjs';
+
+// Node's Word wrapper lacks `free`, which the multisig client's summary helper calls on block commitments.
 const sdkModule = await import('@miden-sdk/miden-sdk');
-for (const value of Object.values(sdkModule)) {
-  const proto = typeof value === 'function' ? value.prototype : undefined;
-  if (proto && typeof proto.free !== 'function' && Object.isExtensible(proto)) {
-    Object.defineProperty(proto, 'free', { value: () => {}, configurable: true, writable: true });
-  }
-}
+installWordFreeShim(sdkModule);
 
 const NETWORKS = {
   testnet: {
@@ -231,15 +226,6 @@ log(`account ${accountHex} (${accountBech32}) registered on the guardian`);
 const multisig = await step('load with the hot signer', () => multisigClient.load(accountHex, new EcdsaSigner(hotSk)));
 
 // ── Funding (faucet-api.ts: /pow, solve, /get_tokens) ───────────────────────────────────────────────────────────
-const solvePow = (challengeHex, target) => {
-  const challenge = Buffer.from(challengeHex.replace(/^0x/, ''), 'hex');
-  const buffer = Buffer.alloc(challenge.length + 8);
-  challenge.copy(buffer);
-  for (let nonce = 0; ; nonce++) {
-    buffer.writeBigUInt64BE(BigInt(nonce), challenge.length);
-    if (createHash('sha256').update(buffer).digest().readBigUInt64BE(0) < target) return nonce;
-  }
-};
 const requestFaucetNote = async () => {
   const query = new URLSearchParams({ account_id: accountBech32, amount: FUNDING_BASE_UNITS.toString() });
   const powResponse = await fetch(`${net.faucetApi}/pow?${query}`);
@@ -248,7 +234,7 @@ const requestFaucetNote = async () => {
   // Read the target as written: a JSON number can be above 2^53.
   const target = BigInt(powText.match(/"target"\s*:\s*(\d+)/)?.[1] ?? 'x');
   const challenge = powText.match(/"challenge"\s*:\s*"([0-9a-fA-Fx]+)"/)?.[1];
-  const nonce = solvePow(challenge, target);
+  const nonce = await solveFaucetPow(challenge, target);
   const tokens = new URLSearchParams({
     account_id: accountBech32,
     asset_amount: FUNDING_BASE_UNITS.toString(),
@@ -361,7 +347,12 @@ const isPendingConflict = error => error?.status === 409 || /409|conflict_pendin
 const proposeWithConflictRetry = async bytes => {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await multisig.createCustomProposal(bytes, PROPOSAL_TYPE);
+      return await proposeKnownNonce({
+        client,
+        multisig,
+        accountId: accountHex,
+        create: nonce => multisig.createCustomProposal(bytes, PROPOSAL_TYPE, { nonce })
+      });
     } catch (error) {
       if (!isPendingConflict(error) || attempt >= 24) throw error;
       log(`  proposal conflicted (attempt ${attempt}): ${errorText(error)}; waiting 5 s`);
@@ -464,7 +455,12 @@ await step('funding consume', async () => {
 async function proposeConsumeWithRetry(noteIds) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await multisig.createConsumeNotesProposal(noteIds);
+      return await proposeKnownNonce({
+        client,
+        multisig,
+        accountId: accountHex,
+        create: nonce => multisig.createConsumeNotesProposal(noteIds, { nonce })
+      });
     } catch (error) {
       if (!isPendingConflict(error) || attempt >= 24) throw error;
       log(`consume proposal conflicted (attempt ${attempt}): ${errorText(error)}; waiting 5 s`);

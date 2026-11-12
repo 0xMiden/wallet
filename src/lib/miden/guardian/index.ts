@@ -7,6 +7,7 @@ import {
   GuardianHttpClient,
   buildUpdateSignersTransactionRequest,
   executeForSummaryAtTip,
+  summaryBoundBlockNum,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
@@ -38,7 +39,12 @@ import {
   withTimeout
 } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  guardianRegisterBackoffMs,
+  isGuardianPendingConflict,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -48,12 +54,18 @@ import {
   getCurrentWasmLockHold,
   getMidenClient,
   retireWasmClientForCaughtTrap,
+  yieldWasmClientLock,
   withWasmClientLock,
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
 import type { PswapCancelRequestOptions, PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
-import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
+import {
+  errorMessageParts,
+  isGuardianCanonicalizationError,
+  isPipelineKillLink,
+  someInCauseChain
+} from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -102,6 +114,58 @@ export class ProposalIdMismatchError extends Error {
 
 export function isProposalIdMismatchError(err: unknown): boolean {
   return someInCauseChain(err, link => link instanceof ProposalIdMismatchError);
+}
+
+const POST_PUSH_PROPOSAL_VERIFICATION_NAMES = new Set([
+  'BoundBlockMismatchError',
+  'ProposalSaltMalformedError',
+  'ChainBehindBoundBlockError'
+]);
+
+// The labels `createCustomProposal` refuses before it derives a summary. A custom proposal uses
+// `proposalType: 'custom'` and keeps the caller's label in `rawProposalType`.
+const BUILTIN_PROPOSAL_TYPES = new Set([
+  'add_signer',
+  'remove_signer',
+  'change_threshold',
+  'update_procedure_threshold',
+  'switch_guardian',
+  'consume_notes',
+  'p2id',
+  'custom'
+]);
+
+const readErrorName = (link: object): string | undefined => {
+  if (!('name' in link)) return undefined;
+  const { name } = link;
+  return typeof name === 'string' ? name : undefined;
+};
+
+/**
+ * Whether the SDK rejected proposal metadata after the Guardian had accepted the candidate.
+ * A layout error, an id mismatch, a pending conflict, and a request that never decoded are excluded first, so they
+ * are not abandoned here.
+ */
+export function isPostPushProposalVerificationFailure(error: unknown): boolean {
+  if (isProposalIdMismatchError(error) || isGuardianPendingConflict(error)) return false;
+  if (
+    someInCauseChain(error, link => {
+      const name = readErrorName(link);
+      return name === 'ProposalIdMismatchError' || name === 'TransactionSummaryLayoutError';
+    })
+  ) {
+    return false;
+  }
+
+  const messages = errorMessageParts(error);
+  if (messages.some(message => message.includes('failed to decode transaction request'))) return false;
+  return (
+    someInCauseChain(error, link => {
+      const name = readErrorName(link);
+      return name !== undefined && POST_PUSH_PROPOSAL_VERIFICATION_NAMES.has(name);
+    }) ||
+    messages.some(message => message.startsWith('Invalid proposal:') || message.includes('malformed boundBlockNum'))
+  );
 }
 
 /** A hex word in the form the multisig client compares commitments in: `0x`, lower case, 64 digits. */
@@ -561,9 +625,13 @@ export class MultisigService {
    * Create a custom proposal from `requestBytes` and make sure that its id is the summary commitment of these bytes.
    * Every custom proposal the wallet creates goes through here, in the chain-synced hold of its caller.
    *
-   * The wallet executes the bytes on its own client first, then the multisig client executes the same bytes at the
-   * same tip in the same hold. The bytes carry the salt and the bound block, so both executions give the same summary.
-   * A returned id that is not this commitment fails with `ProposalIdMismatchError`, and the caller does not sign it.
+   * The wallet executes the bytes once and sends that summary to `createProposal`. The bytes carry the salt and the
+   * bound block, so the summary's commitment is the proposal id. A returned id that is not this commitment fails with
+   * `ProposalIdMismatchError`, and the caller does not sign it.
+   *
+   * The nonce is read here, after that summary, and passed in: `createProposal` pushes the delta before it verifies
+   * the metadata, and a throw from that verification does not return `proposal.nonce`. A post-push failure abandons
+   * the nonce this call prepared. An id mismatch is abandoned once, inside `requireProposalIdIsCommitment`.
    */
   private proposeCheckedCustomRequest(
     hold: WasmLockHold,
@@ -573,10 +641,54 @@ export class MultisigService {
     label: string
   ): Promise<Proposal> {
     return this.proposalStep('proposal_create', async () => {
-      const expectedId = await this.summaryCommitmentOf(hold, client, requestBytes, label);
-      const proposal = await this.multisig.createCustomProposal(requestBytes, proposalType);
-      await this.requireProposalIdIsCommitment(proposal, expectedId);
-      return proposal;
+      const rawProposalType = proposalType.trim().toLowerCase();
+      if (rawProposalType.length === 0) {
+        throw new Error('proposalType must not be empty');
+      }
+      if (!/^[a-z0-9_]+$/.test(rawProposalType)) {
+        throw new Error(
+          `proposalType '${rawProposalType}' must be lowercase snake_case ([a-z0-9_]): ` +
+            'no spaces, hyphens, or other characters'
+        );
+      }
+      if (BUILTIN_PROPOSAL_TYPES.has(rawProposalType)) {
+        throw new Error(`'${rawProposalType}' is a built-in proposal type; use the typed proposal API instead`);
+      }
+
+      const { commitmentHex, summaryBase64, boundBlockNum } = await this.summaryCommitmentOf(
+        hold,
+        client,
+        requestBytes,
+        label
+      );
+      const storeAccount = await client.accounts.get(this.accountId);
+      assertWasmHoldCurrent(hold, `${label}: after reading the proposal nonce account`);
+      const nonceAccount = storeAccount ?? this.multisig.account;
+      assertWasmHoldCurrent(hold, `${label}: before reading the proposal nonce`);
+      const nonceValue = BigInt(nonceAccount.nonce().asInt()) + 1n;
+      if (nonceValue > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error('Guardian proposal nonce is too large to represent safely');
+      }
+      const nonce = Number(nonceValue);
+      assertWasmHoldCurrent(hold, `${label}: before creating the proposal`);
+      const metadata: ProposalMetadata = {
+        boundBlockNum,
+        proposalType: 'custom',
+        description: '',
+        rawProposalType,
+        requiredSignatures: this.multisig.getEffectiveThreshold('custom')
+      };
+
+      try {
+        const proposal = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+        await this.requireProposalIdIsCommitment(proposal, commitmentHex, hold);
+        return proposal;
+      } catch (error) {
+        if (isPostPushProposalVerificationFailure(error)) {
+          await this.abandonMismatchCandidate(nonce, hold);
+        }
+        throw error;
+      }
     });
   }
 
@@ -584,49 +696,67 @@ export class MultisigService {
    * `assertProposalIdIsCommitment`, and on a mismatch release the delta the Guardian holds for `proposal` before the
    * `ProposalIdMismatchError` goes to the caller. Nothing was signed or submitted, so the abandon is safe. It is best
    * effort and bounded by OUTGOING_GUARDIAN_DEADLINE_MS: a failed abandon is logged, and the mismatch error is thrown in
-   * all cases. The abandon makes no WASM call, so it can run in the hold of the caller.
+   * all cases. The abandon makes no WASM call, so a held caller yields the shared client lock while awaiting it.
    */
-  private async requireProposalIdIsCommitment(proposal: Proposal, expectedCommitmentHex: string): Promise<void> {
+  private async requireProposalIdIsCommitment(
+    proposal: Proposal,
+    expectedCommitmentHex: string,
+    hold?: WasmLockHold
+  ): Promise<void> {
     try {
       assertProposalIdIsCommitment(proposal, expectedCommitmentHex);
     } catch (mismatch) {
-      try {
-        await withTimeout(
-          this.abandonCandidate(proposal.nonce),
-          OUTGOING_GUARDIAN_DEADLINE_MS,
-          'abandoning the candidate of a proposal whose id is not the derived summary commitment'
-        );
-      } catch (abandonError) {
-        console.warn(
-          `[Guardian] could not abandon the candidate at nonce ${proposal.nonce} after the proposal id check:`,
-          abandonError
-        );
-      }
+      await this.abandonMismatchCandidate(proposal.nonce, hold);
       throw mismatch;
     }
   }
 
+  private async abandonMismatchCandidate(nonce: number, hold?: WasmLockHold): Promise<void> {
+    const abandon = () =>
+      withTimeout(
+        this.abandonCandidate(nonce),
+        OUTGOING_GUARDIAN_DEADLINE_MS,
+        'abandoning a candidate after proposal verification failed'
+      );
+    try {
+      if (hold !== undefined) await yieldWasmClientLock(abandon, hold);
+      else await abandon();
+    } catch (abandonError) {
+      console.warn(
+        `[Guardian] could not abandon the candidate at nonce ${nonce} after proposal verification failed:`,
+        abandonError
+      );
+    }
+  }
+
   /**
-   * The summary commitment of `requestBytes`, executed at the tip on `client` in `hold`. The WASM objects are freed
-   * only while the hold is still this flow's: after an eviction they belong to an abandoned flow.
+   * The summary commitment of `requestBytes`, executed once at the tip on `client` in `hold`, plus the base64 payload
+   * and bound block read from that same summary. The WASM objects are freed only while the hold is still this flow's:
+   * after an eviction they belong to an abandoned flow.
    */
   private async summaryCommitmentOf(
     hold: WasmLockHold,
     client: MidenClient,
     requestBytes: Uint8Array,
     label: string
-  ): Promise<string> {
+  ): Promise<{ commitmentHex: string; summaryBase64: string; boundBlockNum: number }> {
     const request = TransactionRequest.deserialize(requestBytes);
     let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
     try {
       summary = await executeForSummaryAtTip(client, this.accountId, request);
       assertWasmHoldCurrent(hold, `${label}: after the summary execution`);
       const commitment = summary.toCommitment();
+      let commitmentHex: string;
       try {
-        return normalizeProposalHexWord(commitment.toHex());
+        commitmentHex = normalizeProposalHexWord(commitment.toHex());
       } finally {
         commitment.free();
       }
+      // Commitment, then the payload, then the bound block: the same two serializations `deriveProposalSummary` does,
+      // after the commitment this id check compares. A layout error here is still before the push.
+      const summaryBase64 = u8ToB64(summary.serialize());
+      const boundBlockNum = summaryBoundBlockNum(summary);
+      return { commitmentHex, summaryBase64, boundBlockNum };
     } finally {
       if (getCurrentWasmLockHold() === hold) {
         summary?.free();
@@ -1193,9 +1323,15 @@ export class MultisigService {
     const proposal = await this.proposalStep(
       'proposal_create',
       async () => {
-        const created = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
-        await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
-        return created;
+        const nonce = Date.now();
+        try {
+          const created = await this.multisig.createProposal(nonce, summaryBase64, metadata);
+          await this.requireProposalIdIsCommitment(created, summaryCommitmentHex);
+          return created;
+        } catch (error) {
+          if (isPostPushProposalVerificationFailure(error)) await this.abandonMismatchCandidate(nonce);
+          throw error;
+        }
       },
       'replace-hot-key'
     );

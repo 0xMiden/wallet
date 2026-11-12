@@ -1,41 +1,48 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runInNewContext } from 'node:vm';
 
 const scriptFile = fileURLToPath(new URL('./proposal-id-dry-run.mjs', import.meta.url));
 const helperFile = fileURLToPath(new URL('./proposal-id-dry-run-lib.mjs', import.meta.url));
 const helperAvailable = existsSync(helperFile);
 let installWordFreeShim;
 let solveFaucetPow;
+let isPostPushProposalVerificationFailure;
+let proposeKnownNonce;
 
 if (helperAvailable) {
-  ({ installWordFreeShim, solveFaucetPow } = await import(pathToFileURL(helperFile).href));
+  ({ installWordFreeShim, solveFaucetPow, isPostPushProposalVerificationFailure, proposeKnownNonce } = await import(
+    pathToFileURL(helperFile).href
+  ));
 } else {
   const source = readFileSync(scriptFile, 'utf8');
   const shim = source.match(/for \(const value of Object\.values\(sdkModule\)\) \{[\s\S]*?^\}/m)?.[0];
   assert.ok(shim, 'the current Word free shim is present in the dry-run script');
-  installWordFreeShim = sdkModule => new Function('sdkModule', shim)(sdkModule);
+  installWordFreeShim = sdkModule => runInNewContext(shim, { sdkModule });
 }
 
 test('installs the Node free shim on Word only', () => {
   class Word {}
   class Account {}
-  class ExistingFree {}
-  class Sealed {}
+  class WordWithFree {}
+  class NonExtensibleWord {}
   const existingFree = () => 'existing';
-  ExistingFree.prototype.free = existingFree;
-  Object.preventExtensions(Sealed.prototype);
+  WordWithFree.prototype.free = existingFree;
+  Object.preventExtensions(NonExtensibleWord.prototype);
 
-  installWordFreeShim({ Word, Account, ExistingFree, Sealed, value: {} });
+  installWordFreeShim({ Word, Account, WordWithFree, NonExtensibleWord, value: {} });
+  installWordFreeShim({ Word: WordWithFree });
+  installWordFreeShim({ Word: NonExtensibleWord });
 
   assert.equal(typeof Word.prototype.free, 'function');
   assert.equal(Word.prototype.free.call(new Word()), undefined);
   assert.equal(Account.prototype.free, undefined);
-  assert.equal(ExistingFree.prototype.free, existingFree);
-  assert.equal(Sealed.prototype.free, undefined);
+  assert.equal(WordWithFree.prototype.free, existingFree);
+  assert.equal(NonExtensibleWord.prototype.free, undefined);
 });
 
 const zeroTargetChild = String.raw`
@@ -118,16 +125,197 @@ if (helperAvailable) {
 
   test('the first nonce resolves when its digest is below the maximum target', async () => {
     let hashes = 0;
-    await assert.doesNotReject(
-      solveFaucetPow('00', 2n ** 64n, {
-        deadlineMs: 1_000,
-        hashesPerBatch: 1,
-        hash: () => {
-          hashes++;
-          return 0n;
-        }
-      })
-    );
+    const nonce = await solveFaucetPow('00', 2n ** 64n, {
+      deadlineMs: 1_000,
+      hashesPerBatch: 1,
+      hash: () => {
+        hashes++;
+        return 0n;
+      }
+    });
+    assert.equal(nonce, 0);
     assert.equal(hashes, 1);
+  });
+
+  test('classifies only post-push proposal verification failures for cleanup', () => {
+    const named = (name, message = 'unclassified') => Object.assign(new Error(message), { name });
+    assert.equal(isPostPushProposalVerificationFailure(new Error('Invalid proposal: bad binding')), true);
+    assert.equal(isPostPushProposalVerificationFailure(named('BoundBlockMismatchError')), true);
+    assert.equal(isPostPushProposalVerificationFailure(named('ProposalSaltMalformedError')), true);
+    assert.equal(isPostPushProposalVerificationFailure(named('ChainBehindBoundBlockError')), true);
+    assert.equal(
+      isPostPushProposalVerificationFailure(new Error('malformed boundBlockNum in proposal metadata')),
+      true
+    );
+    assert.equal(isPostPushProposalVerificationFailure(named('ProposalIdMismatchError')), false);
+    assert.equal(isPostPushProposalVerificationFailure(named('TransactionSummaryLayoutError')), false);
+    assert.equal(
+      isPostPushProposalVerificationFailure(Object.assign(new Error('Invalid proposal'), { status: 409 })),
+      false
+    );
+    assert.equal(isPostPushProposalVerificationFailure(new Error('conflict_pending_delta')), false);
+    assert.equal(isPostPushProposalVerificationFailure(new Error('failed to decode transaction request')), false);
+    assert.equal(isPostPushProposalVerificationFailure(new Error('proposal refused')), false);
+  });
+
+  test('abandons the known nonce when SDK verification fails after proposal creation', async () => {
+    const error = new Error('Invalid proposal: bound block mismatch');
+    let readAccountId;
+    let createdNonce;
+    let abandonedNonce;
+    const client = {
+      accounts: {
+        get: async accountId => {
+          readAccountId = accountId;
+          return { nonce: () => ({ asInt: () => 40n }) };
+        }
+      }
+    };
+    const multisig = {
+      account: { nonce: () => ({ asInt: () => 5n }) },
+      abandonCandidate: async nonce => {
+        abandonedNonce = nonce;
+      }
+    };
+
+    await assert.rejects(
+      proposeKnownNonce({
+        client,
+        multisig,
+        accountId: 'account-id',
+        create: async nonce => {
+          createdNonce = nonce;
+          throw error;
+        }
+      }),
+      actual => actual === error
+    );
+
+    assert.equal(readAccountId, 'account-id');
+    assert.equal(createdNonce, 41);
+    assert.equal(abandonedNonce, 41);
+  });
+
+  test('logs a failed abandon and rethrows the verification error', async () => {
+    const error = new Error('Invalid proposal: salt');
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => {
+      warnings.push(args);
+    };
+    try {
+      await assert.rejects(
+        proposeKnownNonce({
+          client: { accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) } },
+          multisig: {
+            account: { nonce: () => ({ asInt: () => 5n }) },
+            abandonCandidate: async () => {
+              throw new Error('abandon refused');
+            }
+          },
+          accountId: 'account-id',
+          create: async () => {
+            throw error;
+          }
+        }),
+        actual => actual === error
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0][0]), /nonce 41/);
+  });
+
+  test('does not abandon pre-push, conflict, decode, or nonce-read failures', async () => {
+    const rejected = [
+      new Error('proposal refused'),
+      Object.assign(new Error('Invalid proposal: pending'), { status: 409 }),
+      new Error('failed to decode transaction request')
+    ];
+    for (const error of rejected) {
+      let abandons = 0;
+      const multisig = {
+        account: { nonce: () => ({ asInt: () => 5n }) },
+        abandonCandidate: async () => {
+          abandons++;
+        }
+      };
+      await assert.rejects(
+        proposeKnownNonce({
+          client: { accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) } },
+          multisig,
+          accountId: 'account-id',
+          create: async () => {
+            throw error;
+          }
+        }),
+        actual => actual === error
+      );
+      assert.equal(abandons, 0);
+    }
+
+    let creates = 0;
+    let abandons = 0;
+    const error = new Error('account lookup failed');
+    await assert.rejects(
+      proposeKnownNonce({
+        client: { accounts: { get: async () => Promise.reject(error) } },
+        multisig: {
+          account: { nonce: () => ({ asInt: () => 5n }) },
+          abandonCandidate: async () => {
+            abandons++;
+          }
+        },
+        accountId: 'account-id',
+        create: async () => {
+          creates++;
+        }
+      }),
+      actual => actual === error
+    );
+    assert.equal(creates, 0);
+    assert.equal(abandons, 0);
+  });
+
+  test('uses the account snapshot fallback and refuses unsafe nonces', async () => {
+    let fallbackNonce;
+    await proposeKnownNonce({
+      client: { accounts: { get: async () => null } },
+      multisig: {
+        account: { nonce: () => ({ asInt: () => 5n }) },
+        abandonCandidate: async () => {}
+      },
+      accountId: 'account-id',
+      create: async nonce => {
+        fallbackNonce = nonce;
+      }
+    });
+    assert.equal(fallbackNonce, 6);
+
+    let creates = 0;
+    let abandons = 0;
+    await assert.rejects(
+      proposeKnownNonce({
+        client: {
+          accounts: {
+            get: async () => ({ nonce: () => ({ asInt: () => BigInt(Number.MAX_SAFE_INTEGER) }) })
+          }
+        },
+        multisig: {
+          account: { nonce: () => ({ asInt: () => 5n }) },
+          abandonCandidate: async () => {
+            abandons++;
+          }
+        },
+        accountId: 'account-id',
+        create: async () => {
+          creates++;
+        }
+      }),
+      /nonce is too large/
+    );
+    assert.equal(creates, 0);
+    assert.equal(abandons, 0);
   });
 }
