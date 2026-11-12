@@ -20,6 +20,7 @@ import {
   GUARDIAN_CANDIDATE_HOLD_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
+  ProposalIdMismatchError,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
@@ -203,6 +204,7 @@ jest.mock('lib/miden/guardian', () => {
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
     ProposalChainSyncError: actual.ProposalChainSyncError,
     isProposalChainSyncError: actual.isProposalChainSyncError,
+    ProposalIdMismatchError: actual.ProposalIdMismatchError,
     MultisigService: {
       buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
     }
@@ -7994,6 +7996,47 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    expect(row.nextEligibleAt).toBeUndefined();
+  });
+
+  it('Guardian execute: a proposal whose id is not the derived summary commitment fails and is never signed', async () => {
+    const txId = 'execute-id-mismatch';
+    const requestBytes = new Uint8Array([3, 4]);
+    txStore.push({
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      requestBytes,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => {
+        throw new ProposalIdMismatchError(`0x${'5e'.repeat(32)}`, `0x${'77'.repeat(32)}`);
+      }),
+      signAndCreateTransactionRequest: jest.fn(),
+      signProposal: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+    expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.signProposal).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
   });
 

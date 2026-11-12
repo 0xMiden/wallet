@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [CHANGE][all] Guardian: a proposal built from request bytes is signed only when its id equals the locally derived summary commitment; on a mismatch the row fails before any signature.
 - [FIX][all] Token pickers and token details keep unread balances in a loading state instead of showing a confirmed zero-dollar value.
 - [FIX][all] Asset rows keep the full token quantity and its symbol visible, wrapping onto a taller row when the line does not fit.
 
