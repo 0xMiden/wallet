@@ -642,6 +642,18 @@ export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown
 }
 
 /**
+ * Retire the client for a trap caught where this realm holds no WASM lock (the offscreen sign: the service worker's
+ * lock is not the one around that decode), through the same no-holder recovery as the realm listeners. The cause is
+ * recorded so a later listener does not retire it again. With a current holder it does nothing: a trap that holder
+ * caught is retired with {@link retireWasmClientForCaughtTrap}.
+ */
+export function retireWasmClientForUnheldTrap(cause: unknown): void {
+  if (currentHolder !== null || wasRetiredForCaughtTrap(cause)) return;
+  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
+  recoverFromTrap(cause);
+}
+
+/**
  * Register the trap listeners on this realm (issue #775). The abandoned-future
  * case surfaces as an uncaught `error`, since its promise never settles; a trap
  * that does reject its call surfaces as an `unhandledrejection` whenever the
@@ -1171,6 +1183,8 @@ export async function withWasmClientLock<T>(
     // A trap that rejects the callback instead of abandoning it reaches no realm
     // listener, so the lock retires it through its own holder, still the owner here
     // (an evicted hold settles with WasmClientPoisonedError from `aborted` instead).
+    // A keystore trap is retired in the trampoline: only its message crosses the SDK
+    // boundary, so this check is for a trap that does arrive as the rejection.
     if (isWasmRuntimeError(err)) retireWasmClientForCaughtTrap(holder, err);
     // A locked vault reported by this hold's sign rides out on the hold's own
     // rejection, the one tag `isLockedError` reads; keyed by the hold, so no other
@@ -1624,6 +1638,13 @@ class MidenClientSingleton {
         try {
           return await sign(publicKey, signingInputs);
         } catch (err) {
+          // A keystore throw crosses the SDK boundary as its message alone, so the
+          // lock's trap check never sees this object. Retire while this hold still
+          // owns the mutex, and rethrow the trap itself. Do not evict the hold.
+          if (isWasmRuntimeError(err)) {
+            if (holder !== null) retireWasmClientForCaughtTrap(holder, err);
+            throw err;
+          }
           const reason = signReasonOf(err);
           if (holder && reason) signReasonByHold.set(holder, reason);
           throw err;

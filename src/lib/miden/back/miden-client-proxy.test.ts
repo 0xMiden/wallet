@@ -60,7 +60,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     // The flag-off consume takes the CALLER lock itself (byte-identical to the
     // old switch-under-lock); route through the control so tests can assert it.
     withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a),
-    withHoldSigner: (...a: any[]) => g.__px.withHoldSigner(...a)
+    withHoldSigner: (...a: any[]) => g.__px.withHoldSigner(...a),
+    retireWasmClientForCaughtTrap: (...a: any[]) => g.__px.retireWasmClientForCaughtTrap(...a),
+    retireWasmClientForUnheldTrap: (...a: any[]) => g.__px.retireWasmClientForUnheldTrap(...a)
   };
 });
 
@@ -215,6 +217,8 @@ function resetControl() {
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: (hold: unknown) => Promise<unknown>) => fn(G.__px.inlineHold)),
     withHoldSigner: jest.fn(async (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()),
+    retireWasmClientForCaughtTrap: jest.fn(),
+    retireWasmClientForUnheldTrap: jest.fn(),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
@@ -2493,6 +2497,34 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
     expect(fallback).toHaveBeenCalledWith('0a', '0b');
     expect((resp as any).ok).toBe(true);
   });
+
+  it.each([
+    ['a current hold', { mock: 'inline-hold' }, 'retireWasmClientForCaughtTrap'],
+    ['no hold', null, 'retireWasmClientForUnheldTrap']
+  ])(
+    'handleOffscreenSignRequest rethrows a WebAssembly.RuntimeError when there is %s, and the retire helper ran',
+    async (_holdCase, hold, helper) => {
+      const { handleOffscreenSignRequest } = await loadProxy(true);
+      const { bytesToB64 } = await import('./offscreen-codec');
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      G.__px.inlineHold = hold;
+      const response = handleOffscreenSignRequest(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: 'unregistered',
+          sign_id: 's',
+          publicKeyB64: bytesToB64(new Uint8Array([1])),
+          signingInputsB64: bytesToB64(new Uint8Array([2]))
+        } as any,
+        jest.fn(async () => {
+          throw trap;
+        })
+      );
+      await expect(response).rejects.toBe(trap);
+      expect(G.__px[helper]).toHaveBeenCalledWith(...(hold ? [hold, trap] : [trap]));
+    }
+  );
 
   it('locked vault mid-sign → DEFER: op-keyed error tag (isLockedError) — issue #313', async () => {
     const { midenClientProxy, handleOffscreenSignRequest } = await loadProxy(true);

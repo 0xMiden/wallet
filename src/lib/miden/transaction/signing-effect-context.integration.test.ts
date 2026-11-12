@@ -38,13 +38,18 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireActual('../sdk/miden-c
 type SdkSign = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
 type FakeClient = Record<string, jest.Mock>;
 // eslint-disable-next-line no-var
-var mockClient: { sign?: SdkSign; methods: FakeClient } = { methods: {} };
+var mockClient: { sign?: SdkSign; methods: FakeClient; markPoisoned: jest.Mock } = {
+  methods: {},
+  markPoisoned: jest.fn()
+};
 jest.mock('../sdk/miden-client-interface', () => ({
   ...jest.requireActual('../sdk/miden-client-interface'),
   MidenClientInterface: class {
     // Built once per realm, so each method reads the current test's stub when it is called.
     static create = async (options: { signCallback: SdkSign }) => {
       mockClient.sign = options.signCallback;
+      const markPoisoned = jest.fn();
+      mockClient.markPoisoned = markPoisoned;
       const current =
         (method: string) =>
         (...args: unknown[]) =>
@@ -56,7 +61,7 @@ jest.mock('../sdk/miden-client-interface', () => ({
         sendTransaction: current('sendTransaction'),
         swapTransaction: current('swapTransaction'),
         free: jest.fn(),
-        markPoisoned: jest.fn(),
+        markPoisoned,
         isDisposed: false
       };
     };
@@ -319,5 +324,17 @@ describe("an inline write's signer", () => {
     expect(loopSigner).not.toHaveBeenCalled();
     expect(realmSigner).toHaveBeenCalledTimes(1);
     expect(realmSigner).toHaveBeenCalledWith('0a', 'ee');
+  });
+
+  it("retires the client when an inline checked write's deserialize traps", async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    jest.mocked(SigningInputs.deserialize).mockImplementation(() => {
+      throw trap;
+    });
+    const written = withEffectCheckedSigner(executeRow, loopSigner, signer =>
+      midenClientProxy.newTransaction('acct-a', new Uint8Array([1]), false, signer)
+    );
+    await expect(written).rejects.toBe(trap);
+    expect(mockClient.markPoisoned).toHaveBeenCalledTimes(1);
   });
 });

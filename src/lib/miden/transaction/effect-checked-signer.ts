@@ -17,6 +17,13 @@ export type RawSigner = (publicKey: string, signingInputs: string) => Promise<Ui
 async function assertSignable(transaction: ITransaction, signingInputsHex: string): Promise<void> {
   let inputs: SigningInputs | undefined;
   let summary: TransactionSummary | undefined;
+  // Set when a trap is already the pending rejection, so `free` cannot replace it.
+  let trap: WebAssembly.RuntimeError | undefined;
+  const rethrowTrap = (error: unknown): void => {
+    if (!(error instanceof WebAssembly.RuntimeError)) return;
+    trap = error;
+    throw error;
+  };
   try {
     let account: string | undefined;
     try {
@@ -27,6 +34,7 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
         account = canonicalWalletAccountId(getBech32AddressFromAccountId(summary.accountDelta().id()));
       }
     } catch (error) {
+      rethrowTrap(error);
       throw effectRefusal(transaction, 'the transaction summary could not be read', error);
     }
     // A checked write signs only its own summary.
@@ -35,11 +43,22 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
       throw effectRefusal(transaction, 'the summary is for another account');
     }
     const signed = summary;
-    await assertCachedViewEffectApproved(transaction, () => summaryToView(signed));
+    try {
+      await assertCachedViewEffectApproved(transaction, () => summaryToView(signed));
+    } catch (error) {
+      rethrowTrap(error);
+      throw error;
+    }
   } finally {
     // Both hold WASM memory until freed; optional because not every binding declares `free`.
-    summary?.free?.();
-    inputs?.free?.();
+    // `free` on a trapped module can throw, and a finally throw would replace the pending trap.
+    for (const value of [summary, inputs]) {
+      try {
+        value?.free?.();
+      } catch (error) {
+        if (trap === undefined) throw error;
+      }
+    }
   }
 }
 

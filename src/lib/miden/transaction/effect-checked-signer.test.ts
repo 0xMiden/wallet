@@ -303,6 +303,43 @@ it.each([
   expect(sign).not.toHaveBeenCalled();
 });
 
+it.each([
+  [
+    'deserialize',
+    (trap: WebAssembly.RuntimeError) => {
+      jest.mocked(SigningInputs.deserialize).mockImplementation(() => {
+        throw trap;
+      });
+    }
+  ],
+  [
+    'a summary read the view decode touches',
+    (trap: WebAssembly.RuntimeError) => {
+      const payload = tokenPayment('acct-a');
+      payload.vault.mockImplementation(() => {
+        throw trap;
+      });
+      const freeing = (value: object): object =>
+        Object.assign(value, {
+          free: () => {
+            throw new Error('free replaced the trap');
+          }
+        });
+      givenSigning(freeing(summaryInputs(payload)));
+      freeing(payload);
+    }
+  ]
+])('rethrows a WebAssembly.RuntimeError from %s as that same error', async (_case, arrange) => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  arrange(trap);
+  const sign = baseSigner();
+  const refused = await withEffectCheckedSigner(execute, sign, signer => signer('pk', 'aa')).catch(
+    (error: unknown) => error
+  );
+  expect(refused).toBe(trap);
+  expect(sign).not.toHaveBeenCalled();
+});
+
 const unreadable = new Error('unexpected end of input');
 
 it.each([

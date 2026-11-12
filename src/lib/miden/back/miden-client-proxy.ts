@@ -31,6 +31,8 @@ import {
   assertWasmHoldCurrent,
   withHoldSigner,
   withWasmClientLock,
+  retireWasmClientForCaughtTrap,
+  retireWasmClientForUnheldTrap,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import type {
@@ -786,6 +788,8 @@ export function markOpStarted(op_id: string): void {
  * exactly as the inline path does (`buildSignCallbackError`) and the reason is
  * recorded PER-OP (so the write path can re-tag the thrown error for
  * `isLockedError`; issue #260 flip-prep #1 removed the redundant global slot).
+ * A `WebAssembly.RuntimeError` is not classified. It is retired and rethrown;
+ * the IPC rejection then answers the offscreen sign as a failed sign.
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
@@ -801,6 +805,14 @@ export async function handleOffscreenSignRequest(
       const signature = await cb(publicKeyHex, signingInputsHex);
       return { ok: true, sign_id, signatureB64: bytesToB64(signature) };
     } catch (rawErr) {
+      // The service worker does not hold the client lock around this decode. A trap
+      // is retired here and rethrown; classifying it would hide the RuntimeError.
+      if (rawErr instanceof WebAssembly.RuntimeError) {
+        const hold = getCurrentWasmLockHold();
+        if (hold) retireWasmClientForCaughtTrap(hold, rawErr);
+        else retireWasmClientForUnheldTrap(rawErr);
+        throw rawErr;
+      }
       // Classify identically to the inline path so a locked vault DEFERS.
       const classified = buildSignCallbackError(rawErr);
       opSignReasons.set(op_id, classified.reason);

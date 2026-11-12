@@ -89,6 +89,8 @@ async function assertDecodedViewApproved(
   try {
     view = await decode();
   } catch (error) {
+    // A trap stays that same error. Wrapping it would hide the object from the retire that owns it.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
     throw effectRefusal(transaction, 'the transaction summary could not be read', error);
   }
@@ -104,7 +106,8 @@ async function assertDecodedViewApproved(
 /**
  * Refuse a checked-type transaction whose decoded view moves more than its row was approved to move. `decode` is a
  * thunk because the chain-fee lookup must run first: the decoder reads the fee that lookup fills. A decode that throws
- * a refusal passes through, a kill of the decoding hold passes through, any other failure becomes a refusal.
+ * a refusal passes through, a kill of the decoding hold passes through, a trap passes through as that same error,
+ * and any other failure becomes a refusal.
  */
 export async function assertViewEffectApproved(
   transaction: ITransaction,
