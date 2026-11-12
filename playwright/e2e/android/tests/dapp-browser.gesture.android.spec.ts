@@ -137,6 +137,7 @@ test.describe('API36 managed presentation gestures', () => {
   let sessionId: string;
   let pid: string;
   const nativeEvents: Array<{ atMs: number; event: PresentationMorphEvent }> = [];
+  const rawNativeEvents: string[] = [];
   let stopConsole: (() => void) | undefined;
 
   test.beforeAll(async () => {
@@ -207,6 +208,7 @@ test.describe('API36 managed presentation gestures', () => {
     sessionId = session.id;
     stopConsole = host.onConsoleLog(entry => {
       if (!entry.text.startsWith(NATIVE_MORPH_PREFIX)) return;
+      rawNativeEvents.push(entry.text);
       try {
         const event: PresentationMorphEvent = JSON.parse(entry.text.slice(NATIVE_MORPH_PREFIX.length));
         if (
@@ -304,7 +306,17 @@ test.describe('API36 managed presentation gestures', () => {
         let started = false;
         let injecting = false;
         let finished = false;
+        await writeFile(
+          testInfo.outputPath(`${name}-activity-top.txt`),
+          await adb('shell', 'dumpsys', 'activity', 'top')
+        );
+        await writeFile(
+          testInfo.outputPath(`${name}-window-windows.txt`),
+          await adb('shell', 'dumpsys', 'window', 'windows')
+        );
+        await writeFile(testInfo.outputPath(`${name}-package.txt`), await adb('shell', 'dumpsys', 'package', PACKAGE));
         nativeEvents.length = 0;
+        rawNativeEvents.length = 0;
         // WAIT_FOR_FINISH is synchronous per sample; preserve the path with fewer redundant MOVE events.
         const gesture = input({ op: 'swipe', points, steps: SEGMENT_STEPS }, phase => {
           if (phase === 'started') started = true;
@@ -332,7 +344,11 @@ test.describe('API36 managed presentation gestures', () => {
           } finally {
             await writeFile(
               testInfo.outputPath(`${name}-input-evidence.json`),
-              JSON.stringify({ sourceSha: process.env.GITHUB_SHA, nativeEvents, nativeResult, samples }, null, 2)
+              JSON.stringify(
+                { sourceSha: process.env.GITHUB_SHA, nativeEvents, rawNativeEvents, nativeResult, samples },
+                null,
+                2
+              )
             );
           }
         }
