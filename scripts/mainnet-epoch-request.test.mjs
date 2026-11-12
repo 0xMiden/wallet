@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { canonicalRequestBytes } from './canonical-request-bytes.mjs';
 
 import { getWrappedSdk } from '@miden-sdk/miden-sdk';
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -130,6 +131,16 @@ function request(options = {}) {
   if (options.feeSalt) builder = builder.withFeeConversionSalt(sdk.Word.fromHex(`0x${'11'.repeat(32)}`)).withBlockNumbers([900]);
   return { state: snapshot, bytes: builder.build().serialize(), noteId };
 }
+
+test('canonicalizes actual request bytes in a browser without a Node Buffer global', () => {
+  const bytes = Uint8Array.from(request().bytes);
+  const expected = canonicalRequestBytes(bytes);
+  const buffer = globalThis.Buffer;
+  let actual;
+  try { globalThis.Buffer = undefined; actual = canonicalRequestBytes(bytes); }
+  finally { globalThis.Buffer = buffer; }
+  assert.equal(Buffer.compare(actual, expected), 0);
+});
 
 function refundFile(options = {}) {
   const input = request(options);
