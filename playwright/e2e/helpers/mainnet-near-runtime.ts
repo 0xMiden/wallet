@@ -428,7 +428,7 @@ async function originalMainnetNearStatus(
   const authority = leg === 'forward' ? state.forwardQuote : state.reverseQuote;
   if (!authority) throw new Error('Missing original native NEAR provider authority');
   const config: OneClickConfig = { serviceUrl: state.serviceUrl, appFees: state.appFees, feePolicy: state.feePolicy,
-    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, symbol: 'USDCX', decimals: 6 }] };
+    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.faucetId, decimals: 6 }] };
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
   const checked = (status: OneClickStatusResponse) => {
     if (hashOneClickQuote(status.quoteResponse) !== authority.quoteHash || status.quoteResponse.correlationId !== authority.correlationId)
