@@ -1,6 +1,6 @@
+import { inspectTestMainnetSendRequest } from './test-send-request';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { isRecord } from '../../update/guards';
-import { inspectTestMainnetSendRequest } from './test-send-request';
 
 export const TEST_SEND_AUTHORIZATION_KEY = 'e2e_mainnet_send_authorization';
 const KEY = TEST_SEND_AUTHORIZATION_KEY;

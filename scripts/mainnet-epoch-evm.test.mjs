@@ -64,6 +64,13 @@ test('reconciles the exact provider-correlated ERC20 receipt, without signing or
   const c = forwardReceiptFixture();
   assert.equal(inspectEpochForwardReceipt(c.state, hash, c.receipt), 1_001_000n);
 });
+for (const value of [500500n, 1001000n])
+  test(`rejects ambiguous same-recipient payouts of ${value} rather than attributing their sum`, () => {
+    const c = forwardReceiptFixture();
+    c.receipt.logs[0].data = encodeAbiParameters([{ type: 'uint256' }], [value]);
+    c.receipt.logs.push({ ...c.receipt.logs[0], logIndex: 1 });
+    assert.throws(() => inspectEpochForwardReceipt(c.state, hash, c.receipt), /ambiguous/i);
+  });
 for (const [name, change] of [
   [
     'different transaction',

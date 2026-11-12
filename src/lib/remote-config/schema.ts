@@ -3,8 +3,8 @@ import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
 import { type GeoBlocks, readGeoBlocks } from './geo';
-import { parseOneClickEvmAssets } from '../one-click/identity';
 import { expectedOneClickFees, parseOneClickFeePolicy } from '../one-click/fees';
+import { parseOneClickEvmAssets } from '../one-click/identity';
 import type { OneClickEvmAssetConfig, OneClickFeePolicy } from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */

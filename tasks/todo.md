@@ -9,7 +9,7 @@
 - [ ] Complete finished-code review and current-head verification of the combined scope.
 - [x] Verify the Epoch mainnet coverage gap, enabled routes, real flow and read-only quote availability.
 - [x] Confirm Epoch scope: one cheapest funded route nightly.
-- [ ] Implement and test the approved Epoch loop with durable authorization and recovery.
+- [x] Implement and test the approved Epoch loop with durable authorization and recovery.
 - [ ] Qualify Epoch with real settlement.
 - [x] Verify NEAR Intents now lists Miden assets and inspect the existing disabled 1Click loop.
 - [x] Verify real NEAR dry-quote parsing/signatures and identify the existing nightly-only configuration override.
@@ -30,9 +30,10 @@
 - Funded swaps-only run `43053422637` at `b03e844f3f09606f997799d0e1c99f76f0111edc` passed on the existing alternate runner. The retained checkpoint is complete: USDCX -> USDT -> USDCX; 1,010,464 base units offered, 1,010,091 returned, 532 native fee units paid, and $0.000905 realized loss at the pinned price. Both durable authorizations and both settled order identities are retained. No top-up or new account was needed.
 - Draft PR #2149 is open. CI `43039871550` at `0370ed4f6` observed the intended xvfb assertion failure: 1 failed, 33,306 passed, 4 skipped. A guarded local RED/GREEN proves the skip-if-installed correction (7 tests pass). The mock-browser job independently failed fetching required fonts because Ubuntu mirrors did not resolve.
 - Verified-price regression CI `43046060955` at `f7d2782e7` observed the intended 2 failures with 305 tests passing. The correction uses the same validated token-list cache as wallet valuation, bound by faucet id, and adds USDT/SOL/NEAR/PAXG to the quote search. The current-head CI passes 307 focused tests, harness conventions, nonzero discovery (8 tests), lint and types. The full unit job passes 33,309 tests, with 4 skips; all coverage shards and the unchanged 95% gate pass. Remaining setup failures are confirmed Ubuntu DNS failures, not passing checks; only failed non-funding jobs have been retried.
-- Epoch is enabled on Ethereum, Base, Arbitrum, Polygon and Robinhood. A read-only Base quote requested 1,000,501 USDC base units for 1,000,000 USDCX, before gas and claim fees. This is quote evidence, not funded acceptance. No Epoch code or spending has started while its coverage scope awaits the user's choice.
+- Initial Epoch inspection found Ethereum, Base, Arbitrum, Polygon and Robinhood enabled; a read-only Base quote requested 1,000,501 USDC base units for 1,000,000 USDCX before gas/claim fees. Scope was subsequently approved and the actual loop implemented; this quote is not funded acceptance.
 - NEAR's live token API lists five Miden assets. Read-only quote API responses succeeded both ways for USDCX/Arbitrum ETH at about $10 and USDCX/Base USDC at $5; the $1.01 Arbitrum ETH probe returned no liquidity. These are independent dry probes, not funded round trips. All four responses pass the actual wallet parser and pinned-key signature verification in a guarded local check. The published wallet config remains `nearIntents: false` with no `swap.oneClick`, and no global flag or repository variable was changed.
-- Funded solver swaps are accepted at `b03e844f3`. Epoch/NEAR implementation is in progress after the user's explicit proceed; settlement remains unverified. Independent review and remaining current-head CI gates remain pending. No merge performed.
+- Funded standalone solver swaps remain accepted at `b03e844f3` / `43053422637` and were not repeated for monitoring. Integrated swap -> Epoch -> NEAR execution/recovery, original-authority SDK/signed-EVM/native-claim upload gates, shared accounting and both spending barriers are implemented. CI `43276914808` passed 1,369 focused Jest checks and 151 actual SDK checks; after canonical formatting and main sync through `94e5ba9b2`, CI `43278208584` passed 1,375 Jest checks, 151 SDK checks, types/equivalence and actual public RPC inclusion at block 833753. These are keyless focused proofs, not full current-head CI/95% or funded Epoch/NEAR acceptance. Both funded qualifications and finished-code Council/fresh-context review remain pending. No additional funds, public flag changes or PR merge.
+- Legacy v1 1Click funded execution is retired rather than reinterpreted as v2; unsafe or unknown original authority remains blocked. `loops_only` qualifies all three added loops without legacy fees; normal scheduled coverage retains send/USDCx/AggLayer only after all-provider recovery and no-unresolved-new-principal barriers.
 
 # Follow-up to #1790: describe wallet-file contents accurately
 
@@ -687,6 +688,7 @@ Acceptance plan for the native-tap measurement:
 - [x] Write trace and metadata into the uploaded artifact directory and assert required files are nonempty.
 - [ ] Commit and push the final CI correction, then watch all exact-head checks.
 - [ ] Complete the independent direct review and send the final behavior/SHA to the #1956 owner.
+
 # Issues #2034 and #2035 - token row values and amount normalization
 
 - [x] Confirm the expected-red PR run on be7ad2f: AssetRow leaves an empty value slot, and `listedFiatValue` returns Infinity for an overflowing product.
