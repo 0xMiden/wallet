@@ -33,10 +33,10 @@ jobs:
           import json, os, pathlib, subprocess
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': '2cf9267369d9c2f708d3d7af4472dc72a593ab79', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'a0bf64b52bbac372bed6be8e405592a4408c433a'}
+          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': '2cf9267369d9c2f708d3d7af4472dc72a593ab79', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'c496d479bc9032e2b5913964acf91981f3e78a3f'}
           actual = {name: git('rev-parse', 'HEAD:' + name) for name in expected}
           source = {'head': git('rev-parse', 'HEAD'), 'tree': git('rev-parse', 'HEAD^{tree}'),
-                    'expected_test_base': '93a163013e8981170953ab14154f5d9c8206e37e',
+                    'expected_test_base': '4d86b8810f6dfadacb87136227dca7d282a63502',
                     'native_base': 'a5f75ebe548463a655d1f9230aa9905d819fc543',
                     'expected': expected, 'actual': actual}
           pathlib.Path(os.environ['RESULTS'], 'source-binding.json').write_text(json.dumps(source, indent=2) + '\n')
