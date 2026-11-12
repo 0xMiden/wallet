@@ -1,8 +1,10 @@
 /** @jest-environment node */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
+import type { MainnetEpochCheckpoint } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/mainnet-epoch-fixture';
 
 const mockClient = { readContract: jest.fn(), getBalance: jest.fn(), getChainId: jest.fn(),
@@ -23,7 +25,7 @@ jest.mock('../playwright/e2e/helpers/bridge', () => ({}));
 jest.mock('../playwright/e2e/helpers/epoch-quote', () => ({}));
 jest.mock('../playwright/e2e/helpers/swap', () => ({ exportMakerNote: (...args: unknown[]) => mockExport(...args) }));
 jest.mock('../playwright/e2e/helpers/mainnet-epoch-evm', () => ({ reconcileEpochEvmReceipts: () => true }));
-import { runEpochRefund, recoverEpochReturn } from '../playwright/e2e/helpers/mainnet-epoch-runtime';
+import { runEpochRefund, recoverEpochReturn, persistEpochEvmCheckpoint } from '../playwright/e2e/helpers/mainnet-epoch-runtime';
 
 const hash = `0x${'a'.repeat(64)}`;
 const authority = { nonce: '11111111-1111-4111-8111-111111111111', sha256: '1'.repeat(64), canonicalSha256: '2'.repeat(64) };
@@ -50,6 +52,47 @@ const path = () => join(directory, 'checkpoint.json');
 function noWrites() {
   expect(mockQueue).not.toHaveBeenCalled(); expect(mockArm).not.toHaveBeenCalled(); expect(mockExport).not.toHaveBeenCalled();
 }
+function pendingEvmState(): MainnetEpochCheckpoint {
+  return { ...epochCheckpointFixture(), phase: 'reverse-authorized', forwardNoteId: hash, forwardMidenTxId: hash,
+    forwardEvmTxHash: hash, forwardReceived: '1001000', reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0,
+    reverseAuthority: epochReverseAuthorityFixture(), transactions: [{ kind: 'approve', nonce: 0, hash }] };
+}
+it('holds a signed EVM journal until its exact checkpoint upload is acknowledged', async () => {
+  const state = pendingEvmState(); const controller = new AbortController(); const gate = join(directory, 'reverse');
+  let settled = false;
+  const pending = persistEpochEvmCheckpoint(state, path(), gate, controller.signal);
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  try {
+    await Promise.resolve();
+    expect(existsSync(`${gate}.evm-1.ready`)).toBe(true);
+    expect(settled).toBe(false);
+    const bytes = readFileSync(path());
+    expect(JSON.parse(bytes.toString()).transactions[0].hash).toBe(hash);
+    const digest = `${createHash('sha256').update(bytes).digest('hex')}\n`;
+    expect(readFileSync(`${gate}.evm-1.ready`, 'utf8')).toBe(digest);
+    writeFileSync(`${gate}.evm-1`, digest, { flag: 'wx' });
+    await pending;
+    expect(state.transactions?.[0].hash).toBe(hash);
+  } finally { controller.abort(); await pending.catch(() => undefined); }
+});
+it('keeps an unacknowledged signed journal blocked after cancellation', async () => {
+  const controller = new AbortController(); const gate = join(directory, 'reverse');
+  const pending = persistEpochEvmCheckpoint(pendingEvmState(), path(), gate, controller.signal);
+  void pending.catch(() => undefined);
+  try {
+    await Promise.resolve(); expect(existsSync(`${gate}.evm-1.ready`)).toBe(true);
+    controller.abort(); await expect(pending).rejects.toThrow(/aborted/);
+    expect(JSON.parse(readFileSync(path(), 'utf8')).transactions[0].hash).toBe(hash);
+    expect(existsSync(`${gate}.evm-1`)).toBe(false);
+  } finally { controller.abort(); await pending.catch(() => undefined); }
+});
+it('persists the actual EVM fee receipt without requesting another spending release', async () => {
+  const state = pendingEvmState(); state.transactions = [{ kind: 'approve', nonce: 0, hash, feeWei: '1000' }];
+  state.paidEvmFees = '1000'; const gate = join(directory, 'reverse');
+  await persistEpochEvmCheckpoint(state, path(), gate, new AbortController().signal);
+  expect(JSON.parse(readFileSync(path(), 'utf8')).paidEvmFees).toBe('1000');
+  expect(existsSync(`${gate}.evm-1.ready`)).toBe(false);
+});
 it('finalizes a previously recorded actual return receipt using reads only and does not add its fee twice', async () => {
   const state = returnState();
   mockVault.mockResolvedValue(BigInt(state.native.balance) - BigInt(state.principal) + 1_000_000n - 14n);

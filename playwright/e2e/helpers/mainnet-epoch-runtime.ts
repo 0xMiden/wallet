@@ -211,6 +211,12 @@ export async function recoverEpochForward(
   state.phase = 'forward-settled'; state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state);
 }
 
+export async function persistEpochEvmCheckpoint(
+  _state: MainnetEpochCheckpoint, _path: string, _gatePath: string, _signal: AbortSignal
+): Promise<void> {
+  throw new Error('Durable per-transaction Epoch upload coordination is not implemented');
+}
+
 /** Uses the existing EVM key only after the live UI's exact return authorization has been uploaded. */
 export async function runEpochReverse(
   wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, runId: string,
