@@ -30,13 +30,14 @@ jobs:
           yarn lint:e2e
           E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-request.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-request.mjs
+          yarn esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs
           yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-miden-read.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-miden-read.cjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
           yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-provider.mjs
-          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs
+          node --test --test-concurrency=2 scripts/mainnet-send-request.test.mjs scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs
           node scripts/consume-request-equivalence.mjs
           yarn ts
       - name: Check public mainnet SDK reads without keys or writes
@@ -89,7 +90,7 @@ jobs:
             stage = 'sdk-merkle-verification';
             const verified = fetched.length === 1 && note.noteId.toString() === sample.note_id &&
               proof.location().blockNum() === height && header.blockNum() === height &&
-              note.metadata.sender().toString() === Address.fromBech32(sample.sender).getAccountId().toString() &&
+              note.metadata.sender().toString() === Address.fromBech32(sample.sender).accountId().toString() &&
               proof.notePath().verify(BigInt(proof.location().blockNoteTreeIndex()), Word.fromHex(sample.note_id), header.noteRoot());
             console.log(JSON.stringify({ publicNoteProof: { noteId: sample.note_id, blockNumber: height, verified }, purpose: 'Read-only real SDK Merkle inclusion check; no note bytes or keys' }));
           } catch { console.log(JSON.stringify({ url, stage, status: 'unavailable' })); }
