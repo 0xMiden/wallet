@@ -186,6 +186,7 @@ const READY: BridgeConfigSnapshot = {
     agglayer: { indexer: { state: 'skipped' } },
     epoch: {
       allocator: { state: 'skipped' },
+      allocatorAccount: { state: 'skipped' },
       midenUsdcFaucet: { state: 'skipped' },
       market: {
         state: 'ok',

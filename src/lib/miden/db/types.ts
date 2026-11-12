@@ -719,6 +719,12 @@ export interface IConsumeSwapSettleExtraInputs {
    * the order is left to claim.
    */
   swapSettlePartial?: boolean;
+  /**
+   * The fill round of each payback this claim covers, by note id. One fill pays one payback, so classification
+   * refuses a further note at a round such a claim holds: a copied payback attachment never buys a claim of its own.
+   * A pass admits at most one unnamed note of a round, and the other copies are ordinary incoming payments.
+   */
+  swapPaybackDepths?: Record<string, number>;
 }
 
 /**
@@ -926,6 +932,20 @@ export interface ITransaction {
    * value is not proposed.
    */
   approvedEffects?: IApprovedCustomEffects;
+  /**
+   * Execute only: the per-faucet outflow the approval-time dry run showed, recorded for every decoded dry run,
+   * including one whose `spentAssetTotals` the spending-limit policy withheld because the request consumed notes the
+   * wallet already held. Signing lets at most this leave (`proposal-effect-guard.ts`); a row without it falls back to
+   * `spentAssetTotals`.
+   */
+  approvedOutflow?: IConsumedAssetTotal[];
+  /**
+   * Execute only: the complete identity (`nftKey`) of each NFT the approval-time dry run showed leaving. Signing lets
+   * exactly these leave (`proposal-effect-guard.ts`); a row without it, or with a failed dry run, may send none.
+   */
+  approvedNftOutflow?: string[];
+  /** Set when signing refused the proposal for moving more than was approved (#2147). A retry would refuse again. */
+  proposalEffectRefused?: true;
   /**
    * What this row sent, in micro-dollars, as valued when it was queued.
    *
@@ -1269,6 +1289,10 @@ export class Transaction implements ITransaction {
   spentAssetTotals?: IConsumedAssetTotal[];
   /** The effects that the user approved. See `ITransaction.approvedEffects`. */
   approvedEffects?: IApprovedCustomEffects;
+  /** See `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[];
+  /** See `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[];
   spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;

@@ -117,6 +117,10 @@ export const requestCustomTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
   dappOrigin?: string,
+  /** The NFTs the approval-time dry run showed leaving; see `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[],
+  /** The per-faucet outflow the approval-time dry run showed; see `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[],
   /**
    * The effects of the approval-time dry run that the user approved; see `ITransaction.approvedEffects`. Generation
    * proposes the row only when its own dry run gives the same effects, so a row without them is never proposed.
@@ -136,6 +140,8 @@ export const requestCustomTransaction = async (
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
+  if (approvedNftOutflow !== undefined) transaction.approvedNftOutflow = approvedNftOutflow;
+  if (approvedOutflow !== undefined) transaction.approvedOutflow = approvedOutflow;
   // A measured empty list is not a spend, so it keeps the plain insert. A list that moves value
   // goes through the priced chokepoint. An unattributable charge is not that empty list: the insert
   // rechecks the policy under one write lock and refuses when a limit is present.

@@ -153,6 +153,8 @@ describe('requestCustomTransaction', () => {
       totals,
       undefined,
       undefined,
+      undefined,
+      undefined,
       approvedEffects
     );
     await requestCustomTransaction(
@@ -165,12 +167,16 @@ describe('requestCustomTransaction', () => {
       [],
       undefined,
       undefined,
+      undefined,
+      undefined,
       approvedEffects
     );
 
     await requestCustomTransaction(
       'account-a',
       REQUEST_BYTES,
+      undefined,
+      undefined,
       undefined,
       undefined,
       undefined,

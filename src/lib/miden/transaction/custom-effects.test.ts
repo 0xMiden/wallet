@@ -138,12 +138,25 @@ describe('approveCustomSimulation', () => {
     });
   });
 
-  it('charges the net outflow after the credit of the notes the request introduced', () => {
+  it('does not credit introduced notes again in a summary net outflow', () => {
     const approval = approve(view(), ['0xr1'], {
       introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
       introducedCount: 1
     });
 
+    expect(approval.spends).toEqual([{ faucetId: 'faucet-a', amount: 10n }]);
+  });
+
+  it('credits executed gross outflow with the notes the request introduced', () => {
+    mockViews.set('approved', view());
+    mockRecipients.set('approved', ['0xr1']);
+    const approval = approveCustomSimulation({
+      executedBytes: 'approved',
+      introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
+      introducedCount: 1
+    });
+
+    if (approval === undefined) throw new Error('the approval dry run gave no result');
     expect(approval.spends).toEqual([{ faucetId: 'faucet-a', amount: 6n }]);
   });
 
@@ -260,11 +273,17 @@ describe('assertCustomEffectsApproved', () => {
   });
 
   it('charges with the approval provenance, which the generation dry run cannot identify again', () => {
-    const approval = approve(view(), ['0xr1'], {
+    mockViews.set('approved', view());
+    mockRecipients.set('approved', ['0xr1']);
+    const approval = approveCustomSimulation({
+      executedBytes: 'approved',
       introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
       introducedCount: 1
     });
-    const dryRun = generate(view());
+    if (approval === undefined) throw new Error('the approval dry run gave no result');
+    mockViews.set('generated', view());
+    mockRecipients.set('generated', ['0xr1']);
+    const dryRun = { executedBytes: 'generated' };
 
     expect(() =>
       assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 6n }])

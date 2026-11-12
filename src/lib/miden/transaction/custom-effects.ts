@@ -104,11 +104,10 @@ function decodeCustomEffects(dryRun: CustomDryRunResult): DecodedCustomEffects |
  * Per-faucet value that leaves the account, for the spending-limit policy, or `undefined` when the policy cannot
  * attribute it.
  *
- * The summary result reports a NETTED vault delta with no note identity, so it has already credited every consumed
- * note, also the notes that the wallet already held. When the request consumed more notes than it introduced, that
- * figure understates the outflow and the policy must not use it. The executed result reports note flows, so its
- * value is always attributable. The charge is the NET outflow after the credit of the notes that the request
- * introduced, and of no other notes.
+ * The summary result reports a NETTED vault delta with no note identity, so it already includes every consumed note.
+ * It is attributable only when the request introduced every consumed note, and must not be reduced by
+ * `introducedCredit` again. The executed result reports gross note flows, so subtract only the notes the request
+ * introduced.
  */
 export function customEffectSpends(
   view: TxAssetView,
@@ -117,7 +116,8 @@ export function customEffectSpends(
 ): IConsumedAssetTotal[] | undefined {
   const attributable = shape === 'executed' || view.inputNotesConsumed <= (provenance.introducedCount ?? 0);
   if (!attributable) return undefined;
-  return netOutflowByFaucet(view, provenance.introducedCredit ?? []).map(asset => ({
+  const credit = shape === 'executed' ? (provenance.introducedCredit ?? []) : [];
+  return netOutflowByFaucet(view, credit).map(asset => ({
     faucetId: asset.faucetId,
     amount: asset.amount
   }));

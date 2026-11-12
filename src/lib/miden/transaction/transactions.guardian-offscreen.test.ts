@@ -261,6 +261,8 @@ jest.mock('./custom-effects', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
+// These proposals carry no summary; the signing-time effect check has its own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({ assertProposalEffectApproved: async () => {} }));
 jest.mock('lib/telemetry/transaction-failure', () => ({
   reportTransactionFailure: jest.fn(),
   captureSubmitContext: jest.fn(() => undefined)

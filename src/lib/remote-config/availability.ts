@@ -163,6 +163,9 @@ function chainAvailability(
         return unavailable('not-configured', 'Epoch provider or token is missing');
       if (!derived) return { state: 'loading' };
       checks.push(checkProbe(derived.epoch.allocator, 'Epoch allocator'));
+      // A Fast send and an Earn deposit build a collateral note for the allocator's Miden account, so they need it.
+      if (feature !== 'fastBridgeIn')
+        checks.push(checkProbe(derived.epoch.allocatorAccount, 'Epoch allocator account'));
       if (feature !== 'earnDeposit') checks.push(checkEpochTokens(reads?.epoch.tokens));
       // Each deposit token delivers into its own faucet (`EpochTokenRead`), so Fast bridge-in needs one whose faucet
       // was read, not the testnet's output faucet, which a mainnet document never names.

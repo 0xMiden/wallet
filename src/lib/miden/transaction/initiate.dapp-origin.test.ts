@@ -130,3 +130,37 @@ describe('the origin a dApp row is created for', () => {
     expect(insertedRow()).toEqual(listsNoOrigin());
   });
 });
+
+// The signing-time check lets exactly these NFTs leave (#2147), so the row carries them from its insert on both paths.
+describe('the NFTs a dApp custom row was approved to send', () => {
+  const nfts = (spent: typeof SPENT | undefined, approvedNftOutflow?: string[], approvedOutflow?: typeof SPENT) =>
+    requestCustomTransaction(
+      'account-a',
+      REQUEST_BYTES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      spent,
+      undefined,
+      ORIGIN,
+      approvedNftOutflow,
+      approvedOutflow
+    );
+
+  it.each([
+    ['inserted directly', undefined],
+    ['inserted through the spending-limit chokepoint', SPENT]
+  ])('are on the row %s, with the outflow the approval showed', async (_path, spent) => {
+    await nfts(spent, ['nft-key-1'], SPENT);
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({ type: 'execute', approvedNftOutflow: ['nft-key-1'], approvedOutflow: SPENT })
+    );
+  });
+
+  it('are absent from a row approved without any', async () => {
+    await nfts(SPENT);
+    expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedNftOutflow: expect.anything() }));
+    expect(insertedRow()).toEqual(expect.not.objectContaining({ approvedOutflow: expect.anything() }));
+  });
+});

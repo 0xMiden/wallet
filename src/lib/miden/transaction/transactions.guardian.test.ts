@@ -14,6 +14,7 @@
 import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
+import { getMessage } from 'lib/i18n/core';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import {
   GUARDIAN_CANDIDATE_HOLD_MS,
@@ -89,6 +90,7 @@ import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
   ISubmitEvidence,
+  ITransaction,
   ITransactionStage,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -372,7 +374,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
   // Unknown, so no output note is set aside as the fee note.
-  getVerificationBaseFeeSync: jest.fn(() => null)
+  getVerificationBaseFeeSync: jest.fn(() => null),
+  isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 
 let mockLegacyFeeIdentity: string | undefined;
@@ -427,6 +430,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   walletAccountIdToSdk: (id: string) => mockParseAccountRef(id),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  getBech32AddressFromAccountId: (id: string | { __faucet: string }) => (typeof id === 'string' ? id : id.__faucet),
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
   randomFeeSalt: () => mockRandomFeeSalt(),
@@ -451,9 +455,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     WasmWebClient: {
       createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
-    }
+    },
+    TransactionSummary: { deserialize: (...a: unknown[]) => mockDeserializeSummary(...a) }
   };
 });
+
+// The signing-time effect check allows by default: this file's proposals carry no summary. Its own tests run the
+// real check, and so do the wiring tests at the end of this file.
+const mockDeserializeSummary = jest.fn();
+const mockAssertProposalEffect = jest.fn(async (_transaction: ITransaction, _txSummary: string | undefined) => {});
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: (...a: Parameters<typeof mockAssertProposalEffect>) => mockAssertProposalEffect(...a)
+}));
 
 jest.mock('../sdk/native-prover-mobile', () => ({
   buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
@@ -14811,4 +14824,333 @@ it('records only directly examined admission decisions without extra eligibility
     unblock();
     await running;
   }
+});
+
+// The signing-time effect check (#2147), run for real between the proposal and the hot key's signature.
+describe('Guardian proposal effect check', () => {
+  const realEffectCheck =
+    jest.requireActual<typeof import('./proposal-effect-guard')>(
+      './proposal-effect-guard'
+    ).assertProposalEffectApproved;
+
+  type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
+  const fa = (faucet: string, amount: bigint): Asset => ({
+    faucetId: () => ({ __faucet: faucet }),
+    amount: () => amount
+  });
+  const note = (assets: Asset[]) => ({ assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] }) });
+  // A summary as the SDK hands it over: the net vault delta, the notes consumed and the notes created.
+  const summary = ({ removed = [], added = [] }: { removed?: Asset[]; added?: Asset[] }) => ({
+    accountDelta: () => ({
+      id: () => 'guardian-acc',
+      vault: () => ({
+        removedFungibleAssets: () => removed,
+        addedFungibleAssets: () => added,
+        numAssets: () => removed.length + added.length
+      }),
+      storage: () => ({ isEmpty: () => true })
+    }),
+    inputNotes: () => ({
+      numNotes: () => added.length,
+      notes: () => added.map(asset => ({ note: () => note([asset]) }))
+    }),
+    outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
+  });
+
+  const serviceWith = (proposal: Record<string, unknown>, abandonCandidate = jest.fn(async (_nonce: number) => {})) => {
+    const service = {
+      guardianEndpoint: 'https://old.guardian',
+      createConsumeNotesProposal: jest.fn(async () => proposal),
+      createCustomProposal: jest.fn(async () => proposal),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+    return service;
+  };
+
+  const run = async (queued: Record<string, unknown>) => {
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    mockAssertProposalEffect.mockImplementationOnce(realEffectCheck);
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    return txStore.find(r => r.id === queued.id) as Record<string, unknown>;
+  };
+
+  beforeEach(() => {
+    txStore.length = 0;
+    mockDeserializeSummary.mockReset();
+  });
+
+  // Filling a stranger's PSWAP order: its offer comes in, and the asset it requested leaves from this vault.
+  const PSWAP_FILL = summary({ removed: [fa('fA', 500n)], added: [fa('fB', 100n)] });
+
+  it.each([
+    ['pays out the asset a swap order requested', 'ZmlsbA==', '500 of fA leaves (approved 0)'],
+    ['carries no summary', undefined, 'the proposal carries no transaction summary']
+  ])(
+    'fails a claim whose proposal %s, never signs it and abandons its candidate',
+    async (_label, txSummary, detail) => {
+      mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
+      const service = serviceWith({ id: 'prop-fill', nonce: 7, metadata: {}, txSummary });
+
+      const row = await run({ id: 'claim-fill', type: 'consume', accountId: 'guardian-acc', noteId: 'pswap-order' });
+
+      expect(service.createConsumeNotesProposal).toHaveBeenCalledWith(['pswap-order']);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(getMessage('proposalEffectRefused'));
+      expect(row.rawError).toBe(`ProposalEffectRefusedError: Refused to sign this consume transaction: ${detail}`);
+      // Not kept on the row, not requeued, and no Retry: a refusal is the summary's verdict, not a transient failure.
+      expect(row.guardianCandidate).toBeUndefined();
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(row.proposalEffectRefused).toBe(true);
+    }
+  );
+
+  it('keeps a consume candidate during the pending fee lookup and forgets it when the check refuses', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    let releaseFee!: (fee: number) => void;
+    const feePending = new Promise<number>(resolve => {
+      releaseFee = resolve;
+    });
+    let entered!: () => void;
+    const feeLookupStarted = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const keptWhileFeePending: unknown[] = [];
+    nativeAsset.getVerificationBaseFee.mockImplementation(async () => {
+      keptWhileFeePending.push(txStore.find(row => row.id === 'claim-pending-fee')?.guardianCandidate);
+      entered();
+      return feePending;
+    });
+    try {
+      mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
+      const service = serviceWith({ id: 'prop-pending', nonce: 11, metadata: {}, txSummary: 'ZmlsbA==' });
+      const running = run({
+        id: 'claim-pending-fee',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'pswap-order'
+      });
+      try {
+        await feeLookupStarted;
+        // Still `creating-proposal`: the signing stage is written only after this check returns.
+        expect(txStore.find(row => row.id === 'claim-pending-fee')?.stage).toBe('creating-proposal');
+        expect(keptWhileFeePending).toEqual([
+          {
+            endpoint: 'https://old.guardian',
+            nonce: 11,
+            proposedAt: expect.any(Number),
+            attemptId: expect.any(String)
+          }
+        ]);
+      } finally {
+        releaseFee(10000);
+      }
+      const row = await running;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.guardianCandidate).toBeUndefined();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(11);
+    } finally {
+      nativeAsset.getVerificationBaseFee.mockReset();
+      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+    }
+  });
+
+  it('requeues a claim when the chain fee is not known yet, and fails a custom transaction at once', async () => {
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    nativeAsset.getVerificationBaseFee.mockResolvedValue(null);
+    nativeAsset.isVerificationBaseFeeKnownAbsent.mockReturnValue(false);
+    try {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('usdcx', 2n)] }));
+      const claimService = serviceWith({ id: 'prop-fee', nonce: 9, metadata: {}, txSummary: 'ZmVl' });
+      const claim = await run({
+        id: 'claim-fee-unknown',
+        type: 'consume',
+        accountId: 'guardian-acc',
+        noteId: 'note-1'
+      });
+      expect(claimService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(claimService.abandonCandidate).toHaveBeenCalledWith(9);
+      expect(claim.status).toBe(ITransactionStatus.Queued);
+      expect(claim.nextEligibleAt).toEqual(expect.any(Number));
+      expect(claim.proposalEffectRefused).toBeUndefined();
+
+      const executeService = serviceWith({ id: 'prop-fee-x', nonce: 3, metadata: {}, txSummary: 'ZmVl' });
+      const executed = await run({
+        id: 'execute-fee-unknown',
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4])
+      });
+      expect(executeService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(executeService.abandonCandidate).toHaveBeenCalledWith(3);
+      expect(executed.status).toBe(ITransactionStatus.Failed);
+      expect(executed.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+      expect(executed.nextEligibleAt).toBeUndefined();
+      expect(executed.proposalEffectRefused).toBeUndefined();
+    } finally {
+      nativeAsset.getVerificationBaseFee.mockReset();
+      nativeAsset.getVerificationBaseFee.mockImplementation(async () => 10000);
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockReset();
+      nativeAsset.isVerificationBaseFeeKnownAbsent.mockImplementation(() => false);
+    }
+  });
+
+  it('fails a custom transaction whose summary moves more than its approval showed, unsigned', async () => {
+    mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', 101n)] }));
+    const service = serviceWith({ id: 'prop-drain', nonce: 4, metadata: {}, txSummary: 'ZHJhaW4=' });
+
+    const row = await run({
+      id: 'execute-drain',
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }]
+    });
+
+    expect(service.createCustomProposal).toHaveBeenCalledTimes(1);
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(4);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.rawError).toBe(
+      'ProposalEffectRefusedError: Refused to sign this execute transaction: 101 of fA leaves (approved 100)'
+    );
+  });
+
+  it('signs a custom transaction whose summary moves what its approval showed', async () => {
+    mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', 100n)] }));
+    const service = serviceWith({ id: 'prop-ok', nonce: 5, metadata: {}, txSummary: 'b2s=' });
+
+    const row = await run({
+      id: 'execute-ok',
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [{ faucetId: 'fA', amount: 100n }]
+    });
+
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-ok', expect.any(Uint8Array));
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // An NFT as the SDK hands it over; the decoder keys it by its faucet and complete value word.
+  const nftAsset = (faucet: string, word: string) => ({
+    faucetId: () => ({ __faucet: faucet }),
+    intoWord: () => ({ toHex: () => word })
+  });
+  const sendsNft = {
+    accountDelta: () => ({
+      id: () => 'guardian-acc',
+      vault: () => ({ removedFungibleAssets: () => [], addedFungibleAssets: () => [], numAssets: () => 1 }),
+      storage: () => ({ isEmpty: () => true })
+    }),
+    inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+    outputNotes: () => ({
+      numNotes: () => 1,
+      notes: () => [
+        { assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [nftAsset('fN', '0xone')] }) }
+      ]
+    })
+  };
+
+  it.each([
+    ['the NFT its approval showed', ['fN|0xone'], ITransactionStatus.Completed],
+    ['an NFT its approval did not show', ['fN|0xtwo'], ITransactionStatus.Failed]
+  ])('signs a custom transaction sending %s, and only that one', async (_label, approvedNftOutflow, status) => {
+    mockDeserializeSummary.mockReturnValue(sendsNft);
+    const service = serviceWith({ id: 'prop-nft', nonce: 6, metadata: {}, txSummary: 'bmZ0' });
+
+    const row = await run({
+      id: `execute-nft-${status}`,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes: new Uint8Array([4, 4]),
+      spentAssetTotals: [],
+      approvedNftOutflow
+    });
+
+    expect(row.status).toBe(status);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledTimes(
+      status === ITransactionStatus.Completed ? 1 : 0
+    );
+  });
+
+  // The approval consumed a note the wallet already held, so its policy totals were withheld; signing reads the
+  // outflow the sheet showed.
+  it.each([
+    ['what the sheet showed', 100n, ITransactionStatus.Completed],
+    ['one unit more', 101n, ITransactionStatus.Failed]
+  ])(
+    'signs a custom transaction approved with withheld totals that moves %s, and no more',
+    async (_l, sent, status) => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('fA', sent)] }));
+      const service = serviceWith({ id: 'prop-held', nonce: 8, metadata: {}, txSummary: 'aGVsZA==' });
+
+      const row = await run({
+        id: `execute-held-${sent}`,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        requestBytes: new Uint8Array([4, 4]),
+        spentAssetTotals: [],
+        approvedOutflow: [{ faucetId: 'fA', amount: 100n }]
+      });
+
+      expect(row.status).toBe(status);
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledTimes(
+        status === ITransactionStatus.Completed ? 1 : 0
+      );
+    }
+  );
+
+  it('flags a refused candidate whose abandon fails for the next proposal to retry (#1317)', async () => {
+    mockDeserializeSummary.mockReturnValue(PSWAP_FILL);
+    const service = serviceWith(
+      { id: 'prop-fill', nonce: 9, metadata: {}, txSummary: 'ZmlsbA==' },
+      jest.fn(async (_nonce: number) => {
+        throw new Error('guardian refused the abandon');
+      })
+    );
+
+    const row = await run({ id: 'claim-unabandoned', type: 'consume', accountId: 'guardian-acc', noteId: 'n' });
+
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expectAbandonMark('guardian-acc', { endpoint: 'https://old.guardian', nonce: 9 });
+  });
+
+  it('leaves a send alone: its proposal is signed without a summary to check', async () => {
+    const service = { ...serviceWith({}), createSendProposal: jest.fn(async () => ({ id: 'prop-send', nonce: 3 })) };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+
+    await run({
+      id: 'send-unchecked',
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'private',
+      amount: '1000'
+    });
+
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-send', undefined);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockDeserializeSummary).not.toHaveBeenCalled();
+  });
 });
