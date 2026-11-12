@@ -99,7 +99,9 @@ import {
   resetNativeAssetCache,
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent
+  isVerificationBaseFeeKnownAbsent,
+  getClaimFloorBaseFee,
+  getClaimFloorBaseFeeSync
 } from './native-asset';
 
 beforeEach(async () => {
@@ -382,6 +384,48 @@ describe('native-asset module', () => {
 
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
     expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  it('gives the claim floor the fee once it is known', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 3
+    };
+
+    await expect(getClaimFloorBaseFee()).resolves.toBe(3);
+    expect(getClaimFloorBaseFeeSync()).toBe(3);
+  });
+
+  it('gives the claim floor 0 once the probe found the chain reports no fee', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
+
+    await expect(getClaimFloorBaseFee()).resolves.toBe(0);
+    expect(getClaimFloorBaseFeeSync()).toBe(0);
+    expect(getVerificationBaseFeeSync()).toBeNull();
+  });
+
+  it('gives the claim floor null while the fee cannot be read', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => {
+        throw new Error('accessor blew up');
+      }
+    };
+
+    await expect(getClaimFloorBaseFee()).resolves.toBeNull();
+    expect(getClaimFloorBaseFeeSync()).toBeNull();
+  });
+
+  it('gives the claim floor null on an endpoint it has not probed', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
+    await expect(getClaimFloorBaseFee()).resolves.toBe(0);
+
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    expect(getClaimFloorBaseFeeSync()).toBeNull();
   });
 
   // A trap here is in the RpcClient discover() builds for its one read, never in the client in the slot, so it is

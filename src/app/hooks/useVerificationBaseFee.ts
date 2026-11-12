@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 
-import { getVerificationBaseFee, getVerificationBaseFeeSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
+import {
+  getClaimFloorBaseFee,
+  getClaimFloorBaseFeeSync,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  onNativeAssetChanged
+} from 'lib/miden-chain/native-asset';
 
 /**
  * Returns the chain's per-transaction verification base fee, in the fee asset's
@@ -14,8 +20,8 @@ import { getVerificationBaseFee, getVerificationBaseFeeSync, onNativeAssetChange
  * Seeds from the synchronous cache so an already-discovered fee is available on
  * first render, avoiding a frame of fee-less UI.
  */
-function useVerificationBaseFee(): number | null {
-  const [baseFee, setBaseFee] = useState<number | null>(getVerificationBaseFeeSync());
+function useBaseFee(readSync: () => number | null, readAsync: () => Promise<number | null>): number | null {
+  const [baseFee, setBaseFee] = useState<number | null>(readSync());
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +33,7 @@ function useVerificationBaseFee(): number | null {
     const read = async () => {
       const request = ++generation;
       try {
-        const fee = await getVerificationBaseFee();
+        const fee = await readAsync();
         if (!cancelled && request === generation) setBaseFee(fee);
       } catch (err) {
         console.warn('useVerificationBaseFee: base fee read failed', err);
@@ -52,6 +58,15 @@ function useVerificationBaseFee(): number | null {
   }, []);
 
   return baseFee;
+}
+
+function useVerificationBaseFee(): number | null {
+  return useBaseFee(getVerificationBaseFeeSync, getVerificationBaseFee);
+}
+
+/** The fee the claim floor measures against: 0 once the chain is known to report none, null while unknown. */
+export function useClaimFloorBaseFee(): number | null {
+  return useBaseFee(getClaimFloorBaseFeeSync, getClaimFloorBaseFee);
 }
 
 export default useVerificationBaseFee;

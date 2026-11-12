@@ -386,6 +386,19 @@ export function isVerificationBaseFeeKnownAbsent(): boolean {
   return feeProbedScope === cacheScope() && feeMemCache === null;
 }
 
+/**
+ * The fee an unattended claim measures against. 0 on a chain whose fee the probe found absent, so nothing is held
+ * back, as on a chain that charges nothing; null while unknown, which the floor refuses.
+ */
+export async function getClaimFloorBaseFee(): Promise<number | null> {
+  const fee = await getVerificationBaseFee();
+  return fee ?? (isVerificationBaseFeeKnownAbsent() ? 0 : null);
+}
+
+export function getClaimFloorBaseFeeSync(): number | null {
+  return getVerificationBaseFeeSync() ?? (isVerificationBaseFeeKnownAbsent() ? 0 : null);
+}
+
 export async function getVerificationBaseFee(): Promise<number | null> {
   invalidateOnEndpointChange();
   if (feeMemCache !== null) return feeMemCache;

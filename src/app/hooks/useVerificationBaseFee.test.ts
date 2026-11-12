@@ -1,11 +1,19 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { maxSendableNative } from 'lib/miden/fees/spendable';
-import { getVerificationBaseFee, getVerificationBaseFeeSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
+import {
+  getClaimFloorBaseFee,
+  getClaimFloorBaseFeeSync,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  onNativeAssetChanged
+} from 'lib/miden-chain/native-asset';
 
-import useVerificationBaseFee from './useVerificationBaseFee';
+import useVerificationBaseFee, { useClaimFloorBaseFee } from './useVerificationBaseFee';
 
 jest.mock('lib/miden-chain/native-asset', () => ({
+  getClaimFloorBaseFee: jest.fn(),
+  getClaimFloorBaseFeeSync: jest.fn(),
   getVerificationBaseFee: jest.fn(),
   getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
@@ -13,6 +21,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 const mockAsync = getVerificationBaseFee as jest.MockedFunction<typeof getVerificationBaseFee>;
 const mockSync = getVerificationBaseFeeSync as jest.MockedFunction<typeof getVerificationBaseFeeSync>;
+const mockFloorAsync = getClaimFloorBaseFee as jest.MockedFunction<typeof getClaimFloorBaseFee>;
+const mockFloorSync = getClaimFloorBaseFeeSync as jest.MockedFunction<typeof getClaimFloorBaseFeeSync>;
 const mockSubscribe = onNativeAssetChanged as jest.MockedFunction<typeof onNativeAssetChanged>;
 
 function deferred<T>() {
@@ -148,5 +158,44 @@ describe('useVerificationBaseFee', () => {
     renderHook(() => useVerificationBaseFee()).unmount();
 
     expect(unsub).toHaveBeenCalled();
+  });
+});
+
+describe('useClaimFloorBaseFee', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSubscribe.mockReturnValue(() => {});
+  });
+
+  it('useClaimFloorBaseFee reports 0 once the chain is known to charge nothing', async () => {
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockResolvedValue(0);
+
+    const { result } = renderHook(() => useClaimFloorBaseFee());
+
+    await waitFor(() => expect(result.current).toBe(0));
+  });
+
+  it('useClaimFloorBaseFee stays null while the fee is unknown', async () => {
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useClaimFloorBaseFee());
+
+    await waitFor(() => expect(mockFloorAsync).toHaveBeenCalled());
+    expect(result.current).toBeNull();
+  });
+
+  it('useClaimFloorBaseFee re-reads when the native asset changes', async () => {
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockResolvedValueOnce(null).mockResolvedValueOnce(7);
+    const { result } = renderHook(() => useClaimFloorBaseFee());
+    await waitFor(() => expect(mockFloorAsync).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockSubscribe.mock.calls[0]![0]('native');
+    });
+
+    await waitFor(() => expect(result.current).toBe(7));
   });
 });
