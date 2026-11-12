@@ -209,7 +209,15 @@ const ALLOWED: Record<string, string[]> = {
   // Session allowlist, plus one hold per in-flight probe. The hold is removed
   // when that probe settles, so it is not a retry budget. `NULL_BODY_STATUSES`
   // is a constant table of HTTP statuses the fetch boundary answers with no body.
-  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'NULL_BODY_STATUSES', 'probeHolds'],
+  // The two probe maps are one attempt's deadline and the native read its permit waits on,
+  // both keyed by that attempt's signal and removed when the attempt returns.
+  'src/lib/miden/guardian/native-http.ts': [
+    'guardianNativeProbeSettlements',
+    'guardianOrigins',
+    'guardianProbeRequestBudgets',
+    'NULL_BODY_STATUSES',
+    'probeHolds'
+  ],
   // Static proposal and error-name catalogs, with no per-account retry state.
   'src/lib/miden/guardian/index.ts': ['BUILTIN_PROPOSAL_TYPES', 'POST_PUSH_PROPOSAL_VERIFICATION_NAMES'],
   // One promise chain per account, which serializes that account's guardian

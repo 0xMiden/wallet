@@ -162,6 +162,12 @@ jest.mock('lib/platform', () => ({
   isMobile: () => false
 }));
 
+// A checked write decides the chain fee before it runs.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0)
+}));
+
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
