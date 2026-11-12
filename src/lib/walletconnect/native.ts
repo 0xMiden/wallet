@@ -150,6 +150,7 @@ export const NativeReown: ReownPlugin = new Proxy(rawNativeReown, {
     }
     if (key === 'sendTransaction') {
       return (options: ReownSendTransactionOptions) =>
+        // eslint-disable-next-line no-restricted-syntax -- EVM Reown send on the raw plugin, not a Miden client
         target.sendTransaction(options).catch((rejection: unknown) => {
           throw nativeRequestRejection(rejection);
         });

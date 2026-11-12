@@ -75,7 +75,13 @@ describe('effect-checked write lint', () => {
       'client.transactions.batch(opts)',
       'client.transactions.submitBatch(account, reqs)',
       'client?.transactions?.send(opts)',
-      'client.transactions.send?.(opts)'
+      'client.transactions.send?.(opts)',
+      'client.sendTransaction(tx)',
+      "client['sendTransaction'](tx)",
+      'client?.sendTransaction(tx)',
+      'midenClientProxy.sendTransaction(tx, signer)',
+      'target.sendTransaction(options)',
+      '(await getMidenClient()).sendTransaction(tx, onStage)'
     ];
     const code = writes.map(w => `${w};\n`).join('');
     expect(await lint(code, 'src/lib/miden/foo/bar.ts')).toEqual(Array(writes.length).fill(MESSAGE));
@@ -94,7 +100,8 @@ describe('effect-checked write lint', () => {
       'proven.submit()',
       'attempt.submit()',
       'NativeReown.sendTransaction(opts)',
-      'client.sendTransaction(tx)',
+      "NativeReown['sendTransaction'](opts)",
+      'NativeReown?.sendTransaction(opts)',
       'NoteScript.swap()',
       'NoteScript.mint()',
       'Repo.transactions.where({ id }).first()',
