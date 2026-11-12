@@ -201,6 +201,14 @@ for (const [name, change] of [
   await assert.rejects(c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal()));
   assert.equal(c.counts().broadcasts, 0);
 });
+test('refuses a generic-hex signer result that is a valid legacy transaction instead of EIP-1559', async () => {
+  const c = senderFixture();
+  c.input.sign = transaction => c.account.signTransaction({ to: transaction.to, data: transaction.data,
+    value: transaction.value, nonce: transaction.nonce, chainId: transaction.chainId, gas: transaction.gas,
+    gasPrice: 2n, type: 'legacy' });
+  await assert.rejects(c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal()), /EIP-1559/);
+  assert.equal(c.counts().broadcasts, 0);
+});
 test('checks the recovered signing account before broadcasting', async () => {
   const c = senderFixture();
   const other = privateKeyToAccount(`0x${'0'.repeat(63)}2`);

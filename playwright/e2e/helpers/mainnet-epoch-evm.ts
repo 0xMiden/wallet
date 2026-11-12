@@ -32,9 +32,12 @@ export interface EpochEvmSenderInput {
       transactionHash: Hash; status: 'success' | 'reverted'; gasUsed: bigint; effectiveGasPrice: bigint;
     }>;
   };
-  sign: (transaction: EpochEvmEnvelope) => Promise<TransactionSerializedEIP1559>;
+  sign: (transaction: EpochEvmEnvelope) => Promise<Hex>;
   persist: (state: MainnetEpochCheckpoint) => Promise<void>;
 }
+const isSerializedEip1559 = (raw: Hex): raw is TransactionSerializedEIP1559 =>
+  raw.startsWith('0x02') && isHex(raw, { strict: true });
+
 export function createEpochEvmSender(
   state: MainnetEpochCheckpoint, input: EpochEvmSenderInput
 ): { send: (transaction: CounterpartyTransaction, signal: AbortSignal) => Promise<Hash> } {
@@ -109,6 +112,7 @@ export function createEpochEvmSender(
       active(signal);
       inspectLive(transaction);
       const raw = await input.sign(envelope);
+      if (!isSerializedEip1559(raw)) throw new Error('Epoch signer did not produce a serialized EIP-1559 transaction');
       let decoded: ReturnType<typeof parseTransaction>;
       let signer: Address;
       try {
