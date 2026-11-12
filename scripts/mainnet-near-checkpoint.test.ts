@@ -58,6 +58,11 @@ it('records a genuinely receipted provider native refund as cancelled, never as 
 it('retains original zero-spend authority without inventing a funded receipt', () => {
   const state = fixture(); state.phase = 'unspent'; expect(parseMainnetNearCheckpoint(state)).toEqual(state);
 });
+it('refuses an actual forward refund fee that would exceed the original remaining shared allowance', () => {
+  const state = fixture(); state.lossBudgetUsdMicros = '20000';
+  state.forwardQuote = { ...quote('mm1apeg8ae87qy4n52a2myu6kpk8c3y4mav', state.principal), refundFee: '30000' };
+  expect(() => parseMainnetNearCheckpoint(state)).toThrow();
+});
 it('never replaces a corrupt existing checkpoint with a fresh principal or budget', () => {
   const path = join(directory, 'roundtrip.json'); writeFileSync(path, '{bad'); expect(() => loadMainnetNearCheckpoint(path)).toThrow();
 });
