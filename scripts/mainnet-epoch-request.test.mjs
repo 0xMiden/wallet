@@ -6,7 +6,7 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -66,6 +66,42 @@ test('refuses a changed actual SDK nonce response even when the earlier quote pa
 });
 
 const bindingFelts = [0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111111111n, 0x11111111n];
+
+function returnFile(options = {}) {
+  const snapshot = state();
+  const from = options.selfFill ? sender() : sdk.AccountId.fromHex(snapshot.midenAllocator);
+  const to = options.otherRecipient ? sdk.AccountId.fromHex(snapshot.midenAllocator) : sender();
+  const faucet = options.otherFaucet ? sdk.Address.fromBech32('mm1apwt08ff2p7n45tmkmwxqfu73y70hydp').accountId() : sdk.AccountId.fromHex(snapshot.native.hex);
+  const assets = [new sdk.FungibleAsset(faucet, options.amount ?? 1_000_001n)];
+  if (options.extraAsset) assets.push(new sdk.FungibleAsset(sdk.Address.fromBech32('mm1apwt08ff2p7n45tmkmwxqfu73y70hydp').accountId(), 1n));
+  const attachment = new sdk.NoteAttachment();
+  const noteType = options.private ? sdk.NoteType.Private : sdk.NoteType.Public;
+  const note = options.reclaimable
+    ? sdk.Note.createP2IDENote(from, to, new sdk.NoteAssets(assets), 7200, null, noteType, attachment)
+    : sdk.Note.createP2IDNote(from, to, new sdk.NoteAssets(assets), noteType, attachment);
+  const noteId = note.id().toString();
+  // Unit-only transport proof; funded runtime must use the provider-correlated note and its real chain receipt.
+  return { snapshot, noteId, bytes: sdk.NoteFile.fromInputNote(
+    sdk.InputNote.authenticated(note, sdk.NoteInclusionProof.mockAtBlock(1000))
+  ).serialize() };
+}
+for (const privacy of [false, true]) test(`inspects actual SDK ${privacy ? 'private' : 'public'} return-note bytes without consuming`, () => {
+  const input = returnFile({ private: privacy });
+  assert.equal(inspectEpochReturnNote(input.snapshot, input.noteId, input.bytes), 1_000_001n);
+});
+for (const [name, options] of [
+  ['self-filled note', { selfFill: true }], ['another recipient', { otherRecipient: true }],
+  ['another faucet', { otherFaucet: true }], ['underfilled native output', { amount: 999_999n }],
+  ['an extra asset', { extraAsset: true }], ['an allocator-reclaimable return', { reclaimable: true }]
+]) test(`refuses return-note bytes with ${name}`, () => {
+  const input = returnFile(options);
+  assert.throws(() => inspectEpochReturnNote(input.snapshot, input.noteId, input.bytes));
+});
+test('refuses another provider-correlated return note ID and malformed note-file bytes', () => {
+  const input = returnFile();
+  assert.throws(() => inspectEpochReturnNote(input.snapshot, `0x${'a'.repeat(64)}`, input.bytes));
+  assert.throws(() => inspectEpochReturnNote(input.snapshot, input.noteId, new Uint8Array([1, 2, 3])));
+});
 
 function request(options = {}) {
   const snapshot = state();
