@@ -6,6 +6,7 @@ import {
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import type { BoundedJsonFailure } from 'lib/remote-json';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import {
@@ -18,12 +19,12 @@ import {
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import type {
-  FeatureEligibility,
-  GeoLookup,
-  StartupEligibilityDiagnostics,
-  StartupEligibilityReason,
-  StartupEligibilityRequestFailure
+import {
+  retainedStartupRequestFailure,
+  type FeatureEligibility,
+  type GeoLookup,
+  type StartupEligibilityDiagnostics,
+  type StartupEligibilityReason
 } from './geo';
 import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
@@ -515,10 +516,11 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
       startupEligibilityReason: 'config_unavailable',
       startupEligibilityRetry: 'not_attempted'
     };
-    const onFailure = (reason: StartupEligibilityReason, requestFailure?: StartupEligibilityRequestFailure) => {
+    const onFailure = (reason: StartupEligibilityReason, requestFailure?: BoundedJsonFailure) => {
       diagnostics.startupEligibilityReason = reason;
-      if (reason === 'request_failed' && requestFailure !== undefined)
-        diagnostics.startupEligibilityRequestFailure = requestFailure;
+      const startupEligibilityRequestFailure = retainedStartupRequestFailure(reason, requestFailure);
+      if (startupEligibilityRequestFailure)
+        diagnostics.startupEligibilityRequestFailure = startupEligibilityRequestFailure;
       else delete diagnostics.startupEligibilityRequestFailure;
     };
     try {

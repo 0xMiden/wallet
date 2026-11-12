@@ -2,8 +2,8 @@ import { MidenMessageType } from 'lib/miden/types';
 import {
   STARTUP_ELIGIBILITY_STAGES,
   STARTUP_ELIGIBILITY_REASONS,
-  STARTUP_ELIGIBILITY_REQUEST_FAILURES,
   STARTUP_ELIGIBILITY_RETRIES,
+  retainedStartupRequestFailure,
   type StartupEligibilityDiagnostics
 } from 'lib/remote-config/geo';
 import { WalletMessageType } from 'lib/shared/types';
@@ -445,9 +445,6 @@ function annotateCrashAtBoundary(
       const startupEligibilityRetry = STARTUP_ELIGIBILITY_RETRIES.find(
         value => value === diagnostics.startupEligibilityRetry
       );
-      const startupEligibilityRequestFailure = STARTUP_ELIGIBILITY_REQUEST_FAILURES.find(
-        value => value === suppliedRequestFailure
-      );
       if (
         userErrorId === 'walletAccessUnavailableBody' &&
         userErrorSurface === 'startup' &&
@@ -455,13 +452,15 @@ function annotateCrashAtBoundary(
         startupEligibilityReason &&
         startupEligibilityRetry
       ) {
+        const startupEligibilityRequestFailure = retainedStartupRequestFailure(
+          startupEligibilityReason,
+          suppliedRequestFailure
+        );
         Object.assign(safe, {
           startupEligibilityStage,
           startupEligibilityReason,
           startupEligibilityRetry,
-          ...(startupEligibilityReason === 'request_failed' && startupEligibilityRequestFailure
-            ? { startupEligibilityRequestFailure }
-            : {})
+          ...(startupEligibilityRequestFailure ? { startupEligibilityRequestFailure } : {})
         });
       }
     }
@@ -672,8 +671,11 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     snapshot.startupEligibilityStage = startup.startupEligibilityStage;
     snapshot.startupEligibilityReason = startup.startupEligibilityReason;
     snapshot.startupEligibilityRetry = startup.startupEligibilityRetry;
-    if (startup.startupEligibilityReason === 'request_failed' && startup.startupEligibilityRequestFailure)
-      snapshot.startupEligibilityRequestFailure = startup.startupEligibilityRequestFailure;
+    const startupEligibilityRequestFailure = retainedStartupRequestFailure(
+      startup.startupEligibilityReason,
+      startup.startupEligibilityRequestFailure
+    );
+    if (startupEligibilityRequestFailure) snapshot.startupEligibilityRequestFailure = startupEligibilityRequestFailure;
   }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;

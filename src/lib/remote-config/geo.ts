@@ -46,7 +46,6 @@ export const STARTUP_ELIGIBILITY_REASONS = [
   'version_mismatch',
   'unexpected'
 ] as const;
-export const STARTUP_ELIGIBILITY_REQUEST_FAILURES = BOUNDED_JSON_FAILURES;
 export const STARTUP_ELIGIBILITY_RETRIES = [
   'not_attempted',
   'config_not_advanced',
@@ -54,12 +53,20 @@ export const STARTUP_ELIGIBILITY_RETRIES = [
   'retry_failed'
 ] as const;
 export type StartupEligibilityReason = (typeof STARTUP_ELIGIBILITY_REASONS)[number];
-export type StartupEligibilityRequestFailure = BoundedJsonFailure;
 export interface StartupEligibilityDiagnostics {
   startupEligibilityStage: (typeof STARTUP_ELIGIBILITY_STAGES)[number];
   startupEligibilityReason: StartupEligibilityReason;
   startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
-  startupEligibilityRequestFailure?: StartupEligibilityRequestFailure;
+  startupEligibilityRequestFailure?: BoundedJsonFailure;
+}
+
+/** The bounded JSON failure kept when eligibility failed on the request itself. */
+export function retainedStartupRequestFailure(
+  reason: StartupEligibilityReason,
+  failure: unknown
+): BoundedJsonFailure | undefined {
+  if (reason !== 'request_failed') return undefined;
+  return BOUNDED_JSON_FAILURES.find(value => value === failure);
 }
 
 /** A failed startup decision keeps geo-gated features off until the page restarts; the wallet stays open. */

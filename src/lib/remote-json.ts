@@ -50,12 +50,14 @@ export async function withRequestTimeout<T>(ms: number, run: (signal: AbortSigna
   }
 }
 
-const tooLargeErrors = new WeakSet<Error>();
-const tooLarge = () => {
-  const error = new Error('Remote JSON response is too large');
-  tooLargeErrors.add(error);
-  return error;
-};
+export class ResponseTooLargeError extends Error {
+  constructor() {
+    super('Remote JSON response is too large');
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
+const tooLarge = () => new ResponseTooLargeError();
 
 /** The body as text, refused once it passes `maxBytes` bytes; `null` for a response that offers only json(). */
 async function readCappedText(response: JsonResponse, maxBytes: number): Promise<string | null> {
@@ -120,14 +122,9 @@ export function fetchBoundedJson(
       const body: unknown = JSON.parse(raw);
       return body;
     } catch (error) {
-      if (error instanceof Error && tooLargeErrors.has(error)) failure = 'response_too_large';
+      if (error instanceof ResponseTooLargeError) failure = 'response_too_large';
       else {
-        const abortedByRequestTimer = (signal: AbortSignal): boolean => {
-          if (!signal.aborted) return false;
-          const reason = signal.reason;
-          return reason === undefined || (reason instanceof DOMException && reason.name === 'TimeoutError');
-        };
-        if (abortedByRequestTimer(signal)) failure = 'timeout';
+        if (signal.aborted) failure = 'timeout';
       }
       try {
         onFailure?.(failure);

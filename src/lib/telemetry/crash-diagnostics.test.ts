@@ -1117,6 +1117,38 @@ test('startup evidence is closed and bound to the eligibility startup identity',
   expect(snapshotCrashDiagnostics(hostileFailure)).not.toHaveProperty('startupEligibilityRequestFailure');
 });
 
+test('routes startup request failures through the shared retention contract', () => {
+  const geo = jest.requireActual<typeof import('lib/remote-config/geo')>('lib/remote-config/geo');
+  const retainedStartupRequestFailure = jest.fn(geo.retainedStartupRequestFailure);
+  try {
+    jest.isolateModules(() => {
+      jest.doMock('lib/remote-config/geo', () => ({
+        ...geo,
+        retainedStartupRequestFailure
+      }));
+      const diagnostics = jest.requireActual<typeof import('./crash-diagnostics')>('./crash-diagnostics');
+      const error = new Error('eligibility request failed');
+      diagnostics.annotateCrash(error, {
+        userErrorId: 'walletAccessUnavailableBody',
+        userErrorSurface: 'startup',
+        startupEligibilityStage: 'eligibility_lookup',
+        startupEligibilityReason: 'request_failed',
+        startupEligibilityRetry: 'not_attempted',
+        startupEligibilityRequestFailure: 'http_error'
+      });
+      expect(diagnostics.snapshotCrashDiagnostics(error)).toMatchObject({
+        startupEligibilityReason: 'request_failed',
+        startupEligibilityRequestFailure: 'http_error'
+      });
+    });
+    expect(retainedStartupRequestFailure).toHaveBeenCalledTimes(2);
+    expect(retainedStartupRequestFailure).toHaveBeenNthCalledWith(1, 'request_failed', 'http_error');
+    expect(retainedStartupRequestFailure).toHaveBeenNthCalledWith(2, 'request_failed', 'http_error');
+  } finally {
+    jest.dontMock('lib/remote-config/geo');
+  }
+});
+
 test('reannotating an error for a different display cannot retain a startup attempt', () => {
   const error = new Error('failed');
   annotateCrash(error, {
