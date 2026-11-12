@@ -158,6 +158,7 @@ jest.unmock('lib/i18n/numbers');
 
 // ── Imports under test ─────────────────────────────────────────────
 import { requestTransaction } from './dapp';
+import { CustomSimulationTimeoutError } from './public-error';
 
 const DAPP_ORIGIN = 'https://miden.xyz';
 
@@ -378,12 +379,28 @@ describe('a request that cannot be simulated is refused before any prompt', () =
     expect(await refusedBeforePrompt()).toContain('Reason: bad summary bytes');
   });
 
-  it('names a terminated client as an interruption, not by its internal text', async () => {
+  it('rethrows a terminated client from the summary decoder before any prompt', async () => {
+    const terminated = new Error('WebClient terminated');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
     mockSummaryBytesToView.mockImplementation(() => {
-      throw new Error('WebClient terminated');
+      throw terminated;
     });
 
-    expect(await refusedBeforePrompt()).toContain('Reason: the simulation was interrupted before it finished');
+    try {
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(terminated);
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a dry run whose error text is Simulation timed out', async () => {
+    mockSimulate.mockResolvedValue({ error: 'Simulation timed out' });
+
+    expect(await refusedBeforePrompt()).toContain('Reason: Simulation timed out');
   });
 
   it('refuses when the dry run throws', async () => {
@@ -441,6 +458,22 @@ describe('a terminated simulation remains retryable', () => {
 
     try {
       await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(terminated);
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a simulation timeout and releases the imported note ids before any prompt', async () => {
+    const timeout = new CustomSimulationTimeoutError();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSimulate.mockRejectedValueOnce(timeout);
+
+    try {
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(timeout);
     } finally {
       errorSpy.mockRestore();
     }
@@ -610,7 +643,6 @@ describe('the outflow an approval records', () => {
   it('refuses a failed dry run before recording an approved outflow', async () => {
     mockSimulate.mockResolvedValue({ error: 'note not found' });
 
-    await refusedBeforePrompt();
+    expect(await refusedBeforePrompt()).toContain('Reason: note not found');
   });
-
 });

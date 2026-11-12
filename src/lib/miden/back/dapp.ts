@@ -148,7 +148,7 @@ import {
 } from './dapp-locked';
 import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
-import { PublicError } from './public-error';
+import { CustomSimulationTimeoutError, PublicError } from './public-error';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
@@ -1852,6 +1852,7 @@ const dappRequestFailure = (error: unknown): unknown => {
   const kill = pipelineKillIn(error);
   if (kill !== undefined) return kill;
   if (error instanceof ClaimFeeRefusedError) return error;
+  if (error instanceof CustomSimulationTimeoutError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
@@ -2380,18 +2381,34 @@ const generatePromisifyTransaction = async (
     // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit assessment, the
     // effects recorded on the queued row, and (on the extension arm) the confirm sheet's own simulate request.
     // Running it twice took the single-threaded WASM lock twice and let the displayed and enforced numbers differ.
-    const simulated = await withUnlocked(async () => {
-      try {
-        return await simulateCustomTransaction({
-          address: customTransaction.address,
-          transactionRequest: customTransaction.transactionRequest,
-          importNotes: customTransaction.importNotes
-        });
-      } catch (e) {
-        console.error('Failed to simulate a custom transaction for approval', e);
-        return { error: consentReason(e) };
-      }
-    });
+    const releaseRefusedRequest = async (e: unknown): Promise<never> => {
+      // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
+      // user decline, so the notes go back to the claimable list; only a decline earns staying
+      // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
+      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+      // Through the same mapper as every other limit-observing path: this catch also sees a
+      // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
+      throw dappSendFailure(e);
+    };
+    let simulated: SimulateCustomTxResult;
+    try {
+      simulated = await withUnlocked(async () => {
+        try {
+          return await simulateCustomTransaction({
+            address: customTransaction.address,
+            transactionRequest: customTransaction.transactionRequest,
+            importNotes: customTransaction.importNotes
+          });
+        } catch (e) {
+          if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
+          console.error('Failed to simulate a custom transaction for approval', e);
+          return { error: consentReason(e) };
+        }
+      });
+    } catch (e) {
+      if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) return releaseRefusedRequest(e);
+      throw e;
+    }
     try {
       const approval = approvedSimulationOrRefusal(simulated);
       const simulatedEffects = await formatSimulatedCustomEffects(simulated, approval.view);
@@ -2405,13 +2422,7 @@ const generatePromisifyTransaction = async (
         approvedNftOutflow: simulatedEffects.outgoingNfts
       };
     } catch (e) {
-      // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
-      // user decline, so the notes go back to the claimable list; only a decline earns staying
-      // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
-      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
-      // Through the same mapper as every other limit-observing path: this catch also sees a
-      // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
-      throw dappSendFailure(e);
+      return releaseRefusedRequest(e);
     }
   };
   const prepared = await prepareOrReject(prepare, reject);
@@ -2431,14 +2442,8 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const {
-      transactionMessages,
-      customLimit,
-      simulated,
-      approvedEffects,
-      approvedOutflow,
-      approvedNftOutflow
-    } = sheetData;
+    const { transactionMessages, customLimit, simulated, approvedEffects, approvedOutflow, approvedNftOutflow } =
+      sheetData;
     let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
     try {
       noteFlow = noteFlowFromSimulatedBytes(simulated);
@@ -3955,6 +3960,8 @@ function approvedSimulationOrRefusal(simulated: SimulateCustomTxResult): Approve
     approval = approveCustomSimulation(simulated);
   } catch (e) {
     // A trap here is outside any hold, as the sheet's own decode always was; it reaches the console and refuses.
+    // A finished dry run is not abandoned here. A kill or a simulation timeout stays retryable.
+    if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
     failure = e;
   }
   if (approval !== undefined) return approval;

@@ -18,6 +18,8 @@ import {
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8 } from 'lib/shared/helpers';
 
+import { CustomSimulationTimeoutError } from './public-error';
+
 export interface SimulateCustomTxInput {
   /** Bech32 sending account address (the custom-tx `address` field). */
   address: string;
@@ -237,7 +239,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       if (isPipelineKillLink(e)) {
         // Settle before returning so an in-flight quarantine write cannot land after the caller releases.
         await abandonQuarantineAttempt(attempt);
-        return { error: 'the simulation was interrupted before it finished' };
+        throw e;
       }
       return { error: e?.message ?? String(e) };
     }
@@ -252,8 +254,11 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
 
   const result = await Promise.race([work, timeout]);
   // The timeout does not cancel the locked work. Abandon the attempt and let a quarantine write
-  // already in the queue finish before returning, or the lookup still in flight quarantines the
+  // already in the queue finish before rejecting, or the lookup still in flight quarantines the
   // ids again after the caller releases them.
-  if (result === timedOut) await abandonQuarantineAttempt(attempt);
+  if (result === timedOut) {
+    await abandonQuarantineAttempt(attempt);
+    throw new CustomSimulationTimeoutError();
+  }
   return result;
 }
