@@ -2031,12 +2031,12 @@ const generateTransactionWithProvider = async (
           // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
           // generating-transaction screen can time the proof + submit steps (#524).
           // Those stamps are keyed by the ROW id, which the offscreen write DTO
-          // deliberately doesn't carry — so the proxy carries them on the OP id instead:
+          // deliberately doesn't carry - so the proxy carries them on the OP id instead:
           // flag-OFF it hands this callback straight to the inline `sendTransaction`,
           // flag-ON it registers it op-scoped and replays the offscreen realm's
           // `OFFSCREEN_STAGE_EVENT`s through it. Both states therefore stamp, which
           // matters because the SW build (`vite.background.config.ts`) is the ONE build
-          // that defaults the flag ON — a stage callback that rode the inline leaf only
+          // that defaults the flag ON - a stage callback that rode the inline leaf only
           // would silently lose the timings on Chrome, the primary platform.
           const attempt = attemptContextOf(transaction);
           return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
@@ -2060,7 +2060,7 @@ const generateTransactionWithProvider = async (
         case 'bridged-send':
         case 'earn-deposit':
           // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
-          // + earn-deposit now ALSO carry pre-built request bytes — the P2IDE collateral
+          // + earn-deposit now ALSO carry pre-built request bytes - the P2IDE collateral
           // note with the mandate-binding attachment (smallocator PR #38), built at
           // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
           // the proxy so it runs offscreen flag-on, inline flag-off. The bare
@@ -2077,7 +2077,7 @@ const generateTransactionWithProvider = async (
           if (transaction.requestBytes) {
             // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
             // returned at the top of `generateTransaction`), and for a basic wallet miden-client
-            // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
+            // injects `one_to_one` conversion info itself when the request's auth arg is unset - so
             // these bytes were never actually failing for want of it. The annotation is kept so both
             // leaves take one code path, and it is safe because the client returns early rather than
             // colliding when an auth arg is already present, and the commitment built here is the
