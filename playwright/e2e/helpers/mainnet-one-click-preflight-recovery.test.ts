@@ -8,6 +8,7 @@ type PlaywrightFixtures = {
 const mockRunId = 'mainnet-one-click-fixture-run';
 const mockSavedCheckpoints: Array<Record<string, unknown>> = [];
 let mockCheckpoint: Record<string, unknown>;
+let mockNativeCheckpoint: Record<string, unknown> | undefined;
 let mockRegisteredCallback: unknown;
 
 const mockPlaywrightTest = Object.assign(
@@ -29,6 +30,8 @@ const environmentKeys = [
   'E2E_MAINNET_GUARDIAN_KEY_PAIR',
   'E2E_MAINNET_EVM_KEY',
   'MAINNET_ONE_CLICK_MODE',
+  'MAINNET_NEAR_MODE',
+  'GITHUB_RUN_ATTEMPT',
   'GITHUB_RUN_ID'
 ];
 
@@ -62,6 +65,20 @@ function registerMainnetLoop(): void {
     })
   }));
 
+  jest.doMock('./mainnet-near-checkpoint', () => ({
+    ...jest.requireActual<typeof import('./mainnet-near-checkpoint')>('./mainnet-near-checkpoint'),
+    loadMainnetNearCheckpoint: jest.fn(() => mockNativeCheckpoint),
+    saveMainnetNearCheckpoint: jest.fn((_path: string, checkpoint: Record<string, unknown>) => mockSavedCheckpoints.push(checkpoint))
+  }));
+  jest.doMock('./mainnet-swap-checkpoint', () => ({
+    ...jest.requireActual<typeof import('./mainnet-swap-checkpoint')>('./mainnet-swap-checkpoint'),
+    loadMainnetSwapCheckpoint: jest.fn(() => undefined)
+  }));
+  jest.doMock('./mainnet-epoch-checkpoint', () => ({
+    ...jest.requireActual<typeof import('./mainnet-epoch-checkpoint')>('./mainnet-epoch-checkpoint'),
+    loadMainnetEpochCheckpoint: jest.fn(() => undefined)
+  }));
+
   jest.isolateModules(() => {
     require('../tests/mainnet/mainnet-1click-loop.spec');
   });
@@ -81,6 +98,7 @@ describe('mainnet 1Click checkpoint recovery', () => {
     process.env.E2E_MAINNET_EVM_KEY = 'fixture-only';
     process.env.MAINNET_ONE_CLICK_MODE = 'execute';
     process.env.GITHUB_RUN_ID = mockRunId;
+    delete process.env.MAINNET_NEAR_MODE; mockNativeCheckpoint = undefined;
     mockCheckpoint = authorizedCheckpoint();
     registerMainnetLoop();
   });
@@ -96,8 +114,24 @@ describe('mainnet 1Click checkpoint recovery', () => {
     jest.dontMock('../ios/helpers/wc-counterparty');
     jest.dontMock('./test-dapp');
     jest.dontMock('./mainnet-one-click-checkpoint');
+    jest.dontMock('./mainnet-near-checkpoint');
+    jest.dontMock('./mainnet-swap-checkpoint');
+    jest.dontMock('./mainnet-epoch-checkpoint');
   });
 
+  it('refuses native preparation without exact same-run predecessor costs before restoring or spending', async () => {
+    process.env.MAINNET_NEAR_MODE = 'prepare'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/same-run predecessor/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
+  });
+  it('blocks an unknown original native claim outcome before restoration, funding or renewed authority', async () => {
+    process.env.MAINNET_NEAR_MODE = 'recover'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    mockNativeCheckpoint = { phase: 'recovery-required', consumeAuthority: { nonce: 'original' } };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/original.*claim.*(unknown|unresolved)|unknown.*claim/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
+  });
   it('returns an execution checkpoint to preflight when guardian recovery fails before submission', async () => {
     const recoveryError = new Error('fixture guardian recovery failed');
     const walletB = {
