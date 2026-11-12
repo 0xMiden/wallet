@@ -603,9 +603,9 @@ describe('createGuardianAccount', () => {
     expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
   });
 
-  // The caller checks its hold just before this call, so the cold key and the hot-key mint
-  // must run before any suspension; the digest waits behind the pre-build check instead.
-  it('derives the account seed after the hot key, behind the pre-build hold check', async () => {
+  // The digest is the only await before the keys, so the hold is re-checked right after it:
+  // an eviction or a failed digest there must leave no key minted.
+  it('derives the account seed before either key and re-checks the hold before minting', async () => {
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
     const createKey = await fetchGuardianCreateKey();
     const coldSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
@@ -628,15 +628,48 @@ describe('createGuardianAccount', () => {
 
     try {
       await createGuardianAccount(makeWebClient() as never, createKey, coldSeed, step => {
+        if (step === 'before the keys') order.push('keys');
         if (step === 'before the account build') order.push('build');
       });
     } finally {
       digest.mockRestore();
     }
 
-    expect(order).toEqual(['cold', 'hot', 'digest', 'build']);
+    expect(order).toEqual(['digest', 'keys', 'cold', 'hot', 'build']);
     const config = multisigClientConfig.create.mock.calls[0]?.[0] as { seed: Uint8Array };
     expect(Array.from(config.seed)).toEqual(Array.from(await deriveGuardianAccountSeed(coldSeed)));
+  });
+
+  it('mints nothing when the hold is dead after the account-seed digest', async () => {
+    const createKey = await fetchGuardianCreateKey();
+    const poison = new WasmClientPoisonedError('watchdog', new Error('evicted during the account seed'));
+
+    const outcome = await createGuardianAccount(makeWebClient() as never, createKey, new Uint8Array(32), step => {
+      if (step === 'before the keys') throw poison;
+    }).then(
+      () => 'resolved',
+      (error: unknown) => error
+    );
+
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+    expect(outcome).toBe(poison);
+  });
+
+  it('mints nothing when the account-seed digest rejects', async () => {
+    const createKey = await fetchGuardianCreateKey();
+    const digest = jest.spyOn(crypto.subtle, 'digest').mockRejectedValueOnce(new Error('digest failed'));
+
+    try {
+      await expect(createGuardianAccount(makeWebClient() as never, createKey, new Uint8Array(32))).rejects.toThrow(
+        'Failed to create Guardian account'
+      );
+    } finally {
+      digest.mockRestore();
+    }
+
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
   });
 
   it('falls back to the effective network default when no override is supplied', async () => {

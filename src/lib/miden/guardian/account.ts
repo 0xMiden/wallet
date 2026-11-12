@@ -427,6 +427,10 @@ export async function createGuardianAccount(
   }
 
   try {
+    // The only await before the keys, re-checked at once so an evicted flow mints nothing.
+    const accountSeed = await deriveGuardianAccountSeed(coldSeed);
+    assertLive('before the keys');
+
     // Cold key — HD-derived, lives in SDK keystore, used for cold-routed flows
     // (rotation, recovery). EcdsaSigner gets the cold AuthSecretKey directly so
     // the create-time deploy proposal is signed by cold; the on-chain account
@@ -443,9 +447,6 @@ export async function createGuardianAccount(
     // wrapped under SE (iOS) or Keystore/StrongBox (Android) inside the native
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
-    // After the hot key, so nothing suspends between the caller's hold check and the cold
-    // key or the native mint; the pre-build check below covers this await too.
-    const accountSeed = await deriveGuardianAccountSeed(coldSeed);
 
     const client = new MultisigClient(webClient, {
       guardianEndpoint: createKey.guardianEndpoint,
