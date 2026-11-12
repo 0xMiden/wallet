@@ -4,7 +4,7 @@ import { join, relative } from 'path';
 import { MIN_PASSWORD_LENGTH } from 'app/constants';
 
 const PLAYWRIGHT_DIR = join(__dirname, '..', '..');
-const PASSWORD_CONSTANT = /const (\w*PASSWORD) = '([^']*)'/g;
+const PASSWORD_CONSTANT = /const (\w*PASSWORD)\b(?:\s*:[^=]+)?\s*=\s*'([^']*)'/g;
 // The mobile suites type the 6-digit passcode, which has its own rules.
 const PASSCODE_DIRS = ['e2e/ios/', 'e2e/android/'];
 
