@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$BASELINE_SHA"
+          git merge-base --is-ancestor "$BASELINE_SHA" HEAD
           test "$(git rev-parse "${BASELINE_SHA}^{tree}")" = "$BASELINE_TREE"
           test "$(git rev-parse "${BASELINE_SHA}:src/app/pages/TokenDetail.tsx")" = "$DETAIL_SOURCE_BLOB"
           test "$(git rev-parse "${BASELINE_SHA}:src/lib/prices/amount.ts")" = "$AMOUNT_SOURCE_BLOB"
@@ -47,7 +47,7 @@ jobs:
           test "$(git rev-parse HEAD:yarn.lock)" = "$LOCK_BLOB"
           git diff --exit-code "$BASELINE_SHA" HEAD -- src/app/pages/TokenDetail.tsx src/lib/prices/amount.ts package.json yarn.lock
           expected_paths=$(printf '%s\n' .github/workflows/pr-compile-surfaces.yml src/app/pages/TokenDetail.test.tsx src/lib/prices/amount.test.ts | LC_ALL=C sort)
-          actual_paths=$(git diff-tree --no-commit-id --name-only -r HEAD | LC_ALL=C sort)
+          actual_paths=$(git diff --name-only "$BASELINE_SHA" HEAD | LC_ALL=C sort)
           test "$actual_paths" = "$expected_paths"
           node <<'NODE' > qa-2028-red-source.json
           const { execFileSync } = require('node:child_process');
