@@ -8617,5 +8617,22 @@
   "arcadePostingPolicy": {
     "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Автоматичне блокування",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Блокує гаманець, якщо він перебував у фоновому режимі протягом такого тривалого часу.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ хв",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

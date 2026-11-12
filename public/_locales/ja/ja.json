@@ -1891,5 +1891,8 @@
   "arcadeBalanceUnknown": "残高利用不可",
   "arcadeBalance": "$balance$ GC",
   "arcadeGameCoins": "ゲームコイン",
-  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。"
+  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+  "autoLock": "自動ロック",
+  "autoLockDescription": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+  "autoLockMinutes": "$minutes$分"
 }

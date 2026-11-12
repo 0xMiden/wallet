@@ -8615,5 +8615,22 @@
   "arcadePostingPolicy": {
     "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自动锁定",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "当钱包在后台处于闲置状态达到一定时间后，系统将自动锁定该钱包。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分钟",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }

@@ -8617,5 +8617,22 @@
   "arcadePostingPolicy": {
     "message": "Każda gra ustala własne stawki, wypłaty i zwroty. Zapoznaj się z jej zasadami przed zatwierdzeniem transakcji.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Automatyczna blokada",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Blokuje portfel, gdy pozostaje on w tle przez tak długi czas.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
   }
 }
