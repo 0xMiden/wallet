@@ -1,7 +1,12 @@
 import { expect } from '@playwright/test';
-import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, parseEventLogs, parseUnits } from 'viem';
+import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, parseEventLogs, parseUnits, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 
+import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { isRecord } from '../../../src/lib/update/guards';
+import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
+import { WcCounterparty } from '../ios/helpers/wc-counterparty';
 import { getEnvironmentConfig } from '../config/environments';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import { vaultBalanceByFaucetId } from './balance-truth';
@@ -9,17 +14,22 @@ import { openRouteStep, waitForReviewSubmitEnabled } from './bridge';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 import { saveMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochForwardAuthority } from './mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote } from './mainnet-epoch-request';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote } from './mainnet-epoch-request';
 import { runGuardedEpochForward } from './mainnet-epoch-ui';
 import { waitForFastQuote } from './epoch-quote';
 import {
   TxStatus, USER_CANCELLED_REASON, assertNeverStartedBuilding, assertStaysCancelledWithQueueLive,
   openHistoryDetails, plantQueueBlocker, readTransactionRow, readTransactionRowsWithBytes,
-  releaseQueueBlocker, waitForTransactionRow, type TransactionRowSnapshot
+  releaseQueueBlocker, waitForTransactionRow, readTransactionRows, type TransactionRowSnapshot
 } from './history';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { readMainnetMidenBlock } from './mainnet-miden-read';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
+import { createEpochEvmSender } from './mainnet-epoch-evm';
+import { planEpochRoundTrip } from './mainnet-epoch-ui';
+import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
+import { exportMakerNote } from './swap';
+import { BRIDGE_DEPOSIT_LAYER } from './send-flow-scripts';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 
 /** Runtime adapter; funded entry remains disabled until all recovery/return drivers are complete. */
@@ -188,4 +198,177 @@ export async function runEpochForward(
     },
     uncertain: async () => { state.phase = 'recovery-required'; persist(); }
   });
+}
+
+/** Uses the existing EVM key only after the live UI's exact return authorization has been uploaded. */
+export async function runEpochReverse(
+  wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, runId: string,
+  key: Hex, gatePath: string, signal: AbortSignal
+): Promise<void> {
+  if (state.phase !== 'forward-settled' || !state.forwardAuthority || state.sourceRunId !== runId ||
+      state.authorizationRunId !== runId || state.transactions?.length || state.returnMidenTxId ||
+      await wallet.getAccountAddress() !== state.account)
+    throw new Error('Epoch return requires the original same-run, actually settled collateral authority');
+  const evm = privateKeyToAccount(key);
+  if (evm.address.toLowerCase() !== state.evm.account.toLowerCase()) throw new Error('Epoch EVM actor changed');
+  const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
+  const token = getAddress(state.evm.token);
+  const tokenBalance = () => client.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [evm.address] });
+  const persist = async () => { state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state); };
+  const blocker = await plantQueueBlocker(wallet.page);
+  let sender: ReturnType<typeof createEpochEvmSender> | undefined;
+  let failed = false;
+  let preparing = false;
+  const counterparty = new WcCounterparty({ privateKey: key, chainId: state.evm.chainId,
+    sessionChainIds: [state.evm.chainId], rpcUrl: mainnetRpc(state.evm.chainId),
+    send: async (transaction, counterpartySignal) => {
+      try {
+        const activeSignal = AbortSignal.any([signal, counterpartySignal]);
+        if (failed || activeSignal.aborted) throw new Error('Epoch return signing is already blocked');
+        if (!sender) {
+          if (preparing) throw new Error('Concurrent Epoch return authorization is blocked');
+          preparing = true;
+          const service = state.allocatorUrl.replace(/\/+$/, '');
+          const requests = await wallet.page.requests();
+          const quoteRequest = requests.findLast(request => request.url() === `${service}/checkIfDepositNeeded`);
+          const nonceRequest = requests.findLast(request => request.url().toLowerCase() ===
+            `${service}/suggested-nonce/${state.evm.chainId}/${evm.address}`.toLowerCase());
+          const quoteResponse = await quoteRequest?.response();
+          const nonceResponse = await nonceRequest?.response();
+          if (!quoteRequest || !quoteResponse?.ok() || !nonceResponse?.ok()) throw new Error('Missing live Epoch reverse SDK exchange');
+          const quote: unknown = await quoteResponse.json();
+          const nonce: unknown = await nonceResponse.json();
+          const payload = quoteRequest.postDataJSON();
+          if (!isRecord(quote) || typeof quote.tokenIn !== 'string' || !/^[1-9]\d{0,77}$/.test(quote.tokenIn) ||
+              quote.tokenOut !== state.reverseMinimum || !isRecord(nonce) || typeof nonce.nonce !== 'string' ||
+              !/^(?:0x[0-9a-f]{1,64}|0|[1-9]\d{0,77})$/i.test(nonce.nonce) ||
+              !isRecord(payload) || !isRecord(payload.compact) || typeof payload.compact.expires !== 'string' ||
+              !/^[1-9]\d{0,77}$/.test(payload.compact.expires)) throw new Error('Invalid live Epoch return amounts or nonce');
+          const provider = epochReadOnlyProvider(state.allocatorUrl, state.evm.chainId, evm.address);
+          const metadata = await provider.sdk.resolveServiceConfiguration(provider.config, state.evm.chainId);
+          if (getAddress(metadata.compactAddress) !== getAddress(state.evm.compact) ||
+              getAddress(metadata.allocatorAddress) !== getAddress(state.evm.allocator) ||
+              metadata.midenMainnetVirtualChainId !== state.virtualChainId)
+            throw new Error('Epoch live contract or network metadata changed');
+          const expiry = BigInt(payload.compact.expires);
+          const now = Math.floor(Date.now() / 1000);
+          const ttl = metadata.compactExpirySeconds + metadata.compactExpiryBufferSeconds;
+          if (expiry < BigInt(now) || expiry > BigInt(now + ttl + 1)) throw new Error('Epoch compact expiry exceeds live metadata');
+          const lockTag = provider.sdk.createLockTag(BigInt(metadata.compactLockResetPeriod), BigInt(metadata.compactLockScope),
+            provider.sdk.getAllocatorId(getAddress(state.evm.allocator)));
+          const pendingNonce = await client.getTransactionCount({ address: evm.address, blockTag: 'pending' });
+          if (pendingNonce !== await client.getTransactionCount({ address: evm.address, blockTag: 'latest' }))
+            throw new Error('Existing EVM account has an unrelated pending transaction');
+          state.reverseNonce = BigInt(nonce.nonce).toString(); state.returnAmount = quote.tokenIn;
+          state.evmNonceBefore = pendingNonce;
+          state.reverseAuthority = { arbiter: metadata.arbiterAddress,
+            lockTag: `0x${lockTag.toString(16).padStart(24, '0')}`, preparedAt: new Date().toISOString(),
+            minimumExpiry: expiry.toString(), maximumExpiry: (expiry + 300n).toString() };
+          state.phase = 'reverse-authorized';
+          planEpochRoundTrip(state, BigInt(quote.tokenIn));
+          await persist();
+          await awaitMainnetLoopAuthorization(path, gatePath, activeSignal);
+          if (failed) throw new Error('Epoch return authorization was blocked while awaiting upload');
+          sender = createEpochEvmSender(state, {
+            client: { getChainId: () => client.getChainId(), getTransactionCount: input => client.getTransactionCount(input),
+              getBalance: input => client.getBalance(input), readTokenBalance: tokenBalance,
+              readAllowance: () => client.readContract({ address: token, abi: erc20Abi, functionName: 'allowance',
+                args: [evm.address, getAddress(state.evm.compact)] }),
+              estimateGas: input => client.estimateGas(input), estimateFeesPerGas: () => client.estimateFeesPerGas(),
+              sendRawTransaction: input => client.sendRawTransaction(input),
+              waitForTransactionReceipt: input => client.waitForTransactionReceipt(input) },
+            sign: transaction => evm.signTransaction({ ...transaction, type: 'eip1559' }), persist
+          });
+        }
+        return await sender.send(transaction, activeSignal);
+      } catch {
+        failed = true;
+        // RPC errors can include serialized signed bytes; retain only the public journal for diagnosis.
+        throw new Error('Epoch EVM submission is unresolved; reconcile the saved signed hashes before any further signing');
+      }
+    }
+  });
+  try {
+    await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/bridge/deposit`);
+    await counterparty.start();
+    const connection = counterparty.connectWithRetry(
+      () => wallet.page.evaluate(() => {
+        const read = window.__TEST_APPKIT_CONNECT_URI__;
+        if (!read) throw new Error('Missing mainnet AppKit connection hook'); return read();
+      }),
+      () => wallet.page.evaluate(() => window.__TEST_APPKIT_STATE__?.().connected ?? false),
+      { attempts: 3, backoffMs: 5000, sessionTimeoutMs: 45_000 }
+    );
+    await wallet.page.getByTestId('bridge-connect-wallet').click();
+    await connection;
+    const connected = await wallet.page.evaluate(() => window.__TEST_APPKIT_STATE__?.());
+    if (!connected?.connected || connected.address?.toLowerCase() !== evm.address.toLowerCase()) throw new Error('Epoch connected another EVM actor');
+    const form = wallet.page.locator(BRIDGE_DEPOSIT_LAYER);
+    await form.getByTestId('bridge-source-network').click();
+    await wallet.page.getByTestId(`bridge-network-${evmChainSlug(state.evm.chainId)}`).click();
+    await form.getByTestId('send-token-selector').click();
+    await wallet.page.getByTestId('bridge-token-EPOCH_USDC').click();
+    await form.getByTestId('send-amount-input').fill(formatUnits(BigInt(state.reverseMinimum), 6));
+    await form.getByTestId('send-amount-confirm').click();
+    await form.getByTestId('bridge-route-fast').click();
+    await form.getByTestId('bridge-route-confirm').click();
+    await form.getByTestId('bridge-deposit-review-confirm').click();
+    await expect.poll(() => {
+      if (failed) throw new Error('Epoch EVM request failed; inspect the public signed-hash journal');
+      return state.transactions?.some(tx => tx.kind === 'deposit' && tx.feeWei !== undefined) ?? false;
+    }, { timeout: 600_000, intervals: [1000, 3000, 5000] }).toBe(true);
+    const provider = epochReadOnlyProvider(state.allocatorUrl, state.evm.chainId, evm.address);
+    let noteId: string | undefined;
+    await expect.poll(async () => {
+      if (signal.aborted) throw new Error('Epoch return aborted');
+      const status = await provider.sdk.getIntentStatus(provider.config, evm.address, state.reverseNonce ?? '');
+      if (!Array.isArray(status)) throw new Error('Invalid Epoch return status');
+      const ids = new Set(status.filter(leg => leg.chainId === state.virtualChainId && ['success', 'completed'].includes(leg.status))
+        .map(leg => Reflect.get(leg, 'midenNoteId')).filter((id): id is string => typeof id === 'string' && isHash(id)));
+      if (ids.size > 1) throw new Error('Ambiguous provider-correlated Epoch return notes');
+      noteId = [...ids][0]; return !!noteId;
+    }, { timeout: 300_000, intervals: [5000, 10000, 15000] }).toBe(true);
+    if (!noteId || !isHash(noteId)) throw new Error('Missing exact Epoch return note');
+    await wallet.triggerSync(true);
+    const file = await exportMakerNote(wallet, noteId, 90_000);
+    const amount = inspectEpochReturnNote(state, noteId, Buffer.from(file, 'hex'));
+    const rpc = new RpcClient(new Endpoint(getEnvironmentConfig().rpcUrl));
+    const notes = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(noteId ?? '')]), 'Epoch return inclusion', { retries: 0 });
+    if (notes.length !== 1 || notes[0]?.noteId.toString() !== noteId) throw new Error('Epoch return note is not recorded on the live chain');
+    state.returnNoteId = noteId; await persist();
+    await wallet.navigateTo(ACTIVITY_PENDING_PATH);
+    const current = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(noteId ?? ''));
+    if (!current.length) await wallet.page.locator(`[data-pending-note-id="${noteId}"]`).getByRole('button', { name: /^Accept$/ }).click();
+    let claim: TransactionRowSnapshot | undefined;
+    await expect.poll(async () => {
+      const rows = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(noteId ?? ''));
+      if (rows.length > 1) throw new Error('Ambiguous Epoch return claims');
+      claim = rows[0]; return claim?.status;
+    }, { timeout: 60_000 }).toBe(TxStatus.Queued);
+    if (!claim || claim.noteIds?.length !== 1) throw new Error('Epoch claim contains unrelated notes');
+    assertNeverStartedBuilding(claim, 'before verified Epoch return claim release', TxStatus.Queued);
+    const unexpected = (await readTransactionRows(wallet.page)).filter(row => row.id !== claim?.id && row.id !== blocker &&
+      row.accountId && canonicalMainnetLoopFaucet(row.accountId) === state.accountHex && row.status === TxStatus.Queued);
+    if (unexpected.length) throw new Error('Epoch claim queue contains unrelated operations');
+    await releaseQueueBlocker(wallet.page, blocker);
+    const receipt = await waitForTransactionRow(wallet.page, claim.id, row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
+      { what: 'the exact Epoch return consume receipt', timeoutMs: 300_000 });
+    if (receipt.status !== TxStatus.Completed || !receipt.transactionId || !isHash(receipt.transactionId) ||
+        receipt.feeAmount === undefined || !/^(0|[1-9]\d*)$/.test(receipt.feeAmount) || !receipt.feeFaucetId ||
+        canonicalMainnetLoopFaucet(receipt.feeFaucetId) !== state.native.hex) throw new Error('Missing exact Epoch return fee receipt');
+    state.returnMidenTxId = receipt.transactionId; state.reverseReceived = amount.toString();
+    state.paidMidenFees = (BigInt(state.paidMidenFees) + BigInt(receipt.feeAmount)).toString();
+    await wallet.refreshBalancesLanded(90_000);
+    const native = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
+    const evmToken = await tokenBalance(); const evmNative = await client.getBalance({ address: evm.address });
+    state.after = { native: native.toString(), evmToken: evmToken.toString(), evmNative: evmNative.toString() };
+    state.realizedCostUsdMicros = realizedMainnetLoopLoss([
+      { identity: `miden:${state.native.hex}`, decimals: 6, usdMicros: BigInt(state.native.usdMicros), before: BigInt(state.native.balance), after: native },
+      { identity: `evm:${state.evm.chainId}:${state.evm.token.toLowerCase()}`, decimals: 6, usdMicros: BigInt(state.evm.tokenUsdMicros), before: BigInt(state.evm.tokenBalance), after: evmToken },
+      { identity: `evm:${state.evm.chainId}:native`, decimals: 18, usdMicros: BigInt(state.evm.nativeUsdMicros), before: BigInt(state.evm.nativeBalance), after: evmNative }
+    ]).toString();
+    state.phase = 'complete'; await persist();
+  } catch (error) {
+    state.phase = 'recovery-required'; await persist(); throw error;
+  } finally { await counterparty.stop(); }
 }
