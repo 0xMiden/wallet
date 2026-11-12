@@ -87,6 +87,7 @@ function returnFile(options = {}) {
 }
 for (const privacy of [false, true]) test(`inspects actual SDK ${privacy ? 'private' : 'public'} return-note bytes without consuming`, () => {
   const input = returnFile({ private: privacy });
+  assert.ok(ArrayBuffer.isView(input.bytes), `Native NoteFile.serialize returned ${Object.prototype.toString.call(input.bytes)}, not typed bytes`);
   assert.equal(inspectEpochReturnNote(input.snapshot, input.noteId, input.bytes), 1_000_001n);
 });
 for (const [name, options] of [
