@@ -134,10 +134,12 @@ describe('AssetListItem', () => {
     expect(trailing).toHaveClass('shrink-0');
   });
 
-  it('truncates a long amount on one line, so it never runs under the price or the check', () => {
+  it('wraps a long amount so the full quantity and its unit stay on the row', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
 
-    expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+    const amount = screen.getByText('123456789.12345678 AVERYLONGSYMBOL');
+    expect(amount).toHaveClass('break-words', 'min-w-0');
+    expect(amount).not.toHaveClass('truncate');
   });
 
   describe('badge rendering', () => {

@@ -37,10 +37,9 @@ export interface SelectTokenDrawerProps {
  * Amount step instead of a pushed sub-screen. Fixed at a comfortable height
  * even when the token list is short.
  *
- * Rows are the home tab's Assets rows (`AssetListItem`): 72px on the sheet's own
- * surface, divided by a hairline rather than boxed, a 36px logo, the token name
- * over its balance and the fiat value on the right — the same shape the swap
- * picker draws, so the two sheets read as one list.
+ * Rows use the home tab's shared `AssetListItem`: a 72px floor that grows for a wrapped quantity,
+ * the sheet's own surface, hairline dividers, a 36px logo, token name over its balance and fiat value
+ * on the right. The swap picker uses the same row so the two sheets read as one list.
  */
 export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   open,

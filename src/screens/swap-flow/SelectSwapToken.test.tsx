@@ -413,7 +413,7 @@ describe('SelectSwapTokenDrawer', () => {
     expect(document.querySelector('[data-slot="check"]')).toBeNull();
   });
 
-  it('draws the rows like the home assets list: unboxed, 72px, divided by a hairline', () => {
+  it('draws the rows like the home assets list: unboxed, a 72px floor, divided by a hairline', () => {
     renderDrawer();
 
     const list = tokenButton('IMIDEN').parentElement!;
@@ -422,7 +422,9 @@ describe('SelectSwapTokenDrawer', () => {
     // Not the boxed list group: no fill card, no 16px radius around the rows.
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(tokenButton('IETH').className).toContain('h-18');
+    const rowClasses = tokenButton('IETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {

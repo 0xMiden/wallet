@@ -3,6 +3,7 @@
 ## 1.17.12 (TBD)
 
 - [FIX][all] Token pickers and token details keep unread balances in a loading state instead of showing a confirmed zero-dollar value.
+- [FIX][all] Asset rows keep the full token quantity and its symbol visible, wrapping onto a taller row when the line does not fit.
 
 - [FIX][all] Asset rows keep a USD value slot and show known zero balances, loading, and unavailable value states without inventing quotes.
 - [FIX][all] Remove redundant leading zeroes from amount edits while preserving exact decimal text and cursor placement.

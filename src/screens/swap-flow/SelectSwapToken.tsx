@@ -33,11 +33,10 @@ export interface SelectSwapTokenDrawerProps {
  * Token picker for a swap side, presented as a bottom sheet (vaul) over the amounts step like the
  * send flow's SelectTokenDrawer.
  *
- * Drawn the way the home tab's Assets section draws a token: the shared `AssetListItem` on the
- * sheet's own surface (no grey card), 72px rows divided by a hairline, a 36px logo, the symbol over
- * the held balance and the value on the right. The tokens are the solver's, filtered by its pairs
- * (`useSwapPickerTokens`), and a token the account holds nothing of is still listed with a zero
- * balance — the list is the pair chooser, not an inventory.
+ * Drawn like the home tab's Assets section: the shared `AssetListItem` on the sheet's own surface,
+ * without a grey card. Rows have a 72px floor and grow when the quantity wraps, with hairline dividers,
+ * a 36px logo, the symbol over its balance and the value on the right. Solver pairs filter the tokens
+ * (`useSwapPickerTokens`). A token the account does not hold still shows zero; this list chooses pairs.
  *
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw

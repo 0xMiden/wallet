@@ -530,7 +530,7 @@ describe('SelectTokenDrawer', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
-  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
+  it('stacks the rows unboxed with a 72px floor, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
@@ -539,7 +539,9 @@ describe('SelectTokenDrawer', () => {
     expect(list.className).toContain('divide-rule-default');
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
+    const rowClasses = screen.getByTestId('send-token-ETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 });
 
