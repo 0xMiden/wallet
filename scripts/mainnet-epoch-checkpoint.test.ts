@@ -24,6 +24,33 @@ function evidence(): EpochIntentEvidence {
     recipient: evmAccount };
 }
 
+const forwardAuthority = () => ({ minimumOutput: '1000001', bindingHash: hash,
+  reclaimHeight: 7200, mandateReclaimHeight: 2200 });
+it('preserves original authorization while persisting the exact reviewed forward floor, binding and both reclaim heights', () => {
+  const bound = { ...fixture(), forwardNoteId: hash, forwardAuthority: forwardAuthority() };
+  expect(parseMainnetEpochCheckpoint(bound)).toEqual(bound);
+  expect(bound.forwardMinimum).toBe('1000000');
+  expect(bound.lossBudgetUsdMicros).toBe('1999095');
+});
+it.each([
+  { minimumOutput: '999999' }, { minimumOutput: '0' }, { bindingHash: 'not-a-hash' },
+  { reclaimHeight: 1.5 }, { reclaimHeight: 0x1_0000_0000 }, { mandateReclaimHeight: 7201 },
+  { secret: 'must-not-be-serialized' }
+])('rejects altered forward collateral authority: %j', changed => {
+  expect(() => parseMainnetEpochCheckpoint({ ...fixture(), forwardNoteId: hash,
+    forwardAuthority: { ...forwardAuthority(), ...changed } })).toThrow();
+});
+it('does not record a collateral binding without the exact note identity', () => {
+  expect(() => parseMainnetEpochCheckpoint({ ...fixture(), forwardAuthority: forwardAuthority() })).toThrow();
+});
+it('requires settlement to meet the actual stronger reviewed floor, not only the original planning floor', () => {
+  expect(parseMainnetEpochCheckpoint({ ...settled(), forwardAuthority: forwardAuthority() })).toEqual({
+    ...settled(), forwardAuthority: forwardAuthority()
+  });
+  expect(() => parseMainnetEpochCheckpoint({ ...settled(), forwardReceived: '1000000',
+    forwardAuthority: forwardAuthority() })).toThrow();
+});
+
 it('pins a bounded exact reverse compact authority before EVM signing', () => {
   const reverse = {
     ...settled(), phase: 'reverse-authorized', reverseNonce: '10', returnAmount: '1000501',
