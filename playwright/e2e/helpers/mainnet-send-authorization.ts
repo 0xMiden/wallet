@@ -27,7 +27,7 @@ export async function releaseMainnetSendAuthorization(
   page: Pick<Page, 'evaluate'>, handle: MainnetSendHandle,
   options: { checkpointPath: string; gatePath: string; signal: AbortSignal;
     persist: (authority: MainnetSendAuthority) => Promise<void> }
-): Promise<void> {
+): Promise<MainnetSendAuthority> {
   const expected = { ...handle };
   let authority: MainnetSendAuthority | undefined;
   for (let poll = 0; poll < 480; poll++) {
@@ -56,4 +56,5 @@ export async function releaseMainnetSendAuthorization(
       throw new Error('Native send authority changed after its exact upload');
     await chrome.storage.local.set({ [key]: { ...expected, status: 'released' } });
   }, { key: KEY, expected: { ...expected, ...authority } });
+  return authority;
 }
