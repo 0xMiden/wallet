@@ -685,7 +685,8 @@ it.each(['import', 'completed-checkpoint'])('restores canonical send facts after
   });
   expect(badgesFromHistory([restored], [account.publicKey], ['first-send'])).toEqual(['first-send']);
   expect(await transactions.count()).toBe(1);
-  expect(await operatorCheckpoint('https://one')).toMatchObject({
+  const checkpoints = (await readGuardianHistoryState()).checkpoints;
+  expect(checkpoints[historyCheckpointId('testnet', 'account', 'https://one')]).toMatchObject({
     version: GUARDIAN_HISTORY_VERSION,
     completed: true
   });
