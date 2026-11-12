@@ -3,8 +3,8 @@ import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/
 import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
-import type { HotKeyActivationMode, IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import { GuardianHistoryDataError } from './history-errors';
+import type { HotKeyActivationMode, IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
   ITransactionStatus,

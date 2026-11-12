@@ -3710,7 +3710,7 @@ describe('MultisigService', () => {
         })
       );
       expect(multisig.getEffectiveThreshold).toHaveBeenCalledWith('add_signer');
-      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
+      expect(result).toEqual({ kind: 'custom', id: SUMMARY_COMMITMENT });
     });
 
     it('refuses a new hot key that is already a signer, before it builds', async () => {
