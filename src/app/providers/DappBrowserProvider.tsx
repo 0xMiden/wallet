@@ -805,6 +805,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         // present, otherwise the event; a string is JSON. A PING is a non-null object whose
         // `type` and `reqId` are strings and whose `payload` is exactly `PING`.
         let isAvailabilityPing = false;
+        let refusedRequestId: string | undefined;
         try {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
           const classified: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
@@ -814,11 +815,41 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             typeof (classified as { type?: unknown }).type === 'string' &&
             typeof (classified as { reqId?: unknown }).reqId === 'string' &&
             (classified as { payload?: unknown }).payload === 'PING';
+          if (
+            !isAvailabilityPing &&
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            !('__midenInternal' in classified)
+          ) {
+            refusedRequestId = (classified as { reqId: string }).reqId;
+          }
         } catch {
           // A parse failure is not an availability PING.
         }
         if (!isAvailabilityPing && event.frameOrigin !== state.origin) {
-          console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
+          console.debug('[DappBrowserProvider] Ignoring or refusing a bridge message with a different frame origin');
+          if (refusedRequestId !== undefined) {
+            try {
+              await sendResponseToInstance(
+                state.instance,
+                {
+                  type: 'MIDEN_PAGE_ERROR_RESPONSE',
+                  payload: null,
+                  reqId: refusedRequestId,
+                  error: MidenDAppErrorType.NotGranted
+                },
+                null,
+                () => {
+                  const current = getSessionStateById(id);
+                  return current !== undefined && current.instance === state.instance;
+                }
+              );
+            } catch (error) {
+              console.error('[DappBrowserProvider] Error refusing WebView message:', error);
+            }
+          }
           return;
         }
         try {
