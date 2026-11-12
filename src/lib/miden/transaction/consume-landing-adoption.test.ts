@@ -71,7 +71,7 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(), queueNoteImport: jest.fn() }));
-// This proposal carries no summary; the signing-time effect checks, Guardian and single-key, have their own tests (#2147).
+// This proposal carries no summary; both signing-time effect checks have their own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({
   assertProposalEffectApproved: async () => {},
   isEffectChecked: () => false

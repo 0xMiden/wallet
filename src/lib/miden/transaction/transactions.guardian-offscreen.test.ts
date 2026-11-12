@@ -241,7 +241,7 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
-// These proposals carry no summary; the signing-time effect checks, Guardian and single-key, have their own tests (#2147).
+// These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({
   assertProposalEffectApproved: async () => {},
   isEffectChecked: () => false

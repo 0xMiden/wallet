@@ -192,7 +192,7 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
 }));
 jest.mock('../sync-lock', () => ({ syncUnderBoundedLock: async () => {} }));
-// These proposals carry no summary; the signing-time effect checks, Guardian and single-key, have their own tests (#2147).
+// These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({
   assertProposalEffectApproved: async () => {},
   isEffectChecked: () => false
