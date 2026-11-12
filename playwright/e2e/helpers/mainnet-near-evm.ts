@@ -45,7 +45,7 @@ export async function inspectMainnetNearSignedTransfer(
   if (decoded.type !== 'eip1559' || decoded.chainId !== approved.chainId || decoded.nonce !== approved.nonce || !decoded.to ||
       getAddress(decoded.to) !== getAddress(approved.to) || (decoded.data ?? '0x').toLowerCase() !== approved.data.toLowerCase() ||
       (decoded.value ?? 0n) !== approved.value || decoded.gas !== approved.gas || decoded.maxFeePerGas !== approved.maxFeePerGas ||
-      decoded.maxPriorityFeePerGas !== approved.maxPriorityFeePerGas || (decoded.accessList?.length ?? 0) !== 0 || getAddress(payer) !== getAddress(state.evm.account))
+      (decoded.maxPriorityFeePerGas ?? 0n) !== approved.maxPriorityFeePerGas || (decoded.accessList?.length ?? 0) !== 0 || getAddress(payer) !== getAddress(state.evm.account))
     throw new Error('Actual native NEAR signed bytes or recovered payer differ from their original authority');
   const hash = keccak256(raw); const journal = state.transactions?.[0];
   if (state.transactions?.length && (!journal || journal.hash !== hash || journal.nonce !== approved.nonce || journal.feeWei !== undefined))
