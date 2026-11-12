@@ -91,7 +91,8 @@ export async function assertViewEffectApproved(
   // or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a null
   // the probe found absent, both continue; the decoder reads the fee the await just filled.
   const chainFee = await getVerificationBaseFee();
-  if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) throw new ProposalFeeUnknownError();
+  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
+    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
   let view: TxAssetView;
   try {
     view = await decode();

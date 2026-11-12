@@ -471,7 +471,9 @@ describe('assertViewEffectApproved', () => {
   it('rejects an unknown fee without calling the decode', async () => {
     jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
     const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
-    await expect(assertViewEffectApproved(claim, decode)).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    const refused = assertViewEffectApproved(claim, decode);
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
     expect(decode).not.toHaveBeenCalled();
   });
 

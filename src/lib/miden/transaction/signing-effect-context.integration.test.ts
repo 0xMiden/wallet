@@ -6,6 +6,7 @@
 import { SigningInputs } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { getMessage } from 'lib/i18n/core';
 import * as Repo from 'lib/miden/repo';
 import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
 
@@ -255,6 +256,10 @@ describe('the loop on a single-key account', () => {
     await Repo.transactions.clear();
     const executed = await runRow(executeRow);
     expect(executed.status).toBe(ITransactionStatus.Failed);
+    expect(executed.error).toBe(getMessage('chainFeeUnknown'));
+    expect(executed.rawError).toBe(
+      'ProposalFeeUnknownError: The chain fee is not known yet, so this transaction was not signed.'
+    );
     expect(executed.proposalEffectRefused).toBeUndefined();
     expect(executed.nextEligibleAt).toBeUndefined();
     expect(loopSigner).not.toHaveBeenCalled();

@@ -601,11 +601,12 @@ export class ProposalEffectRefusedError extends Error {
  * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
  * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
  * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
- * marks the failure an outage.
+ * marks the failure an outage. `displayMessage` is the localized sentence a row failed outside a Guardian proposal
+ * stage shows.
  */
 export class ProposalFeeUnknownError extends Error {
-  constructor() {
-    super('The chain fee is not known yet, so this proposal was not signed.');
+  constructor(readonly displayMessage: string) {
+    super('The chain fee is not known yet, so this transaction was not signed.');
     this.name = 'ProposalFeeUnknownError';
   }
 }
@@ -689,6 +690,12 @@ function classifyTransactionError(
     return error.message;
   }
   if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
+  }
+  // A single-key write's signer refused before anything was signed. A Guardian row meets this only at its proposal
+  // stages, which keep the outage copy below. Read before the stage: a delegated attempt's local fallback can be
+  // refused while the row still reads the 'proving' its failed prove left.
+  if (error instanceof ProposalFeeUnknownError && stage !== 'creating-proposal' && stage !== 'signing-proposal') {
     return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
