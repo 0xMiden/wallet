@@ -1354,6 +1354,30 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
       expect(Actions.handleReportTelemetryEvent).not.toHaveBeenCalled();
     });
 
+    it('refuses a sender that carries our id but no url', () => {
+      // The op may sign, so only the sender check stands between this message and the vault.
+      const release = proxyMock.__test.allowDefaultSigner('op-x');
+      const sendResponse = jest.fn();
+
+      const ret = signListener()(
+        {
+          target: 'sw',
+          type: 'OFFSCREEN_SIGN_REQUEST',
+          op_id: 'op-x',
+          sign_id: 'sign-x',
+          publicKeyB64: Buffer.from([0x01]).toString('base64'),
+          signingInputsB64: Buffer.from([0x02]).toString('base64')
+        },
+        { id: OWN_EXTENSION_ID },
+        sendResponse
+      );
+      release();
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
     it('refuses a sender with a tab even at the offscreen url', () => {
       const sendResponse = jest.fn();
       const inTab = { ...ownSender, tab: { id: 2 } };
