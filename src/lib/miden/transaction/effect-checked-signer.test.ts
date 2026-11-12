@@ -203,6 +203,90 @@ it('keeps the refusal that landed first when two signs of one write fail at once
   expect(refused).toBe(settled[0]);
 });
 
+it('refuses a summary within the approval whose check was still running when a sibling sign failed', async () => {
+  givenSigningByHex({ aa: summaryInputs(tokenPayment('acct-a')), bb: { variantType: 2 } });
+  // The prefetch answers at once; the passing summary's own lookup waits until the sibling has failed.
+  let releaseFee: (fee: number) => void = () => undefined;
+  jest
+    .mocked(getVerificationBaseFee)
+    .mockImplementationOnce(async () => 2)
+    .mockImplementationOnce(
+      () =>
+        new Promise<number>(resolve => {
+          releaseFee = resolve;
+        })
+    );
+  const sign = baseSigner();
+  const settled: unknown[] = [];
+  const outcome = withEffectCheckedSigner(claim, sign, async signer => {
+    const passing = refusalOf(signer, 'aa');
+    settled.push(await refusalOf(signer, 'bb'));
+    releaseFee(2);
+    settled.push(await passing);
+    return 'signed';
+  });
+  const refused = await outcome.catch((error: unknown) => error);
+  expect(settled[0]).toMatchObject({ message: expect.stringContaining('not a transaction summary') });
+  expect(settled[1]).toBe(settled[0]);
+  expect(refused).toBe(settled[0]);
+  expect(sign).not.toHaveBeenCalled();
+});
+
+it("leaves the base signer's own failure unrecorded, so the write rejects with run's error and signs again", async () => {
+  givenSigning(summaryInputs(tokenPayment('acct-a')));
+  const locked = Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+  const sign = baseSigner();
+  sign.mockRejectedValueOnce(locked);
+  // What an inline write rejects with: the SDK's own error, which the lock tags with its hold's sign reason.
+  const wrapped = Object.assign(new Error('failed to execute transaction: Sign callback failed (locked)'), {
+    reason: 'locked'
+  });
+  const outcome = withEffectCheckedSigner(claim, sign, async signer => {
+    expect(await refusalOf(signer, 'aa')).toBe(locked);
+    await expect(signer('pk', 'aa')).resolves.toBe(SIGNATURE);
+    throw wrapped;
+  });
+  await expect(outcome).rejects.toBe(wrapped);
+  expect(sign).toHaveBeenCalledTimes(2);
+});
+
+it("passes run's own rejection through unchanged when no check failed", async () => {
+  givenSigning(summaryInputs(tokenPayment('acct-a')));
+  const own = new Error('the node rejected the transaction');
+  const sign = baseSigner();
+  const outcome = withEffectCheckedSigner(claim, sign, async signer => {
+    await signer('pk', 'aa');
+    throw own;
+  });
+  await expect(outcome).rejects.toBe(own);
+  expect(sign).toHaveBeenCalledTimes(1);
+});
+
+it('frees the deserialized inputs and summary once each sign is judged, after the decode read them', async () => {
+  const freeable = <T extends object>(stub: T) => Object.assign(stub, { free: jest.fn() });
+  const within = freeable(tokenPayment('acct-a'));
+  const beyond = freeable(pswapFill('acct-a'));
+  const inputs = {
+    aa: freeable(summaryInputs(within)),
+    bb: freeable(summaryInputs(beyond)),
+    cc: freeable({ variantType: 1 })
+  };
+  givenSigningByHex(inputs);
+  await expect(withEffectCheckedSigner(claim, baseSigner(), signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
+  await expect(withEffectCheckedSigner(claim, baseSigner(), signer => signer('pk', 'bb'))).rejects.toBeInstanceOf(
+    ProposalEffectRefusedError
+  );
+  await expect(withEffectCheckedSigner(claim, baseSigner(), signer => signer('pk', 'cc'))).rejects.toBeInstanceOf(
+    ProposalEffectRefusedError
+  );
+  for (const freed of [within, beyond, inputs.aa, inputs.bb, inputs.cc]) expect(freed.free).toHaveBeenCalledTimes(1);
+  for (const summary of [within, beyond]) {
+    expect(summary.free.mock.invocationCallOrder[0]).toBeGreaterThan(
+      Math.max(...summary.vault.mock.invocationCallOrder)
+    );
+  }
+});
+
 it.each([
   [
     'a signature over anything but a transaction summary',

@@ -11,30 +11,34 @@ import { canonicalWalletAccountId, getBech32AddressFromAccountId } from '../sdk/
 /** A keystore signer as the wallet's signing paths take it: hex public key and hex `SigningInputs` in, signature out. */
 export type RawSigner = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
 
-/** The summary `signingInputsHex` asks to sign, with its account's canonical id; undefined for any other variant. */
-function readSignedSummary(signingInputsHex: string): { summary: TransactionSummary; account: string } | undefined {
-  const inputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputsHex, 'hex')));
-  if (inputs.variantType !== SigningInputsType.TransactionSummary) return undefined;
-  const summary = inputs.transactionSummaryPayload();
-  // Spelled as the decoder spells `view.account`, so it folds to the same id as the row's account.
-  return { summary, account: canonicalWalletAccountId(getBech32AddressFromAccountId(summary.accountDelta().id())) };
-}
-
 /** Throws why `transaction`'s write may not sign `signingInputsHex`. */
 async function assertSignable(transaction: ITransaction, signingInputsHex: string): Promise<void> {
-  let signed: ReturnType<typeof readSignedSummary>;
+  let inputs: SigningInputs | undefined;
+  let summary: TransactionSummary | undefined;
   try {
-    signed = readSignedSummary(signingInputsHex);
-  } catch (error) {
-    throw effectRefusal(transaction, 'the transaction summary could not be read', error);
+    let account: string | undefined;
+    try {
+      inputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputsHex, 'hex')));
+      if (inputs.variantType === SigningInputsType.TransactionSummary) {
+        summary = inputs.transactionSummaryPayload();
+        // Spelled as the decoder spells `view.account`, so it folds to the same id as the row's account.
+        account = canonicalWalletAccountId(getBech32AddressFromAccountId(summary.accountDelta().id()));
+      }
+    } catch (error) {
+      throw effectRefusal(transaction, 'the transaction summary could not be read', error);
+    }
+    // A checked write signs only its own summary.
+    if (summary === undefined) throw effectRefusal(transaction, 'the signature asked for is not a transaction summary');
+    if (account !== canonicalWalletAccountId(transaction.accountId)) {
+      throw effectRefusal(transaction, 'the summary is for another account');
+    }
+    const signed = summary;
+    await assertViewEffectApproved(transaction, () => summaryToView(signed));
+  } finally {
+    // Both hold WASM memory until freed; optional because not every binding declares `free`.
+    summary?.free?.();
+    inputs?.free?.();
   }
-  // A checked write signs only its own summary.
-  if (signed === undefined) throw effectRefusal(transaction, 'the signature asked for is not a transaction summary');
-  if (signed.account !== canonicalWalletAccountId(transaction.accountId)) {
-    throw effectRefusal(transaction, 'the summary is for another account');
-  }
-  const { summary } = signed;
-  await assertViewEffectApproved(transaction, () => summaryToView(summary));
 }
 
 /**
@@ -59,14 +63,19 @@ export async function withEffectCheckedSigner<T>(
   // write's hold. Only the check judges the answer, and a failure here only leaves it to look again.
   await getVerificationBaseFee().catch(() => null);
   const check: { failed?: { error: unknown } } = {};
-  const signer: RawSigner = async (publicKey, signingInputs) => {
+  const refuseAfterFailure = (): void => {
     if (check.failed) throw check.failed.error;
+  };
+  const signer: RawSigner = async (publicKey, signingInputs) => {
+    refuseAfterFailure();
     try {
       await assertSignable(transaction, signingInputs);
     } catch (error) {
       check.failed ??= { error };
       throw error;
     }
+    // Asked again: a sibling sign of this write can fail while this one waits on its check.
+    refuseAfterFailure();
     return sign(publicKey, signingInputs);
   };
   let result: T;
