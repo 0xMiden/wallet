@@ -11,7 +11,7 @@
  * intercepts and cancels; responses arrive by the wallet window calling
  * `window.__midenWalletResponse` through the `dapp_wallet_response` command.
  */
-(function () {
+(function() {
   'use strict';
 
   // SECURITY: per-window bridge token, prepended to this script by
@@ -120,7 +120,7 @@
   }
 
   // Function for Tauri to call to send responses
-  window.__midenWalletResponse = function (responseStr) {
+  window.__midenWalletResponse = function(responseStr) {
     try {
       const response = typeof responseStr === 'string' ? JSON.parse(responseStr) : responseStr;
       const { type, payload, reqId, error } = response;
@@ -199,7 +199,7 @@
   // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
   // settles, so a slow answer never stacks polls; only disconnect() stops it.
   const PERMISSION_POLL_MS = 10000;
-  let stopPermissionWatch = function () {};
+  let stopPermissionWatch = function() {};
   // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
   let disconnects = 0;
 
@@ -209,7 +209,7 @@
     stopPermissionWatch();
     let stopped = false;
     let timer;
-    const tick = async function () {
+    const tick = async function() {
       try {
         const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
         const hasPermission = res && typeof res === 'object' && 'permission' in res;
@@ -224,7 +224,7 @@
       if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
     };
     timer = setTimeout(tick, PERMISSION_POLL_MS);
-    stopPermissionWatch = function () {
+    stopPermissionWatch = function() {
       stopped = true;
       clearTimeout(timer);
     };
@@ -372,7 +372,7 @@
           force: false,
           privateDataPermission,
           network,
-          allowedPrivateData
+          allowedPrivateData,
         });
         if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
 
@@ -413,7 +413,7 @@
         try {
           return await request({
             type: 'DISCONNECT_REQUEST',
-            network: this.network
+            network: this.network,
           });
         } finally {
           // A connect begun after this call is answered first only if this request was dropped; its timeout
@@ -451,7 +451,7 @@
         const res = await request({
           type: 'SEND_TRANSACTION_REQUEST',
           sourcePublicKey: this.address,
-          transaction
+          transaction,
         });
         return { transactionId: res.transactionId };
       }
@@ -460,7 +460,7 @@
         const res = await request({
           type: 'TRANSACTION_REQUEST',
           sourcePublicKey: this.address,
-          transaction
+          transaction,
         });
         return { transactionId: res.transactionId };
       }
@@ -469,7 +469,7 @@
         const res = await request({
           type: 'CONSUME_REQUEST',
           sourcePublicKey: this.address,
-          transaction
+          transaction,
         });
         return { transactionId: res.transactionId };
       }
@@ -480,7 +480,7 @@
           sourceAccountId: this.address,
           sourcePublicKey: uint8ArrayToHex(this.publicKey),
           payload: uint8ArrayToBase64(data),
-          kind: kind
+          kind: kind,
         });
         const signature = base64ToUint8Array(res.signature);
         return typeof res.signedCommitment === 'string'
@@ -491,7 +491,7 @@
       async requestLoginKey() {
         const res = await request({
           type: 'LOGIN_KEY_REQUEST',
-          sourceAccountId: this.address
+          sourceAccountId: this.address,
         });
         return { loginKey: base64ToUint8Array(res.loginKey) };
       }
@@ -501,7 +501,7 @@
           type: 'LOGIN_SIGN_REQUEST',
           sourceAccountId: this.address,
           payload: uint8ArrayToBase64(data),
-          kind
+          kind,
         });
         return { signature: base64ToUint8Array(res.signature) };
       }
@@ -509,7 +509,7 @@
       async requestAssets() {
         const res = await request({
           type: 'ASSETS_REQUEST',
-          sourcePublicKey: this.address
+          sourcePublicKey: this.address,
         });
         return { assets: res.assets };
       }
@@ -519,7 +519,7 @@
           type: 'PRIVATE_NOTES_REQUEST',
           sourcePublicKey: this.address,
           notefilterType,
-          noteIds
+          noteIds,
         });
         return { privateNotes: res.privateNotes };
       }
@@ -527,7 +527,7 @@
       async requestConsumableNotes() {
         const res = await request({
           type: 'CONSUMABLE_NOTES_REQUEST',
-          sourcePublicKey: this.address
+          sourcePublicKey: this.address,
         });
         return { consumableNotes: res.consumableNotes };
       }
@@ -536,7 +536,7 @@
         const res = await request({
           type: 'IMPORT_PRIVATE_NOTE_REQUEST',
           sourcePublicKey: this.address,
-          note: uint8ArrayToBase64(note)
+          note: uint8ArrayToBase64(note),
         });
         return { noteId: res.noteId };
       }
@@ -544,7 +544,7 @@
       async waitForTransaction(txId) {
         const res = await request({
           type: 'WAIT_FOR_TRANSACTION_REQUEST',
-          txId
+          txId,
         });
         return res.transactionOutput;
       }
@@ -615,9 +615,7 @@
 
     function uint8ArrayToHex(bytes) {
       if (!bytes) return '';
-      return Array.from(bytes)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
     // Create and expose the wallet instance
@@ -628,7 +626,7 @@
         value: midenWallet,
         writable: false,
         configurable: false,
-        enumerable: true
+        enumerable: true,
       });
     } catch (e) {
       // Fallback if defineProperty fails
