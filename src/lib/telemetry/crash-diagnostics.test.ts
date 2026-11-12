@@ -32,6 +32,23 @@ describe('source-bound crash diagnostics', () => {
     }
   );
 
+  it('takes no closed submit report field from a generic annotation or a cause', () => {
+    const fields = {
+      submitApproachHidden: 'half_or_more',
+      proofWindow: 'under_30_blocks',
+      submitHidden: 'yes',
+      submitLeg: 'under_9s'
+    } as const;
+    const cause = new Error('cause');
+    annotateCrash(cause, fields);
+    const failure = new Error('wrapper', { cause });
+    annotateCrash(failure, fields);
+    for (const field of Object.keys(fields)) {
+      expect(snapshotCrashDiagnostics(cause)).not.toHaveProperty(field);
+      expect(snapshotCrashDiagnostics(failure)).not.toHaveProperty(field);
+    }
+  });
+
   it('rejects an unlisted consume verdict', () => {
     const failure = new Error('consume failed');
     annotateCrash(failure, { consumeVerdict: 'unlisted-consume-verdict' });

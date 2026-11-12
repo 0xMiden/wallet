@@ -5,11 +5,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
+import { getCurrentLocale } from 'lib/i18n/core';
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -43,6 +46,8 @@ export interface PendingActivityItem {
   guardianBusy?: true;
   /** A stored proof-submission outcome for this claim. Absent while the submit is still in progress. */
   submission?: SubmissionFeedback;
+  /** When the Guardian hold on its finished row clears, while one applies: Retry stays off until then (#2060). */
+  holdUntil?: number;
 }
 
 interface PendingActivityCardProps {
@@ -102,6 +107,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // Retry runs only for a held claim (`onRetryHeld`). A claim still in flight keeps its spinner even
   // with a stored submit outcome, and the notice below explains it.
   const busy = (status === 'claiming' && !held) || status === 'checking';
+  const { holdUntil } = item;
+  const heldByGuardian = holdUntil !== undefined;
   const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
@@ -133,10 +140,13 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
-  else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  else if (status === 'failed' && heldByGuardian) {
+    hint = t('guardianHoldRetryRefused', { time: formatHoldDeadline(holdUntil, { locale: getCurrentLocale() }) });
+  } else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative =
-    item.retryError !== undefined || (submission !== undefined ? submission.kind === 'rejected' : status === 'failed');
+    item.retryError !== undefined ||
+    (submission !== undefined ? submission.kind === 'rejected' : status === 'failed' && !heldByGuardian);
   const failureId =
     item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
   const [observedFailure, setObservedFailure] = useState<{
@@ -316,6 +326,11 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               </Notice>
             </div>
           )}
+          {heldByGuardian && (
+            <div className="px-4 pb-3">
+              <GuardianHoldNotice clearsAtSec={holdUntil} variant="inline" />
+            </div>
+          )}
           {feeBlocked && (
             <div className="px-4 pb-3">
               <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
@@ -358,7 +373,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
-              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
+              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian}
               isLoading={status === 'claiming' && !held}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}

@@ -25,6 +25,8 @@ export interface ClaimNotesState {
   isDelegatedProvingEnabled: boolean;
   /** Notes that failed but where a retry can still help (a locally failed consume). */
   retriableNoteIds: Set<string>;
+  /** The row each retriable note last failed on: what its card may say follows that row (#2060). */
+  retriableTxIds: ReadonlyMap<string, string>;
   /** Notes the node/client reports as terminally Invalid — a retry cannot help. */
   invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
@@ -84,7 +86,8 @@ export function useClaimNotes(): ClaimNotesState {
     [claimableNotes]
   );
 
-  const [retriableNoteIds, setRetriableNoteIds] = useState<Set<string>>(new Set());
+  const [retriableTxIds, setRetriableTxIds] = useState<ReadonlyMap<string, string>>(new Map());
+  const retriableNoteIds = useMemo(() => new Set(retriableTxIds.keys()), [retriableTxIds]);
   const [invalidNoteIds, setInvalidNoteIds] = useState<Set<string>>(new Set());
   const [checkingNoteIds, setCheckingNoteIds] = useState<Set<string>>(new Set());
 
@@ -131,7 +134,7 @@ export function useClaimNotes(): ClaimNotesState {
     latestRun.set(accountId, run);
     if (notes.length === 0) {
       // Nothing claimable: drop any stale flags so old badges don't linger.
-      setRetriableNoteIds(new Set());
+      setRetriableTxIds(new Map());
       setInvalidNoteIds(new Set());
       publishInvalid(accountId, run, EMPTY_IDS);
       return;
@@ -140,7 +143,7 @@ export function useClaimNotes(): ClaimNotesState {
     const claimableNoteIds = new Set(notes.map(n => n.id));
     if (showSpinner) setCheckingNoteIds(new Set(claimableNoteIds));
 
-    const retriableIds = new Set<string>();
+    const retriableIds = new Map<string, string>();
     const invalidIds = new Set<string>();
 
     try {
@@ -149,7 +152,7 @@ export function useClaimNotes(): ClaimNotesState {
       for (const tx of claimRows) {
         if (!isFailedClaim(tx)) continue;
         for (const failedNoteId of tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) {
-          retriableIds.add(failedNoteId);
+          retriableIds.set(failedNoteId, tx.id);
         }
       }
 
@@ -199,20 +202,21 @@ export function useClaimNotes(): ClaimNotesState {
       const scopedInvalidIds = new Set([...invalidIds].filter(id => claimableNoteIds.has(id)));
       setInvalidNoteIds(scopedInvalidIds);
       publishInvalid(accountId, run, scopedInvalidIds);
-      setRetriableNoteIds(new Set([...retriableIds].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))));
+      setRetriableTxIds(new Map([...retriableIds].filter(([id]) => claimableNoteIds.has(id) && !invalidIds.has(id))));
     } finally {
       if (showSpinner) setCheckingNoteIds(new Set());
     }
   }, []);
 
   // Primary re-run triggers: the claimable-id signature changing (notes added,
-  // removed, or claimed away), and the account, which can switch to one with the
+  // removed, or claimed away), a claim taking or letting go of a note, whose row
+  // may now be a failed claim, and the account, which can switch to one with the
   // same ids. The first check with notes present shows the spinner; later
   // re-checks run silently.
   const claimableSignature = useMemo(
     () =>
       safeClaimableNotes
-        .map(n => n.id)
+        .map(n => `${n.id}:${n.claimingTxId ?? ''}`)
         .sort()
         .join(','),
     [safeClaimableNotes]
@@ -250,6 +254,7 @@ export function useClaimNotes(): ClaimNotesState {
     safeClaimableNotes,
     isDelegatedProvingEnabled,
     retriableNoteIds,
+    retriableTxIds,
     invalidNoteIds,
     checkingNoteIds
   };

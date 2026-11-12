@@ -174,6 +174,35 @@ describe('useClaimNotes failed-note check (#456)', () => {
     await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(false));
   });
 
+  it('names the row each retriable note last failed on, so its card can follow that row (#2060)', async () => {
+    setNotes('a', 'b');
+    mockGetFailedTransactions.mockResolvedValue([
+      { ...failedConsume('a'), id: 'tx-old' },
+      { ...failedConsume('a', 'b'), id: 'tx-new' }
+    ]);
+
+    const { result } = renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect(result.current.retriableTxIds.get('a')).toBe('tx-new'));
+    expect(result.current.retriableTxIds.get('b')).toBe('tx-new');
+  });
+
+  it('checks again as soon as a claim stops holding its note, with no tab switch (#2060)', async () => {
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ ...note('a'), isBeingClaimed: true, claimingTxId: 'tx-held' }],
+      mutate: jest.fn().mockResolvedValue([])
+    });
+    const { result, rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+
+    mockGetFailedTransactions.mockResolvedValue([{ ...failedConsume('a'), id: 'tx-held' }]);
+    setNotes('a');
+    rerender();
+
+    await waitFor(() => expect(result.current.retriableTxIds.get('a')).toBe('tx-held'));
+    expect(result.current.retriableNoteIds.has('a')).toBe(true);
+  });
+
   it('re-runs the check on window focus and picks up a newly-failed note', async () => {
     const { result } = renderHook(() => useClaimNotes());
 

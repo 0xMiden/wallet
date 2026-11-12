@@ -7,7 +7,6 @@ import {
   cancelTransactionById,
   getUncompletedTransactions,
   isCancellableTransaction,
-  isOutcomeUnconfirmed,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -37,7 +36,7 @@ import {
   readLinkedSwapOrderRows,
   type CompletedHistoryCursor
 } from 'lib/miden/transaction/get';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -797,9 +796,7 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
 
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
-  const submission = submissionFeedback(tx);
-  const isUnconfirmed =
-    submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+  const isUnconfirmed = readsAsNotConfirmed(tx);
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
@@ -950,9 +947,7 @@ async function fetchTransactionsAsHistoryEntries(
   const { swapProgress, paybackStates } = await enrichCompletedSwapHistory(visibleTransactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
-    const submission = submissionFeedback(tx);
-    const isUnconfirmed =
-      submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+    const isUnconfirmed = readsAsNotConfirmed(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
