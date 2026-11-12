@@ -537,8 +537,8 @@ describe('assertViewEffectApproved', () => {
 
   it('leaves an unchecked type alone without calling the decode', async () => {
     const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
-    const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
-    await expect(assertViewEffectApproved(send, decode)).resolves.toBeUndefined();
+    const incoming = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertViewEffectApproved(incoming, decode)).resolves.toBeUndefined();
     expect(decode).not.toHaveBeenCalled();
     expect(getVerificationBaseFee).not.toHaveBeenCalled();
   });
