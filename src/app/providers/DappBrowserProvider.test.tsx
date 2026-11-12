@@ -767,9 +767,12 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     expect(responseScript).not.toContain('location.origin');
     const refusal = jest.fn();
     // eslint-disable-next-line no-new-func -- executes the response script as the WebView does
-    new Function('location', 'window', responseScript)({ origin: 'https://redirected.example' }, {
-      __midenWalletResponse: refusal
-    });
+    new Function('location', 'window', responseScript)(
+      { origin: 'https://redirected.example' },
+      {
+        __midenWalletResponse: refusal
+      }
+    );
     expect(refusal).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(refusal.mock.calls[0]![0]))).toEqual({
       type: 'MIDEN_PAGE_ERROR_RESPONSE',
