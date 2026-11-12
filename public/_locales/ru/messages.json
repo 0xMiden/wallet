@@ -3193,6 +3193,10 @@
     "message": "Сделайте резервную копию своего кошелька",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Скрытая фраза восстановления",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Показать",
     "englishSource": "Show"

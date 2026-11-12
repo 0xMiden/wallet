@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "您可以随时使用恢复短语切换至另一位Guardian。仅确认您交易的对象发生变化；您的账户和资金保持不变。",
   "gotIt": "明白了",
   "backUpYourWallet": "备份您的钱包",
+  "recoveryPhraseHidden": "恢复短语已隐藏",
   "show": "显示",
   "hide": "隐藏",
   "copied": "已复制",

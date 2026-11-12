@@ -3193,6 +3193,10 @@
     "message": "备份您的钱包",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "恢复短语已隐藏",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "显示",
     "englishSource": "Show"

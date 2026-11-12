@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Vous pouvez changer de Guardian à tout moment à l’aide de votre phrase de récupération. Seule la personne qui valide vos transactions change ; votre compte et vos fonds restent les mêmes.",
   "gotIt": "D'accord",
   "backUpYourWallet": "Sauvegardez votre portefeuille",
+  "recoveryPhraseHidden": "Phrase de récupération masquée",
   "show": "Afficher",
   "hide": "Masquer",
   "copied": "Copié",

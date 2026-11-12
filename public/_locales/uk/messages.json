@@ -3193,6 +3193,10 @@
     "message": "Створіть резервну копію вашого гаманця",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Прихована фраза відновлення",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Показати",
     "englishSource": "Show"

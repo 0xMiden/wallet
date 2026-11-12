@@ -3193,6 +3193,10 @@
     "message": "Cüzdanınızı yedekleyin",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Gizlenmiş kurtarma ifadesi",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Göster",
     "englishSource": "Show"

@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem confirma suas transações muda; sua conta e seus fundos permanecem os mesmos.",
   "gotIt": "Entendi",
   "backUpYourWallet": "Faça backup da sua carteira",
+  "recoveryPhraseHidden": "Frase de recuperação oculta",
   "show": "Mostrar",
   "hide": "Ocultar",
   "copied": "Copiado",

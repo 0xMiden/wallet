@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "您可隨時使用復原短語切換至另一位Guardian。僅有確認您交易的人員會變更；您的帳戶與資金則維持不變。",
   "gotIt": "明白了",
   "backUpYourWallet": "備份您的錢包",
+  "recoveryPhraseHidden": "備用密句已隱藏",
   "show": "顯示",
   "hide": "隱藏",
   "copied": "已複製",

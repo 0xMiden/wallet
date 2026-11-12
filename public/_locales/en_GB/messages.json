@@ -3193,6 +3193,10 @@
     "message": "Back up your wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Recovery phrase hidden",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Show",
     "englishSource": "Show"

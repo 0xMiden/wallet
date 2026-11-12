@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same.",
   "gotIt": "Got it",
   "backUpYourWallet": "Back up your wallet",
+  "recoveryPhraseHidden": "Recovery phrase hidden",
   "show": "Show",
   "hide": "Hide",
   "copied": "Copied",

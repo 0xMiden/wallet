@@ -3193,6 +3193,10 @@
     "message": "Haz una copia de seguridad de tu cartera",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Frase de recuperación oculta",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"

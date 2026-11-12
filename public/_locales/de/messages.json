@@ -3194,6 +3194,10 @@
     "message": "Erstellen Sie ein Backup Ihrer Wallet",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Wiederherstellungsphrase verborgen",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Anzeigen",
     "englishSource": "Show"

@@ -3193,6 +3193,10 @@
     "message": "ウォレットのバックアップを取る",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "リカバリーフレーズは非表示",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"

@@ -3193,6 +3193,10 @@
     "message": "Utwórz kopię zapasową portfela",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Ukryta fraza odzyskiwania",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "Pokaż",
     "englishSource": "Show"

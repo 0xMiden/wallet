@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "リカバリーフレーズがあれば、いつでも別のGuardianに切り替えることができます。変更されるのは、あなたの取引を承認する相手のみであり、アカウントや資金は変わりません。",
   "gotIt": "了解しました",
   "backUpYourWallet": "ウォレットのバックアップを取る",
+  "recoveryPhraseHidden": "リカバリーフレーズは非表示",
   "show": "表示",
   "hide": "非表示",
   "copied": "コピーしました",

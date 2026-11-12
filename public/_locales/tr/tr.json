@@ -685,6 +685,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca işlemlerinizi onaylayan kişi değişir; hesabınız ve varlıklarınız aynı kalır.",
   "gotIt": "Anladım",
   "backUpYourWallet": "Cüzdanınızı yedekleyin",
+  "recoveryPhraseHidden": "Gizlenmiş kurtarma ifadesi",
   "show": "Göster",
   "hide": "Gizle",
   "copied": "Kopyalandı",

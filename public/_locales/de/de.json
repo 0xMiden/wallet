@@ -684,6 +684,7 @@
   "guardianInfoSwitchingIsEasyDescription": "Sie können jederzeit mit Ihrer Wiederherstellungsphrase zu einem anderen Guardian wechseln. Es ändert sich lediglich, wer Ihre Transaktionen bestätigt; Ihr Konto und Ihr Guthaben bleiben unverändert.",
   "gotIt": "Verstanden",
   "backUpYourWallet": "Erstellen Sie ein Backup Ihrer Wallet",
+  "recoveryPhraseHidden": "Wiederherstellungsphrase verborgen",
   "show": "Anzeigen",
   "hide": "Ausblenden",
   "copied": "Kopiert",

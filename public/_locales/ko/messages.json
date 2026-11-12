@@ -3193,6 +3193,10 @@
     "message": "지갑을 백업하세요",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "복구 문구 숨김",
+    "englishSource": "Recovery phrase hidden"
+  },
   "show": {
     "message": "표시",
     "englishSource": "Show"
