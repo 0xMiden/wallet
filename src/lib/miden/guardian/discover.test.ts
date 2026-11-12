@@ -280,7 +280,6 @@ jest.mock('@openzeppelin/guardian-client', () => ({
       if (operator.transportHoldPath === 'delta') await this.fetch('/delta');
       return { newCommitment: operator.deltas?.[nonce] };
     }
-
   }
 }));
 
@@ -819,7 +818,6 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best).toBeUndefined();
     expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
   });
-
 
   it('picks the operator serving the chain state over the one the account left, even with its nonce unknown', async () => {
     mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 9n }, stateCommitments: { 'acct-1': 'old' } });
