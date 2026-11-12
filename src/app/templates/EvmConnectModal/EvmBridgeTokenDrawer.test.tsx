@@ -128,12 +128,12 @@ describe('EvmBridgeTokenDrawer', () => {
 
   it('draws each offered ERC-20 after ETH and Circle USDC, keyed by address, with its own logo and balance', () => {
     const onSelect = jest.fn();
-    const wbtc: OfferedErc20 = {
+    const wbtc = {
       symbol: 'WBTC',
       contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06',
       decimals: 8,
       delivery: { midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e', scale: 0 }
-    };
+    } satisfies OfferedErc20;
     render(
       <EvmBridgeTokenDrawer
         open
