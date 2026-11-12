@@ -16,6 +16,8 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
+import { setHideDustTokensSetting } from 'lib/settings/dust';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -391,6 +393,43 @@ describe('Explore', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
+  });
+
+  describe('dust tokens', () => {
+    const listedIds = () => screen.queryAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+    const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+
+    beforeEach(() => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      // Native dust, IETH worth $0.0009, IBTC worth exactly $0.001, and a token with no quote.
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 0.0001),
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 0.0009),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 0.001),
+        makeToken('faucet-unquoted', 'NOQ', 'No quote', 0.0000001)
+      ];
+      mockTokenPrices = { MIDEN: quote(1), ETH: quote(1), BTC: quote(1) };
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+      _setSwapTokensForTest(TEST_SWAP_TOKENS);
+    });
+
+    it('hides a token worth less than a tenth of a cent by default, but not the native or an unquoted token', async () => {
+      await renderExplore();
+      expect(listedIds()).toEqual(['faucet-native', TEST_TOKEN_IBTC.faucetId, 'faucet-unquoted']);
+      expect(screen.queryByTestId('hidden-assets')).not.toBeInTheDocument();
+    });
+
+    it('lists dust tokens when the setting is off, and hides them again when it goes back on', async () => {
+      await renderExplore();
+      act(() => setHideDustTokensSetting(false));
+      expect(listedIds()).toContain(TEST_TOKEN_IETH.faucetId);
+      act(() => setHideDustTokensSetting(true));
+      expect(listedIds()).not.toContain(TEST_TOKEN_IETH.faucetId);
+    });
   });
 
   describe('base rendering', () => {

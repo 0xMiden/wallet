@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { isMobile } from 'lib/platform';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -196,6 +197,25 @@ describe('GeneralSettings', () => {
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
   });
 
+  it('shows the hide-dust switch on by default and saves each change', () => {
+    localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+    render(<GeneralSettings />);
+
+    const hideDust = screen.getByTestId(GeneralSettingsSelectors.HideDustToggle);
+    expect(hideDust).toBeChecked();
+    expect(screen.getByText('hideDustTokensDescription').closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HideDustToggle}-row`)
+    );
+
+    fireEvent.click(hideDust);
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('off');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle));
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('on');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).toBeChecked();
+  });
+
   it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
     mockIsMobile.mockReturnValue(true);
     render(<GeneralSettings />);
@@ -203,9 +223,9 @@ describe('GeneralSettings', () => {
     const page = screen.getByTestId('general-settings');
     const body = page.querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'gap-5');
-    // Four since the telemetry consent joined: theme+haptics share one, then delegate,
-    // auto-consume and telemetry each get their own described section.
-    expect(body.querySelectorAll(':scope > section')).toHaveLength(4);
+    // Five: theme+haptics share one, then hide dust, delegate, auto-consume and telemetry
+    // each get their own described section.
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(5);
 
     // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
@@ -223,6 +243,7 @@ describe('GeneralSettings', () => {
     );
     // Every group on the page is plain, the telemetry consent's included.
     for (const id of [
+      GeneralSettingsSelectors.HideDustToggle,
       GeneralSettingsSelectors.DelegateToggle,
       GeneralSettingsSelectors.AutoConsumeToggle,
       GeneralSettingsSelectors.TelemetryToggle

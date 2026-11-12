@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
