@@ -156,6 +156,16 @@ test('signs bounded approval/deposit once each, persisting exact signed hashes b
   await assert.rejects(sender.send(deposit(c.state, c.expiry), activeSignal()));
   assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 });
 });
+test('binds the actual SDK deposit expiry within the uploaded window instead of assuming a dry-quote timestamp stays unchanged', async () => {
+  const c = senderFixture(); c.setAllowance(BigInt(c.state.returnAmount));
+  await c.build().send(deposit(c.state, c.expiry + 150n), activeSignal());
+  assert.deepEqual(c.counts(), { signed: 1, broadcasts: 1 });
+});
+test('rejects an actual SDK expiry outside the exact uploaded authority window before signing', async () => {
+  const c = senderFixture(); c.setAllowance(BigInt(c.state.returnAmount));
+  await assert.rejects(c.build().send(deposit(c.state, c.expiry + 301n), activeSignal()));
+  assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
 test('allows only one necessary zero reset before the exact approval and deposit', async () => {
   const c = senderFixture();
   c.setAllowance(1n);
