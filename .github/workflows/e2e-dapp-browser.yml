@@ -568,7 +568,7 @@ jobs:
       PRESENTATION_WEBVIEW_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
       PRESENTATION_WEBVIEW_ARCHIVE_SHA256: b39db5cafdf8c401b499b078b826b594b69eb12a3ac3213caa304ae26d045cad
       PRESENTATION_WEBVIEW_SHA256: e1dae242d29551381ce493f58bd2572e57f6212d732abd83f48e594c479ecb72
-      PRESENTATION_WEBVIEW_APK: ${{ runner.temp }}/presentation-SystemWebView.apk
+      PRESENTATION_WEBVIEW_APK: ${{ github.workspace }}/.presentation-SystemWebView.apk
     steps:
       - uses: actions/checkout@v4
       - name: Enable KVM
