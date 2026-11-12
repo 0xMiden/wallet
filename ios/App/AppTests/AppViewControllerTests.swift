@@ -74,3 +74,46 @@ final class ReownCallFailureTests: XCTestCase {
         }
     }
 }
+
+final class GuardianProbeHttpCancellationRegressionTests: XCTestCase {
+    func testEvictedPreBeginCancellationDoesNotRejectTheNextRequest() throws {
+        let plugin = GuardianProbeHttpPlugin()
+        for index in 0..<65 {
+            let call = try XCTUnwrap(CAPPluginCall(
+                callbackId: "cancel-\(index)",
+                methodName: "cancel",
+                options: ["requestId": "pre-\(index)"],
+                success: { _, _ in },
+                error: { _ in XCTFail("Cancel should resolve") }
+            ))
+            plugin.cancel(call)
+        }
+
+        let settled = expectation(description: "request reaches URLSession after its cancellation id is evicted")
+        var resolved = false
+        var rejection: String?
+        let request = try XCTUnwrap(CAPPluginCall(
+            callbackId: "retry-evicted-cancel",
+            methodName: "request",
+            options: [
+                "url": "guardianprobe-unhandled://fixture/request",
+                "requestId": "pre-0",
+                "timeoutMs": 5000
+            ],
+            success: { _, _ in
+                resolved = true
+                settled.fulfill()
+            },
+            error: { error in
+                rejection = error.message
+                settled.fulfill()
+            }
+        ))
+
+        plugin.request(request)
+        wait(for: [settled], timeout: 5)
+
+        XCTAssertTrue(resolved || rejection != nil)
+        XCTAssertNotEqual(rejection, "The guardian probe request was cancelled")
+    }
+}
