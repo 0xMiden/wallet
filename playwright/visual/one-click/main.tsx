@@ -18,6 +18,7 @@ const TransactionFixture = React.lazy(() =>
       throw error;
     })
 );
+const BatchFixture = React.lazy(() => import('./batch-fixture').then(module => ({ default: module.BatchFixture })));
 
 const miden: OneClickAsset = {
   assetId: 'miden:usdcx',
@@ -143,6 +144,8 @@ function BridgeReviewFixture({ kind }: { kind: string }) {
 
 function App() {
   const params = new URLSearchParams(location.search);
+  const batch = params.get('batch');
+  if (batch) return <BatchFixture state={batch} />;
   if (params.has('tx')) {
     return (
       <TransactionFixture

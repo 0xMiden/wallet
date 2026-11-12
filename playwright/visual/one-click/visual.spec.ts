@@ -207,3 +207,108 @@ for (const [kind, actionKey] of [
     await page.screenshot({ path: testInfo.outputPath(`bridge-in-${kind}-review.png`) });
   });
 }
+
+async function openBatch(page: Page, testInfo: TestInfo, state: string) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.install({ time: new Date('2026-11-12T12:00:00Z') });
+  const query = new URLSearchParams({ batch: state });
+  if (testInfo.project.name.endsWith('dark')) query.set('dark', '');
+  await page.goto(`/?${query}`);
+  await expect(page.getByTestId('batch-ready')).toBeVisible();
+  await expect(page.locator('html')).toHaveClass(testInfo.project.name.endsWith('dark') ? /dark/ : /^(?!.*dark)/);
+}
+
+async function captureBatch(page: Page, testInfo: TestInfo, name: string) {
+  await page.evaluate(() => document.fonts.ready);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const path = testInfo.outputPath(`batch-${name}.png`);
+  await page.screenshot({ path, animations: 'disabled', caret: 'hide' });
+  const bytes = await sharp(path)
+    .resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true })
+    .toBuffer();
+  await sharp(bytes).toFile(path);
+  await testInfo.attach(`batch-${name}`, { path, contentType: 'image/png' });
+}
+
+for (const state of ['badges-saved', 'badges-history']) {
+  test(`batch shows ${state} through the production badge page`, async ({ page }, testInfo) => {
+    await openBatch(page, testInfo, state);
+    await expect(page.getByTestId('badges-stat-earned')).toContainText('1');
+    await expect(page.getByTestId('badge-card-first-send')).toContainText('Earned');
+    await expect(page.getByTestId('badge-card-first-deposit')).toContainText('Locked');
+    await expect(page.getByTestId('badges-collection-count')).toContainText('1');
+    await expect(page.getByTestId('batch-ready')).toHaveAttribute('data-awards', 'first-send');
+    await captureBatch(page, testInfo, state);
+  });
+}
+
+test('batch token drawer scrolls mixed holdings and preserves selected token identity', async ({ page }, testInfo) => {
+  await openBatch(page, testInfo, 'tokens');
+  const scroll = page.getByTestId('bridge-token-scroll');
+  await expect(scroll).toBeVisible();
+  await expect(page.getByText('Unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loading...', { exact: true })).toHaveCount(2);
+  await expect(page.getByTestId('bridge-token-ERC20_0x0000000000000000000000000000000000000000')).toHaveCount(0);
+  const tiny = page.getByTestId('bridge-token-ERC20_0x0000000000000000000000000000000000000001');
+  await expect(tiny).toContainText('0 TINY');
+  expect(await scroll.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await captureBatch(page, testInfo, 'tokens-top');
+  await scroll.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const last = page.getByTestId('bridge-token-ERC20_0x0000000000000000000000000000000000000012');
+  await expect(last).toBeInViewport();
+  await expect(last).toContainText('18 ASSET18');
+  await captureBatch(page, testInfo, 'tokens-bottom');
+  await last.click();
+  await expect(page.getByTestId('batch-ready')).toHaveAttribute(
+    'data-selection',
+    'ERC20_0x0000000000000000000000000000000000000012'
+  );
+});
+
+test('batch Guardian hold disables the real Activity Retry control until expiry', async ({ page }, testInfo) => {
+  await openBatch(page, testInfo, 'hold');
+  const retry = page.getByRole('button', { name: 'Retry', exact: true });
+  await expect(retry).toBeDisabled();
+  await expect(page.getByTestId('guardian-hold-notice')).toBeVisible();
+  await expect(page.getByTestId('guardian-hold-countdown')).toBeVisible();
+  await captureBatch(page, testInfo, 'hold-active');
+  await page.clock.fastForward(61_000);
+  await expect(page.getByTestId('guardian-hold-notice')).toHaveCount(0);
+  await expect(retry).toBeEnabled();
+  await captureBatch(page, testInfo, 'hold-expired');
+});
+
+test('batch device chooser defaults to Add and explains Make main before submitting', async ({ page }, testInfo) => {
+  await openBatch(page, testInfo, 'role');
+  await expect(page.getByTestId('device-role-add')).toHaveAttribute('aria-checked', 'true');
+  await captureBatch(page, testInfo, 'role-add');
+  await page.getByTestId('device-role-main').click();
+  await expect(page.getByTestId('device-role-main')).toHaveAttribute('aria-checked', 'true');
+  await captureBatch(page, testInfo, 'role-main');
+  await page.getByTestId('device-role-continue').click();
+  await expect(page.getByTestId('batch-ready')).toHaveAttribute('data-selection', 'replace');
+});
+
+test('batch devices mark this signer and offer revocation for the other signer', async ({ page }, testInfo) => {
+  await openBatch(page, testInfo, 'devices');
+  await expect(page.getByTestId('device-settings')).toBeVisible();
+  await expect(page.getByText('This device', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Revoke device', exact: true })).toHaveCount(1);
+  await captureBatch(page, testInfo, 'devices');
+});
+
+test('batch recovery prompt handles Keep and Remove without exposing a phrase', async ({ page }, testInfo) => {
+  await openBatch(page, testInfo, 'phrase');
+  await expect(page.getByTestId('recovery-phrase-keep-keep')).toBeVisible();
+  await captureBatch(page, testInfo, 'phrase');
+  await page.getByTestId('recovery-phrase-keep-keep').click();
+  await expect(page.getByTestId('recovery-phrase-keep-keep')).toHaveCount(0);
+  await expect(page.getByTestId('batch-ready')).toHaveAttribute('data-removals', '0');
+  await page.reload();
+  await expect(page.getByTestId('recovery-phrase-keep-remove')).toBeVisible();
+  await page.getByTestId('recovery-phrase-keep-remove').click();
+  await expect(page.getByTestId('recovery-phrase-keep-keep')).toHaveCount(0);
+  await expect(page.getByTestId('batch-ready')).toHaveAttribute('data-removals', '1');
+});
