@@ -262,9 +262,7 @@ describe('swap order note settlement', () => {
       { ...note('forged-unreadable-script', [0n, 77n, 0n, 0n]), standardPayment: undefined }
     ];
 
-    const result = await withWasmClientLock(hold =>
-      classifySwapOrderNotes(notes as any, 'account-1', undefined, hold)
-    );
+    const result = await withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold));
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ role: 'payback' }));
