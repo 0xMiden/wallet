@@ -2922,7 +2922,7 @@ public class BreadPresentationControllerTest {
             BreadMorphControllerTest.settle();
         }
         reveal();
-        assertTrue("the restored presentation could accept a fresh gesture", controller.canMinimizeFromBack());
+        assertTrue("the restored presentation could accept a fresh gesture: " + motionState(), controller.canMinimizeFromBack());
         callback.onBackInvoked();
         verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
     }
@@ -2961,6 +2961,7 @@ public class BreadPresentationControllerTest {
         OnBackAnimationCallback callback = startRevocableBackGesture();
         controller.state.configure("doc", true, true);
         acknowledgePolicy();
+        reveal();
         assertRevokedBackDoesNotAcquireRestoredAuthority(callback);
     }
 

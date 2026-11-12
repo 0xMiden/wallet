@@ -564,6 +564,11 @@ jobs:
       ANDROID_SERIAL: emulator-5554
       E2E_NETWORK: testnet
       MIDEN_E2E_TEST: 'true'
+      # This standalone provider uses the same first-party snapshot as Auth Tab, independently pinned here.
+      PRESENTATION_WEBVIEW_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
+      PRESENTATION_WEBVIEW_ARCHIVE_SHA256: b39db5cafdf8c401b499b078b826b594b69eb12a3ac3213caa304ae26d045cad
+      PRESENTATION_WEBVIEW_SHA256: e1dae242d29551381ce493f58bd2572e57f6212d732abd83f48e594c479ecb72
+      PRESENTATION_WEBVIEW_APK: ${{ runner.temp }}/presentation-SystemWebView.apk
     steps:
       - uses: actions/checkout@v4
       - name: Enable KVM
@@ -584,7 +589,26 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - name: Install SDK packages
-        run: sdkmanager --install "platform-tools" "emulator" "platforms;android-36" "system-images;android-36;google_apis_playstore;x86_64"
+        run: sdkmanager --install "platform-tools" "emulator" "build-tools;36.0.0" "platforms;android-36" "system-images;android-36;google_apis;x86_64"
+      - name: Download and verify pinned presentation WebView
+        run: |
+          set -euo pipefail
+          mkdir -p test-results-presentation-gesture
+          archive="$RUNNER_TEMP/presentation-webview.zip"
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 180 "$PRESENTATION_WEBVIEW_URL" --output "$archive"
+          echo "$PRESENTATION_WEBVIEW_ARCHIVE_SHA256  $archive" | sha256sum --check
+          unzip -p "$archive" chrome-android-desktop/apks/SystemWebView.apk > "$PRESENTATION_WEBVIEW_APK"
+          echo "$PRESENTATION_WEBVIEW_SHA256  $PRESENTATION_WEBVIEW_APK" | sha256sum --check
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$PRESENTATION_WEBVIEW_APK" > test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qF "package: name='com.android.webview' versionCode='812100007' versionName='158.0.8121.0'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "sdkVersion:'29'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "targetSdkVersion:'36'" test-results-presentation-gesture/webview-apk-identity.txt
+          grep -qxF "native-code: 'x86_64'" test-results-presentation-gesture/webview-apk-identity.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$PRESENTATION_WEBVIEW_APK" AndroidManifest.xml > test-results-presentation-gesture/webview-manifest.txt
+          grep -qF 'com.android.webview.WebViewLibrary' test-results-presentation-gesture/webview-manifest.txt
+          grep -qF 'libwebviewchromium.so' test-results-presentation-gesture/webview-manifest.txt
+          printf 'url=%s\narchive_sha256=%s\napk_sha256=%s\n' "$PRESENTATION_WEBVIEW_URL" "$PRESENTATION_WEBVIEW_ARCHIVE_SHA256" "$PRESENTATION_WEBVIEW_SHA256" > test-results-presentation-gesture/webview-provenance.txt
+          rm "$archive"
       - name: Inject linked web-sdk PR
         id: inject-web-sdk
         uses: ./.github/actions/inject-linked-web-sdk-pr
@@ -609,7 +633,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
-          target: google_apis_playstore
+          target: google_apis
           arch: x86_64
           profile: pixel_6
           avd-name: Pixel_API_36_Presentation
