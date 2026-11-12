@@ -12,7 +12,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import type { NearIntentsCatalog } from 'lib/one-click/types';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { chainLogoNetwork, tokenLogoSymbol } from './chains';
+import { chainLogoNetwork } from './chains';
 import { NetworkSheet } from './NetworkSheet';
 
 export interface SendTokenDrawerProps {
@@ -101,8 +101,9 @@ export const SendTokenDrawer: React.FC<SendTokenDrawerProps> = ({
                     title={token.symbol}
                     subtitle={filterChain?.name}
                     avatar={
+                      // An origin-chain token has no Miden faucet, so it draws the default mark (#2097).
                       <TokenLogo
-                        symbol={tokenLogoSymbol(token.symbol)}
+                        faucetId={undefined}
                         size="lg"
                         badge={<NetworkLogo kind="ethereum" network={chainLogoNetwork(filterChain?.id ?? '')} />}
                       />

@@ -23,7 +23,7 @@ export enum ButtonVariant {
 }
 
 /** `lg` is the 48px CTA; `sm` the 36px compact button. */
-export type ButtonSize = 'lg' | 'sm';
+export type ButtonSize = 'lg' | 'sm' | 'tile';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -66,7 +66,8 @@ const buttonVariants = cva(
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
         lg: 'h-12 w-full max-w-92.5 text-cta',
-        sm: 'h-9 text-cta-sm'
+        sm: 'h-9 text-cta-sm',
+        tile: 'min-h-24 w-full flex-col gap-2 rounded-2xl px-2 py-3 text-caption'
       }
     },
     defaultVariants: {

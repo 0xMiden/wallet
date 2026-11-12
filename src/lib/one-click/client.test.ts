@@ -137,6 +137,39 @@ describe('1Click client', () => {
     else Reflect.deleteProperty(globalThis, 'fetch');
   });
 
+  it('allows a localhost proxy in development and rejects HTTP in production or outside loopback', async () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      MODE_ENV: 'development',
+      MIDEN_E2E_TEST: 'false'
+    });
+    try {
+      fetchMock.mockImplementation(async () => Response.json([]));
+      const loopbackConfig = { ...config, serviceUrl: 'http://localhost:8787' };
+      await expect(
+        fetchNearIntentsCatalog(loopbackConfig, async () => ({ decimals: 6, symbol: 'USDC' }))
+      ).resolves.toEqual({ chains: [] });
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:8787/v0/tokens', expect.anything());
+      const lanConfig = { ...config, serviceUrl: 'http://192.168.29.144:8787' };
+      await expect(fetchNearIntentsCatalog(lanConfig, async () => ({ decimals: 6, symbol: 'USDC' }))).resolves.toEqual({
+        chains: []
+      });
+      expect(fetchMock).toHaveBeenCalledWith('http://192.168.29.144:8787/v0/tokens', expect.anything());
+      await expect(
+        fetchNearIntentsCatalog({ ...config, serviceUrl: 'http://example.com' }, async () => ({ decimals: 6 }))
+      ).rejects.toThrow('Invalid 1Click service URL');
+      process.env.MODE_ENV = 'production';
+      await expect(fetchNearIntentsCatalog(lanConfig, async () => ({ decimals: 6 }))).rejects.toThrow(
+        'Invalid 1Click service URL'
+      );
+      await expect(fetchNearIntentsCatalog(loopbackConfig, async () => ({ decimals: 6 }))).rejects.toThrow(
+        'Invalid 1Click service URL'
+      );
+    } finally {
+      env.restore();
+    }
+  });
+
   it('allows loopback HTTP only in the explicitly targeted testnet E2E build', async () => {
     const loopbackConfig = { ...config, serviceUrl: 'http://127.0.0.1:8550' };
     const saved = {

@@ -68,6 +68,7 @@ import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
 import { sendNetworkKind } from './send-network-kind';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
+import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
 import { SendAmount } from './SendAmount';
 import { SendRoute } from './SendRoute';
 import {
@@ -369,6 +370,17 @@ export const SendManager: React.FC<SendManagerProps> = ({
     !!displayedSendNetwork?.bridge &&
     !displayedSendNetwork.nearIntentsChainId &&
     !isEpochBridgeNetwork(displayedNetwork);
+  // The EVM chain of the displayed destination when a bridge (Epoch, Agglayer, USDCx) serves it. Set before an
+  // address is typed, so the token picker already filters by the destination.
+  const destinationChainId = displayedSendNetwork?.bridge ? displayedSendNetwork.chainId : undefined;
+  // Whether a token can go to the displayed destination. Where NEAR Intents serves it, any token can: only the live
+  // 1Click catalog knows its pairs, and the NEAR Intents route card says when it has none for the token.
+  const canSendTokenToDestination = useCallback(
+    (tokenId: string) =>
+      displayedSendNetwork?.nearIntentsChainId !== undefined ||
+      canSendTokenToChain(bridgeConfig, tokenId, destinationChainId),
+    [displayedSendNetwork?.nearIntentsChainId, bridgeConfig, destinationChainId]
+  );
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -427,9 +439,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
-  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id, destinationChainId);
   // True while this effect, not the user, set the NEAR Intents route (a network that only NEAR Intents serves).
   const nearIntentsRouteIsAutomaticRef = useRef(false);
+  // Set while the effect below, not the user, moved the route off Epoch, so it can move back once Epoch recovers.
+  const routeMovedOffEpochRef = useRef(false);
   useEffect(() => {
     // NEAR Intents is the only route to a network that no bridge serves (Solana, Bitcoin, NEAR).
     if (selectedNetwork && !selectedNetwork.bridge) {
@@ -449,8 +463,24 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return;
     }
     if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
-    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
-  }, [selectedNetwork, usdcxAvailable, bridgeRoute, setValue]);
+    if (!usdcxAvailable && bridgeRoute === 'usdcx' && destinationChainId === undefined) {
+      setValue('bridgeRoute', 'epoch');
+    }
+    if (!usdcxAvailable && token && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      const selected = bridgeRoute ?? 'epoch';
+      if (routeMovedOffEpochRef.current && selected === 'agglayer' && routes.epoch) {
+        routeMovedOffEpochRef.current = false;
+        setValue('bridgeRoute', 'epoch');
+        return;
+      }
+      const nextRoute = routes.epoch ? 'epoch' : 'agglayer';
+      if (routes[nextRoute] && !routes[selected]) {
+        routeMovedOffEpochRef.current = nextRoute === 'agglayer';
+        setValue('bridgeRoute', nextRoute);
+      }
+    }
+  }, [selectedNetwork, usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig]);
 
   // Epoch, Agglayer and USDCx serve only a network with a bridge and an EVM chain id.
   const bridgeChainId = selectedNetwork?.bridge ? selectedNetwork.chainId : undefined;
@@ -577,7 +607,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
   const previousTokenScopeRef = useRef(tokenScope);
   const automaticTokenIdRef = useRef<string | null>(null);
-  const defaultCandidates = useMemo(() => {
+  // The held tokens a send could spend, before the destination's routes are applied.
+  const sendableHoldings = useMemo(() => {
     if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
     if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
     return balanceData.filter(row => {
@@ -587,7 +618,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
         isNewTransferTokenHeld(bridgeConfig, row.tokenId, nativeFaucetId)
       )
         return false;
-      if (usdcxOnly && !isUsdcxWithdrawalAvailable(row.tokenId)) return false;
       const available =
         row.tokenId === nativeFaucetId
           ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
@@ -603,9 +633,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     verificationBaseFee,
     isHidden,
-    usdcxOnly,
     bridgeConfig
   ]);
+  const defaultCandidates = useMemo(
+    () => sendableHoldings.filter(row => canSendTokenToDestination(row.tokenId)),
+    [sendableHoldings, canSendTokenToDestination]
+  );
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
@@ -626,7 +659,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       const held = draft
         ? isRetiredTransferToken(bridgeConfig, preselectedTokenId, nativeFaucetId)
         : isNewTransferTokenHeld(bridgeConfig, preselectedTokenId, nativeFaucetId);
-      if (match && !held) {
+      if (match && !held && canSendTokenToDestination(preselectedTokenId)) {
         appliedPreselectionRef.current = preselectedTokenId;
         automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
@@ -650,7 +683,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !isLoading &&
       !balancesLoading &&
       hiddenTokensLoaded &&
-      !defaultCandidates.some(row => row.tokenId === current?.id)
+      // Holdings, not route-filtered candidates: a route the destination loses clears the token only through the
+      // destination check below, so a config refresh alone keeps it.
+      !sendableHoldings.some(row => row.tokenId === current?.id)
     ) {
       automaticTokenIdRef.current = null;
       setValue('token', undefined);
@@ -692,6 +727,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isLoading,
     hiddenTokensLoaded,
     defaultCandidates,
+    sendableHoldings,
     balanceData,
     balancesLoading,
     tokenPrices,
@@ -699,7 +735,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     setValue,
     getValues,
-    bridgeConfig
+    bridgeConfig,
+    canSendTokenToDestination
   ]);
 
   // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
@@ -709,10 +746,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
     !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
 
-  // Clear a token that the selected destination cannot receive.
+  // Clear a token that the selected destination cannot receive. Only a new destination or a new token clears it: a
+  // config refresh whose read failed for a moment keeps the user's token and amount, and Continue stays blocked.
+  const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
   useEffect(() => {
-    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
-  }, [usdcxOnly, token, usdcxAvailable, setValue]);
+    const checked = checkedSelectionRef.current;
+    // A destination the config stops offering for a moment reads as no destination; it is not a new one, so its return
+    // is not a change either.
+    const chainId = destinationChainId ?? checked.chainId;
+    if (checked.chainId === chainId && checked.tokenId === token?.id) return;
+    checkedSelectionRef.current = { chainId, tokenId: token?.id };
+    if (token && !canSendTokenToDestination(token.id)) {
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
+  }, [canSendTokenToDestination, destinationChainId, token, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -856,8 +904,19 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress || isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId))
+    if (
+      !token ||
+      !amount ||
+      !recipientAddress ||
+      isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
+      !canSendTokenToDestination(token.id)
+    )
       return;
+    // A NEAR Intents route is checked by its own quote on the Route step, not by the bridge routes.
+    if (isBridge && destinationChainId !== undefined && bridgeRoute !== 'near-intents') {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      if (!routes[bridgeRoute ?? 'epoch']) return;
+    }
     // Precision is decided before the balance comparison, and the typed string is left unchanged.
     if (amountExceedsTokenDecimals(amount, token.decimals)) {
       setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
@@ -873,6 +932,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return;
     }
     reviewHandoffRef.current = true;
+    // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
+    routeMovedOffEpochRef.current = false;
     setSendDraft({
       amount,
       recipientAddress,
@@ -899,7 +960,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     currentStep,
     goBack,
     bridgeConfig,
-    nativeFaucetId
+    nativeFaucetId,
+    destinationChainId,
+    canSendTokenToDestination
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
@@ -916,6 +979,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     (route: BridgeRoute) => {
       // A route that the user selects is not automatic, so the route effect keeps it.
       nearIntentsRouteIsAutomaticRef.current = false;
+      routeMovedOffEpochRef.current = false;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
     },
     [onAction]
@@ -1306,6 +1370,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onOpenChange={setShowTokenDrawer}
         onSelect={onSelectToken}
         usdcxOnly={usdcxOnly}
+        destinationChainId={destinationChainId}
       />
 
       <AccountsListDrawer

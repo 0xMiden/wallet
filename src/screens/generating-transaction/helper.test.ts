@@ -1,5 +1,6 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
+import { getNumberSymbols } from 'lib/i18n/core';
 import {
   ITransactionStatus,
   SendTransaction,
@@ -18,6 +19,7 @@ import {
   stepsForFlow
 } from './constants';
 import {
+  formatStepSeconds,
   getActiveStepIndex,
   getNearIntentsSendStepState,
   getProcessingTitleKey,
@@ -39,6 +41,8 @@ import {
   nearIntentsSendTracking,
   waitsToDeliverNote
 } from './helper';
+
+jest.mock('lib/i18n/core', () => ({ ...jest.requireActual('lib/i18n/core'), getNumberSymbols: jest.fn() }));
 
 // The SDK's real values: `Private` is 0, which a string compare reads as public.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -106,6 +110,30 @@ describe('getActiveStepIndex', () => {
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, undefined, false)).toBe(0);
     // 'guardian-syncing' is not part of the standard step set.
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'guardian-syncing', false)).toBe(0);
+  });
+});
+
+describe('formatStepSeconds (#2060)', () => {
+  afterEach(() => {
+    jest.mocked(getNumberSymbols).mockReset();
+  });
+
+  it.each([
+    [2_345, '2.3'],
+    [1_500, '1.5'],
+    [2_000, '2.0'],
+    [40, '0.0'],
+    [61_050, '61.1']
+  ])('reads %i ms as %s', (ms, expected) => {
+    jest.mocked(getNumberSymbols).mockReturnValue({ decimal: '.', group: ',' } as ReturnType<typeof getNumberSymbols>);
+
+    expect(formatStepSeconds(ms)).toBe(expected);
+  });
+
+  it('writes the fraction in the wallet locale', () => {
+    jest.mocked(getNumberSymbols).mockReturnValue({ decimal: ',', group: '.' } as ReturnType<typeof getNumberSymbols>);
+
+    expect(formatStepSeconds(2_345)).toBe('2,3');
   });
 });
 
@@ -196,6 +224,37 @@ describe('getStepDurationsMs', () => {
       complete: 8_300
     });
     expect(durations).toEqual([1_700, 600, 300, 350, 5_350]);
+  });
+
+  // Execution is the wallet's own work, so it no longer reads as a slow Guardian (#2060).
+  it.each([
+    ['the coordinated set', GUARDIAN_TRANSACTION_STEPS, 'creating-proposal', 'guardian-syncing'],
+    ['the private send set', stepsForFlow(true, false, true), 'creating-proposal', 'guardian-syncing'],
+    ['the direct switch set', DIRECT_SWITCH_TRANSACTION_STEPS, 'signing-locally', 'registering-guardian']
+  ] as const)('ends the first step at the execution in %s', (_label, steps, firstStage, lastStage) => {
+    const durations = getStepDurationsMs(steps, {
+      [firstStage]: 100,
+      executing: 300,
+      proving: 900,
+      submitting: 1_500,
+      [lastStage]: 1_800
+    });
+
+    expect(durations[0]).toBe(200);
+    expect(durations[1]).toBe(1_200);
+    expect(durations[2]).toBe(300);
+  });
+
+  it('opens the proof step at `proving` when the `executing` stamp was lost', () => {
+    const durations = getStepDurationsMs(GUARDIAN_TRANSACTION_STEPS, {
+      'creating-proposal': 100,
+      proving: 900,
+      submitting: 1_500,
+      'guardian-syncing': 1_800,
+      complete: 2_000
+    });
+
+    expect(durations).toEqual([800, 600, 300, 200]);
   });
 
   it('returns undefined for a step whose start or end stamp is missing (no fabricated value)', () => {

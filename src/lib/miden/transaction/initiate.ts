@@ -116,7 +116,11 @@ export const requestCustomTransaction = async (
   spentAssetTotals?: IConsumedAssetTotal[],
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  /** The NFTs the approval-time dry run showed leaving; see `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[],
+  /** The per-faucet outflow the approval-time dry run showed; see `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[]
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
@@ -130,6 +134,8 @@ export const requestCustomTransaction = async (
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
+  if (approvedNftOutflow !== undefined) transaction.approvedNftOutflow = approvedNftOutflow;
+  if (approvedOutflow !== undefined) transaction.approvedOutflow = approvedOutflow;
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {

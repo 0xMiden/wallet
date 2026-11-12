@@ -117,14 +117,33 @@ private enum ReownCryptoError: Error {
     case publicKeyRecoveryUnsupported
 }
 
-private enum ReownCallFailureOrigin: String {
+// The first four origins fail a call before the relay publishes its request: the JS decoder reads them as unobserved.
+// The origins request_expired and session_deleted end a call after the relay send of its request returned:
+// the JS decoder reads them as published. The origins with the suffix _unpublished end a call before that send
+// returned, so its publication is not known: the JS decoder reads them as unobserved, as it does for Android.
+// Choose between the two kinds with the functions below, from the published flag of the call.
+enum ReownCallFailureOrigin: String {
     case unconfigured
     case argumentValidation = "argument_validation"
     case requestConstructionError = "request_construction_error"
     case requestCallError = "request_call_error"
+    case requestExpired = "request_expired"
+    case sessionDeleted = "session_deleted"
+    case requestExpiredUnpublished = "request_expired_unpublished"
+    case sessionDeletedUnpublished = "session_deleted_unpublished"
+
+    /// The origin of a call that a session deletion ends. The flag is true after the relay send returned.
+    static func forDeletion(published: Bool) -> ReownCallFailureOrigin {
+        published ? .sessionDeleted : .sessionDeletedUnpublished
+    }
+
+    /// The origin of a call that expires. The flag is true after the relay send returned.
+    static func forExpiry(published: Bool) -> ReownCallFailureOrigin {
+        published ? .requestExpired : .requestExpiredUnpublished
+    }
 }
 
-private func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
+func rejectReownCall(_ call: CAPPluginCall, message: String, origin: ReownCallFailureOrigin) {
     call.reject(message, "REOWN_IOS_REQUEST_FAILURE:\(origin.rawValue)")
 }
 
@@ -140,10 +159,82 @@ private struct ReownCryptoProvider: CryptoProvider {
     }
 }
 
+private struct ReownKeychainSettings: Decodable {
+    let group: String
+
+    enum CodingKeys: String, CodingKey {
+        case group = "ReownKeychainAccessGroup"
+    }
+}
+
 private struct PendingReownRequest {
     let call: CAPPluginCall
     let request: Request
     let resolvesHash: Bool
+}
+
+/// The pending calls of a plugin, keyed by the request id. The table uses plain inputs, so a test builds no Reown type.
+/// Every function that removes an entry returns it, and returns nothing when the entry is not there.
+/// So each call settles exactly once. Read and write a table on the main actor only.
+struct PendingCallTable<Key: Hashable, Call> {
+    struct Entry {
+        let call: Call
+        let topic: String
+        // True after the relay send of the call returned.
+        var published: Bool
+    }
+
+    private var entries: [Key: Entry] = [:]
+
+    var count: Int {
+        entries.count
+    }
+
+    func contains(_ key: Key) -> Bool {
+        entries[key] != nil
+    }
+
+    /// Record the call before its send, so that a fast response finds it.
+    mutating func insert(key: Key, topic: String, call: Call) {
+        entries[key] = Entry(call: call, topic: topic, published: false)
+    }
+
+    /// Mark the call as published. Return false when the call is no longer pending.
+    mutating func markPublished(key: Key) -> Bool {
+        guard entries[key] != nil else {
+            return false
+        }
+        entries[key]?.published = true
+        return true
+    }
+
+    /// Remove and return the entry of a response. Return nothing, and keep the entry, when the key is unknown
+    /// or the topic is not the topic of the entry.
+    mutating func settle(key: Key, topic: String) -> Entry? {
+        guard let entry = entries[key], entry.topic == topic else {
+            return nil
+        }
+        entries.removeValue(forKey: key)
+        return entry
+    }
+
+    /// Remove and return the entry of an expired request.
+    mutating func expire(key: Key) -> Entry? {
+        entries.removeValue(forKey: key)
+    }
+
+    /// Remove and return the entry of a failed send. Return nothing when a response or a rejection settled it first.
+    mutating func failSend(key: Key) -> Entry? {
+        entries.removeValue(forKey: key)
+    }
+
+    /// Remove and return the entries of one topic, or all entries when the topic is nil.
+    mutating func removeAll(topic: String?) -> [Entry] {
+        let keys = entries.compactMap { key, entry in
+            topic == nil || entry.topic == topic ? key : nil
+        }
+        return keys.compactMap { entries.removeValue(forKey: $0) }
+    }
 }
 
 private struct NativeEthereumTransaction: Codable {
@@ -191,7 +282,8 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var configured = false
     private var subscriptions = Set<AnyCancellable>()
-    private var pendingRequests: [PendingReownRequest] = []
+    // Pending calls, keyed by the WalletConnect request id. Read and write this map on the main actor only.
+    private var pendingRequests = PendingCallTable<RPCID, PendingReownRequest>()
     private var socketStatus: String?
     // Proposal namespaces built in configure(); reused by connectUri() (E2E) to
     // create a pairing directly and hand the wc: URI to JS, bypassing the modal.
@@ -275,18 +367,23 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
 
-        // Reown persists its relay client-id in a keychain access group AND a
-        // UserDefaults suite named by `groupIdentifier` (RelayClientFactory /
-        // NetworkingClientFactory). It MUST be a group this app is entitled to —
-        // otherwise the keychain ops return errSecMissingEntitlement, which the KMS
-        // force-tries (`try! kms.create…`) → EXC_BREAKPOINT/swift_unexpectedError at
-        // launch. The old `group.com.miden.wallet` App Group was dropped from
-        // App.entitlements in #405 (owned by a former Apple team, not provisionable),
-        // so point Reown at the app's OWN entitled keychain access group
-        // ($(AppIdentifierPrefix)com.miden.bread = <teamID>.com.miden.bread). No App
-        // Group / provisioning-profile change required.
+        // Xcode expands the same signing prefix and bundle ID in Info.plist and App.entitlements.
+        // Reown must use this entitled group or its keychain writes can fail at startup.
+        let keychainGroup: String
+        do {
+            let infoURL = Bundle.main.bundleURL.appendingPathComponent("Info.plist")
+            let data = try Data(contentsOf: infoURL)
+            keychainGroup = try PropertyListDecoder().decode(ReownKeychainSettings.self, from: data).group
+            guard !keychainGroup.isEmpty, !keychainGroup.contains("$(") else {
+                call.reject("The Reown keychain group is not configured")
+                return
+            }
+        } catch {
+            call.reject("Could not read the Reown keychain group")
+            return
+        }
         Networking.configure(
-            groupIdentifier: "LHU7B7J5WL.com.miden.bread",
+            groupIdentifier: keychainGroup,
             projectId: projectId,
             socketFactory: ReownSocketFactory()
         )
@@ -447,6 +544,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await Sign.instance.disconnect(topic: topic)
                     await MainActor.run {
+                        self.rejectPendingRequests(topic: topic, message: "WalletConnect session was disconnected")
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -472,6 +570,7 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await AppKit.instance.cleanup()
                     await MainActor.run {
+                        self.rejectPendingRequests(topic: nil, message: "WalletConnect session was disconnected")
                         self.notifyStateChanged()
                         call.resolve()
                     }
@@ -522,8 +621,23 @@ private extension ReownPlugin {
 
         Sign.instance.sessionDeletePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] topic, _ in
+                self?.rejectPendingRequests(topic: topic, message: "WalletConnect session was deleted")
                 self?.notifyStateChanged()
+            }
+            .store(in: &subscriptions)
+
+        Sign.instance.requestExpirationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] id in
+                guard let pending = self?.pendingRequests.expire(key: id) else {
+                    return
+                }
+                rejectReownCall(
+                    pending.call.call,
+                    message: "Request expired",
+                    origin: .forExpiry(published: pending.published)
+                )
             }
             .store(in: &subscriptions)
 
@@ -568,30 +682,46 @@ private extension ReownPlugin {
         }
 
         Task {
+            // Record the call before the send, so that a fast response finds it.
+            await MainActor.run {
+                self.pendingRequests.insert(
+                    key: request.id,
+                    topic: request.topic,
+                    call: PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash)
+                )
+            }
             do {
                 try await Sign.instance.request(params: request)
                 await MainActor.run {
-                    self.pendingRequests.append(PendingReownRequest(call: call, request: request, resolvesHash: resolvesHash))
+                    guard self.pendingRequests.markPublished(key: request.id) else {
+                        return
+                    }
                     self.openWallet(for: request)
                 }
             } catch {
                 await MainActor.run {
+                    // Reject the call only if no response settled it during the send.
+                    guard self.pendingRequests.failSend(key: request.id) != nil else {
+                        return
+                    }
                     rejectReownCall(call, message: error.localizedDescription, origin: .requestCallError)
                 }
             }
         }
     }
 
+    /// Match each response to its pending call by the request id and the session topic.
+    /// Drop a response that has no pending call with the same id and topic
+    /// (lost, duplicate, late or out-of-order relay responses). Do not give it to a different call.
     func handle(response: Response) {
         notifyListeners("sessionResponse", data: [
             "result": String(describing: response.result)
         ])
 
-        guard !pendingRequests.isEmpty else {
+        guard let entry = pendingRequests.settle(key: response.id, topic: response.topic) else {
             return
         }
-
-        let pending = pendingRequests.removeFirst()
+        let pending = entry.call
 
         switch response.result {
         case .response(let result):
@@ -603,6 +733,19 @@ private extension ReownPlugin {
             }
         case .error(let error):
             pending.call.reject(error.message)
+        }
+    }
+
+    /// Reject the pending calls of one session topic, or of all sessions when the topic is nil.
+    /// Each call is removed before it is rejected, so that a later response cannot settle it again.
+    /// Each call takes its origin from its own published flag.
+    func rejectPendingRequests(topic: String?, message: String) {
+        for entry in pendingRequests.removeAll(topic: topic) {
+            rejectReownCall(
+                entry.call.call,
+                message: message,
+                origin: .forDeletion(published: entry.published)
+            )
         }
     }
 

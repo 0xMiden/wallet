@@ -216,25 +216,17 @@ jest.mock('components/PageHeader', () => ({
 
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({
-    symbol,
     faucetId,
     size,
     className,
     badge
   }: {
-    symbol: string;
-    faucetId?: string;
+    faucetId: string | undefined;
     size?: string;
     className?: string;
     badge?: React.ReactNode;
   }) => (
-    <span
-      data-testid="token-logo"
-      data-symbol={symbol}
-      data-faucet-id={faucetId}
-      data-size={size}
-      className={className}
-    >
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} className={className}>
       {badge}
     </span>
   )
@@ -574,7 +566,6 @@ describe('TokenDetail', () => {
 
     const hero = screen.getByTestId('token-detail-hero');
     const logo = within(hero).getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
     expect(logo).toHaveAttribute('data-faucet-id', TOKEN_ID);
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
@@ -700,7 +691,8 @@ describe('TokenDetail', () => {
       renderPage({ balances: null, metadata: {} }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('unknown');
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'unknown');
+      // The logo is keyed by the faucet alone, so an unresolved symbol still asks for this faucet's logo.
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', PLAIN_ID);
     });
 
     it('handles a matched token whose balance is nullish', () => {
@@ -724,6 +716,28 @@ describe('TokenDetail', () => {
 
     afterEach(() => {
       Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows an em dash, not $0.00, when the quote is ready and the balance read has not landed', () => {
+      const metadata = { symbol: 'ETH', name: 'Ether', decimals: 18 };
+      configure({ metadata: { [TOKEN_ID]: metadata } });
+      const unread = {
+        data: [{ tokenId: TOKEN_ID, balance: 0, metadata }],
+        isLoading: true,
+        isValidating: true,
+        mutate: jest.fn()
+      };
+      mockUseAllBalances.mockReturnValue(unread);
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(hero).not.toHaveTextContent('$0.00');
+      expect(hero).toHaveTextContent('\u2014');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      mockUseAllBalances.mockReturnValue({ ...unread, isLoading: false, isValidating: false });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+      expect(within(hero).getByText('$0.00')).toBeInTheDocument();
     });
 
     it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
@@ -1640,7 +1654,7 @@ describe('TokenDetail', () => {
 });
 
 describe('TokenDetail testnet bridge USDC label', () => {
-  it('titles the bridge faucet by the testnet label and keeps its USDC logo', () => {
+  it("titles the bridge faucet by the testnet label and keeps its own faucet's logo", () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderPage(
       {
@@ -1651,7 +1665,7 @@ describe('TokenDetail testnet bridge USDC label', () => {
     );
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
   });
 
   it('retitles the bridge faucet by the label once the bridge config publishes, with no new props', () => {

@@ -8,6 +8,8 @@ export interface OneClickAsset {
   coingeckoId?: string;
   contractAddress?: string;
   faucetId?: string;
+  /** The EVM chain id, when a stored asset carries one. A deposit payment link refuses an asset whose id disagrees. */
+  chainId?: number;
 }
 
 export interface OneClickAppFee {

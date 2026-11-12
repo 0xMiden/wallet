@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A81900000000000000000001 /* WalletPaymentsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A81900000000000000000002 /* WalletPaymentsPlugin.swift */; };
 		BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000002 /* BreadPresentationTests.swift */; };
 		BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000004 /* BreadAuthTests.swift */; };
 		EA1599000000000000000001 /* AppViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1599000000000000000002 /* AppViewControllerTests.swift */; };
@@ -30,6 +31,7 @@
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */; };
 		A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */; };
+		A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */; };
 		B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */; };
 		AABBCCDD0000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */; };
 		B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */; };
@@ -47,6 +49,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A81900000000000000000002 /* WalletPaymentsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletPaymentsPlugin.swift; sourceTree = "<group>"; };
 		BCAD00000000000000000002 /* BreadPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadPresentationTests.swift; sourceTree = "<group>"; };
 		BCAD00000000000000000004 /* BreadAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadAuthTests.swift; sourceTree = "<group>"; };
 		EA1599000000000000000002 /* AppViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewControllerTests.swift; sourceTree = "<group>"; };
@@ -71,6 +74,7 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenshotGuardPlugin.swift; sourceTree = "<group>"; };
 		A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HighRefreshRatePlugin.swift; sourceTree = "<group>"; };
+		A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundExecutionPlugin.swift; sourceTree = "<group>"; };
 		B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BreadConnectOpenerPlugin.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BarcodeScannerPlugin.swift; sourceTree = "<group>"; };
@@ -134,7 +138,9 @@
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */,
+				A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */,
 				B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */,
+				A81900000000000000000002 /* WalletPaymentsPlugin.swift */,
 				7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */,
 				C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */,
 				1A6B2865F76F213517CFCCD1 /* AppViewController.swift */,
@@ -298,7 +304,9 @@
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */,
+				A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */,
 				B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */,
+				A81900000000000000000001 /* WalletPaymentsPlugin.swift in Sources */,
 				7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */,
 				C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */,
 				7B5E86162FD4243200930C68 /* ReownPlugin.swift in Sources */,

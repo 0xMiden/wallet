@@ -5,7 +5,7 @@ import { type BridgeConfig, parseBridgeConfig } from './schema';
 
 /** The highest document version each network has accepted, as `{ [network]: number }`. A wallet reset keeps it. */
 export const BRIDGE_CONFIG_FLOOR_KEY = 'bridge_config_floor_v1';
-const PUBLISHED_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
+const PUBLISHED_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/refs/pull/38/head';
 
 export interface StoredBridgeConfig {
   config: BridgeConfig;

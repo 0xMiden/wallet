@@ -62,3 +62,47 @@ describe('SimulatorControl.screenshot', () => {
     expect(error).toHaveProperty('message', `simctl timed out after 20000ms: simctl io udid-a screenshot ${outPath}`);
   });
 });
+
+describe('SimulatorControl app switching', () => {
+  const launched = (): string[][] => (execFile as unknown as jest.Mock).mock.calls.map(([, args]) => args as string[]);
+
+  function simctlAnswers(error: (Error & { killed?: boolean }) | null): void {
+    (execFile as unknown as jest.Mock).mockReset();
+    (execFile as unknown as jest.Mock).mockImplementation(
+      (_file: string, _args: string[], _opts: unknown, cb: Callback) =>
+        error ? cb(error) : cb(null, { stdout: '', stderr: '' })
+    );
+  }
+
+  it('backgrounds by launching another installed app, under the simctl bound', async () => {
+    simctlAnswers(null);
+
+    await new SimulatorControl().background('udid-a');
+
+    expect(execFile).toHaveBeenCalledWith(
+      'xcrun',
+      ['simctl', 'launch', 'udid-a', 'com.apple.Preferences'],
+      { timeout: 180_000 },
+      expect.any(Function)
+    );
+  });
+
+  // A terminate would throw away the very attempt the caller left in flight.
+  it('returns to the app without terminating it, under the simctl bound', async () => {
+    simctlAnswers(null);
+
+    await new SimulatorControl().foreground('udid-a', 'com.miden.bread');
+
+    expect(launched()).toEqual([['simctl', 'launch', 'udid-a', 'com.miden.bread']]);
+    expect(execFile).toHaveBeenCalledWith('xcrun', expect.any(Array), { timeout: 180_000 }, expect.any(Function));
+  });
+
+  it.each([
+    ['background', (sim: SimulatorControl) => sim.background('udid-a')],
+    ['foreground', (sim: SimulatorControl) => sim.foreground('udid-a', 'com.miden.bread')]
+  ])('names a wedged %s as a simctl timeout', async (_name, operate) => {
+    simctlAnswers(Object.assign(new Error('killed'), { killed: true }));
+
+    expect(isSimctlTimeoutError(await operate(new SimulatorControl()).catch((e: unknown) => e))).toBe(true);
+  });
+});

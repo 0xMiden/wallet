@@ -1,3 +1,4 @@
+import { developmentOneClickServiceUrl } from 'lib/one-click/development-service';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
@@ -414,7 +415,13 @@ function nearIntents(
   const localE2E = network === 'localnet' && allowOneClickLocalE2E;
   if (network !== 'mainnet' && !localE2E) return undefined;
   const config = record(value);
-  const serviceUrl = baseUrl(config.serviceUrl, localE2E && allowLocalHttp);
+  const localDevelopment = process.env.MODE_ENV === 'development' && process.env.MIDEN_E2E_TEST !== 'true';
+  const developmentUrl = developmentOneClickServiceUrl();
+  const configuredUrl =
+    config.serviceUrl === developmentUrl && developmentUrl !== undefined
+      ? developmentUrl
+      : baseUrl(config.serviceUrl, (localE2E && allowLocalHttp) || localDevelopment);
+  const serviceUrl = developmentUrl ?? configuredUrl;
   if (localE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname)) return invalid();
   // A document that still names `appFees` is accepted and the list is not read: NEAR sets the fees up on the
   // partner key.

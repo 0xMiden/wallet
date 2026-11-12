@@ -1,3 +1,4 @@
+import { toLocalFormat } from 'lib/i18n/numbers';
 import type {
   IBridgedSendExtraInputs,
   IOneClickPhase,
@@ -58,6 +59,9 @@ export const getStepDurationsMs = (
     if (start === undefined || end === undefined || end < start) return undefined;
     return end - start;
   });
+
+/** A step's duration for `transactionStepDurationSec`: one fraction digit, in the wallet locale's own symbols. */
+export const formatStepSeconds = (ms: number): string => toLocalFormat(ms / 1000, { decimalPlaces: 1 });
 
 /**
  * When does this step begin? `startStage` first, then `fallbackStartStage` for a
@@ -268,7 +272,7 @@ export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boole
   rotationVerdict(tx)?.kind === 'submitted-unconfirmed';
 
 /**
- * `unconfirmed` marks a row whose outcome is unknown (`isOutcomeUnconfirmed`): the step it
+ * `unconfirmed` marks a row whose outcome is unknown (`readsAsNotConfirmed`): the step it
  * froze on may still finish, so it reads pending rather than failed.
  */
 export const getTransactionStepState = (

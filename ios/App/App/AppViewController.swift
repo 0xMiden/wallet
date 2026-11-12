@@ -29,5 +29,7 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(HighRefreshRatePlugin())
         bridge?.registerPluginInstance(UpdateAvailabilityPlugin())
         bridge?.registerPluginInstance(BreadConnectOpenerPlugin())
+        bridge?.registerPluginInstance(WalletPaymentsPlugin())
+        bridge?.registerPluginInstance(BackgroundExecutionPlugin())
     }
 }

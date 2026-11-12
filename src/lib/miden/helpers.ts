@@ -77,8 +77,12 @@ export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
 /**
  * Blocks a request the wallet submits on its own may wait for inclusion: about 30 minutes at the estimated cadence
- * (#1081). A submitted transaction without one never expires, so "it never committed" could be proven only by the
- * account moving on without it.
+ * (#1081), where the fee asset leaves it that long. A submitted transaction without one never expires, so "it never
+ * committed" could be proven only by the account moving on without it.
+ *
+ * Every delta here is an upper bound. A fee faucet with a transfer policy, as on mainnet, caps a fee-paying transaction
+ * at 20 blocks from its reference block whatever the request asks for, and the freshness guard before a Guardian submit
+ * (`guardian/proof-freshness.ts`) reads the proof's own expiration for that reason (#2060).
  */
 export const EXPIRATION_DELTA_BLOCKS = 600;
 
@@ -86,7 +90,8 @@ export const EXPIRATION_DELTA_BLOCKS = 600;
  * Blocks for a request proposed through a Guardian: 540 s at 3 s blocks, inside the Guardian's ~600 s pending hold,
  * which starts after the proposal's bound block. Its transaction can then only land before the Guardian could discard
  * the candidate, while blocks come at least every 3.3 s. A proposal executes at the tip, so a wallet-built one carries
- * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`).
+ * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`). It does not set the
+ * mainnet proof window, which the fee policy above holds to 20 blocks from the execution's reference block.
  */
 export const GUARDIAN_EXPIRATION_DELTA_BLOCKS = 180;
 

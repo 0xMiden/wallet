@@ -31,7 +31,7 @@ import type {
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
-import { chainLogoNetwork, NearIntentsSelection, resolveSelection, tokenLogoSymbol } from './chains';
+import { chainLogoNetwork, NearIntentsSelection, resolveSelection } from './chains';
 import { arrivalMinutes, formatQuoteUsd, formatRate } from './format';
 import { isPreviewRefundAddress, previewRefundAddress } from './preview-refund';
 import { ReceiveTokenDrawer } from './ReceiveTokenDrawer';
@@ -265,7 +265,8 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
             <Card surface="fill" padding="row" data-testid="near-intents-send-card">
               <span className="text-label text-muted">{t('nearIntentsYouSend')}</span>
               <div className="flex items-center gap-3">
-                <TokenLogo symbol={tokenLogoSymbol(token.symbol)} size="lg" badge={originBadge} />
+                {/* An origin-chain token has no Miden faucet, so it draws the default mark (#2097). */}
+                <TokenLogo faucetId={undefined} size="lg" badge={originBadge} />
                 <AmountInput
                   className="min-w-0 flex-1"
                   size="compact"
@@ -316,12 +317,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
             <Card surface="fill" padding="row" data-testid="near-intents-receive-card">
               <span className="text-label text-muted">{t('nearIntentsYouReceive')}</span>
               <div className="flex items-center gap-3">
-                <TokenLogo
-                  symbol={tokenLogoSymbol(output.symbol)}
-                  faucetId={output.faucetId}
-                  size="lg"
-                  badge={<NetworkLogo kind="miden" />}
-                />
+                <TokenLogo faucetId={output.faucetId} size="lg" badge={<NetworkLogo kind="miden" />} />
                 <AmountInput
                   className="min-w-0 flex-1"
                   size="compact"

@@ -1247,6 +1247,29 @@ describe('the NEAR Intents local E2E gate', () => {
   const local = { ...doc({ nearIntents: nearIntents('http://127.0.0.1:8550') }), network: 'localnet' };
   const both = { allowLocalHttp: true, allowOneClickLocalE2E: true };
 
+  it('accepts a loopback mainnet proxy in a non-E2E development build only', () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      MODE_ENV: 'development',
+      MIDEN_E2E_TEST: 'false'
+    });
+    try {
+      const mainnet = { ...local, network: 'mainnet' };
+      expect(parseBridgeConfig(mainnet, 'mainnet')?.nearIntents?.serviceUrl).toBe('http://192.168.29.144:8787');
+      const lanConfig = { ...mainnet, nearIntents: nearIntents('http://192.168.29.144:8787') };
+      expect(parseBridgeConfig(lanConfig, 'mainnet')?.nearIntents?.serviceUrl).toBe('http://192.168.29.144:8787');
+      expect(parseBridgeConfig({ ...mainnet, nearIntents: nearIntents('http://example.com') }, 'mainnet')).toBeNull();
+      process.env.MODE_ENV = 'production';
+      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
+      expect(parseBridgeConfig(lanConfig, 'mainnet')).toBeNull();
+      process.env.MODE_ENV = 'development';
+      process.env.MIDEN_E2E_TEST = 'true';
+      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
+    } finally {
+      env.restore();
+    }
+  });
+
   it('hides NEAR Intents outside mainnet unless the explicit local E2E option is enabled', () => {
     expect(parseBridgeConfig(configured, 'testnet')?.nearIntents).toBeUndefined();
     expect(parseBridgeConfig(local, 'localnet')?.nearIntents).toBeUndefined();

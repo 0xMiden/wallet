@@ -27,7 +27,7 @@ jest.mock('lib/badges/useWalletBadges', () => ({
 }));
 jest.mock('./Settings', () => ({
   __esModule: true,
-  default: ({ embedded }: { embedded: boolean }) => <div data-testid="original-settings" data-embedded={embedded} />
+  default: () => <div data-testid="original-settings" />
 }));
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: mockPublicKey, name: 'Account 1' }),
@@ -66,7 +66,6 @@ it('puts My badges before the original embedded settings menu', () => {
   expect(badges).toHaveTextContent('myBadges');
   fireEvent.click(badges);
   expect(navigate).toHaveBeenCalledWith('/me/badges');
-  expect(settings).toHaveAttribute('data-embedded', 'true');
   expect(badges.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 

@@ -5,6 +5,38 @@ import { lookupFeatureEligibility } from './geo-lookup';
 
 const answer = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: false } };
 
+type RequestFailure =
+  | 'transport_error'
+  | 'timeout'
+  | 'http_error'
+  | 'response_too_large'
+  | 'body_read_error'
+  | 'json_decode_error';
+
+const requestFailureCases: Array<[string, RequestFailure, () => Promise<JsonResponse>]> = [
+  ['non-success HTTP response', 'http_error', async () => ({ ok: false, status: 503, json: async () => null })],
+  [
+    'oversized response',
+    'response_too_large',
+    async () => ({ ok: true, headers: { get: () => '5000' }, json: async () => answer })
+  ],
+  ['invalid JSON', 'json_decode_error', async () => ({ ok: true, text: async () => '{', json: async () => null })],
+  [
+    'json-only decode failure',
+    'json_decode_error',
+    async () => ({ ok: true, json: () => Promise.reject(new SyntaxError('private malformed response')) })
+  ],
+  [
+    'body read failure',
+    'body_read_error',
+    async () => ({
+      ok: true,
+      text: async () => Promise.reject(new Error('private body failure')),
+      json: async () => null
+    })
+  ]
+];
+
 function jsonResponse(body: unknown, ok = true): JsonResponse {
   return { ok, json: async () => body };
 }
@@ -199,11 +231,13 @@ describe('lookupFeatureEligibility', () => {
             return response;
           });
     });
-    const pending = lookupFeatureEligibility('testnet', 13, { fetchImpl });
+    const onFailure = jest.fn();
+    const pending = lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure });
     await jest.advanceTimersByTimeAsync(9_999);
     expect(requestSignal?.aborted).toBe(false);
     await jest.advanceTimersByTimeAsync(1);
     await expect(pending).resolves.toBeNull();
+    expect(onFailure).toHaveBeenCalledWith('request_failed', 'timeout');
     expect(requestSignal?.aborted).toBe(true);
     expect(jest.getTimerCount()).toBe(0);
   });
@@ -241,8 +275,15 @@ describe('lookupFeatureEligibility', () => {
       .fn()
       .mockRejectedValue(new Error('seed alpha bravo https://private.example amount=123 account=0x123456'));
     await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure })).resolves.toBeNull();
-    expect(onFailure.mock.calls).toEqual([['request_failed']]);
+    expect(onFailure.mock.calls).toEqual([['request_failed', 'transport_error']]);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(requestFailureCases)('records only the closed %s family', async (_label, requestFailure, response) => {
+    const onFailure = jest.fn();
+    const fetchImpl = jest.fn().mockImplementation(async () => response());
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure })).resolves.toBeNull();
+    expect(onFailure.mock.calls).toEqual([['request_failed', requestFailure]]);
   });
   it('ignores a diagnostic observer failure while preserving the failed decision', async () => {
     delete process.env.FEATURE_ELIGIBILITY_URL;

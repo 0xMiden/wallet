@@ -23,6 +23,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SystemChromePlugin.class);
         registerPlugin(UpdateAvailabilityPlugin.class);
         registerPlugin(BreadConnectOpenerPlugin.class);
+        registerPlugin(WalletPaymentsPlugin.class);
 
         // A launch intent whose link an earlier instance already received is dropped here, before the bridge
         // reads the launch URL, so it cannot open its page again.

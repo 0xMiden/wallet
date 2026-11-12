@@ -13,8 +13,8 @@ import {
   readClaimFeeContext
 } from './claim-fee';
 import {
-  guardianHoldRetryMessage,
   PRE_SUBMIT_STAGES,
+  STALE_PROOF_ERROR,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
   TRANSACTION_RETRY_UNSAFE_ERROR,
@@ -28,6 +28,7 @@ import {
 } from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
 import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
@@ -147,15 +148,19 @@ export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>)
  * behind it to confirm; hence the hard exclusion above.
  *
  * Unconfirmed too: Retry is the exit while no verdict exists (#1081).
+ *
+ * A row whose proposal signing refused for moving more than was approved is excluded too: its retry
+ * would execute the same request and be refused again (#2147).
  */
 export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
   restoredFromBackup?: boolean;
+  proposalEffectRefused?: boolean;
 }): boolean => {
   if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
-  if (tx.restoredFromBackup) return false;
+  if (tx.restoredFromBackup || tx.proposalEffectRefused) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && !isRequeueableBridgeProvider(tx.bridgeProvider)) return false;
   return true;
@@ -341,6 +346,13 @@ const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
   (tx.attemptId === undefined &&
     (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt) || isSubmitOutcomeUnknown(tx)));
 
+/**
+ * Only a leaf that stopped before its submit writes this copy, and the copy tells the user to try again, so unless an
+ * earlier attempt's entry is still in doubt the row has nothing left for an acknowledgement to rule out (#2060).
+ */
+const endedUnsent = (tx: ITransaction): boolean =>
+  tx.error === STALE_PROOF_ERROR && !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
+
 interface RequeuePlan {
   failedStage: ITransactionStage | undefined;
   clearFlags: boolean;
@@ -362,7 +374,7 @@ const planRequeue = async (
   // The next proposal would meet the kept candidate: the 409 arm for most types, an outright failure for a
   // bridged-send. Proven or not, and acknowledged or not, the row waits for the Guardian's own discard.
   const holdUntil = keptCandidateHoldUntil(tx, nowSec);
-  if (holdUntil !== undefined) throw retryRefusal(new Error(guardianHoldRetryMessage(holdUntil)), 'guardian_hold');
+  if (holdUntil !== undefined) throw retryRefusal(new GuardianHoldRetryError(holdUntil), 'guardian_hold');
   let proven = tx.neverCommittedAt !== undefined;
   let baseline = evidenceKey(tx.submitEvidence);
   let checked = false;
@@ -431,7 +443,8 @@ const planRequeue = async (
   const rebuiltWithoutBytes =
     REBUILT_REQUEST_TYPES.includes(tx.type) && tx.requestBytes === undefined && tx.transactionId === undefined;
   const sendOrSwapInDoubt =
-    rebuiltWithoutBytes && (proven || tx.mayHaveSubmitted === true || live || isSubmitOutcomeUnknown(tx));
+    rebuiltWithoutBytes &&
+    (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !endedUnsent(tx)));
   const executeInDoubt = tx.type === 'execute' && !listsNullifier(tx) && (proven || executeMayHaveSubmitted(tx));
 
   // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
