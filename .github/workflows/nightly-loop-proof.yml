@@ -33,6 +33,8 @@ jobs:
           yarn esbuild scripts/helpers/mainnet-epoch-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-fixture.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
           yarn esbuild playwright/e2e/helpers/mainnet-epoch-evm.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-evm.mjs
-          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs
+          yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
+          yarn esbuild playwright/e2e/helpers/mainnet-epoch-provider.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/nightly-epoch-provider.mjs
+          node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs
           node scripts/consume-request-equivalence.mjs
           yarn ts
