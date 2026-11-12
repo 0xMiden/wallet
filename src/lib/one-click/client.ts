@@ -626,7 +626,8 @@ export async function fetchOneClickStatus(
   config: OneClickConfig,
   depositAddress: string,
   depositMemo?: string,
-  expectedQuote?: OneClickQuoteResponse
+  expectedQuote?: OneClickQuoteResponse,
+  _fetcher: typeof fetch = fetch
 ): Promise<OneClickStatusResponse> {
   if (!depositAddress || depositAddress.length > 256 || (depositMemo && depositMemo.length > 256))
     throw new Error('Invalid deposit reference');
@@ -649,7 +650,8 @@ export async function submitOneClickDeposit(
   depositAddress: string,
   transactionHash: string,
   memo?: string,
-  expectedQuote?: OneClickQuoteResponse
+  expectedQuote?: OneClickQuoteResponse,
+  _fetcher: typeof fetch = fetch
 ): Promise<OneClickStatusResponse> {
   if (
     !depositAddress ||
