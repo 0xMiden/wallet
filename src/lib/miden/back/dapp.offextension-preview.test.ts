@@ -185,6 +185,11 @@ const sheetRows = (): string[] => {
 
 const OPAQUE_WARNING =
   'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
+const NOT_A_TRANSACTION = 'Note, this signature cannot authorize a transaction from your account.';
+
+const expectWarningThenLine = (rows: string[]) => {
+  expect(rows[rows.indexOf(OPAQUE_WARNING) + 1]).toBe(NOT_A_TRANSACTION);
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -253,6 +258,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(rows).toContain('Sending, -1.5 USDC');
     expect(rows).toContain('Notes, 0 consumed / 1 created');
     expect(rows).not.toContain(OPAQUE_WARNING);
+    expect(rows).not.toContain(NOT_A_TRANSACTION);
     // The pre-existing rows stay.
     expect(rows).toContain('Kind, signingInputs');
   });
@@ -292,7 +298,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
 
     const rows = sheetRows();
-    expect(rows).toContain(OPAQUE_WARNING);
+    expectWarningThenLine(rows);
     expect(rows.some(row => row.startsWith('Sending, '))).toBe(false);
   });
 
@@ -305,13 +311,13 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
 
     await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
 
-    expect(sheetRows()).toContain(OPAQUE_WARNING);
+    expectWarningThenLine(sheetRows());
   });
 
   it('warns explicitly for a raw `word` digest', async () => {
     await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DECLINED);
 
-    expect(sheetRows()).toContain(OPAQUE_WARNING);
+    expectWarningThenLine(sheetRows());
   });
 });
 

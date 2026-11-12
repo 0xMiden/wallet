@@ -134,6 +134,9 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
+      <p className="text-sm text-left text-ink mb-2" data-testid="opaque-signature-not-a-transaction">
+        {t('opaqueSignatureNotATransaction')}
+      </p>
       <AdvancedDetails label={t('rawValue')}>
         <SignatureRawValue value={rawValue} errorId={errorId} />
       </AdvancedDetails>

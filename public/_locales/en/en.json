@@ -1380,6 +1380,7 @@
   "couldNotDecodeTransaction": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
   "rawValue": "Raw value",
   "opaqueSignatureTitle": "Opaque signature request",
+  "opaqueSignatureNotATransaction": "This signature cannot authorize a transaction from your account.",
   "opaqueSignatureWarning": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
   "note": "Note",
   "earnMarketLabel": "Market",

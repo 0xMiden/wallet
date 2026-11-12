@@ -3697,6 +3697,9 @@ async function formatMaxNetworkFee(): Promise<string | null> {
 const OPAQUE_SIGNATURE_WARNING =
   'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
 
+/** The wallet signs a domain-separated commitment for these requests, so the signature cannot authorize a transaction. */
+const OPAQUE_SIGNATURE_NOT_A_TRANSACTION = 'Note, this signature cannot authorize a transaction from your account.';
+
 /**
  * Asset movement of a decoded transaction view, as `Label, value` rows.
  *
@@ -3771,7 +3774,7 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
 async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
   const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
   if (req.kind !== 'signingInputs') {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
 
@@ -3788,7 +3791,7 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
   }
 
   if (!summary) {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
 

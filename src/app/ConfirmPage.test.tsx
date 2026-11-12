@@ -986,6 +986,7 @@ describe('sign payload — word', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
@@ -1001,6 +1002,7 @@ describe('sign payload — word', () => {
 
     // Still renders the opaque-signature warning; the raw value is the invalid fallback.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     await act(async () => {
@@ -1194,6 +1196,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signArbitraryPayload')).toBeInTheDocument();
   });
@@ -1204,6 +1207,7 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
   });
@@ -1240,6 +1244,7 @@ describe('loginSign payload', () => {
     expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
     expect(screen.queryByText('payload')).not.toBeInTheDocument();
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
   });
 
@@ -1545,5 +1550,6 @@ describe('ConfirmPage opaque signature', () => {
 
     // The Alert mock (top of file) renders its `description`; `t` echoes keys.
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
   });
 });
