@@ -32,6 +32,7 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
+import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
@@ -227,7 +228,7 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
 /**
  * Per-attempt ceiling on the two POST-COMMIT round-trips to the NEW guardian in
  * {@link MultisigService.finalizeGuardianSwitch} — its `GET /pubkey` and each
- * `registerOnGuardian` attempt.
+ * `/configure` attempt.
  *
  * `GuardianHttpClient` passes no `AbortSignal` (the reason
  * `withOutgoingGuardianDeadline` exists for the arms that talk to the OUTGOING
@@ -300,6 +301,11 @@ export class MultisigService {
   // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
   private syncInFlight: Promise<void> | null = null;
   private switchProposalId?: string;
+  /**
+   * The Guardian client this account registers on: the one `load` signed, until `finalizeGuardianSwitch` moves it to
+   * the new operator. `client.guardianClient` stays on the old one.
+   */
+  private registrationGuardian: GuardianHttpClient;
   /** The signer facts a Guardian authentication refusal is reported with, read when the service was built. */
   authFacts?: GuardianAuthFacts;
 
@@ -312,6 +318,7 @@ export class MultisigService {
     this.multisig = multisig;
     this.client = client;
     this.guardianEndpoint = guardianEndpoint;
+    this.registrationGuardian = client.guardianClient;
   }
 
   /** {@link withProposalStep}, also naming this service's signer facts on a Guardian authentication refusal. */
@@ -1443,7 +1450,7 @@ export class MultisigService {
    * block that upstream's `multisig.executeProposal` runs when it detects
    * a `switch_guardian` metadata type. Must be called AFTER the on-chain
    * switch lands — `client.load(...)` against the new guardian will fail
-   * until `registerOnGuardian` succeeds.
+   * until the account is registered there.
    *
    * By the time this runs the on-chain guardian has already been switched, so
    * the old guardian no longer has authority over the account. Registration on
@@ -1457,7 +1464,7 @@ export class MultisigService {
     const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
-      const updatedStateBase64 = await withWasmClientLock(async hold => {
+      const registration = await withWasmClientLock(async (hold): Promise<GuardianRegistration> => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
         // and an eviction during it hands the mutex to a successor without
@@ -1472,7 +1479,10 @@ export class MultisigService {
         // serialize() reads through the Account's borrow of the client's
         // RefCell, so the read await needs its own re-check.
         assertWasmHoldCurrent(hold, 'finalize-switch: after the account read');
-        return u8ToB64(account.serialize());
+        // The allowlist the new operator installs comes from the same post-switch account as the
+        // state, never the cached config, and a short or non-ECDSA read refuses before any POST.
+        const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
+        return { accountIdHex: this.accountId, stateBase64: u8ToB64(account.serialize()), signerCommitments };
       });
 
       registerGuardianOrigin(newGuardianEndpoint);
@@ -1491,9 +1501,10 @@ export class MultisigService {
       const commitment = assertGuardianKeyCommitment(pubkeyResponse?.commitment, newGuardianEndpoint);
 
       this.multisig.setGuardianClient(nextGuardian);
+      this.registrationGuardian = nextGuardian;
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
-      await this.registerOnGuardianWithRetry(updatedStateBase64);
+      await this.registerOnGuardianWithRetry(this.registrationGuardian, registration);
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
       throw error;
@@ -1527,12 +1538,16 @@ export class MultisigService {
     }
   }
 
-  private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
+  // Never through `multisig.registerOnGuardian`, which reads the WASM client store first from multisig-client 0.19.
+  private async registerOnGuardianWithRetry(
+    guardian: GuardianHttpClient,
+    registration: GuardianRegistration
+  ): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
       try {
         await withTimeout(
-          this.multisig.registerOnGuardian(stateBase64),
+          configureGuardianAccount(guardian, registration),
           POST_COMMIT_GUARDIAN_TIMEOUT_MS,
           'New guardian registration'
         );
@@ -1550,7 +1565,7 @@ export class MultisigService {
           return;
         }
         lastError = error;
-        console.warn(`registerOnGuardian failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+        console.warn(`Guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
         if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
           // #619 — on a 429 this honours the guardian's own Retry-After instead
           // of the blind exponential backoff (which just earns another 429).
@@ -1606,7 +1621,7 @@ export class MultisigService {
     onBeforeRegister?: (signerCommitments: readonly string[]) => void,
     lockOptions?: WasmClientLockOptions
   ): Promise<void> {
-    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
+    const { stateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
       // unattended loop whose failure mode is a sync parked on a dead node, i.e.
@@ -1634,9 +1649,8 @@ export class MultisigService {
       // The inspector walks account storage and serialize() reads through the
       // same RefCell — both are borrows, so the read await gets its own re-check.
       assertWasmHoldCurrent(hold, 're-register: after the account read');
-      // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`,
-      // written by registerOnGuardian from `multisig.signerCommitments`) from the
-      // SAME freshly-synced on-chain account as the state blob — NOT the cached
+      // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`)
+      // from the SAME freshly-synced on-chain account as the state blob — NOT the cached
       // `multisig.signerCommitments`, which `client.load` set from the guardian's
       // stored blob and can still be the PRE-rotation [old-hot, cold]. Deriving
       // it here via `AccountInspector.fromAccount` is byte-identical to that
@@ -1645,7 +1659,7 @@ export class MultisigService {
       // hot-key rotation could re-push the old hot key and re-arm the permanent
       // 401 this method exists to prevent.
       const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
-      return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
+      return { stateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
       // Bounded and labelled BY THE CALLER, because both callers are on the ~3s
       // guardian cadence: `runSync`'s stage-2 last resort and the cold
       // re-register self-heal. This was the one hold left in the file on the
@@ -1666,7 +1680,11 @@ export class MultisigService {
     // The POST is now unavoidable from the caller's point of view: past this line a
     // `/configure` may land even if the retry loop then throws or is torn down.
     onBeforeRegister?.(freshSignerCommitments);
-    await this.registerOnGuardianWithRetry(updatedStateBase64);
+    await this.registerOnGuardianWithRetry(this.registrationGuardian, {
+      accountIdHex: this.accountId,
+      stateBase64,
+      signerCommitments: this.multisig.signerCommitments
+    });
   }
 }
 

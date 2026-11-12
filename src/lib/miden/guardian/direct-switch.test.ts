@@ -1566,9 +1566,9 @@ describe('finalizeDirectGuardianSwitch', () => {
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toMatchObject({
       message: expect.stringContaining('after direct switch'),
-      cause: expect.objectContaining({ message: 'The new guardian rejected the account registration' })
+      cause: expect.objectContaining({ message: 'The guardian rejected the account registration' })
     });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('rejected the direct-switch registration'), phish);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('rejected the account registration'), phish);
   });
 
   it('refuses an account the provider does not know', async () => {

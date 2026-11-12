@@ -23,6 +23,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { configureGuardianAccount } from './configure';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
@@ -1001,29 +1002,14 @@ export const finalizeDirectGuardianSwitch = async (
       // write, with the rotation screen spinning and `registerFailed`, the very
       // flag whose self-heal exists to finish this registration later, unrecorded.
       // The tighter deadline converts silence into an attempt failure the loop can
-      // consume sooner.
-      const response = await withTimeout(
-        guardian.configure({
-          accountId: accountIdHex,
-          auth: { MidenEcdsa: { cosigner_commitments: signerCommitments } },
-          initialState: { data: stateBase64, accountId: accountIdHex }
-        }),
+      // consume sooner. A rejection that answers is a failure too, and its message
+      // never reaches the thrown error (`configureGuardianAccount`): past the commit
+      // it is persisted on the row and rendered as wallet copy.
+      await withTimeout(
+        configureGuardianAccount(guardian, { accountIdHex, stateBase64, signerCommitments }),
         DIRECT_REGISTER_TIMEOUT_MS,
         `New guardian ${newGuardianEndpoint} registration`
       );
-      // `!== true`, not `!response.success`: `fromServerConfigureResponse`
-      // copies the field straight off `response.json()`, so a body of
-      // `{"success":"false"}` is a truthy STRING and would read as a successful
-      // registration. And the server's own `message` is logged rather than
-      // interpolated — by the time this throws, the on-chain rotation has
-      // already committed, so this message is persisted on the transaction row
-      // and rendered as wallet copy on the rotation screen. That makes an
-      // endpoint-supplied string a phishing surface; the guardian client keeps
-      // raw bodies off `Error.message` for exactly this reason.
-      if (response.success !== true) {
-        console.warn('New guardian rejected the direct-switch registration:', response.message);
-        throw new Error('The new guardian rejected the account registration');
-      }
       return;
     } catch (error) {
       // The operator already holds this account. That is the goal state, so it
