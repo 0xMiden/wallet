@@ -85,6 +85,15 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 
+export interface SwapClassificationOptions {
+  /**
+   * Whether an order settlement claims unattended keeps its unheld paybacks only when they account for its fill. Only
+   * a read that took its notes and lineages in one hold may ask: between two holds a sync can show a fill whose
+   * payback the note read missed.
+   */
+  requireFillCoverage: boolean;
+}
+
 /**
  * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
  * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
@@ -93,9 +102,10 @@ export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
   preloadedOrders: SwapOrder[] | undefined,
-  hold: WasmLockHold
+  hold: WasmLockHold,
+  options: SwapClassificationOptions
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
-  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold)).notes;
+  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold, options)).notes;
 }
 
 export interface SwapOrderSnapshot {
@@ -169,7 +179,8 @@ export async function classifySwapOrderSnapshot(
   notes: ConsumableNoteDto[],
   accountId: string,
   preloadedOrders: SwapOrder[] | undefined,
-  hold: WasmLockHold
+  hold: WasmLockHold,
+  options: SwapClassificationOptions
 ): Promise<SwapOrderSnapshot> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
@@ -188,7 +199,7 @@ export async function classifySwapOrderSnapshot(
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = lineages.get(orderId);
     if (!lineage) continue;
-    if (settlesUnattended(order)) {
+    if (options.requireFillCoverage && settlesUnattended(order)) {
       fillToCover.set(order.id, lineageFilledAmount(order.extraInputs.requestedAmount, lineage));
     }
 

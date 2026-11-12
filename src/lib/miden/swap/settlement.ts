@@ -152,7 +152,8 @@ export async function classifySwapSettlementSnapshot(
   nowSeconds: number = Math.floor(Date.now() / 1000),
   prepareReclaims = true
 ): Promise<SwapSettlementSnapshot> {
-  const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
+  // Both callers read the notes in the hold that reads the lineages, so the two agree on every fill.
+  const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold, { requireFillCoverage: true });
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   const refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];
   // A fused build leaves the orders to a later pass; the notes are classified all the same.

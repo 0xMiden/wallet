@@ -239,7 +239,8 @@ async function fetchNotesFromLocalClient(
   let swapOrders;
   try {
     swapOrders = await withWasmClientLock(
-      async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold),
+      // Notes and lineages come from two holds, so a fill can show before its payback; settlement judges coverage.
+      async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold, { requireFillCoverage: false }),
       {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'claimable-notes-swap-lineage'

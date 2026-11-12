@@ -114,6 +114,8 @@ const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] 
 // Then the order link the queue writes in the row's insert (#1644).
 const SETTLE = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'settle' })];
 const RECLAIM = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'reclaim' })];
+// Settlement's read: notes and lineages from one hold, so the fill coverage rule applies.
+const SETTLEMENT_READ = { requireFillCoverage: true };
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -233,7 +235,7 @@ describe('swap order note settlement', () => {
     // inside one, so it passes a sentinel the ownership check will accept.
     const classifyHold = { id: 'direct-classify-call' } as unknown as WasmLockHold;
     currentHold = classifyHold;
-    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold);
+    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold, SETTLEMENT_READ);
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));
@@ -262,7 +264,9 @@ describe('swap order note settlement', () => {
       { ...note('forged-unreadable-script', [0n, 77n, 0n, 0n]), standardPayment: undefined }
     ];
 
-    const result = await withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold));
+    const result = await withWasmClientLock(hold =>
+      classifySwapOrderNotes(notes as any, 'account-1', undefined, hold, SETTLEMENT_READ)
+    );
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ role: 'payback' }));
@@ -282,7 +286,7 @@ describe('swap order note settlement', () => {
     ...overrides
   });
   const classify = (notes: unknown[]) =>
-    withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold));
+    withWasmClientLock(hold => classifySwapOrderNotes(notes as any, 'account-1', undefined, hold, SETTLEMENT_READ));
   const paybackIds = (result: Map<string, { role: string }>) =>
     [...result].filter(([, meta]) => meta.role === 'payback').map(([id]) => id);
 
@@ -576,7 +580,8 @@ describe('swap order note settlement', () => {
         [note('tip-77'), note('tip-88'), note('payback-88', [0n, 88n, 1n, 0n]), note('absent', [0n, 99n, 1n, 0n])],
         'account-1',
         undefined,
-        hold
+        hold,
+        SETTLEMENT_READ
       )
     );
     expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
@@ -605,7 +610,7 @@ describe('swap order note settlement', () => {
         { orderId: '77', currentTipNoteId: 'tip', currentDepth: 1, state: 0, remainingOffered: '1', remainingRequested }
       ]);
     const result = await withWasmClientLock(hold =>
-      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold)
+      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold, SETTLEMENT_READ)
     );
     expect(result.get('tip')).toEqual(expect.objectContaining({ lineageState: 'active' }));
   });
@@ -619,7 +624,7 @@ describe('swap order note settlement', () => {
       .mockResolvedValue([{ ...lineage, remainingOffered: '1', remainingRequested: '50' }]);
     const paidTarget = { ...note('payback', [0n, 77n, 1n, 0n]), assets: [{ faucetId: 'requested', amount: '4950' }] };
     const classified = await withWasmClientLock(hold =>
-      classifySwapOrderNotes([note('tip'), paidTarget], 'account-1', undefined, hold)
+      classifySwapOrderNotes([note('tip'), paidTarget], 'account-1', undefined, hold, SETTLEMENT_READ)
     );
     const tip = { ...consumable('tip', 'tip'), swapOrder: classified.get('tip')! };
     const payback = { ...consumable('payback', 'payback'), swapOrder: classified.get('payback')! };

@@ -206,9 +206,13 @@ jest.mock('./assets', () => ({
   })
 }));
 
+import * as Repo from 'lib/miden/repo';
+
 import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
 import { requestNotesRefresh } from './note-refresh';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { ITransactionStatus } from '../db/types';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -1108,6 +1112,54 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     } finally {
       Object.defineProperty(_g.__cnTest, 'quarantined', { value: new Set(), writable: true, configurable: true });
       Object.defineProperty(_g.__cnTest, 'uncompletedTxs', { value: [], writable: true, configurable: true });
+    }
+  });
+
+  // The notes and the lineages come from two holds, so a sync between them can show a fill whose payback the note read
+  // missed. Settlement, which reads both in one hold, decides whether the order's paybacks cover its fill.
+  it('keeps an earlier payback on its order when the lineage shows a later fill its note read missed', async () => {
+    await Repo.transactions.put({
+      id: 'swap-1',
+      accountId: 'pk-1',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      completedAt: 2,
+      displayIcon: 'SWAP',
+      faucetId: 'offer',
+      amount: 50n,
+      extraInputs: { requestedFaucetId: 'requested', requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+    });
+    // Rounds 1 and 2 filled 30 of the 50 asked; the note read saw only round 1's payback of 10.
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '20',
+        remainingRequested: '20'
+      }
+    ]);
+    // Known metadata, which the list needs to show a note: a payback that lost its order would be listed.
+    _g.__cnTest.metadataCache = { requested: { decimals: 6, symbol: 'REQ', name: 'Requested' } };
+    _g.__cnTest.consumableNotes = [
+      {
+        ...makeMockNote({ id: 'payback-1', faucetId: 'requested', amount: '10' }),
+        swapAttachment: { orderId: '77', depth: 1 }
+      },
+      makeMockNote({ id: 'payment' })
+    ];
+    try {
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+
+      // Still the order's payback, which settlement claims, so the list leaves it out.
+      const notes: ClaimableNoteWithMetadata[] = _g.__cnTest.lastFetchData;
+      expect(notes.map(note => note.id)).toEqual(['payment']);
+    } finally {
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
+      await Repo.transactions.clear();
     }
   });
 
