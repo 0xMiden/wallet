@@ -94,7 +94,12 @@ export function buildTopologyManifest(options = {}) {
       preview_urls: false,
       routes: [],
       logpush: false,
-      observability: { enabled: false, logs: { enabled: false, invocation_logs: false }, traces: { enabled: false } },
+      observability: {
+        enabled: false,
+        logs: { enabled: false, invocation_logs: false, persist: false },
+        traces: { enabled: false, persist: false },
+        issues: { enabled: false }
+      },
       vars: {
         TOPOLOGY_RUN_UNTIL: String(expiresAt),
         TOPOLOGY_RUN_MAX: String(maxRuns),

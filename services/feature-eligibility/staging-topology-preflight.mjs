@@ -6,8 +6,60 @@ import {
   observeTopologyRelationships
 } from './staging-topology-namespaces.mjs';
 
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function mismatch(record, key, expected, gate) {
+  if (!isRecord(record)) return { gate, form: record === null ? 'null' : 'unexpected_type' };
+  if (!Object.hasOwn(record, key)) return { gate, form: 'missing' };
+  const value = record[key];
+  if (value === null) return { gate, form: 'null' };
+  if (value !== expected)
+    return { gate, form: typeof value === typeof expected ? 'different_value' : 'unexpected_type' };
+  return null;
+}
+
+export function topologyScriptSettingsMismatch(script) {
+  if (
+    !isRecord(script) ||
+    script.success !== true ||
+    !Array.isArray(script.errors) ||
+    script.errors.length ||
+    !isRecord(script.result)
+  )
+    return { gate: 'script_settings_response', form: 'unavailable' };
+
+  const { result } = script;
+  const logpushMismatch = mismatch(result, 'logpush', false, 'script_logpush');
+  if (logpushMismatch) return logpushMismatch;
+  if (!Object.hasOwn(result, 'tail_consumers')) return { gate: 'script_tail_consumers', form: 'missing' };
+  if (!Array.isArray(result.tail_consumers)) return { gate: 'script_tail_consumers', form: 'unexpected_type' };
+  if (result.tail_consumers.length) return { gate: 'script_tail_consumers', form: 'different_value' };
+  if (!Object.hasOwn(result, 'observability')) return { gate: 'script_observability', form: 'missing' };
+  if (result.observability === null) return { gate: 'script_observability', form: 'null' };
+  if (!isRecord(result.observability)) return { gate: 'script_observability', form: 'unexpected_type' };
+
+  const observation = result.observability;
+  const enabledMismatch = mismatch(observation, 'enabled', false, 'script_observability');
+  if (enabledMismatch) return enabledMismatch;
+  for (const [group, keys] of [
+    ['logs', ['enabled', 'invocation_logs', 'persist']],
+    ['traces', ['enabled', 'persist']],
+    ['issues', ['enabled']]
+  ]) {
+    const value = observation[group];
+    if (!Object.hasOwn(observation, group)) return { gate: `script_observability_${group}`, form: 'missing' };
+    if (!isRecord(value))
+      return { gate: `script_observability_${group}`, form: value === null ? 'null' : 'unexpected_type' };
+    for (const key of keys) {
+      const issue = mismatch(value, key, false, `script_observability_${group}`);
+      if (issue) return issue;
+    }
+  }
+  return null;
+}
+
 // These independent reads are non-atomic and cannot authorize deployment or cleanup.
-export async function observeTopologyOwnership({ api, accountId, manifest, options } = {}) {
+export async function observeTopologyOwnership({ api, accountId, manifest, options, onMismatch } = {}) {
   try {
     if (typeof api !== 'function' || !/^[a-f0-9]{32}$/.test(accountId) || !verifyTopologyManifest(manifest, options))
       return null;
@@ -26,7 +78,6 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
       const base = `/workers/scripts/${expected.scriptName}`;
       const settings = await api(`${base}/settings`);
       const script = await api(`${base}/script-settings`);
-      const content = await api(`${base}/content/v2`);
       const bindings = settings?.result?.bindings;
       if (
         settings?.success !== true ||
@@ -66,24 +117,13 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
         )
           return null;
       }
-      const observation = script?.result?.observability;
-      if (
-        script?.success !== true ||
-        !Array.isArray(script.errors) ||
-        script.errors.length ||
-        script.result?.logpush !== false ||
-        !Array.isArray(script.result.tail_consumers) ||
-        script.result.tail_consumers.length ||
-        observation?.enabled !== false ||
-        observation.logs?.enabled !== false ||
-        observation.logs?.invocation_logs !== false ||
-        observation.logs?.persist !== false ||
-        observation.traces?.enabled !== false ||
-        observation.traces?.persist !== false ||
-        observation.issues?.enabled !== false ||
-        content?.sha256 !== expected.bundleSha256
-      )
+      const scriptMismatch = topologyScriptSettingsMismatch(script);
+      if (scriptMismatch) {
+        if (typeof onMismatch === 'function') onMismatch(scriptMismatch);
         return null;
+      }
+      const content = await api(`${base}/content/v2`);
+      if (content?.sha256 !== expected.bundleSha256) return null;
       return { settings, script, content };
     };
     if (!(await checkAccount())) return null;
