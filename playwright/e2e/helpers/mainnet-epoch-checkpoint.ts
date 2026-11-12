@@ -22,6 +22,12 @@ export interface EpochEvmTransaction {
   hash: string;
   feeWei?: string;
 }
+export interface EpochForwardAuthority {
+  minimumOutput: string;
+  bindingHash: string;
+  reclaimHeight: number;
+  mandateReclaimHeight: number;
+}
 export interface EpochReverseAuthority {
   arbiter: string;
   lockTag: string;
@@ -30,6 +36,7 @@ export interface EpochReverseAuthority {
   maximumExpiry: string;
 }
 export interface MainnetEpochCheckpoint {
+  forwardAuthority?: EpochForwardAuthority;
   reverseAuthority?: EpochReverseAuthority;
   version: 1;
   network: 'mainnet';
@@ -100,7 +107,7 @@ const ROOT_KEYS = [
   'principal', 'forwardMinimum', 'reverseMinimum', 'lossBudgetUsdMicros', 'feeBudget', 'evmFeeBudget',
   'paidMidenFees', 'paidEvmFees', 'forwardNonce', 'forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash',
   'forwardReceived', 'reverseNonce', 'returnAmount', 'evmNonceBefore', 'reverseAuthority', 'transactions', 'returnNoteId',
-  'returnMidenTxId', 'reverseReceived', 'after', 'realizedCostUsdMicros'
+  'returnMidenTxId', 'reverseReceived', 'after', 'realizedCostUsdMicros', 'forwardAuthority'
 ];
 
 function evmSnapshot(value: unknown): value is EpochEvmSnapshot {
@@ -144,6 +151,19 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
         tokenValueUsdMicro(BigInt(value.evmFeeBudget), 18, BigInt(value.evm.nativeUsdMicros), true) > BigInt(value.lossBudgetUsdMicros)) {
     throw new Error('Epoch authorization exceeds its balance, fee or loss bounds');
   }
+  let settlementMinimum = BigInt(value.forwardMinimum);
+  if (value.forwardAuthority !== undefined) {
+    const authority = value.forwardAuthority;
+    if (!record(authority) || !onlyKeys(authority, ['minimumOutput', 'bindingHash', 'reclaimHeight', 'mandateReclaimHeight']) ||
+        !positive(authority.minimumOutput) || BigInt(authority.minimumOutput) < settlementMinimum ||
+        !hash(authority.bindingHash) || !hash(value.forwardNoteId) ||
+        typeof authority.reclaimHeight !== 'number' || !Number.isSafeInteger(authority.reclaimHeight) ||
+        authority.reclaimHeight <= 0 || authority.reclaimHeight > 0xffff_ffff ||
+        typeof authority.mandateReclaimHeight !== 'number' || !Number.isSafeInteger(authority.mandateReclaimHeight) ||
+        authority.mandateReclaimHeight <= 0 || authority.mandateReclaimHeight > authority.reclaimHeight)
+      throw new Error('Invalid exact Epoch forward collateral authority');
+    settlementMinimum = BigInt(authority.minimumOutput);
+  }
   if (value.reverseAuthority !== undefined) {
     const authority = value.reverseAuthority;
     if (!record(authority) || !onlyKeys(authority, ['arbiter', 'lockTag', 'preparedAt', 'minimumExpiry', 'maximumExpiry']) ||
@@ -183,7 +203,7 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
   }
   if (['forward-settled', 'reverse-authorized', 'complete'].includes(value.phase) &&
       (!hash(value.forwardNoteId) || !hash(value.forwardMidenTxId) || !hash(value.forwardEvmTxHash) ||
-       !positive(value.forwardReceived) || BigInt(value.forwardReceived) < BigInt(value.forwardMinimum))) {
+       !positive(value.forwardReceived) || BigInt(value.forwardReceived) < settlementMinimum)) {
     throw new Error('Missing Epoch forward settlement evidence');
   }
   if (['reverse-authorized', 'complete'].includes(value.phase) &&
