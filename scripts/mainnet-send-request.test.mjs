@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AccountId, FungibleAsset, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteAttachment, NoteType, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk';
+import { AccountId, Address, FungibleAsset, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteAttachment, NoteType, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk';
 import { inspectTestMainnetSendRequest } from '../node_modules/.cache/nightly-send-request.mjs';
 
+const actorId = () => Address.fromBech32('mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5').accountId().toString();
 function fixture(change = {}) {
-  const scope = { accountId: '0x121212121212121212121212121212', recipientId: '0x593c167bec26769178dcbd1f9bcb40',
+  const scope = { accountId: actorId(), recipientId: '0x593c167bec26769178dcbd1f9bcb40',
     faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', amount: '1010000' };
   const sender = AccountId.fromHex(scope.accountId); const recipient = AccountId.fromHex(change.recipient ?? scope.recipientId);
   const assets = new NoteAssets([new FungibleAsset(AccountId.fromHex(change.faucet ?? scope.faucetId), change.amount ?? 1_010_000n)]);
@@ -23,7 +24,7 @@ test('inspects the actual serialized SDK send, preserving its live random serial
   assert.equal(inspectTestMainnetSendRequest(input.scope, input.bytes), input.noteId);
 });
 for (const [name, change] of [
-  ['another recipient', { recipient: '0x343434343434343434343434343434' }],
+  ['another recipient', { recipient: actorId() }],
   ['another faucet', { faucet: '0x5cb79d29507d3ad17bb6dc60279e89' }],
   ['underpaying principal', { amount: 1_009_999n }],
   ['overpaying principal', { amount: 1_010_001n }],
