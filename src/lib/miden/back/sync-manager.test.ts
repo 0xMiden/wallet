@@ -194,10 +194,12 @@ jest.mock('lib/settings/helpers', () => ({
 }));
 
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: () => mockGetFaucetIdSetting(),
-  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  getClaimFloorBaseFee: () => Promise.resolve(mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 const mockGetBlockTimestamps = jest.fn(
@@ -359,6 +361,7 @@ const queuedClaimNoteIds = async (): Promise<string[]> =>
 beforeEach(() => {
   mockInitiateConsumeBatch.mockClear();
   mockBaseFee = 0;
+  mockFloorFee = undefined;
   mockRpcUrl = undefined;
   jest.clearAllMocks();
   mockIsExist.mockResolvedValue(true);
@@ -1964,6 +1967,55 @@ describe('doSync — native-note auto-consume', () => {
 
       expect(await queuedClaimNoteIds()).toEqual(['native-note']);
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('queues no native auto-consume while the fee is unknown, and asks the user instead', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    mockBaseFee = null;
+    mockFloorFee = null;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']);
+    const notificationHost = Reflect.get(globalThis, 'chrome');
+    const previousNotifications = Reflect.get(notificationHost, 'notifications');
+    const create = jest.fn();
+    Reflect.set(notificationHost, 'notifications', { create });
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet', amount: '1000000000' })
+    ]);
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(create).toHaveBeenCalled();
+    } finally {
+      Reflect.set(notificationHost, 'notifications', previousNotifications);
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('auto-consumes on a chain whose fee is proven absent', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    mockBaseFee = null;
+    mockFloorFee = 0;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      fakeNote({ id: 'native-dust', faucetId: 'native-faucet', amount: '1' })
+    ]);
+    try {
+      await doSync();
+
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims).toHaveLength(1);
+      expect(claims[0]?.noteIds).toEqual(['native-dust']);
+      expect(claims[0]?.consumeEntryPoint).toBe('auto_consume');
     } finally {
       undoRealQueue();
       await Repo.transactions.clear();

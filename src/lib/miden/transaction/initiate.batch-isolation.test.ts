@@ -362,8 +362,8 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
   });
 
   it('isolates every candidate when no fee is supplied', async () => {
-    // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
-    // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
+    // A manual retry passes no fee: the user asked, so nothing is second-guessed. The isolation
+    // compares against 0 then, not the unknown fee the claim floor refuses.
     await failedBatch(['poor', 'rich']);
 
     await initiateConsumeNotesTransaction(ACCOUNT, [note('poor', '1'), note('rich', '5000000')], false, false, true);

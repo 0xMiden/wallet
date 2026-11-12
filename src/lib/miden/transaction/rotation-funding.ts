@@ -97,7 +97,8 @@ export function selectRotationFundingNotes<T extends FundingNoteShape>(
     note => note.faucetId === feeFaucetId && !note.swapOrder && !note.fromCache && note.standardPayment === true
   );
   const unclaimed = native.filter(note => !note.isBeingClaimed);
-  if (unclaimed.length === 0) return { native, batch: [], tooSmall: false };
+  // An unknown fee is waiting, not too small: the floor cannot judge the notes yet.
+  if (unclaimed.length === 0 || baseFee === null) return { native, batch: [], tooSmall: false };
   const worthIt = isWorthClaiming(totalClaimableAmount(unclaimed.map(note => note.amount)), baseFee);
   return { native, batch: worthIt ? unclaimed : [], tooSmall: !worthIt };
 }

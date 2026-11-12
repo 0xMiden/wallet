@@ -187,9 +187,11 @@ describe('isWorthClaiming', () => {
     expect(isWorthClaiming('not-a-number', 10000)).toBe(true);
   });
 
-  it('accepts any note while the fee is unknown', () => {
-    // Fail open: refusing to claim during startup would strand real value.
-    expect(isWorthClaiming(1n, null)).toBe(true);
+  it('refuses every claim while the fee is unknown', () => {
+    // An unattended claim waits for the fee, which reads 0 once a chain is proven fee-free, so it never pays more
+    // than it collects on a fee it has not seen.
+    expect(isWorthClaiming(FLOOR * 1000n, null)).toBe(false);
+    expect(isWorthClaiming(1n, 0)).toBe(true);
   });
 });
 

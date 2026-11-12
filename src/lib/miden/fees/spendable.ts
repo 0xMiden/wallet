@@ -253,13 +253,17 @@ export function maxSendableNativeBaseUnits(balanceBaseUnits: bigint, verificatio
  *
  * Both arguments are in the asset's smallest unit -- note amounts arrive from the
  * chain unscaled, so unlike the send cap there is no decimals conversion here.
- * Fails open on an unknown fee: refusing to claim during startup strands value.
+ * The fee comes from `getClaimFloorBaseFee`/`useClaimFloorBaseFee`, which read 0 on a
+ * chain proven fee-free, so null means unknown and the unattended claim waits for it.
  */
 export function isWorthClaiming(
   amount: bigint | string | null | undefined,
   verificationBaseFee: number | null
 ): boolean {
-  if (verificationBaseFee === null || verificationBaseFee <= 0) {
+  if (verificationBaseFee === null) {
+    return false;
+  }
+  if (verificationBaseFee <= 0) {
     return true;
   }
   // Callers run this inside unattended loops over chain-supplied data, so an

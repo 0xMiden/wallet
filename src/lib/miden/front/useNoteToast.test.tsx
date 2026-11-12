@@ -6,6 +6,7 @@ const _g = globalThis as any;
 _g.__noteToastTest = {
   claimableNotes: [] as Array<{ id: string }>,
   baseFee: null as number | null,
+  floorFee: undefined as number | null | undefined,
   isExtension: false,
   isFallback: false
 };
@@ -55,7 +56,12 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => (globalThis as any).__noteToastTest.baseFee
+  default: () => (globalThis as any).__noteToastTest.baseFee,
+  // The claim floor follows the raw fee, an unknown one read as fee-free: these cases predate the floor refusing it.
+  useClaimFloorBaseFee: () => {
+    const { baseFee, floorFee } = (globalThis as any).__noteToastTest;
+    return floorFee === undefined ? (baseFee ?? 0) : floorFee;
+  }
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => true
@@ -78,6 +84,7 @@ beforeEach(() => {
   _g.__noteToastTest.isExtension = false;
   _g.__noteToastTest.claimableNotes = [];
   _g.__noteToastTest.baseFee = null;
+  _g.__noteToastTest.floorFee = undefined;
   _g.__noteToastTest.isFallback = false;
 });
 

@@ -14,6 +14,7 @@ type NoteFixture = { id: string; faucetId: string; amount: string; isBeingClaime
 
 let mockNotes: NoteFixture[] | undefined = [];
 let mockBaseFee: number | null = null;
+let mockFloorFee: number | null | undefined;
 let mockAutoConsume = true;
 
 jest.mock('lib/intercom/client', () => ({
@@ -37,7 +38,9 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  // The claim floor follows the raw fee, an unknown one read as fee-free: these cases predate the floor refusing it.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? (mockBaseFee ?? 0) : mockFloorFee)
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -76,6 +79,7 @@ const mountSeeded = (seedNotes: NoteFixture[]) => {
 beforeEach(() => {
   mockNotes = [];
   mockBaseFee = null;
+  mockFloorFee = undefined;
   mockAutoConsume = true;
   useWalletStore.setState({ seenNoteIds: new Set<string>(), isNoteToastVisible: false, noteToastShownAt: null });
 });

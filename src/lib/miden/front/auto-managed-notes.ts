@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 
@@ -52,9 +52,9 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * The value check runs on the BATCH TOTAL, because a batch of up to
  * MAX_NOTES_PER_UNATTENDED_CLAIM notes is one transaction paying one fee; judged per note, a backlog of
  * individually marginal notes was refused in full. The consumers queue a larger batch in chunks of that size,
- * each measured on its own (`chunkAutoConsumeBatch`, #1644). It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
- * block header has no fee accessor the fee stays null for good, so refusing on null
- * would switch auto-consume off permanently.
+ * each measured on its own (`chunkAutoConsumeBatch`, #1644). The fee is the claim floor's (`getClaimFloorBaseFee`):
+ * it claims nothing while the fee is unknown, and a chain proven to report no fee reads 0, so auto-consume stays on
+ * there.
  */
 export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
   notes: readonly T[],
@@ -109,12 +109,12 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
   const nativeFaucetId = useNativeFeeFaucetId();
-  const verificationBaseFee = useVerificationBaseFee();
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 
   const data = useMemo(
-    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee),
-    [allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
+    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee),
+    [allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee]
   );
 
   return { data, allNotes, isFallback };

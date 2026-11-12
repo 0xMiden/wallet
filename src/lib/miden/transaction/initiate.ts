@@ -606,8 +606,8 @@ const queueConsumeRows = async (
   // settlement path links its returned id to a swap order, and manual Claim All
   // navigates to it.
   isolateNotesWithFailedBatch?: boolean,
-  // The chain's base fee, when the caller is an unattended auto-consumer. Required for
-  // isolation to be SAFE, not merely for it to happen.
+  // The claim floor's fee (`getClaimFloorBaseFee`), when the caller is an unattended auto-consumer.
+  // Required for isolation to be SAFE, not merely for it to happen.
   //
   // Auto-consume admits a batch when the notes are worth one fee TOGETHER. Isolation
   // then turns that one transaction into N, each paying its own fee -- so a note that
@@ -616,7 +616,7 @@ const queueConsumeRows = async (
   // batched instead (see the isolation branch for why batched, not dropped).
   //
   // `null`/omitted isolates every candidate, which is right for a manual retry: the user
-  // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
+  // asked, so the isolation compares against 0, not the unknown fee the claim floor refuses.
   verificationBaseFee?: number | null,
   // The rotation gate's claim (#805): stamped on every row this creates, and the only
   // earlier failures its backoff counts. An ordinary row's failure (a hot-bound claim, a
@@ -760,7 +760,7 @@ const queueConsumeRows = async (
       // another lap of the #215 backoff. That is bounded (the backoff doubles and the
       // batch total is re-checked each pass) and strictly better than stranding real
       // value forever, whereas isolating it would pay a fee larger than it collects.
-      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
+      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? 0)) {
         isolate.push(note);
       } else {
         queueable.push(note);
@@ -780,7 +780,7 @@ const queueConsumeRows = async (
     if (
       isolate.length > 0 &&
       queueable.length > 0 &&
-      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? null)
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? 0)
     ) {
       queueable.push(...isolate);
       isolate.length = 0;

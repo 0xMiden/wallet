@@ -1161,8 +1161,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       const notes = await readList();
 
       // It keeps its order, so no auto-consumer takes it: the native one claims only the payment.
-      expect(selectAutoConsumeBatch(notes, 'miden-faucet', null).map(note => note.id)).toEqual(['payment']);
-      expect(excludeAutoManagedNotes(notes, 'miden-faucet', true, null)?.map(note => note.id)).toEqual(['payback-1']);
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', 0).map(note => note.id)).toEqual(['payment']);
+      expect(excludeAutoManagedNotes(notes, 'miden-faucet', true, 0)?.map(note => note.id)).toEqual(['payback-1']);
       expect(notes.find(note => note.id === 'payback-1')?.swapOrder).toEqual(
         expect.objectContaining({ role: 'payback', autoConsume: true, coverageShort: true })
       );

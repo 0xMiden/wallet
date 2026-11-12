@@ -21,6 +21,7 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
 // faucet id, the chain fee and the auto-consume toggle to drop auto-managed notes (#811).
 let mockFaucetId: string | null = 'faucet-native';
 let mockBaseFee: number | null = null;
+let mockFloorFee: number | null | undefined;
 let mockAutoConsume = false;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -32,7 +33,9 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  // The claim floor follows the raw fee, an unknown one read as fee-free: these cases predate the floor refusing it.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? (mockBaseFee ?? 0) : mockFloorFee)
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume
@@ -46,6 +49,7 @@ describe('useHasUnclaimedNotes', () => {
     mockUseClaimableNotes.mockReturnValue({ data: [] });
     mockFaucetId = 'faucet-native';
     mockBaseFee = null;
+    mockFloorFee = undefined;
     mockAutoConsume = false;
   });
 
