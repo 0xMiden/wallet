@@ -35,7 +35,7 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
       writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
       return;
     }
-    if (previous.consumeAuthority || previous.returnMidenTxId)
+    if (previous.consumeAuthority && !previous.returnMidenTxId)
       throw new Error('Original native claim authorization has an unresolved outcome; never retry it');
     const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
     if (!keyPair) throw new Error('Existing funded Guardian key pair is required for Epoch recovery');

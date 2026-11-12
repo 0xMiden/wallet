@@ -339,8 +339,6 @@ async function settleEpochReturn(
 ): Promise<void> {
     if (state.consumeAuthority || state.returnMidenTxId) throw new Error('Original native claim may already have been released; do not retry');
     const account = getAddress(state.evm.account);
-    const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
-    const tokenBalance = () => client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] });
     const persist = async () => { state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state); };
     const provider = epochReadOnlyProvider(state.allocatorUrl, state.evm.chainId, account);
     let noteId: string | undefined;
@@ -388,6 +386,16 @@ async function settleEpochReturn(
         canonicalMainnetLoopFaucet(receipt.feeFaucetId) !== state.native.hex) throw new Error('Missing exact Epoch return fee receipt');
     state.returnMidenTxId = receipt.transactionId; state.reverseReceived = amount.toString();
     state.paidMidenFees = (BigInt(state.paidMidenFees) + BigInt(receipt.feeAmount)).toString();
+    await finishEpochReturn(wallet, state, path);
+}
+
+async function finishEpochReturn(wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string): Promise<void> {
+    if (!state.returnMidenTxId || !isHash(state.returnMidenTxId) || !state.reverseReceived || !state.consumeAuthority)
+      throw new Error('Missing original actual native receipt; never infer it from recovered history');
+    const account = getAddress(state.evm.account);
+    const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
+    const tokenBalance = () => client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] });
+    const persist = async () => { state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state); };
     await wallet.refreshBalancesLanded(90_000);
     const native = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
     const evmToken = await tokenBalance(); const evmNative = await client.getBalance({ address: account });
@@ -404,7 +412,7 @@ async function settleEpochReturn(
 export async function recoverEpochReturn(
   wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, gatePath: string, signal: AbortSignal
 ): Promise<void> {
-  if (!state.transactions?.length || state.returnMidenTxId || await wallet.getAccountAddress() !== state.account)
+  if (!state.transactions?.length || await wallet.getAccountAddress() !== state.account)
     throw new Error('Epoch return recovery requires an unresolved original signed journal');
   const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
   const persist = async () => { state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state); };
@@ -420,8 +428,12 @@ export async function recoverEpochReturn(
     const confirmed = reconcileEpochEvmReceipts(state, evidence);
     await persist();
     if (!confirmed) throw new Error('No successful original Epoch deposit; fees recorded, further signing blocked');
-    const blocker = await plantQueueBlocker(wallet.page);
-    await settleEpochReturn(wallet, state, path, blocker, gatePath, signal);
+    if (state.returnMidenTxId) {
+      await finishEpochReturn(wallet, state, path);
+    } else {
+      const blocker = await plantQueueBlocker(wallet.page);
+      await settleEpochReturn(wallet, state, path, blocker, gatePath, signal);
+    }
   } catch (error) { state.phase = 'recovery-required'; await persist(); throw error; }
 }
 
