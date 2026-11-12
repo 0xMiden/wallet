@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as topology from './staging-topology-api.mjs';
 
 const create = topology.createTopologyReadApi ?? (() => async () => null);
+const deleteScript = topology.createTopologyScriptDeleter ?? (() => async () => false);
 const accountId = 'a'.repeat(32);
 const token = 'synthetic-token-for-test-only';
 
@@ -38,6 +39,46 @@ test('read adapter rejects arbitrary paths before network access', async () => {
   assert.equal(calls, 0);
 });
 
+test('read adapter propagates phase-budget aborts to the in-flight fetch', async () => {
+  const phase = new AbortController();
+  let requestSignal;
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async (_url, init) => {
+      requestSignal = init.signal;
+      await new Promise(resolve => init.signal.addEventListener('abort', resolve, { once: true }));
+      return Response.json({ success: false, errors: [] });
+    }
+  });
+  const request = api('/account', { signal: phase.signal });
+  phase.abort();
+  await request;
+  assert.equal(requestSignal.aborted, true);
+});
+
+test('script deleter accepts only the exact topology worker path without force options', async () => {
+  const calls = [];
+  const remove = deleteScript({
+    accountId,
+    token,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return Response.json({ success: true, errors: [], result: {} });
+    }
+  });
+  assert.equal(await remove('miden-elig-topology-12345-1'), true);
+  assert.equal(await remove('production-worker'), false);
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0].url,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/miden-elig-topology-12345-1`
+  );
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(new URL(calls[0].url).search, '');
+  assert.equal(Object.hasOwn(calls[0].init, 'body'), false);
+});
+
 test('read adapter rejects oversized provider bodies', async () => {
   const api = create({ accountId, token, fetchImpl: async () => new Response(new Uint8Array(1_048_577)) });
   assert.equal(await api('/account'), null);
@@ -68,6 +109,23 @@ test('read adapter does not start a request after the total deadline', async () 
   });
   assert.equal(await api('/account'), null);
   assert.equal(calls, 0);
+});
+
+test('read adapter caps both phases at 250 requests and the shared total at 500', async () => {
+  let calls = 0;
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () => {
+      calls++;
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
+  for (let index = 0; index < 250; index++) assert.equal((await api('/account')).success, true);
+  assert.equal(await api('/account'), null);
+  for (let index = 0; index < 250; index++) assert.equal((await api('/account', { phase: 'cleanup' })).success, true);
+  assert.equal(await api('/account', { phase: 'cleanup' }), null);
+  assert.equal(calls, 500);
 });
 
 test('read adapter strips unrelated setting values while retaining fixed ownership markers', async () => {

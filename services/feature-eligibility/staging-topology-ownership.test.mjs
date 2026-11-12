@@ -132,7 +132,7 @@ test('unknown script observability reports a closed field diagnostic and still r
 test('script privacy diagnostics distinguish absent and changed values without returning provider data', () => {
   const diagnose = topology.topologyScriptSettingsMismatch;
   const settings = result => ({ success: true, errors: [], result });
-  assert.deepEqual(diagnose(settings({})), { gate: 'script_logpush', form: 'missing' });
+  assert.deepEqual(diagnose(settings({})), { gate: 'script_tail_consumers', form: 'missing' });
   assert.deepEqual(diagnose(settings({ logpush: false, tail_consumers: [] })), {
     gate: 'script_observability',
     form: 'missing'
@@ -217,8 +217,10 @@ test('a privacy-unknown worker is not exercised but can be cleaned after positiv
 
   const deleted = [];
   let absent = false;
+  const targetSettings = `/workers/scripts/${manifest.scriptName}/settings`;
   const cleanupApi = async path => {
-    if (absent && path.endsWith('/settings')) return null;
+    if (absent && path === targetSettings)
+      return { status: 404, body: { success: false, errors: [{ code: 10007 }] } };
     if (path.endsWith('/script-settings'))
       return { success: true, errors: [], result: { logpush: false, observability: null, tail_consumers: [] } };
     return good(path);
@@ -261,6 +263,22 @@ test('cleanup refuses deletion when exact bundle ownership or dependent tail-con
   assert.deepEqual(deleted, []);
 });
 
+test('cleanup treats an unavailable target read as unknown rather than absent', async () => {
+  let deletes = 0;
+  const result = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: async () => null,
+    deleteScript: async () => {
+      deletes++;
+      return true;
+    }
+  });
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deletes, 0);
+});
+
 test('each provider read receives a five-second abort signal', async () => {
   assert.equal(typeof topology.createTopologyApiBudget, 'function');
   if (typeof topology.createTopologyApiBudget !== 'function') return;
@@ -280,4 +298,21 @@ test('each provider read receives a five-second abort signal', async () => {
   );
   await budget.preflight('/account');
   assert.equal(timeoutMs, 5_000);
+});
+
+test('provider read timeout aborts its in-flight API request', async () => {
+  let timeout;
+  let signal;
+  const budget = topology.createTopologyApiBudget(
+    async (_path, options) => {
+      signal = options.signal;
+      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    },
+    { setTimeoutFn: callback => ((timeout = callback), 1), clearTimeoutFn: () => {} }
+  );
+  const request = budget.preflight('/account');
+  await Promise.resolve();
+  timeout();
+  await assert.rejects(request, /deadline/);
+  assert.equal(signal.aborted, true);
 });

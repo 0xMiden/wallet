@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 const MAX_BYTES = 1_048_576;
 const MAX_CALLS = 500;
+const MAX_PHASE_CALLS = 250;
 const MAX_DURATION_MS = 120_000;
 const CALL_TIMEOUT_MS = 5_000;
 const SCRIPT = /^[a-zA-Z0-9_-]{1,63}$/;
@@ -186,14 +187,24 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
   )
     return async () => null;
   const deadline = now() + MAX_DURATION_MS;
-  let calls = 0;
-  return async path => {
+  const calls = { preflight: 0, cleanup: 0 };
+  return async (path, { signal, phase = 'preflight' } = {}) => {
     const kind = typeof path === 'string' ? pathKind(path) : null;
-    if (!kind || calls >= MAX_CALLS || now() >= deadline) return null;
+    if (
+      !kind ||
+      !Object.hasOwn(calls, phase) ||
+      signal?.aborted ||
+      calls[phase] >= MAX_PHASE_CALLS ||
+      calls.preflight + calls.cleanup >= MAX_CALLS ||
+      now() >= deadline
+    )
+      return null;
     const remaining = deadline - now();
     if (!Number.isFinite(remaining) || remaining <= 0) return null;
-    calls++;
+    calls[phase]++;
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
     const timeoutMs = Math.min(CALL_TIMEOUT_MS, remaining);
     let timer;
     try {
@@ -234,6 +245,54 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch, now
       ]);
     } catch {
       return null;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+    }
+  };
+}
+
+export function createTopologyScriptDeleter({ accountId, token, fetchImpl = fetch } = {}) {
+  if (
+    typeof accountId !== 'string' ||
+    !/^[a-f0-9]{32}$/.test(accountId) ||
+    typeof token !== 'string' ||
+    token.length < 20 ||
+    token.length > 512 ||
+    typeof fetchImpl !== 'function'
+  )
+    return async () => false;
+  return async scriptName => {
+    if (typeof scriptName !== 'string' || !TARGET.test(scriptName)) return false;
+    const controller = new AbortController();
+    let timer;
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await fetchImpl(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${scriptName}`,
+            {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${token}` },
+              redirect: 'error',
+              signal: controller.signal
+            }
+          );
+          if (!response.ok) return false;
+          const bytes = await boundedBytes(response);
+          if (bytes === null) return false;
+          const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+          return body?.success === true && Array.isArray(body.errors) && body.errors.length === 0;
+        })(),
+        new Promise(resolve => {
+          timer = setTimeout(() => {
+            controller.abort();
+            resolve(false);
+          }, CALL_TIMEOUT_MS);
+        })
+      ]);
+    } catch {
+      return false;
     } finally {
       clearTimeout(timer);
     }
