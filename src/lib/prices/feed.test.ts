@@ -22,9 +22,21 @@ beforeEach(() => {
   fallback.fetchKrakenKlineData.mockResolvedValue([]);
 });
 
+it('tags Binance quotes with source metadata', async () => {
+  primary.fetchTokenPrices.mockResolvedValueOnce({ SOL: dollars });
+  expect((await fetchTokenPrices(['SOL'])).SOL).toEqual({ ...dollars, provider: 'binance' });
+});
+
+it('tags Kraken fallback quotes with source metadata', async () => {
+  primary.isListedSymbol.mockReturnValue(false);
+  fallback.findKrakenUsdMarket.mockResolvedValueOnce('PROVENANCEUSD');
+  fallback.fetchKrakenPrices.mockResolvedValueOnce({ PROVENANCE: dollars });
+  expect((await fetchTokenPrices(['PROVENANCE'])).PROVENANCE).toEqual({ ...dollars, provider: 'kraken' });
+});
+
 it('keeps Binance bulk requests and does not query Kraken for supported assets', async () => {
   primary.fetchTokenPrices.mockResolvedValueOnce({ SOL: dollars });
-  expect(await fetchTokenPrices(['SOL'])).toEqual({ SOL: dollars });
+  expect(await fetchTokenPrices(['SOL'])).toEqual({ SOL: { ...dollars, provider: 'binance' } });
   expect(primary.fetchTokenPrices).toHaveBeenCalledWith(['SOL']);
   expect(fallback.findKrakenUsdMarket).not.toHaveBeenCalled();
   expect(fallback.fetchKrakenPrices).not.toHaveBeenCalled();
@@ -35,10 +47,10 @@ it('batches Kraken USD markets after Binance confirms they are absent', async ()
   fallback.findKrakenUsdMarket.mockImplementation(async symbol => `${symbol}USD`);
   fallback.fetchKrakenPrices.mockResolvedValue({ PYUSD: dollars, FALLBACK: dollars });
   expect(await fetchTokenPrices(['PYUSD', 'FALLBACK', 'PYUSD', 'SOL'])).toEqual({
-    USDT: dollars,
-    USDC: dollars,
-    PYUSD: dollars,
-    FALLBACK: dollars
+    USDT: { ...dollars, provider: 'binance' },
+    USDC: { ...dollars, provider: 'binance' },
+    PYUSD: { ...dollars, provider: 'kraken' },
+    FALLBACK: { ...dollars, provider: 'kraken' }
   });
   expect(fallback.findKrakenUsdMarket).toHaveBeenCalledTimes(2);
   expect(fallback.fetchKrakenPrices).toHaveBeenCalledWith(
@@ -64,7 +76,7 @@ it('caches an unsupported market but retries a failed Kraken lookup', async () =
   await fetchTokenPrices(['ABSENT', 'RETRY']);
   fallback.findKrakenUsdMarket.mockResolvedValueOnce('RETRYUSD');
   fallback.fetchKrakenPrices.mockResolvedValueOnce({ RETRY: dollars });
-  expect((await fetchTokenPrices(['ABSENT', 'RETRY'])).RETRY).toEqual(dollars);
+  expect((await fetchTokenPrices(['ABSENT', 'RETRY'])).RETRY).toEqual({ ...dollars, provider: 'kraken' });
   expect(fallback.findKrakenUsdMarket.mock.calls.map(([symbol]) => symbol)).toEqual(['ABSENT', 'RETRY', 'RETRY']);
 });
 
@@ -72,7 +84,10 @@ it('keeps Binance quotes when Kraken fails', async () => {
   primary.isListedSymbol.mockReturnValue(false);
   fallback.findKrakenUsdMarket.mockResolvedValueOnce('FAILUREUSD');
   fallback.fetchKrakenPrices.mockRejectedValueOnce(new Error('offline'));
-  expect(await fetchTokenPrices(['FAILURE'])).toEqual({ USDT: dollars, USDC: dollars });
+  expect(await fetchTokenPrices(['FAILURE'])).toEqual({
+    USDT: { ...dollars, provider: 'binance' },
+    USDC: { ...dollars, provider: 'binance' }
+  });
 });
 
 it('ignores invalid price symbols', async () => {

@@ -6,6 +6,7 @@ import { hasUnquotedDefaultPrice } from './unquoted-default';
 const BINANCE_API_BASE = 'https://data-api.binance.vision/api/v3';
 
 export interface TokenPriceInfo {
+  provider?: 'binance' | 'kraken';
   /** Retrieval time in milliseconds; missing timestamps cannot authorize USD entry. */
   observedAt?: number;
   price: number;

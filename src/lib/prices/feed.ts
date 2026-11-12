@@ -45,9 +45,10 @@ export function usdMarketPending(symbol: string | undefined): boolean {
 }
 
 /** Fetch Binance prices first, then direct USD prices for assets it does not list. */
-function timestampPrices(prices: TokenPrices): TokenPrices {
-  const observedAt = Date.now();
-  return Object.fromEntries(Object.entries(prices).map(([symbol, quote]) => [symbol, { ...quote, observedAt }]));
+function timestampPrices(prices: TokenPrices, provider: 'binance' | 'kraken', observedAt = Date.now()): TokenPrices {
+  return Object.fromEntries(
+    Object.entries(prices).map(([symbol, quote]) => [symbol, { ...quote, provider, observedAt }])
+  );
 }
 
 export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
@@ -67,11 +68,16 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
-  if (resolved.size === 0) return timestampPrices(prices);
+  if (resolved.size === 0) return timestampPrices(prices, 'binance');
   try {
-    return timestampPrices({ ...prices, ...(await fetchKrakenPrices(resolved)) });
+    const fallbackPrices = await fetchKrakenPrices(resolved);
+    const observedAt = Date.now();
+    return {
+      ...timestampPrices(prices, 'binance', observedAt),
+      ...timestampPrices(fallbackPrices, 'kraken', observedAt)
+    };
   } catch {
-    return timestampPrices(prices);
+    return timestampPrices(prices, 'binance');
   }
 }
 
