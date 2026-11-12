@@ -2785,14 +2785,43 @@ public class BreadPresentationControllerTest {
     }
 
     private android.view.MotionEvent copyCapsulePacket(android.view.MotionEvent event) {
-        android.os.Parcel parcel = android.os.Parcel.obtain();
-        try {
-            event.writeToParcel(parcel, 0);
-            parcel.setDataPosition(0);
-            return android.view.MotionEvent.CREATOR.createFromParcel(parcel);
-        } finally {
-            parcel.recycle();
+        // Robolectric's parcel writer repeats the oldest sample; obtain(other) aliases coordinates.
+        int count = event.getPointerCount(), history = event.getHistorySize();
+        float offsetX = event.getX() - event.getRawX(), offsetY = event.getY() - event.getRawY();
+        android.view.MotionEvent.PointerProperties[] properties = new android.view.MotionEvent.PointerProperties[count];
+        for (int pointer = 0; pointer < count; pointer++) {
+            properties[pointer] = new android.view.MotionEvent.PointerProperties();
+            event.getPointerProperties(pointer, properties[pointer]);
         }
+        android.view.MotionEvent copy = null;
+        for (int sample = 0; sample <= history; sample++) {
+            android.view.MotionEvent.PointerCoords[] coords = new android.view.MotionEvent.PointerCoords[count];
+            for (int pointer = 0; pointer < count; pointer++) {
+                coords[pointer] = new android.view.MotionEvent.PointerCoords();
+                if (sample == history) event.getPointerCoords(pointer, coords[pointer]);
+                else event.getHistoricalPointerCoords(pointer, sample, coords[pointer]);
+                coords[pointer].x -= offsetX;
+                coords[pointer].y -= offsetY;
+            }
+            long time = sample == history ? event.getEventTime() : event.getHistoricalEventTime(sample);
+            if (copy == null) {
+                copy = android.view.MotionEvent.obtain(event.getDownTime(), time, event.getAction(), count, properties,
+                    coords, event.getMetaState(), event.getButtonState(), event.getXPrecision(), event.getYPrecision(),
+                    event.getDeviceId(), event.getEdgeFlags(), event.getSource(), event.getFlags());
+            } else {
+                copy.addBatch(time, coords, event.getMetaState());
+            }
+        }
+        copy.offsetLocation(offsetX, offsetY);
+        assertEquals("copied packet must preserve current coordinates", event.getY(), copy.getY(), 0f);
+        assertEquals("copied packet must preserve raw coordinates", event.getRawY(), copy.getRawY(), 0f);
+        assertEquals("copied packet must preserve sample count", history, copy.getHistorySize());
+        for (int sample = 0; sample < history; sample++) {
+            assertEquals("copied packet must preserve historical coordinates", event.getHistoricalY(sample),
+                copy.getHistoricalY(sample), 0f);
+            assertEquals(event.getHistoricalEventTime(sample), copy.getHistoricalEventTime(sample));
+        }
+        return copy;
     }
 
     private void dispatchPhysicalCapsulePacket(ImageButton capsule, android.view.MotionEvent physical, int[] restOrigin) {
