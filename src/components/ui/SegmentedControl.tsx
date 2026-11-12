@@ -1,7 +1,7 @@
 import React, { KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
-import { motion, useReducedMotion } from 'framer-motion';
+import { animate, motion, useMotionTemplate, useMotionValue, useReducedMotion } from 'framer-motion';
 
 import { useTabShownAgain } from 'app/layouts/page-active';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
@@ -19,6 +19,10 @@ export interface SegmentedControlItem<T extends string = string> {
   id: T;
   /** Already-translated text, also the item's accessible name. */
   label: string;
+  /** A short tag after the label, already translated (for example "BETA"). It is part of the accessible name. */
+  badge?: string;
+  /** `rainbow`: a rainbow ring that turns around the item, for a feature that is new or in beta. */
+  ring?: 'rainbow';
   disabled?: boolean;
   'data-testid'?: string;
 }
@@ -116,6 +120,47 @@ const content = cva('flex min-w-0 items-center', {
   defaultVariants: { size: 'md' }
 });
 
+// The colours of the rainbow ring, as conic-gradient stops. The first and the last are equal, so the ring has no
+// seam. They are fixed colours and not theme tokens: a rainbow has the same colours in the light and dark themes.
+const RAINBOW_STOPS = '#ff5f6d, #ffb347, #f4e04d, #4ade80, #38bdf8, #818cf8, #f472b6, #ff5f6d';
+// The time of one full turn of the ring. It is slow, so the ring does not pull the eye from the content.
+const RAINBOW_TURN_SECONDS = 4;
+const RAINBOW_RING_WIDTH_PX = 1.5;
+// The mask keeps only the border band of the element: the content box is cut out of the full box.
+const RING_MASK = 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)';
+
+/**
+ * A rainbow ring on the edge of its positioned parent. The colours turn around the ring; the ring itself does not
+ * move, so the pill keeps its shape. Under reduced motion the ring shows without the turn.
+ */
+function RainbowRing() {
+  const reduce = useReducedMotion();
+  const angle = useMotionValue(0);
+  const backgroundImage = useMotionTemplate`conic-gradient(from ${angle}deg, ${RAINBOW_STOPS})`;
+
+  useEffect(() => {
+    if (reduce) return undefined;
+    const controls = animate(angle, 360, { duration: RAINBOW_TURN_SECONDS, ease: 'linear', repeat: Infinity });
+    return () => controls.stop();
+  }, [angle, reduce]);
+
+  return (
+    <motion.span
+      aria-hidden="true"
+      data-testid="segmented-control-rainbow-ring"
+      className="pointer-events-none absolute inset-0 z-10 rounded-full"
+      style={{
+        backgroundImage,
+        padding: RAINBOW_RING_WIDTH_PX,
+        WebkitMask: RING_MASK,
+        WebkitMaskComposite: 'xor',
+        mask: RING_MASK,
+        maskComposite: 'exclude'
+      }}
+    />
+  );
+}
+
 interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
@@ -147,12 +192,18 @@ function Segment<T extends string>({
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active, swap);
 
-  return (
+  // The ring and the badge sit on the edge of the pill. `HighlightItem` puts the children of the button in a box
+  // of its own, so a child of the button cannot reach that edge: a decorated item gets a wrapper of the size of
+  // the pill, and the ring and the badge are its children.
+  const decorated = item.ring !== undefined || item.badge !== undefined;
+  const button = (
     <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 items-center justify-center">
       <motion.button
         type="button"
         role="radio"
         aria-checked={active}
+        // The badge is drawn outside the button, so the name of the button states it.
+        aria-label={item.badge ? `${item.label} ${item.badge}` : undefined}
         tabIndex={focusable ? 0 : -1}
         disabled={item.disabled}
         data-testid={item['data-testid']}
@@ -161,6 +212,7 @@ function Segment<T extends string>({
         // Shown again, the new selection's colours land at once instead of cross-fading.
         className={cn(
           segment({ size, layout, active }),
+          decorated && 'w-full',
           active && accent && ACCENT_CLASSES[accent].ink,
           active && bubble === 'solid' && 'text-accent-brand-on',
           swap && 'transition-none'
@@ -177,6 +229,24 @@ function Segment<T extends string>({
         </motion.span>
       </motion.button>
     </HighlightItem>
+  );
+  if (!decorated) return button;
+
+  return (
+    <span className={cn('relative flex min-w-0', layout === 'scroll' && 'shrink-0')}>
+      {button}
+      {item.ring === 'rainbow' && <RainbowRing />}
+      {item.badge && (
+        // The badge sits on the top edge of the pill, half above it, and its page background interrupts the ring.
+        <span
+          aria-hidden="true"
+          data-testid="segmented-control-badge"
+          className="pointer-events-none absolute right-4 top-0 z-20 -translate-y-1/2 rounded-full bg-page px-1.5 text-badge font-bold tracking-wide text-ink"
+        >
+          {item.badge}
+        </span>
+      )}
+    </span>
   );
 }
 

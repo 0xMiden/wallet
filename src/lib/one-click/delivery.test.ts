@@ -3,7 +3,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import { ITransactionStatus, type IOneClickTrackingData, type ITransaction } from 'lib/miden/db/types';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 
-import { hasOneClickDeliveryArrived, oneClickActualOutputAmount } from './delivery';
+import { hasOneClickDeliveryArrived, hasOneClickDeliveryArrivedByAmount, oneClickActualOutputAmount } from './delivery';
 
 const consumable = (
   noteId: string,
@@ -92,7 +92,11 @@ describe('1Click destination delivery matching', () => {
         deadline: '2026-10-22T12:00:00Z'
       }
     },
-    config: { serviceUrl: 'https://1click.test', midenAssets: [{ assetId: 'miden', faucetId: 'faucet', decimals: 0 }] },
+    config: {
+      serviceUrl: 'https://1click.test',
+      chains: [],
+      midenAssets: [{ id: 'mid', assetId: 'miden', faucetId: 'faucet', decimals: 0 }]
+    },
     network: 'mainnet',
     accountId: 'target-account',
     accountAddress: 'target-account',
@@ -167,5 +171,52 @@ describe('1Click destination delivery matching', () => {
         transactions: []
       })
     ).toBe(true);
+  });
+});
+
+describe('1Click delivery matching by amount, when no receipt names the notes', () => {
+  const byAmount = (
+    args: { consumableNotes?: ConsumableNoteDto[]; transactions?: ITransaction[]; since?: number } = {}
+  ): boolean =>
+    hasOneClickDeliveryArrivedByAmount({
+      targetAccountId: 'target-account',
+      faucetId: 'faucet',
+      amount: 250n,
+      since: args.since ?? 100,
+      consumableNotes: args.consumableNotes ?? [],
+      transactions: args.transactions ?? []
+    });
+
+  it('finds a note that waits for a claim with exactly the delivered amount', () => {
+    expect(byAmount({ consumableNotes: [consumable('any-note')] })).toBe(true);
+  });
+
+  it('ignores a waiting note of another amount, another token or another state', () => {
+    expect(byAmount({ consumableNotes: [consumable('any-note', 'faucet', '249')] })).toBe(false);
+    expect(byAmount({ consumableNotes: [consumable('any-note', 'other-faucet')] })).toBe(false);
+    expect(byAmount({ consumableNotes: [consumable('any-note', 'faucet', '250', InputNoteState.Expected)] })).toBe(
+      false
+    );
+  });
+
+  it('finds a completed claim of the amount that started after the deposit', () => {
+    expect(byAmount({ transactions: [consume({ initiatedAt: 100 })] })).toBe(true);
+  });
+
+  it('ignores a claim before the deposit, an unfinished claim, another account and a restored row', () => {
+    expect(byAmount({ transactions: [consume({ initiatedAt: 99 })] })).toBe(false);
+    expect(byAmount({ transactions: [consume({ initiatedAt: 100, status: ITransactionStatus.Queued })] })).toBe(false);
+    expect(byAmount({ transactions: [consume({ initiatedAt: 100, accountId: 'other-account' })] })).toBe(false);
+    expect(byAmount({ transactions: [consume({ initiatedAt: 100, restoredFromBackup: true })] })).toBe(false);
+  });
+
+  it('ignores a claim of another amount or another token', () => {
+    const note = { id: 'note', senderAddress: 'sender', faucetId: 'faucet', amount: 250n };
+    expect(
+      byAmount({ transactions: [consume({ initiatedAt: 100, consumedNotes: [{ ...note, amount: 251n }] })] })
+    ).toBe(false);
+    expect(
+      byAmount({ transactions: [consume({ initiatedAt: 100, consumedNotes: [{ ...note, faucetId: 'other' }] })] })
+    ).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ import {
 const NOW = 1_800_000_000_000;
 const KEY = 'bridge_config_v1:testnet';
 const FLOOR = 'bridge_config_floor_v1';
-const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/refs/pull/38/head/testnet.json';
 const SERVED_BASE = 'http://127.0.0.1:8550/config';
 
 const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
@@ -33,13 +33,18 @@ const parsed = (version: number) => ({
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) =>
   doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
-const oneClickDoc = (version: number) =>
+const nearIntentsDoc = (version: number) =>
   doc(version, {
     network: 'localnet',
-    swap: {
-      oneClick: {
-        serviceUrl: 'http://127.0.0.1:8550',
-        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+    nearIntents: {
+      serviceUrl: 'http://127.0.0.1:8550',
+      midenAssets: { usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 } },
+      chains: {
+        eth: {
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+        }
       }
     }
   });
@@ -107,7 +112,9 @@ afterAll(() => {
 describe('bridgeConfigUrl', () => {
   it('reads the published repo, one file per network', () => {
     expect(bridgeConfigUrl('testnet')).toBe(PUBLISHED);
-    expect(bridgeConfigUrl('devnet')).toBe('https://raw.githubusercontent.com/0xMiden/wallet-config/main/devnet.json');
+    expect(bridgeConfigUrl('devnet')).toBe(
+      'https://raw.githubusercontent.com/0xMiden/wallet-config/refs/pull/38/head/devnet.json'
+    );
   });
 
   it('reads the served document in an E2E build given MIDEN_REMOTE_CONFIG_URL', () => {
@@ -131,27 +138,29 @@ describe('bridgeConfigUrl', () => {
 });
 
 describe('fetchAndStoreBridgeConfig', () => {
-  it('keeps localnet 1Click hidden without the dedicated E2E compile flags', async () => {
+  it('keeps localnet NEAR Intents hidden without the dedicated E2E compile flags', async () => {
     setEnv('true', `${SERVED_BASE}/`, undefined, 'localhost');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
-    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
   });
 
-  it('allows localnet 1Click only when both E2E gates and the localhost build target are explicit', async () => {
+  it('allows localnet NEAR Intents only when both E2E gates and the localhost build target are explicit', async () => {
     setEnv('true', `${SERVED_BASE}/`, 'true', 'localhost');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
     await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({
-      config: { swap: { oneClick: { serviceUrl: 'http://127.0.0.1:8550' } } }
+      config: { nearIntents: { serviceUrl: 'http://127.0.0.1:8550' } }
     });
   });
 
-  it('keeps localnet 1Click hidden when the build network is not localhost', async () => {
+  it('keeps localnet NEAR Intents hidden when the build network is not localhost', async () => {
     setEnv('true', `${SERVED_BASE}/`, 'true', 'testnet');
     setup();
-    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
-    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
   });
 
   it('fetches past the browser cache, then stores the body as fetched and raises the floor', async () => {

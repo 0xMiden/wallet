@@ -34,7 +34,6 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -137,10 +136,12 @@ function buildRowProps(
   ) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(bridgeConfig, entry) : bridgeRowDisplay(bridgeConfig, entry);
-    const failed = d.status === 'failed';
+    const closed = d.status === 'failed' || d.status === 'expired';
+    // An expired deposit got no funds, so nothing failed: the grey of a cancelled row, not the red of a failure.
+    const closedBg = d.status === 'expired' ? 'bg-gray-400' : 'bg-status-negative';
     return {
-      icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
-      iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
+      icon: closed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
+      iconBg: closed ? closedBg : 'bg-[#777487]',
       title:
         entry.bridgeProvider === 'usdcx'
           ? t('usdcxBurnTitle')
@@ -154,7 +155,8 @@ function buildRowProps(
             preformatted: true
           }
         : undefined,
-      status: isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : d.status
+      // USDCx rows read their own phases, and an unpaid NEAR Intents deposit past its deadline reads Expired.
+      status: bridgeBadgeStatusOf(entry)
     };
   }
 

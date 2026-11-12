@@ -5808,6 +5808,10 @@
     "message": "Geri kazanılmış",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Süresi dolmuş",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Talep",
     "englishSource": "Faucet Request"
@@ -8312,6 +8316,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "Alma yöntemi",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Yakın Anlamlar",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "Gönderirsiniz",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "Şunları alırsınız",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "$chain$ üzerinde",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "Gönderilecek token'ı seçin ($symbol$)",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "Alınacak token'ı seçin ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "Geri ödeme adresi",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "$chain$ adresiniz",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "Aktarım başarısız olursa, $symbol$'ınız bu adrese geri döner.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "Geçerli bir $chain$ adresi girin.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "$minutes$ dakika civarında",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "Para yatırma adresini alın",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "Kendi cüzdanınızdan gönderin.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "Para yatırma adresi yok",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "Cüzdan, para yatırma adresi alamadı. Lütfen tekrar deneyin.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents şu anda kullanılamıyor",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "Cüzdan, gönderebileceğiniz token'ları yükleyemedi. Daha sonra tekrar deneyin.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "Gönderilecek token",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "Gönderilecek bir token bulun",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "Ağa göre filtrele",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "Aramanızla eşleşen hiçbir token bulunamadı.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Miden'de alırsınız",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$ üzerinde $chain$ için kullanılabilir",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "Para yatırma",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Doğrudan şuradan ödeme yapın",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$ ile ödeme yapın",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Cüzdanı açamadı. Para yatırmak için adresi ve tutarı kopyalayın.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Hayalet",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "Tam olarak gönderin",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "Tutarın kopyalanması",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "Para yatırma adresi",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "Para yatırma adresini kopyala",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "Not",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "Notu kopyala",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "Bu notu mevduatınıza ekleyin. Notun bulunmadığı bir mevduat kaybolabilir.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ Miden'de $amount$ $symbol$",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "Göndermeden önce",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · $countdown$ kaldı",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "Geri ödeme",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "Yeni bir para yatırma adresi almak için \"Al\" sayfasına geri dönün.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "$chain$ üzerinde yalnızca $symbol$ gönderin. Bu sayfayı kapatabilirsiniz; transfer, Etkinlik bölümünde görünür.",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "Para yatırma işleminizi bekliyoruz",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "Para yatırma tutarı, tutardan daha azdır",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "Para yatırma işleminizin işlenmesi",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Miden'de yayınlanmıştır",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Para yatırma işleminiz onaylandı. Miden'e transfer devam ediyor. Bu sayfayı kapatabilirsiniz.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "$symbol$'niz Miden'de. note, bir sonraki senkronizasyondan sonra cüzdanınıza ulaşır. Activity bölümünden alabilirsiniz.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "$symbol$'ınız cüzdanınızda bulunmaktadır.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "Alındı",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "Geri Ödenen",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "Aktarım başarısız",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "Bu adresin süresi dolmuştur. Para göndermeyin.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "Para yatırma adresini göster",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Hedef işlem",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Bu tutar için yeterli likidite yok. Farklı bir tutar deneyin.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Mevcut: $amount$ $symbol$",

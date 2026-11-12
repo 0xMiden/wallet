@@ -5809,6 +5809,10 @@
     "message": "Відновлений",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Термін дії закінчився",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
@@ -8313,6 +8317,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "Метод отримання",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Наближені наміри",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "БЕТА",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "Ви надсилаєте",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "Ви отримуєте",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "на $chain$",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "Виберіть токен для відправлення ($symbol$)",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "Виберіть токен для отримання ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "Адреса для повернення коштів",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "Ваша адреса $chain$",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "Якщо переказ не відбувся, ваші $symbol$ повертаються на цю адресу.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "Введіть дійсну адресу $chain$.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "Приблизно $minutes$ хвилин",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "Отримати адресу для депозиту",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "Надсилайте з власного гаманця.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "Відсутність адреси для депозиту",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "Гаманець не зміг отримати адресу для депозиту. Спробуйте ще раз.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Функція «Near Intents» недоступна",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "Гаманець не зміг завантажити токени, які ви можете надіслати. Спробуйте ще раз пізніше.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "Токен для відправлення",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "Знайдіть токен для відправлення",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "Фільтрувати за мережею",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "Жоден токен не відповідає вашому запиту.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Ви отримуєте на Miden",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "Доступно за $symbol$ на $chain$",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Сплачуйте безпосередньо з",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Оплатіть за допомогою $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Не вдалося відкрити гаманець. Скопіюйте адресу та суму, щоб надіслати свій депозит.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Фантом",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "Надіслати точно",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "Скопіювати суму",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "Адреса депозиту",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "Скопіювати адресу депозиту",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "Примітка",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "Копіювати примітку",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "Додайте цю записку до вашого депозиту. Депозит без цієї записки може бути втрачений.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ $amount$ $symbol$ на Miden",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "Надіслати до",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · Залишилося $countdown$",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "Повернення коштів на",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "Поверніться до розділу «Отримати», щоб отримати нову адресу для депозиту.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "Надішліть лише $symbol$ на $chain$. Ви можете закрити цю сторінку; переказ відображається в розділі «Активність».",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "Очікування вашого депозиту",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "Сума депозиту менша за суму",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "Обробка вашого депозиту",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Опубліковано на Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Ваш депозит підтверджено. Переказ до Miden триває. Ви можете закрити цю сторінку.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Ваш $symbol$ знаходиться на Miden. note надійде у ваш гаманець після наступної синхронізації. Отримайте його в розділі «Активність».",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Ваш $symbol$ знаходиться у вашому гаманці.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "Отримано",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "Повернуто",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "Переказ не вдався",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "Термін дії цієї адреси закінчився. Не надсилайте кошти.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "Показати адресу депозиту",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Транзакція призначення",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Недостатньо ліквідності для цієї суми. Спробуйте вказати іншу суму.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Доступно: $amount$ $symbol$",

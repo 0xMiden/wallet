@@ -5807,6 +5807,10 @@
     "message": "Reclaimed",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Expired",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Request",
     "englishSource": "Faucet Request"
@@ -8311,6 +8315,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "Receive method",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Near Intents",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "You send",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "You receive",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "on $chain$",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "Choose the token to send ($symbol$)",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "Choose the token to receive ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "Refund address",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "Your $chain$ address",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "If the transfer fails, your $symbol$ returns to this address.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "Enter a valid $chain$ address.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "About $minutes$ min",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "Get deposit address",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "Send from your own wallet.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "No deposit address",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "The wallet could not get a deposit address. Try again.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents is unavailable",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "The wallet could not load the tokens you can send. Try again later.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "Token to send",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "Find a token to send",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "Filter by network",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "No token matches your search.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "You receive on Miden",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "Available for $symbol$ on $chain$",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "Deposit",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Pay directly from",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Pay with $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Could not open the wallet. Copy the address and amount to send your deposit.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Phantom",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "Send exactly",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "Copy amount",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "Deposit address",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "Copy deposit address",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "Memo",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "Copy memo",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "Include this memo with your deposit. A deposit without the memo can be lost.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ $amount$ $symbol$ on Miden",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "Send before",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · $countdown$ left",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "Refund to",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "Go back to Receive to get a new deposit address.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "Waiting for your deposit",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "Deposit is less than the amount",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "Processing your deposit",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Delivered on Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Your $symbol$ is in your wallet.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "Received",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "Refunded",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "Transfer failed",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "This address has expired. Do not send funds.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "Show deposit address",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Destination transaction",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Not enough liquidity for this amount. Try a different amount.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "Available: $amount$ $symbol$",

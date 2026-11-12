@@ -16,8 +16,20 @@ import type {
 const MAX_REQUEST_BYTES = 32_768;
 const TEST_SEED = Uint8Array.from({ length: 32 }, (_, index) => (index * 29 + 17) % 256);
 const TEST_PUBLIC_KEY = ed25519.getPublicKey(TEST_SEED);
+const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+const BECH32_GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
 
 export const FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY = `ed25519:${bs58.encode(TEST_PUBLIC_KEY)}`;
+
+/**
+ * Origin tokens on chains that are not EVM chains, as the 1Click token list names them. A suite gives these to the
+ * service with the Miden tokens of its document.
+ */
+export const FAKE_NEAR_INTENTS_ORIGIN_TOKENS: readonly OneClickAsset[] = [
+  { assetId: 'nep141:sol.omft.near', blockchain: 'sol', symbol: 'SOL', decimals: 9 },
+  { assetId: 'nep141:btc.omft.near', blockchain: 'btc', symbol: 'BTC', decimals: 8 },
+  { assetId: 'nep141:wrap.near', blockchain: 'near', symbol: 'NEAR', decimals: 24 }
+];
 
 export interface FakeOneClickRequestLog {
   method: string;
@@ -28,6 +40,12 @@ export interface FakeOneClickRequestLog {
 export interface FakeOneClickServiceOptions {
   port?: number;
   tokens?: OneClickAsset[];
+}
+
+/** One deposit address that a wet quote gave, with the request that the quote answered. */
+export interface FakeOneClickDeposit {
+  depositAddress: string;
+  request: OneClickSignedRequest;
 }
 
 export type FakeOneClickQuoteBuilder = (
@@ -48,6 +66,10 @@ export class FakeOneClickService {
   private quoteBuilder: FakeOneClickQuoteBuilder = (_request, defaults) => defaults;
   private status: OneClickProviderStatus = 'PENDING_DEPOSIT';
   private statusDetails: Partial<OneClickSwapDetails> = {};
+  private readonly depositStatuses = new Map<
+    string,
+    { status: OneClickProviderStatus; details: Partial<OneClickSwapDetails> }
+  >();
   private receipts: OneClickDestinationReceipt[] = [];
   private quoteSequence = 0;
   private readonly quotesByDeposit = new Map<string, OneClickQuoteResponse>();
@@ -72,9 +94,39 @@ export class FakeOneClickService {
     this.quoteBuilder = builder;
   }
 
+  /** Set the status of every deposit that has no status of its own. */
   setStatus(status: OneClickProviderStatus, details: Partial<OneClickSwapDetails> = {}): void {
     this.status = status;
     this.statusDetails = { ...details };
+  }
+
+  /**
+   * Set the status of one deposit. A suite moves a deposit through `PENDING_DEPOSIT`, `PROCESSING` and `SUCCESS` with
+   * this call alone, as the provider does when a user pays from an external wallet: no deposit-submit call is needed.
+   */
+  setDepositStatus(
+    depositAddress: string,
+    status: OneClickProviderStatus,
+    details: Partial<OneClickSwapDetails> = {}
+  ): void {
+    if (!this.quotesByDeposit.has(depositAddress)) {
+      throw new Error(`The fake 1Click service gave no deposit address ${depositAddress}`);
+    }
+    this.depositStatuses.set(depositAddress, { status, details: { ...details } });
+  }
+
+  /** The deposit addresses that wet quotes gave, oldest first. */
+  deposits(): FakeOneClickDeposit[] {
+    return Array.from(this.quotesByDeposit, ([depositAddress, quote]) => ({
+      depositAddress,
+      request: quote.quoteRequest
+    }));
+  }
+
+  /** The deposit address of the most recent wet quote, or undefined before the first one. */
+  latestDeposit(): FakeOneClickDeposit | undefined {
+    const all = this.deposits();
+    return all[all.length - 1];
   }
 
   setReceipts(receipts: OneClickDestinationReceipt[]): void {
@@ -149,7 +201,8 @@ export class FakeOneClickService {
     if (method === 'POST' && url.pathname === '/v0/deposit/submit' && isRecord(body)) {
       const depositAddress = body.depositAddress;
       const quote = typeof depositAddress === 'string' ? this.quotesByDeposit.get(depositAddress) : undefined;
-      if (!quote || typeof body.txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(body.txHash)) {
+      // A transaction hash of any origin chain: an EVM hash, a Solana signature, a Bitcoin or NEAR hash.
+      if (!quote || typeof body.txHash !== 'string' || !/^(0x)?[0-9A-Za-z]{32,128}$/.test(body.txHash)) {
         this.writeJson(response, 400, { error: 'invalid_deposit_submission' });
         return;
       }
@@ -179,8 +232,8 @@ export class FakeOneClickService {
       return;
     }
     this.quoteSequence += 1;
-    const depositAddress = `0x${this.quoteSequence.toString(16).padStart(40, '0')}`;
     const originAsset = this.tokens.find(asset => asset.assetId === request.originAsset);
+    const depositAddress = fakeDepositAddress(originAsset?.blockchain, this.quoteSequence);
     const destinationAsset = this.tokens.find(asset => asset.assetId === request.destinationAsset);
     const amountIn = BigInt(request.amount);
     const decimalsKnown =
@@ -218,17 +271,19 @@ export class FakeOneClickService {
   }
 
   private statusResponse(quoteResponse: OneClickQuoteResponse) {
+    const depositAddress = quoteResponse.quote.depositAddress;
+    const own = depositAddress === undefined ? undefined : this.depositStatuses.get(depositAddress);
     const details: OneClickSwapDetails = {
       intentHashes: [],
       nearTxHashes: [],
       originChainTxHashes: [],
       destinationChainTxHashes: [],
-      ...this.statusDetails
+      ...(own?.details ?? this.statusDetails)
     };
     return {
       correlationId: quoteResponse.correlationId,
       quoteResponse,
-      status: this.status,
+      status: own?.status ?? this.status,
       updatedAt: new Date().toISOString(),
       swapDetails: details
     };
@@ -246,6 +301,66 @@ export class FakeOneClickService {
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
     response.end(JSON.stringify(body));
   }
+}
+
+/**
+ * A deposit address in the format of the origin chain, the same for the same sequence number. Solana gets a base58
+ * public key, Bitcoin a P2WPKH bech32 address, NEAR an implicit account. Any other chain gets an EVM address.
+ */
+export function fakeDepositAddress(blockchain: string | undefined, sequence: number): string {
+  const seed = Uint8Array.from({ length: 32 }, (_, index) => (sequence * 31 + index * 7 + 1) % 256);
+  switch (blockchain) {
+    case 'sol':
+      return bs58.encode(seed);
+    case 'btc':
+      return bech32Segwit('bc', 0, seed.slice(0, 20));
+    case 'near':
+      return Buffer.from(seed).toString('hex');
+    default:
+      return `0x${sequence.toString(16).padStart(40, '0')}`;
+  }
+}
+
+function bech32Polymod(values: readonly number[]): number {
+  let checksum = 1;
+  for (const value of values) {
+    const top = checksum >>> 25;
+    checksum = ((checksum & 0x1ffffff) << 5) ^ value;
+    BECH32_GENERATORS.forEach((generator, bit) => {
+      if ((top >>> bit) & 1) checksum ^= generator;
+    });
+  }
+  return checksum;
+}
+
+function bech32HrpExpand(hrp: string): number[] {
+  const codes = Array.from(hrp, character => character.charCodeAt(0));
+  return [...codes.map(code => code >>> 5), 0, ...codes.map(code => code & 31)];
+}
+
+// Regroup 8-bit bytes into 5-bit groups, with zero padding at the end.
+function toFiveBitGroups(bytes: Uint8Array): number[] {
+  const groups: number[] = [];
+  let accumulator = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    accumulator = (accumulator << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      groups.push((accumulator >>> bits) & 31);
+    }
+  }
+  if (bits > 0) groups.push((accumulator << (5 - bits)) & 31);
+  return groups;
+}
+
+/** A bech32 (BIP 173) segwit address. The fake uses witness version 0 only. */
+export function bech32Segwit(hrp: string, version: number, program: Uint8Array): string {
+  const data = [version, ...toFiveBitGroups(program)];
+  const polymod = bech32Polymod([...bech32HrpExpand(hrp), ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
+  const checksum = Array.from({ length: 6 }, (_, index) => (polymod >>> (5 * (5 - index))) & 31);
+  return `${hrp}1${[...data, ...checksum].map(value => BECH32_CHARSET.charAt(value)).join('')}`;
 }
 
 function isValidDecimals(decimals: number): boolean {

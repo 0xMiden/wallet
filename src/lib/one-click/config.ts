@@ -4,19 +4,27 @@ import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-confi
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
-import type { OneClickConfig } from './types';
+import type { NearIntentsConfig } from './types';
 
-export function getOneClickConfig(snapshot: BridgeConfigSnapshot = getBridgeConfigSnapshot()): OneClickConfig | null {
+/**
+ * The `nearIntents` section of the accepted document, or null when the wallet must not offer NEAR Intents: the
+ * snapshot is not ready, `features.nearIntents` is not exactly true, or the network is not mainnet (localnet only
+ * under the hermetic E2E gate).
+ */
+export function getNearIntentsConfig(
+  snapshot: BridgeConfigSnapshot = getBridgeConfigSnapshot()
+): NearIntentsConfig | null {
   if (snapshot.status !== 'ready' || snapshot.config?.network !== snapshot.network) return null;
   if (snapshot.config.features.nearIntents !== true) return null;
   if (isOneClickLocalE2EEnabled()) {
-    return snapshot.network === 'localnet' ? (snapshot.config.swap?.oneClick ?? null) : null;
+    return snapshot.network === 'localnet' ? (snapshot.config.nearIntents ?? null) : null;
   }
   if (snapshot.network !== 'mainnet') return null;
-  return snapshot.config?.swap?.oneClick ?? null;
+  return snapshot.config.nearIntents ?? null;
 }
 
-export function useOneClickConfig(): OneClickConfig | null {
+/** `getNearIntentsConfig` for a component: it renders again when the bridge config changes. */
+export function useNearIntentsConfig(): NearIntentsConfig | null {
   const snapshot = useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot);
-  return getOneClickConfig(snapshot);
+  return getNearIntentsConfig(snapshot);
 }

@@ -2,38 +2,43 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseBridgeConfig } from 'lib/remote-config/schema';
 import testnet from 'lib/remote-config/testing/testnet.json';
 
-import { getOneClickConfig } from './config';
+import { getNearIntentsConfig } from './config';
 
-const configBody = {
-  ...testnet,
-  swap: {
-    ...testnet.swap,
-    oneClick: {
-      serviceUrl: 'https://one-click.example',
-      midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+const nearIntents = {
+  serviceUrl: 'https://one-click.example',
+  midenAssets: {
+    usdcx: { assetId: 'nep141:miden-usdc.omft.near', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }
+  },
+  chains: {
+    eth: {
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: { USDC: { assetId: 'nep141:eth-usdc.omft.near', decimals: 6, miden: ['usdcx'] } }
     }
   }
 };
 
-function snapshot(network: string, allowOneClickLocalE2E = false, nearIntentsEnabled = false): BridgeConfigSnapshot {
+function snapshot(
+  network: string,
+  allowOneClickLocalE2E = false,
+  nearIntentsEnabled = false,
+  status: BridgeConfigSnapshot['status'] = 'ready'
+): BridgeConfigSnapshot {
   const body = {
-    ...configBody,
+    ...testnet,
     network,
-    features: { ...configBody.features, nearIntents: nearIntentsEnabled },
-    swap: {
-      ...configBody.swap,
-      oneClick: {
-        ...configBody.swap.oneClick,
-        serviceUrl: network === 'localnet' ? 'http://127.0.0.1:8550' : 'https://one-click.example'
-      }
+    features: { ...testnet.features, nearIntents: nearIntentsEnabled },
+    nearIntents: {
+      ...nearIntents,
+      serviceUrl: network === 'localnet' ? 'http://127.0.0.1:8550' : 'https://one-click.example'
     }
   };
   const config = parseBridgeConfig(body, network, { allowLocalHttp: allowOneClickLocalE2E, allowOneClickLocalE2E });
   if (!config) throw new Error('Test config is invalid');
-  return { network, status: 'ready', config, derived: null, lastFetch: null };
+  return { network, status, config, derived: null, lastFetch: null };
 }
 
-describe('getOneClickConfig', () => {
+describe('getNearIntentsConfig', () => {
   const saved = {
     e2e: process.env.MIDEN_E2E_TEST,
     oneClickE2e: process.env.MIDEN_E2E_ONE_CLICK_TESTNET,
@@ -49,37 +54,58 @@ describe('getOneClickConfig', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';
     process.env.MIDEN_NETWORK = 'localhost';
-    expect(getOneClickConfig(snapshot('localnet', true))).toBeNull();
-    expect(getOneClickConfig(snapshot('testnet', true))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('localnet', true, true))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('testnet', true, true))).toBeNull();
   });
 
-  it('keeps configured mainnet and hermetic E2E service/assets hidden while the switch is false', () => {
+  it('keeps configured mainnet and hermetic E2E sections hidden while the switch is false', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
     process.env.MIDEN_NETWORK = 'localhost';
-    expect(getOneClickConfig(snapshot('mainnet', false, false))).toBeNull();
-    expect(getOneClickConfig(snapshot('localnet', true, false))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('mainnet', false, false))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('localnet', true, false))).toBeNull();
   });
 
-  it('requires the explicit feature switch on mainnet as well as local E2E', () => {
+  it('returns the parsed section on mainnet with the explicit feature switch', () => {
     process.env.MIDEN_E2E_TEST = 'false';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';
     process.env.MIDEN_NETWORK = 'mainnet';
-    expect(getOneClickConfig(snapshot('mainnet', false, true))?.serviceUrl).toBe('https://one-click.example');
-    process.env.MIDEN_E2E_TEST = 'true';
-    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
-    process.env.MIDEN_NETWORK = 'localhost';
-    expect(getOneClickConfig(snapshot('localnet', true, true))?.serviceUrl).toBe('http://127.0.0.1:8550');
+    expect(getNearIntentsConfig(snapshot('mainnet', false, true))).toStrictEqual({
+      serviceUrl: 'https://one-click.example',
+      midenAssets: [
+        {
+          id: 'usdcx',
+          assetId: 'nep141:miden-usdc.omft.near',
+          faucetId: '0x537c15a622074e91188aa894456c52',
+          decimals: 6
+        }
+      ],
+      chains: [
+        {
+          id: 'eth',
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: [{ symbol: 'USDC', assetId: 'nep141:eth-usdc.omft.near', decimals: 6, miden: ['usdcx'] }]
+        }
+      ]
+    });
   });
 
-  it('exposes localnet 1Click only in the explicitly targeted localhost E2E build', () => {
+  it('returns null while the snapshot is not ready', () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';
+    process.env.MIDEN_NETWORK = 'mainnet';
+    expect(getNearIntentsConfig(snapshot('mainnet', false, true, 'loading'))).toBeNull();
+  });
+
+  it('exposes localnet NEAR Intents only in the explicitly targeted localhost E2E build', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
     process.env.MIDEN_NETWORK = 'localhost';
-    expect(getOneClickConfig(snapshot('localnet', true, true))?.serviceUrl).toBe('http://127.0.0.1:8550');
-    expect(getOneClickConfig(snapshot('mainnet', true))).toBeNull();
-    expect(getOneClickConfig(snapshot('testnet', true))).toBeNull();
-    expect(getOneClickConfig(snapshot('devnet', true))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('localnet', true, true))?.serviceUrl).toBe('http://127.0.0.1:8550');
+    expect(getNearIntentsConfig(snapshot('mainnet', true, true))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('testnet', true, true))).toBeNull();
+    expect(getNearIntentsConfig(snapshot('devnet', true, true))).toBeNull();
   });
 });
 

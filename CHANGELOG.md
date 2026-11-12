@@ -2,6 +2,9 @@
 
 ## 1.17.12 (TBD)
 
+- [FIX][all] A NEAR Intents deposit that got no funds before its quote deadline reads Expired in Activity, not Pending or Failed, with a grey icon, not the red of a failure.
+- [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Local development uses the LAN proxy, and Reown's keychain group follows the Xcode signing prefix and bundle ID.
+- [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.

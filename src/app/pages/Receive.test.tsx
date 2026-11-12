@@ -10,6 +10,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { NearIntentsConfig } from 'lib/one-click/types';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
@@ -217,8 +218,27 @@ const expectBridgeInHold = (expected: boolean) => {
 };
 
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
+  hapticLight: jest.fn(),
+  hapticSelection: jest.fn()
 }));
+
+// No NEAR Intents config by default: the page is the address alone, as before the tab existed.
+let mockNearIntentsConfig: NearIntentsConfig | null = null;
+jest.mock('lib/one-click/config', () => ({
+  useNearIntentsConfig: () => mockNearIntentsConfig
+}));
+
+// The tab itself has its own suite (screens/near-intents-flow); here it only has to show the tabs it gets.
+jest.mock('screens/near-intents-flow/NearIntentsTab', () => ({
+  __esModule: true,
+  default: ({ tabs }: { tabs?: React.ReactNode }) => <div data-testid="near-intents-tab">{tabs}</div>
+}));
+
+const NEAR_INTENTS_CONFIG: NearIntentsConfig = {
+  serviceUrl: 'https://1click.example',
+  chains: [],
+  midenAssets: []
+};
 
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
@@ -243,6 +263,7 @@ jest.mock('utils/string', () => ({
 beforeEach(() => {
   mockPathname = '/receive';
   mockIsExtension.mockReturnValue(false);
+  mockNearIntentsConfig = null;
 });
 
 describe('Receive - Address', () => {
@@ -1208,5 +1229,126 @@ describe('Receive - receive_share telemetry', () => {
 
     expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
     expect(telemetryPayload()).not.toContain('test-account-123');
+  });
+
+  describe('with the Near Intents tab', () => {
+    const chooseTab = async (id: 'miden' | 'near-intents') => {
+      const tab = testContainer!.querySelector(`[data-testid="receive-tab-${id}"]`);
+      if (!tab) throw new Error(`no ${id} tab`);
+      await act(async () => {
+        fireEvent.click(tab);
+      });
+    };
+
+    beforeEach(() => {
+      mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    });
+
+    it('does not complete the share while the Near Intents tab hides the address', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+
+      expect(beginFlowMock).toHaveBeenCalledWith('receive_share');
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+    });
+
+    it('completes the share once the user goes back to the Miden tab', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+      await chooseTab('miden');
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the share when the user leaves from the Near Intents tab', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+      await unmountReceive();
+
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('Receive - tabs', () => {
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  afterEach(async () => {
+    if (testRoot) {
+      await act(async () => {
+        testRoot!.unmount();
+      });
+      testRoot = null;
+    }
+    testContainer?.remove();
+    testContainer = null;
+  });
+
+  const renderReceive = async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    return testContainer;
+  };
+
+  it('draws no tabs without a Near Intents config, so the page is the address alone', async () => {
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-tabs"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-page"]')).not.toBeNull();
+  });
+
+  it('draws the Miden and Near Intents tabs over the address, and switches to the Near Intents tab', async () => {
+    mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-page"] [data-testid="receive-tabs"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="receive-tab-miden"]')?.textContent).toBe('miden');
+    // The Near Intents tab has the rainbow ring and the beta badge on the edge of its pill, beside the button.
+    const nearIntentsTab = container.querySelector('[data-testid="receive-tab-near-intents"]');
+    expect(nearIntentsTab?.textContent).toBe('nearIntentsTab');
+    const decoration = nearIntentsTab?.parentElement;
+    expect(decoration?.querySelector('[data-testid="segmented-control-rainbow-ring"]')).not.toBeNull();
+    expect(decoration?.querySelector('[data-testid="segmented-control-badge"]')?.textContent).toBe('nearIntentsBeta');
+    expect(container.querySelectorAll('[data-testid="segmented-control-rainbow-ring"]')).toHaveLength(1);
+
+    const nearIntents = container.querySelector('[data-testid="receive-tab-near-intents"]');
+    await act(async () => {
+      fireEvent.click(nearIntents!);
+    });
+    await waitFor(() => expect(container.querySelector('[data-testid="near-intents-tab"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="receive-page"]')).toBeNull();
+    expect(container.querySelector('[data-testid="near-intents-tab"] [data-testid="receive-tabs"]')).not.toBeNull();
+  });
+
+  it('shows the address again when the config goes away', async () => {
+    mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    const container = await renderReceive();
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-testid="receive-tab-near-intents"]')!);
+    });
+
+    mockNearIntentsConfig = null;
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+
+    expect(container.querySelector('[data-testid="receive-page"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="receive-tabs"]')).toBeNull();
   });
 });

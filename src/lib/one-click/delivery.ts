@@ -20,6 +20,50 @@ export function oneClickActualOutputAmount(
   return actual > 0n && actual >= BigInt(tracking.quote.quote.minAmountOut) ? actual : undefined;
 }
 
+/**
+ * The delivery check for a deposit whose note ids are not known (no receipt service names them). It finds a note
+ * for the account that carries exactly the delivered amount of the destination token: one that waits for a claim,
+ * or one that a completed consume claimed after the deposit started. A match sets only the label of the row; it
+ * moves no funds. Another transfer of the same token and the same exact amount gives the same answer.
+ */
+export function hasOneClickDeliveryArrivedByAmount({
+  targetAccountId,
+  faucetId,
+  amount,
+  since,
+  consumableNotes,
+  transactions
+}: {
+  targetAccountId: string;
+  faucetId: string;
+  amount: bigint;
+  /** The time the deposit row started, in the unit of `ITransaction.initiatedAt`. */
+  since: number;
+  consumableNotes: readonly ConsumableNoteDto[];
+  transactions: readonly ITransaction[];
+}): boolean {
+  const expectedFaucetId = normalizedFaucetId(faucetId);
+  const waiting = consumableNotes.some(note => {
+    if (note.state !== InputNoteState.Committed) return false;
+    const amountForFaucet = note.assets
+      .filter(asset => normalizedFaucetId(asset.faucetId) === expectedFaucetId)
+      .reduce((total, asset) => total + BigInt(asset.amount), 0n);
+    return amountForFaucet === amount;
+  });
+  if (waiting) return true;
+  return transactions.some(
+    transaction =>
+      transaction.type === 'consume' &&
+      transaction.status === ITransactionStatus.Completed &&
+      transaction.restoredFromBackup !== true &&
+      transaction.initiatedAt >= since &&
+      sameWalletAccountId(transaction.accountId, targetAccountId) &&
+      (transaction.consumedNotes ?? []).some(
+        note => normalizedFaucetId(note.faucetId) === expectedFaucetId && note.amount === amount
+      )
+  );
+}
+
 export function hasOneClickDeliveryArrived({
   targetAccountId,
   faucetId,

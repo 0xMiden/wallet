@@ -19,7 +19,6 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -168,7 +167,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 }) => {
   const { t } = useTranslation();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
+  const { inLabel, outLabel, outAmount, providerLabel, network } =
     entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
@@ -203,7 +202,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
             {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
+        <StatusBadge status={bridgeBadgeStatusOf(entry)} />
       </div>
     </div>
   );

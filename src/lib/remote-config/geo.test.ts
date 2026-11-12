@@ -7,6 +7,7 @@ import {
   retainedStartupRequestFailure
 } from './geo';
 import * as geoModule from './geo';
+import type { NearIntentsConfig } from '../one-click/types';
 
 type AssertFalse<T extends false> = T;
 export type StartupEligibilityFailureAliasesRemainRemoved = AssertFalse<
@@ -19,9 +20,17 @@ const invalid = (): never => {
   throw new Error('invalid');
 };
 
-const oneClick = {
+const nearIntents: NearIntentsConfig = {
   serviceUrl: 'https://intents.example/api',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+  midenAssets: [{ id: 'usdcx', assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }],
+  chains: [
+    {
+      id: 'eth',
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: [{ symbol: 'USDC', assetId: 'nep141:eth-usdc.omft.near', decimals: 6, miden: ['usdcx'] }]
+    }
+  ]
 };
 
 describe('geoFeatureEnabled', () => {
@@ -31,30 +40,26 @@ describe('geoFeatureEnabled', () => {
     );
   });
 
-  it('enables OneClick swap capability only with the explicit switch and a usable mapping', () => {
-    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: true }, swap: { oneClick } })).toBe(true);
-    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: false }, swap: { oneClick } })).toBe(
-      false
-    );
-    expect(geoFeatureEnabled('swap', { features: { earn: false }, swap: { oneClick } })).toBe(false);
-    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: 'true' }, swap: { oneClick } })).toBe(
-      false
-    );
+  it('enables the swap rules for NEAR Intents only with the explicit switch and a configured chain', () => {
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: true }, nearIntents })).toBe(true);
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: false }, nearIntents })).toBe(false);
+    expect(geoFeatureEnabled('swap', { features: { earn: false }, nearIntents })).toBe(false);
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: 'true' }, nearIntents })).toBe(false);
     expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: true } })).toBe(false);
   });
 
-  it('does not enable a OneClick configuration without any parsed Miden mappings', () => {
+  it('does not enable a NEAR Intents section without any chain', () => {
     expect(
       geoFeatureEnabled('swap', {
         features: { earn: false, nearIntents: true },
-        swap: { oneClick: { ...oneClick, midenAssets: [] } }
+        nearIntents: { ...nearIntents, chains: [] }
       })
     ).toBe(false);
   });
 
   it('enables Earn only from its existing switch', () => {
     expect(geoFeatureEnabled('earn', { features: { earn: true } })).toBe(true);
-    expect(geoFeatureEnabled('earn', { features: { earn: false, nearIntents: true }, swap: { oneClick } })).toBe(false);
+    expect(geoFeatureEnabled('earn', { features: { earn: false, nearIntents: true }, nearIntents })).toBe(false);
   });
 });
 

@@ -5807,6 +5807,10 @@
     "message": "重獲",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "已過期",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 請求",
     "englishSource": "Faucet Request"
@@ -8311,6 +8315,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "接收方法",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "近似意圖",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "您發送",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "您將收到",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "在 $chain$ 上",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "選擇要發送的代幣（$symbol$）",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "選擇要接收的代幣（$symbol$）",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "退款地址",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "您的 $chain$ 地址",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "若轉帳失敗，您的 $symbol$ 將退回至此地址。",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "請輸入有效的 $chain$ 地址。",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "約 $minutes$ 分鐘",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "取得存款地址",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "請從您自己的錢包發送。",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "無存款地址",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "錢包無法取得存款地址。請重試。",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents 目前無法使用",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "錢包無法載入您可發送的代幣。請稍後重試。",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "待發送的代幣",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "尋找要傳送的代幣",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "依網路篩選",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "沒有任何代幣符合您的搜尋條件。",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "您在 Miden 上收到",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$ 在 $chain$ 上可用",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "直接從",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "使用 $wallet$ 付款",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "無法開啟錢包。請複製地址和金額以進行存款。",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "彩虹",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Phantom",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "精確傳送",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "複製金額",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "存款地址",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "複製存款地址",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "備註",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "複製備註",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "請將此備忘錄隨同您的存款一併提交。未附備忘錄的存款可能會遺失。",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ $amount$ $symbol$ 於 Miden",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "發送前",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · 剩餘 $countdown$",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "退款至",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "請返回「收款」頁面以取得新的存款地址。",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "僅在 $chain$ 上傳輸 $symbol$。您可以關閉此頁面；該轉帳紀錄將顯示於「活動」中。",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "等待您的存款",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "存款金額低於該金額",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "處理您的存款",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "透過 Miden 交付",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "您的存款已確認。轉帳至 Miden 的作業正在進行中。您可以關閉此頁面。",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "您的 $symbol$ 已上線 Miden。下次同步後，該note 將送達您的錢包。請前往「活動」頁面領取。",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "您的 $symbol$ 存放在您的錢包中。",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "已收到",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "退款",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "轉帳失敗",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "此地址已過期。請勿匯款。",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "顯示存款地址",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "目標交易",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "此金額的流動性不足。請嘗試其他金額。",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "可用：$amount$ $symbol$",

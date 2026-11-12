@@ -25,6 +25,8 @@ export type Status =
   | 'cancelled'
   | 'unconfirmed'
   | 'reclaimed'
+  // A NEAR Intents deposit that got no funds before its quote deadline
+  | 'expired'
   // A pending transfer the wallet has claimed
   | 'claimed'
   // A Smart Withdraw's phases
@@ -87,6 +89,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
+  expired: { labelKey: 'statusExpired', tone: 'neutral' },
   claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },
   delivering: { labelKey: 'earnWithdrawStatusDelivering', tone: 'pending' },

@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -35,17 +35,12 @@ import {
   tokenQuote
 } from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { createMidenAssetMetadataResolver, fetchOneClickAssets } from 'lib/one-click/client';
-import { useOneClickConfig } from 'lib/one-click/config';
-import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
 import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { geoFeatureGate } from 'lib/remote-config/availability';
-import { readMidenFaucetMetadata } from 'lib/remote-config/derive';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -55,14 +50,11 @@ import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { isValidExpirySeconds } from './expiry';
-import { OneClickNetworkOption } from './OneClickPickers';
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
 import { useSwapQuote } from './useSwapQuote';
-
-const OneClickFlow = React.lazy(() => import('./OneClickFlow').then(module => ({ default: module.OneClickFlow })));
 
 /** Two minutes, unchanged: long enough for the usual fill, short enough to get the tip back. */
 const DEFAULT_EXPIRY_SECONDS = 120;
@@ -88,18 +80,9 @@ interface SwapManagerProps {
   /** The pair the form opens on; idle registry changes remount the manager. */
   defaultPair: SwapPair;
   onBusyChange: (busy: boolean) => void;
-  oneClickConfig?: OneClickConfig;
-  oneClickAssets?: readonly OneClickAsset[];
-  oneClickNetworks?: readonly OneClickNetworkOption[];
 }
 
-const SwapManager: React.FC<SwapManagerProps> = ({
-  defaultPair,
-  onBusyChange,
-  oneClickConfig,
-  oneClickAssets = [],
-  oneClickNetworks = []
-}) => {
+const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
@@ -115,12 +98,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({
 
   const [offerToken, setOfferToken] = useState<SwapToken>(defaultPair.offer);
   const [requestToken, setRequestToken] = useState<SwapToken>(defaultPair.request);
-  const [offerNetwork, setOfferNetwork] = useState<OneClickNetworkOption | undefined>(
-    oneClickNetworks.find(network => network.id === 'miden')
-  );
-  const [requestNetwork, setRequestNetwork] = useState<OneClickNetworkOption | undefined>(
-    oneClickNetworks.find(network => network.id === 'miden')
-  );
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
   const prices = useWalletStore(state => state.tokenPrices);
@@ -849,39 +826,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({
     t
   ]);
 
-  const oneClickActive =
-    oneClickConfig !== undefined &&
-    offerNetwork !== undefined &&
-    requestNetwork !== undefined &&
-    (offerNetwork.id !== 'miden' || requestNetwork.id !== 'miden');
-
   const renderStep = useCallback(
     (route: Route) => {
-      if (oneClickActive && oneClickConfig && offerNetwork && requestNetwork) {
-        return (
-          <Suspense
-            fallback={
-              <HomeGroupPaneBody title={t('swap')}>
-                <span aria-busy="true" />
-              </HomeGroupPaneBody>
-            }
-          >
-            <OneClickFlow
-              config={oneClickConfig}
-              assets={oneClickAssets}
-              networks={oneClickNetworks}
-              offerNetwork={offerNetwork}
-              requestNetwork={requestNetwork}
-              midenAddress={publicKey ?? ''}
-              onBackToSwap={() => {
-                const miden = oneClickNetworks.find(network => network.id === 'miden');
-                setOfferNetwork(miden);
-                setRequestNetwork(miden);
-              }}
-            />
-          </Suspense>
-        );
-      }
       switch (route.name) {
         case SwapFlowStep.SwapAmounts:
           return (
@@ -911,11 +857,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({
               statusMessage={statusMessage?.text}
               statusIsError={statusMessage?.isError}
               statusErrorId={statusMessage?.errorId}
-              oneClickNetworks={oneClickNetworks.length > 0 ? oneClickNetworks : undefined}
-              offerNetwork={offerNetwork}
-              requestNetwork={requestNetwork}
-              onOfferNetworkChange={setOfferNetwork}
-              onRequestNetworkChange={setRequestNetwork}
             />
           );
         case SwapFlowStep.ReviewSwap:
@@ -976,17 +917,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
       // fee" state is captured from first render, before the balance and the base
       // fee have resolved -- so the warning shows stale, which on this screen means
       // either hiding a real blocker or blocking a swap that can pay.
-      feeAssetMissing,
-      oneClickActive,
-      oneClickConfig,
-      oneClickAssets,
-      oneClickNetworks,
-      offerNetwork,
-      requestNetwork,
-      publicKey,
-      setOfferNetwork,
-      setRequestNetwork,
-      t
+      feeAssetMissing
     ]
   );
 
@@ -1047,68 +978,12 @@ const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailabili
  * and pair until settlement, including when the latest configuration removes every token.
  */
 const SwapFlowGate: React.FC = () => {
-  const { t } = useTranslation();
   const tokens = useSwapTokens();
   const snapshot = useBridgeConfigSnapshot();
   const availability = swapAvailability(snapshot);
   const geoGate = geoFeatureGate('swap', snapshot.geo);
-  const oneClickConfig = useOneClickConfig();
-  const [oneClickAssets, setOneClickAssets] = useState<OneClickAsset[]>([]);
-  useEffect(() => {
-    let active = true;
-    setOneClickAssets([]);
-    if (!oneClickConfig)
-      return () => {
-        active = false;
-      };
-    const rpcUrl = getEffectiveRpcUrl();
-    const resolver = createMidenAssetMetadataResolver(faucetId => readMidenFaucetMetadata(faucetId, rpcUrl));
-    void fetchOneClickAssets(oneClickConfig, resolver).then(
-      assets => {
-        if (active) setOneClickAssets(assets);
-      },
-      () => {
-        if (active) setOneClickAssets([]);
-      }
-    );
-    return () => {
-      active = false;
-    };
-  }, [oneClickConfig, snapshot.network]);
-  const oneClickNetworks = useMemo<OneClickNetworkOption[]>(() => {
-    const labels: Record<string, string> = {
-      miden: 'oneClickNetworkMiden',
-      eth: 'oneClickNetworkEthereum',
-      base: 'oneClickNetworkBase',
-      arb: 'oneClickNetworkArbitrum',
-      op: 'oneClickNetworkOptimism',
-      arc: 'oneClickNetworkArc'
-    };
-    return Array.from(new Set(oneClickAssets.map(asset => asset.blockchain))).map(id => {
-      const key = labels[id];
-      const name = key
-        ? t(key)
-        : id
-            .split(/[-_]/)
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-            .join(' ');
-      return { id, name, kind: id === 'miden' ? 'miden' : 'ethereum' };
-    });
-  }, [oneClickAssets, t]);
-  const hasOneClickRoute =
-    !!oneClickConfig &&
-    oneClickAssets.some(asset => asset.blockchain === 'miden') &&
-    oneClickAssets.some(asset => asset.blockchain !== 'miden');
-  const firstMidenAsset = oneClickAssets.find(asset => asset.blockchain === 'miden');
-  const fallbackToken: SwapToken | undefined = firstMidenAsset?.faucetId
-    ? {
-        symbol: firstMidenAsset.symbol,
-        faucetId: normalizedFaucetId(firstMidenAsset.faucetId),
-        decimals: firstMidenAsset.decimals
-      }
-    : undefined;
-  const defaultPair = getDefaultSwapPair() ?? (fallbackToken ? { offer: fallbackToken, request: fallbackToken } : null);
-  const registryKey = JSON.stringify({ tokens, defaultPair, oneClickConfig, oneClickAssets });
+  const defaultPair = getDefaultSwapPair();
+  const registryKey = JSON.stringify({ tokens, defaultPair });
   const [, setBusy] = useState(false);
   const busyRef = useRef(false);
   const onBusyChange = useCallback((busy: boolean) => {
@@ -1120,23 +995,14 @@ const SwapFlowGate: React.FC = () => {
   if (!busyRef.current && activeRegistry.key !== registryKey) {
     setActiveRegistry({ key: registryKey, defaultPair });
   }
-  // The startup decision covers every swap route, the 1Click one included.
+  // The startup decision covers the swap route.
   if (geoGate && !busyRef.current) return <SwapUnavailable availability={geoGate} />;
-  if (
-    activeRegistry.defaultPair === null ||
-    (!busyRef.current && availability.state !== 'available' && !hasOneClickRoute)
-  ) {
+  if (activeRegistry.defaultPair === null || (!busyRef.current && availability.state !== 'available')) {
     return <SwapUnavailable availability={availability} />;
   }
   return (
     <NavigatorProvider key={activeRegistry.key} routes={ROUTES} initialRouteName={SwapFlowStep.SwapAmounts}>
-      <SwapManager
-        defaultPair={activeRegistry.defaultPair}
-        onBusyChange={onBusyChange}
-        oneClickConfig={oneClickConfig ?? undefined}
-        oneClickAssets={oneClickAssets}
-        oneClickNetworks={oneClickNetworks}
-      />
+      <SwapManager defaultPair={activeRegistry.defaultPair} onBusyChange={onBusyChange} />
     </NavigatorProvider>
   );
 };

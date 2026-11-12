@@ -1,32 +1,20 @@
+import { developmentOneClickServiceUrl } from 'lib/one-click/development-service';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
 import { type GeoBlocks, readGeoBlocks } from './geo';
-import { parseOneClickEvmAssets } from '../one-click/identity';
-import type { OneClickEvmAssetConfig } from '../one-click/types';
+import type {
+  NearIntentsAddressKind,
+  NearIntentsChainConfig,
+  NearIntentsConfig,
+  NearIntentsMidenAssetConfig,
+  NearIntentsTokenConfig
+} from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
 export type BridgeSwitch = 'earn';
-
-export interface OneClickMidenAssetConfig {
-  assetId: string;
-  faucetId: string;
-  decimals: number;
-}
-
-export interface OneClickAppFeeConfig {
-  recipient: string;
-  fee: number;
-}
-
-export interface OneClickConfig {
-  serviceUrl: string;
-  midenAssets: OneClickMidenAssetConfig[];
-  evmAssets?: OneClickEvmAssetConfig[];
-  appFees?: OneClickAppFeeConfig[];
-}
 
 export interface SwapConfig {
   /**
@@ -35,8 +23,14 @@ export interface SwapConfig {
    * tokens and no quotes.
    */
   etaUrl?: string;
-  oneClick?: OneClickConfig;
 }
+
+/** The address formats an origin chain of the `nearIntents` section can name. */
+export const NEAR_INTENTS_ADDRESS_KINDS: readonly NearIntentsAddressKind[] = ['evm', 'solana', 'bitcoin', 'near'];
+export const MAX_NEAR_INTENTS_MIDEN_ASSETS = 64;
+export const MAX_NEAR_INTENTS_CHAINS = 32;
+export const MAX_NEAR_INTENTS_TOKENS_PER_CHAIN = 64;
+export const MAX_NEAR_INTENTS_TOKEN_OUTPUTS = 8;
 
 /** The picker pings every listed Guardian operator, so the list is bounded. */
 export const MAX_GUARDIANS = 16;
@@ -239,6 +233,12 @@ export interface BridgeConfig {
   limits?: BridgeLimitsConfig;
   swap?: SwapConfig;
   /**
+   * The NEAR Intents (1Click) deposit routes of the Receive page. Only there on mainnet, or on localnet under the
+   * hermetic E2E gate, when the document sets the section. `features.nearIntents` is the switch: read it through
+   * `getNearIntentsConfig` (`lib/one-click/config`), which checks both.
+   */
+  nearIntents?: NearIntentsConfig;
+  /**
    * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
    * document names none, and the wallet uses the list it ships with (`lib/miden-chain/guardian-registry`).
    */
@@ -274,6 +274,9 @@ const EARN_LENDER_KEY = /^[A-Z0-9_]+$/;
 const EARN_CHAIN_ID = /^[1-9][0-9]*$/;
 const LOWERCASE_EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
+// The `nearIntents` key rules: a Miden asset id, and an origin chain as the 1Click API names its blockchain.
+const NEAR_INTENTS_MIDEN_ASSET_KEY = /^[a-z][a-z0-9-]*$/;
+const NEAR_INTENTS_CHAIN_KEY = /^[a-z][a-z0-9-]{0,31}$/;
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
@@ -322,56 +325,109 @@ function baseUrl(value: unknown, allowLocalHttp: boolean): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
-function oneClick(
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : invalid();
+}
+
+// Text that the wallet sends to the 1Click API or shows as written: 1 to `maxLength` characters, no control character.
+function plainText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength || CONTROL_CHARACTER.test(value))
+    return invalid();
+  return value;
+}
+
+function tokenDecimals(value: unknown): number {
+  return isSafeIntegerInRange(value, 0, 38) ? value : invalid();
+}
+
+// A keyed map of 1 to `max` entries, in the order of the document. The order is the display order. Note: JSON.parse
+// puts an integer-like key (such as "123") before the other keys, so such a key does not keep its place.
+function keyedEntries(value: unknown, max: number): [string, unknown][] {
+  const entries = Object.entries(record(value));
+  return entries.length === 0 || entries.length > max ? invalid() : entries;
+}
+
+// The Miden tokens a deposit can deliver, keyed by the id that a chain token refers to. No asset id or faucet twice.
+function nearIntentsMidenAssets(value: unknown): NearIntentsMidenAssetConfig[] {
+  const assetIds = new Set<string>();
+  const faucetIds = new Set<string>();
+  return keyedEntries(value, MAX_NEAR_INTENTS_MIDEN_ASSETS).map(([id, entry]) => {
+    if (!NEAR_INTENTS_MIDEN_ASSET_KEY.test(id)) return invalid();
+    const asset = record(entry);
+    const assetId = plainText(asset.assetId, 256);
+    const faucetId = midenAccountId(asset.faucetId);
+    if (assetIds.has(assetId) || faucetIds.has(faucetId)) return invalid();
+    assetIds.add(assetId);
+    faucetIds.add(faucetId);
+    return { id, assetId, faucetId, decimals: tokenDecimals(asset.decimals) };
+  });
+}
+
+// One token of an origin chain, keyed by its symbol. `miden` names 1 to 8 different keys of `midenAssets`.
+function nearIntentsToken(symbol: string, value: unknown, midenIds: ReadonlySet<string>): NearIntentsTokenConfig {
+  const token = record(value);
+  const contractAddress = read(token, 'contractAddress', address => plainText(address, 256));
+  const outputs = token.miden;
+  if (!Array.isArray(outputs) || outputs.length === 0 || outputs.length > MAX_NEAR_INTENTS_TOKEN_OUTPUTS)
+    return invalid();
+  const miden = outputs.map((id: unknown) => (typeof id === 'string' && midenIds.has(id) ? id : invalid()));
+  if (new Set(miden).size !== miden.length) return invalid();
+  return {
+    symbol: plainText(symbol, 32),
+    assetId: plainText(token.assetId, 256),
+    decimals: tokenDecimals(token.decimals),
+    ...(contractAddress === undefined ? {} : { contractAddress }),
+    miden
+  };
+}
+
+// The origin chains, keyed by the 1Click blockchain name. A token asset id is unique in the whole section, and no
+// token asset id is also the asset id of a Miden token.
+function nearIntentsChains(
+  value: unknown,
+  midenAssets: readonly NearIntentsMidenAssetConfig[]
+): NearIntentsChainConfig[] {
+  const midenIds = new Set(midenAssets.map(asset => asset.id));
+  const assetIds = new Set(midenAssets.map(asset => asset.assetId));
+  return keyedEntries(value, MAX_NEAR_INTENTS_CHAINS).map(([id, entry]) => {
+    if (!NEAR_INTENTS_CHAIN_KEY.test(id) || id === 'miden') return invalid();
+    const chain = record(entry);
+    const name = plainText(chain.name, 64);
+    const addressKind = oneOf(NEAR_INTENTS_ADDRESS_KINDS, chain.addressKind);
+    const tokens = keyedEntries(chain.tokens, MAX_NEAR_INTENTS_TOKENS_PER_CHAIN).map(([symbol, token]) => {
+      const parsed = nearIntentsToken(symbol, token, midenIds);
+      if (assetIds.has(parsed.assetId)) return invalid();
+      assetIds.add(parsed.assetId);
+      return parsed;
+    });
+    return { id, name, addressKind, tokens };
+  });
+}
+
+// Undefined on a network that does not offer NEAR Intents: the section is then not read, so it cannot reject the
+// document. Mainnet only, and localnet under the hermetic E2E gate, where the service must be a loopback host.
+function nearIntents(
   value: unknown,
   network: string,
   allowLocalHttp: boolean,
   allowOneClickLocalE2E: boolean
-): OneClickConfig | undefined {
-  if (network !== 'mainnet' && !(network === 'localnet' && allowOneClickLocalE2E)) return undefined;
-  const config = section(value);
-  const serviceUrl = baseUrl(config.serviceUrl, network === 'localnet' && allowOneClickLocalE2E && allowLocalHttp);
-  if (network === 'localnet' && allowOneClickLocalE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname))
-    return invalid();
-  const entries = config.midenAssets;
-  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 64) return invalid();
-  const ids = new Set<string>();
-  const faucets = new Set<string>();
-  const midenAssets = entries.map(entry => {
-    const asset = section(entry);
-    if (
-      typeof asset.assetId !== 'string' ||
-      asset.assetId.length < 1 ||
-      asset.assetId.length > 256 ||
-      CONTROL_CHARACTER.test(asset.assetId)
-    )
-      return invalid();
-    const assetId = asset.assetId;
-    const faucetId = midenAccountId(asset.faucetId);
-    if (!isSafeIntegerInRange(asset.decimals, 0, 38) || ids.has(assetId) || faucets.has(faucetId)) return invalid();
-    ids.add(assetId);
-    faucets.add(faucetId);
-    return { assetId, faucetId, decimals: asset.decimals };
-  });
-  const evmAssets = parseOneClickEvmAssets(config.evmAssets, ids);
-  let appFees: OneClickAppFeeConfig[] | undefined;
-  if (config.appFees !== undefined) {
-    if (!Array.isArray(config.appFees) || config.appFees.length > 3) return invalid();
-    appFees = config.appFees.map(entry => {
-      const fee = section(entry);
-      if (
-        typeof fee.recipient !== 'string' ||
-        fee.recipient.length < 2 ||
-        fee.recipient.length > 64 ||
-        !/^[a-z0-9._-]+$/.test(fee.recipient)
-      )
-        return invalid();
-      if (!isSafeIntegerInRange(fee.fee, 0, 1000)) return invalid();
-      return { recipient: fee.recipient, fee: fee.fee };
-    });
-    if (appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) return invalid();
-  }
-  return { serviceUrl, midenAssets, evmAssets, ...(appFees === undefined ? {} : { appFees }) };
+): NearIntentsConfig | undefined {
+  const localE2E = network === 'localnet' && allowOneClickLocalE2E;
+  if (network !== 'mainnet' && !localE2E) return undefined;
+  const config = record(value);
+  const localDevelopment = process.env.MODE_ENV === 'development' && process.env.MIDEN_E2E_TEST !== 'true';
+  const developmentUrl = developmentOneClickServiceUrl();
+  const configuredUrl =
+    config.serviceUrl === developmentUrl && developmentUrl !== undefined
+      ? developmentUrl
+      : baseUrl(config.serviceUrl, (localE2E && allowLocalHttp) || localDevelopment);
+  const serviceUrl = developmentUrl ?? configuredUrl;
+  if (localE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname)) return invalid();
+  // A document that still names `appFees` is accepted and the list is not read: NEAR sets the fees up on the
+  // partner key.
+  const midenAssets = nearIntentsMidenAssets(config.midenAssets);
+  const chains = nearIntentsChains(config.chains, midenAssets);
+  return { serviceUrl, chains, midenAssets };
 }
 
 function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {
@@ -741,10 +797,10 @@ function readConfig(
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
-  const oneClickConfig =
-    swap.oneClick === undefined
-      ? undefined
-      : read(swap, 'oneClick', value => oneClick(value, network, allowLocalHttp, allowOneClickLocalE2E));
+  // A `swap.oneClick` that an older document still carries is not read: NEAR Intents is the top-level section now.
+  const nearIntentsConfig = read(body, 'nearIntents', value =>
+    nearIntents(value, network, allowLocalHttp, allowOneClickLocalE2E)
+  );
   const supportedEvmChains = supportedChains(body.supportedEvmChains, url);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
@@ -790,10 +846,8 @@ function readConfig(
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     ...(limits === undefined ? {} : { limits }),
-    swap: {
-      ...(etaUrl === undefined ? {} : { etaUrl }),
-      ...(oneClickConfig === undefined ? {} : { oneClick: oneClickConfig })
-    },
+    swap: { ...(etaUrl === undefined ? {} : { etaUrl }) },
+    ...(nearIntentsConfig === undefined ? {} : { nearIntents: nearIntentsConfig }),
     ...(guardians === undefined ? {} : { guardians }),
     ...(earn === undefined ? {} : { earn }),
     ...(arcade === undefined ? {} : { arcade }),

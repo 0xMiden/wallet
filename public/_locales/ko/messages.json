@@ -5807,6 +5807,10 @@
     "message": "회수된",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "만료됨",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 요청",
     "englishSource": "Faucet Request"
@@ -8311,6 +8315,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "수신 방법",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Near 인텐트",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "귀하는 다음을 전송합니다",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "귀하는",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "$chain$에서",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "보낼 토큰($symbol$)을 선택하세요",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "수령할 토큰을 선택하세요 ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "환불 주소",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "귀하의 $chain$ 주소",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "이체가 실패할 경우, 귀하의 $symbol$는 이 주소로 반환됩니다.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "유효한 $chain$ 주소를 입력하십시오.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "$minutes$분 정도",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "입금 주소 받기",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "본인의 지갑에서 송금하십시오.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "입금 주소 없음",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "지갑에서 입금 주소를 가져올 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents는 사용할 수 없습니다.",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "지갑에서 전송할 수 있는 토큰을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "전송할 토큰",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "보낼 토큰 찾기",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "네트워크별로 필터링",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "검색 조건에 맞는 토큰이 없습니다.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Miden에서 수신합니다",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$에서 $chain$로 이용 가능",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "입금",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "다음에서 직접 결제하세요",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$로 결제하기",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "지갑을 열 수 없습니다. 입금할 주소와 금액을 복사하십시오.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "팬텀",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "정확히 전송하십시오",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "복사 금액",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "입금 주소",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "입금 주소 복사",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "메모",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "메모 복사",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "입금 시 이 메모를 반드시 동봉하십시오. 메모가 없는 입금은 분실될 수 있습니다.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ Miden의 $amount$ $symbol$",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "보내기 전",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · $countdown$ 남음",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "환불 대상:",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "'수신'으로 돌아가 새로운 입금 주소를 확인하십시오.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "$chain$에서만 $symbol$을 전송하십시오. 이 페이지를 닫으셔도 됩니다. 전송 내역은 ‘활동 내역’에 표시됩니다.",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "입금 대기 중",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "입금액은 금액보다 적습니다",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "입금 처리",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Miden을 통해 제공됨",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "입금이 확인되었습니다. Miden으로의 이체가 진행 중입니다. 이 페이지를 닫으셔도 됩니다.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "귀하의 $symbol$가 Miden에 있습니다. 다음 동기화 후 해당 note가 귀하의 지갑에 도착합니다. ‘활동(Activity)’에서 수령하십시오.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "$symbol$는 귀하의 지갑에 있습니다.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "수신됨",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "환불됨",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "이체 실패",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "이 주소는 만료되었습니다. 자금을 송금하지 마십시오.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "입금 주소 표시",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "목적지 거래",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "이 금액에 대한 유동성이 부족합니다. 다른 금액을 시도해 보세요.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "사용 가능: $amount$ $symbol$",

@@ -8,12 +8,14 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IOneClickTrackingData, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS } from 'lib/one-click/expiry';
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
@@ -721,6 +723,43 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
         bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
       )
     ).toBe('confirmed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for a NEAR Intents deposit', () => {
+  const deadline = Date.parse(paymentTracking().fundingDeadline ?? '');
+  const pastGrace = deadline + NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS + 60_000;
+  const deposit = (tracking: Partial<IOneClickTrackingData>, overrides: Partial<IHistoryEntry> = {}) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'near-intents',
+      bridgeInPhase: 'submitting',
+      oneClickTracking: paymentTracking(tracking),
+      ...overrides
+    });
+
+  it('reads Pending before the funding deadline and its grace time', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), deadline)).toBe('pending');
+  });
+
+  it('reads Expired once the deadline and its grace time pass with no deposit, before the reconciler records it', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), pastGrace)).toBe('expired');
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PENDING_DEPOSIT' }), pastGrace)).toBe('expired');
+  });
+
+  it('reads Expired, not Failed, once the reconciler records the expiry', () => {
+    const expired = deposit({ phase: 'expired' }, { bridgeInPhase: 'failed' });
+    expect(bridgeBadgeStatusOf(expired, deadline)).toBe('expired');
+    expect(bridgeStatusOf(expired)).toBe('expired');
+  });
+
+  it('keeps Pending past the deadline once 1Click saw a deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PROCESSING' }), pastGrace)).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ originTransactionHash: '0xhash' }), pastGrace)).toBe('pending');
+  });
+
+  it('keeps Failed for a failed or refunded deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ phase: 'refunded' }, { bridgeInPhase: 'failed' }), pastGrace)).toBe('failed');
   });
 });
 

@@ -20,7 +20,34 @@ const FAKE_ALLOCATOR_URL = 'http://127.0.0.1:8548';
 const FAKE_POSITIONS_URL = 'http://127.0.0.1:8549';
 const SEPOLIA_CHAIN_ID = 11155111;
 
-export type BridgeConfigDocument = import('../../../src/lib/remote-config/schema').BridgeConfig;
+type ParsedBridgeConfig = import('../../../src/lib/remote-config/schema').BridgeConfig;
+type NearIntentsAddressKind = import('../../../src/lib/one-click/types').NearIntentsAddressKind;
+
+/**
+ * The `nearIntents` section as the document writes it: keyed maps, not the parsed lists. The key of a Miden asset is
+ * the id that a chain token names in `miden`; the key of a chain is the 1Click blockchain name; the key of a token is
+ * its symbol. The order of the keys is the display order.
+ */
+export interface NearIntentsDocumentSection {
+  serviceUrl: string;
+  midenAssets: Record<string, { assetId: string; faucetId: string; decimals: number }>;
+  chains: Record<
+    string,
+    {
+      name: string;
+      addressKind: NearIntentsAddressKind;
+      tokens: Record<string, { assetId: string; decimals: number; contractAddress?: string; miden: string[] }>;
+    }
+  >;
+}
+
+/**
+ * The document as served. The parsed type describes the other sections well enough for the suites, but the written
+ * `nearIntents` section is keyed maps, so it has its own type.
+ */
+export type BridgeConfigDocument = Omit<ParsedBridgeConfig, 'nearIntents'> & {
+  nearIntents?: NearIntentsDocumentSection;
+};
 
 /**
  * Epoch routes on the local node. A bridge test supplies its collateral faucet before the wallet starts.

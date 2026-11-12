@@ -11,31 +11,63 @@ export interface OneClickAsset {
   chainId?: number;
 }
 
-export interface OneClickMidenAssetConfig {
-  assetId: string;
-  faucetId: string;
-  decimals: number;
-}
-
-export interface OneClickEvmAssetConfig {
-  assetId: string;
-  blockchain: string;
-  chainId: number;
-  contractAddress: string;
-  decimals: number;
-  symbol: string;
-}
-
 export interface OneClickAppFee {
   recipient: string;
   fee: number;
 }
 
-export interface OneClickConfig {
+/** The address format of an origin chain. The wallet uses it to check a refund address. */
+export type NearIntentsAddressKind = 'evm' | 'solana' | 'bitcoin' | 'near';
+
+/** One Miden token that a deposit can deliver. `id` is the short name that a chain token refers to. */
+export interface NearIntentsMidenAssetConfig {
+  id: string;
+  assetId: string;
+  faucetId: string;
+  decimals: number;
+}
+
+/** One token on an origin chain. `miden` lists the `id` of each Miden token that it can become. */
+export interface NearIntentsTokenConfig {
+  symbol: string;
+  assetId: string;
+  decimals: number;
+  contractAddress?: string;
+  miden: string[];
+}
+
+/** One origin chain. `id` is the 1Click `blockchain` name. `tokens` keeps the order of the document. */
+export interface NearIntentsChainConfig {
+  id: string;
+  name: string;
+  addressKind: NearIntentsAddressKind;
+  tokens: NearIntentsTokenConfig[];
+}
+
+/** The parsed `nearIntents` section of the wallet-config document. `chains` keeps the order of the document. */
+export interface NearIntentsConfig {
   serviceUrl: string;
-  midenAssets: OneClickMidenAssetConfig[];
-  evmAssets?: OneClickEvmAssetConfig[];
-  appFees?: OneClickAppFee[];
+  chains: NearIntentsChainConfig[];
+  midenAssets: NearIntentsMidenAssetConfig[];
+}
+
+/** One configured token that the live 1Click token list confirms, with the Miden tokens it can become. */
+export interface NearIntentsCatalogToken {
+  symbol: string;
+  asset: OneClickAsset;
+  outputs: OneClickAsset[];
+}
+
+export interface NearIntentsCatalogChain {
+  id: string;
+  name: string;
+  addressKind: NearIntentsAddressKind;
+  tokens: NearIntentsCatalogToken[];
+}
+
+/** The configured pairs that the live 1Click token list confirms. A chain with no confirmed token is not included. */
+export interface NearIntentsCatalog {
+  chains: NearIntentsCatalogChain[];
 }
 
 export interface OneClickQuoteRequest {

@@ -1,17 +1,15 @@
 import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
+import { developmentOneClickServiceUrl } from './development-service';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
-import {
-  assertOneClickAssetIdentity,
-  isOneClickNativeAssetId,
-  ONE_CLICK_EVM_CHAIN_IDS,
-  parseOneClickEvmAssets
-} from './identity';
+import { assertNearIntentsRoute } from './identity';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import type {
+  NearIntentsChainConfig,
+  NearIntentsConfig,
+  NearIntentsMidenAssetConfig,
   OneClickAsset,
-  OneClickConfig,
   OneClickDestinationReceipt,
   OneClickOnchainMetadataResolver,
   OneClickProviderStatus,
@@ -33,22 +31,96 @@ export function createMidenAssetMetadataResolver(
   };
 }
 
-export { ONE_CLICK_EVM_CHAIN_IDS } from './identity';
-
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
-const ONE_CLICK_METADATA_READS_AT_ONCE = 4;
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const BLOCKCHAIN = /^[a-z][a-z0-9-]{0,31}$/;
+const ADDRESS_KINDS: ReadonlySet<string> = new Set(['evm', 'solana', 'bitcoin', 'near']);
+const MAX_CHAINS = 32;
+const MAX_TOKENS_PER_CHAIN = 64;
+const MAX_TOKEN_OUTPUTS = 8;
+
+/** A reason that the proxy names for a refused request. The proxy hides every other provider reason. */
+export type OneClickErrorCode = 'no_liquidity';
 
 export class OneClickHttpError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly code?: OneClickErrorCode
+  ) {
     super(`1Click request failed (${status})`);
     this.name = 'OneClickHttpError';
   }
 }
 
-function validateConfig(config: OneClickConfig): string {
+/** Reads the reason code from the body of a refused request. An unknown or absent code gives undefined. */
+function errorCodeOf(body: string): OneClickErrorCode | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return isRecord(parsed) && parsed.error === 'no_liquidity' ? 'no_liquidity' : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isBoundedText(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
+}
+
+function isDecimals(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 38;
+}
+
+// Check the origin chains. A token asset id is unique in the whole config and is not the asset id of a Miden token,
+// and each `miden` entry names a configured Miden token.
+function validateChains(
+  chains: readonly NearIntentsChainConfig[],
+  midenAssets: readonly NearIntentsMidenAssetConfig[]
+) {
+  if (!Array.isArray(chains) || chains.length > MAX_CHAINS) throw new Error('Invalid 1Click chain configuration');
+  const midenIds = new Set<string>();
+  for (const asset of midenAssets) {
+    if (!isBoundedText(asset.id, 64) || midenIds.has(asset.id)) throw new Error('Invalid 1Click asset configuration');
+    midenIds.add(asset.id);
+  }
+  const assetIds = new Set(midenAssets.map(asset => asset.assetId));
+  const chainIds = new Set<string>();
+  for (const chain of chains) {
+    if (
+      !chain ||
+      typeof chain.id !== 'string' ||
+      !BLOCKCHAIN.test(chain.id) ||
+      chain.id === 'miden' ||
+      chainIds.has(chain.id) ||
+      !isBoundedText(chain.name, 64) ||
+      !ADDRESS_KINDS.has(chain.addressKind) ||
+      !Array.isArray(chain.tokens) ||
+      chain.tokens.length < 1 ||
+      chain.tokens.length > MAX_TOKENS_PER_CHAIN
+    )
+      throw new Error('Invalid 1Click chain configuration');
+    chainIds.add(chain.id);
+    for (const token of chain.tokens) {
+      if (
+        !token ||
+        !isBoundedText(token.symbol, 32) ||
+        !isBoundedText(token.assetId, 256) ||
+        assetIds.has(token.assetId) ||
+        !isDecimals(token.decimals) ||
+        (token.contractAddress !== undefined && !isBoundedText(token.contractAddress, 256)) ||
+        !Array.isArray(token.miden) ||
+        token.miden.length < 1 ||
+        token.miden.length > MAX_TOKEN_OUTPUTS ||
+        new Set(token.miden).size !== token.miden.length ||
+        token.miden.some((id: string) => !midenIds.has(id))
+      )
+        throw new Error('Invalid 1Click chain configuration');
+      assetIds.add(token.assetId);
+    }
+  }
+}
+
+function validateConfig(config: NearIntentsConfig): string {
   if (!config || typeof config.serviceUrl !== 'string' || config.serviceUrl.length > 512)
     throw new Error('1Click is not configured');
   const url = new URL(config.serviceUrl);
@@ -56,8 +128,19 @@ function validateConfig(config: OneClickConfig): string {
     isOneClickLocalE2EEnabled() &&
     ['http:', 'https:'].includes(url.protocol) &&
     ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  const localDevelopmentService =
+    process.env.MODE_ENV === 'development' &&
+    process.env.MIDEN_E2E_TEST !== 'true' &&
+    url.protocol === 'http:' &&
+    (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.origin === developmentOneClickServiceUrl());
   if (isOneClickLocalE2EEnabled() && !localTestService) throw new Error('Invalid 1Click test service URL');
-  if ((url.protocol !== 'https:' && !localTestService) || url.username || url.password || url.search || url.hash) {
+  if (
+    (url.protocol !== 'https:' && !localTestService && !localDevelopmentService) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
     throw new Error('Invalid 1Click service URL');
   }
   if (!Array.isArray(config.midenAssets) || config.midenAssets.length > 64)
@@ -82,30 +165,18 @@ function validateConfig(config: OneClickConfig): string {
     assetIds.add(asset.assetId);
     faucetIds.add(asset.faucetId.toLowerCase());
   }
-  parseOneClickEvmAssets(config.evmAssets, assetIds);
-  if (config.appFees !== undefined) {
-    if (
-      !Array.isArray(config.appFees) ||
-      config.appFees.length > 3 ||
-      config.appFees.some(
-        fee =>
-          !fee ||
-          typeof fee.recipient !== 'string' ||
-          fee.recipient.length < 2 ||
-          fee.recipient.length > 128 ||
-          !Number.isSafeInteger(fee.fee) ||
-          fee.fee < 0 ||
-          fee.fee > 1000
-      ) ||
-      config.appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000
-    )
-      throw new Error('Invalid 1Click app fee configuration');
-  }
+  // A tracking row written before NEAR Intents moved to the Receive page keeps a config with no `chains`. Its status
+  // can still be read; a new quote for it cannot pass `assertOneClickQuoteBinding`, which needs a configured pair.
+  if (config.chains !== undefined) validateChains(config.chains, config.midenAssets);
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
-async function requestJson(
-  config: OneClickConfig,
+/**
+ * Send one bounded request to the configured 1Click service: a 12 s timeout and a 1 MB body limit. The config is
+ * checked before the request.
+ */
+export async function requestOneClickJson(
+  config: NearIntentsConfig,
   path: string,
   init?: RequestInit,
   fetcher: typeof fetch = fetch
@@ -152,7 +223,7 @@ async function requestJson(
       void reader.cancel().catch(() => undefined);
       throw error;
     }
-    if (!response.ok) throw new OneClickHttpError(response.status);
+    if (!response.ok) throw new OneClickHttpError(response.status, errorCodeOf(body));
     return JSON.parse(body);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -307,41 +378,13 @@ function parseAppFees(value: unknown[]): { recipient: string; fee: number }[] {
   });
 }
 
-function validateProviderFees(
-  actual: { recipient: string; fee: number }[],
-  configured: { recipient: string; fee: number }[]
-): void {
-  if (
-    actual.length > 3 ||
-    actual.some(
-      fee =>
-        fee.recipient.length < 2 ||
-        fee.recipient.length > 128 ||
-        !Number.isSafeInteger(fee.fee) ||
-        fee.fee < 0 ||
-        fee.fee > 1000
-    ) ||
-    actual.reduce((sum, fee) => sum + fee.fee, 0) > 1000
-  ) {
-    throw new Error('1Click provider fees are invalid');
-  }
-  const remaining = [...actual];
-  for (const expected of configured) {
-    const matchedIndex = remaining.findIndex(fee => fee.recipient === expected.recipient && fee.fee === expected.fee);
-    if (matchedIndex < 0) {
-      throw new Error('1Click quote is missing a configured app fee');
-    }
-    remaining.splice(matchedIndex, 1);
-  }
-  if (remaining.length > 0) throw new Error('1Click quote is missing a configured app fee');
-}
-
 export function assertOneClickQuoteBinding(
   request: OneClickQuoteRequest,
   response: OneClickQuoteResponse,
   dry: boolean,
-  config: OneClickConfig
+  config: NearIntentsConfig
 ): void {
+  validateConfig(config);
   if (!verifyOneClickQuoteSignature(response)) throw new Error('1Click quote signature is invalid');
   const signed = response.quoteRequest;
   if (
@@ -360,13 +403,6 @@ export function assertOneClickQuoteBinding(
   ) {
     throw new Error('1Click quote does not match the requested route');
   }
-  const trustedEvmAssets = parseOneClickEvmAssets(
-    config.evmAssets,
-    new Set(config.midenAssets.map(asset => asset.assetId))
-  );
-  assertOneClickAssetIdentity(request.originAsset, trustedEvmAssets);
-  assertOneClickAssetIdentity(request.destinationAsset, trustedEvmAssets);
-  validateProviderFees(signed.appFees ?? [], config.appFees ?? []);
   if (response.quote.amountIn !== request.amount) throw new Error('1Click quote changed the exact input amount');
   if (!dry) {
     assertOneClickDeadline(request.deadline);
@@ -379,117 +415,12 @@ export function assertOneClickQuoteBinding(
       throw new Error('1Click deposit quote is expired or incomplete');
     }
   }
-}
-
-export async function fetchOneClickAssets(
-  config: OneClickConfig,
-  resolveMetadata: OneClickOnchainMetadataResolver,
-  fetcher: typeof fetch = fetch
-): Promise<OneClickAsset[]> {
-  const raw = await requestJson(config, '/v0/tokens', undefined, fetcher);
-  if (!Array.isArray(raw) || raw.length > 5000) throw new Error('Invalid 1Click token response');
-  const trustedEvmAssets = parseOneClickEvmAssets(
-    config.evmAssets,
-    new Set(config.midenAssets.map(asset => asset.assetId))
-  );
-  const assets: OneClickAsset[] = [];
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const item of raw) {
-    if (
-      !isRecord(item) ||
-      typeof item.assetId !== 'string' ||
-      item.assetId.length > 256 ||
-      typeof item.blockchain !== 'string' ||
-      !/^[a-z][a-z0-9-]{0,31}$/.test(item.blockchain) ||
-      typeof item.symbol !== 'string' ||
-      item.symbol.length < 1 ||
-      item.symbol.length > 32 ||
-      (item.coingeckoId !== undefined &&
-        (typeof item.coingeckoId !== 'string' || item.coingeckoId.length < 1 || item.coingeckoId.length > 128)) ||
-      !isSafeNumber(item.decimals) ||
-      item.decimals < 0 ||
-      item.decimals > 38 ||
-      byId.has(item.assetId)
-    )
-      continue;
-    const decimals = item.decimals;
-    byId.set(item.assetId, item);
-    const isSupportedEvm = Object.prototype.hasOwnProperty.call(ONE_CLICK_EVM_CHAIN_IDS, item.blockchain);
-    const chainId = ONE_CLICK_EVM_CHAIN_IDS[item.blockchain];
-    const pinnedNative = isOneClickNativeAssetId(item.assetId);
-    if (pinnedNative && item.contractAddress !== undefined && item.contractAddress !== 'native') continue;
-    if (
-      item.contractAddress !== undefined &&
-      (typeof item.contractAddress !== 'string' ||
-        item.contractAddress.length > 256 ||
-        (isSupportedEvm && item.contractAddress !== 'native' && !EVM_ADDRESS.test(item.contractAddress)))
-    )
-      continue;
-    const candidate: OneClickAsset = {
-      assetId: item.assetId,
-      blockchain: item.blockchain,
-      symbol: item.symbol,
-      decimals,
-      ...(typeof item.coingeckoId === 'string' ? { coingeckoId: item.coingeckoId } : {}),
-      ...(pinnedNative || item.contractAddress === 'native'
-        ? { contractAddress: 'native' }
-        : typeof item.contractAddress === 'string'
-          ? { contractAddress: isSupportedEvm ? item.contractAddress.toLowerCase() : item.contractAddress }
-          : {}),
-      ...(chainId ? { chainId } : {})
-    };
-    try {
-      assertOneClickAssetIdentity(candidate, trustedEvmAssets);
-    } catch {
-      continue;
-    }
-    if (item.contractAddress === 'native' && !pinnedNative) continue;
-    if (item.blockchain === 'miden') continue;
-    assets.push(candidate);
-  }
-  const candidates = config.midenAssets.flatMap(configured => {
-    const listed = byId.get(configured.assetId);
-    if (!listed || listed.blockchain !== 'miden' || listed.decimals !== configured.decimals) return [];
-    const candidate: OneClickAsset = {
-      assetId: configured.assetId,
-      blockchain: 'miden',
-      symbol: typeof listed.symbol === 'string' ? listed.symbol : '',
-      decimals: configured.decimals,
-      faucetId: configured.faucetId,
-      ...(typeof listed.coingeckoId === 'string' ? { coingeckoId: listed.coingeckoId } : {})
-    };
-    return [{ configured, candidate }];
-  });
-  for (let start = 0; start < candidates.length; start += ONE_CLICK_METADATA_READS_AT_ONCE) {
-    const metadataResults = await Promise.all(
-      candidates.slice(start, start + ONE_CLICK_METADATA_READS_AT_ONCE).map(async ({ configured, candidate }) => {
-        try {
-          const metadata = await resolveMetadata(candidate);
-          if (
-            !Number.isSafeInteger(metadata.decimals) ||
-            metadata.decimals !== configured.decimals ||
-            typeof metadata.symbol !== 'string' ||
-            !metadata.symbol.trim()
-          )
-            return undefined;
-          return { ...candidate, symbol: metadata.symbol };
-        } catch {
-          return undefined;
-        }
-      })
-    );
-    assets.push(...metadataResults.filter((asset): asset is OneClickAsset => asset !== undefined));
-  }
-  return assets;
-}
-
-export function isSameOneClickUnderlyingAsset(left: OneClickAsset, right: OneClickAsset): boolean {
-  if (left.assetId === right.assetId) return true;
-  return typeof left.coingeckoId === 'string' && left.coingeckoId.length > 0 && left.coingeckoId === right.coingeckoId;
+  // The two assets must be trusted and must be a configured pair: the destination is a `miden` output of the origin.
+  assertNearIntentsRoute(config, request.originAsset, request.destinationAsset);
 }
 
 export async function requestOneClickQuote(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   request: OneClickQuoteRequest,
   dry = true,
   fetcher: typeof fetch = fetch
@@ -507,10 +438,12 @@ export async function requestOneClickQuote(
     refundType: 'ORIGIN_CHAIN',
     recipient: request.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    deadline: request.deadline,
-    ...(config.appFees ? { appFees: config.appFees } : {})
+    deadline: request.deadline
   };
-  const raw = await requestJson(config, '/v0/quote', { method: 'POST', body: JSON.stringify(body) }, fetcher);
+  // The request names no fees: NEAR set them up on the partner key, and 1Click adds them to the quote. A fee that
+  // the wallet sent as well was added a second time. The signed amounts include the fees, so the wallet does not
+  // check the quote's unsigned fee fields.
+  const raw = await requestOneClickJson(config, '/v0/quote', { method: 'POST', body: JSON.stringify(body) }, fetcher);
   const response = parseOneClickQuoteResponse(raw);
   assertOneClickQuoteBinding(request, response, dry, config);
   return response;
@@ -579,7 +512,12 @@ function parseStatus(value: unknown): OneClickStatusResponse {
     !Array.isArray(value.swapDetails.nearTxHashes)
   )
     throw new Error('Invalid 1Click status response');
-  const quoteResponse = parseOneClickQuoteResponse(value.quoteResponse);
+  // The quote inside a status answer has no correlation id of its own; 1Click gives one id for the whole answer.
+  // The id is not part of the signed payload, so the quote takes the id of the answer.
+  const nested = value.quoteResponse;
+  const quoteResponse = parseOneClickQuoteResponse(
+    isRecord(nested) && nested.correlationId === undefined ? { ...nested, correlationId: value.correlationId } : nested
+  );
   if (!verifyOneClickQuoteSignature(quoteResponse)) throw new Error('1Click status quote signature is invalid');
   return {
     correlationId: value.correlationId,
@@ -621,7 +559,7 @@ function parseSwapDetails(value: Record<string, unknown>): OneClickSwapDetails {
 }
 
 export async function fetchOneClickStatus(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   depositAddress: string,
   depositMemo?: string,
   expectedQuote?: OneClickQuoteResponse
@@ -629,9 +567,8 @@ export async function fetchOneClickStatus(
   if (!depositAddress || depositAddress.length > 256 || (depositMemo && depositMemo.length > 256))
     throw new Error('Invalid deposit reference');
   const query = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
-  const raw = await requestJson(config, `/v0/status?${query.toString()}`);
+  const raw = await requestOneClickJson(config, `/v0/status?${query.toString()}`);
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     status.quoteResponse.quote.depositMemo !== depositMemo ||
@@ -643,7 +580,7 @@ export async function fetchOneClickStatus(
 }
 
 export async function submitOneClickDeposit(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   depositAddress: string,
   transactionHash: string,
   memo?: string,
@@ -657,12 +594,11 @@ export async function submitOneClickDeposit(
   ) {
     throw new Error('Invalid deposit submission');
   }
-  const raw = await requestJson(config, '/v0/deposit/submit', {
+  const raw = await requestOneClickJson(config, '/v0/deposit/submit', {
     method: 'POST',
     body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
   });
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     (expectedQuote && hashOneClickQuote(status.quoteResponse) !== hashOneClickQuote(expectedQuote))
@@ -672,7 +608,7 @@ export async function submitOneClickDeposit(
 }
 
 export async function resolveOneClickDestinationReceipts(
-  config: OneClickConfig,
+  config: NearIntentsConfig,
   transactionHashes: string[]
 ): Promise<OneClickDestinationReceipt[]> {
   validateConfig(config);
@@ -683,7 +619,7 @@ export async function resolveOneClickDestinationReceipts(
     transactionHashes.some(hash => typeof hash !== 'string' || hash.length > 256)
   )
     throw new Error('Invalid destination transaction hashes');
-  const raw = await requestJson(config, '/v1/receipts/resolve', {
+  const raw = await requestOneClickJson(config, '/v1/receipts/resolve', {
     method: 'POST',
     body: JSON.stringify({ transactionHashes })
   });
