@@ -94,15 +94,26 @@ export function holding(value: unknown): value is SavedSwapHolding {
   );
 }
 function requestAuthority(value: unknown): value is MainnetSwapRequestAuthority {
-  return record(value) &&
-    typeof value.nonce === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.nonce) &&
-    typeof value.noteId === 'string' && /^0x[0-9a-f]{64}$/.test(value.noteId) &&
-    typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256) &&
-    typeof value.canonicalSha256 === 'string' && /^[0-9a-f]{64}$/.test(value.canonicalSha256) &&
-    typeof value.orderId === 'string' && /^(0|[1-9]\d{0,19})$/.test(value.orderId) &&
-    typeof value.minimumReceive === 'string' && /^[1-9]\d{0,18}$/.test(value.minimumReceive) &&
-    typeof value.expiresAt === 'number' && Number.isSafeInteger(value.expiresAt) &&
-    Object.keys(value).every(key => ['nonce', 'noteId', 'sha256', 'canonicalSha256', 'orderId', 'minimumReceive', 'expiresAt'].includes(key));
+  return (
+    record(value) &&
+    typeof value.nonce === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.nonce) &&
+    typeof value.noteId === 'string' &&
+    /^0x[0-9a-f]{64}$/.test(value.noteId) &&
+    typeof value.sha256 === 'string' &&
+    /^[0-9a-f]{64}$/.test(value.sha256) &&
+    typeof value.canonicalSha256 === 'string' &&
+    /^[0-9a-f]{64}$/.test(value.canonicalSha256) &&
+    typeof value.orderId === 'string' &&
+    /^(0|[1-9]\d{0,19})$/.test(value.orderId) &&
+    typeof value.minimumReceive === 'string' &&
+    /^[1-9]\d{0,18}$/.test(value.minimumReceive) &&
+    typeof value.expiresAt === 'number' &&
+    Number.isSafeInteger(value.expiresAt) &&
+    Object.keys(value).every(key =>
+      ['nonce', 'noteId', 'sha256', 'canonicalSha256', 'orderId', 'minimumReceive', 'expiresAt'].includes(key)
+    )
+  );
 }
 function valid(value: unknown): value is MainnetSwapCheckpoint {
   if (
@@ -185,15 +196,33 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   const forward = value.forwardRequestAuthority;
   const reverse = value.reverseRequestAuthority;
   const pricedAt = Date.parse(value.pricedAt);
-  if (forward !== undefined && (!requestAuthority(forward) || forward.orderId !== value.forwardOrderId ||
-    BigInt(forward.minimumReceive) < BigInt(value.forwardMinimum) || forward.expiresAt <= pricedAt ||
-    forward.expiresAt > pricedAt + 300_000 || value.knownOrderIds.includes(forward.orderId))) return false;
-  if (reverse !== undefined && (!requestAuthority(reverse) || reverse.orderId !== value.reverseOrderId ||
-    BigInt(reverse.minimumReceive) < BigInt(value.reverseMinimum) || reverse.expiresAt <= pricedAt ||
-    reverse.expiresAt > pricedAt + 600_000 || value.knownOrderIds.includes(reverse.orderId) ||
-    !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))) return false;
-  if (requestAuthority(forward) && requestAuthority(reverse) &&
-    (forward.nonce === reverse.nonce || forward.orderId === reverse.orderId)) return false;
+  if (
+    forward !== undefined &&
+    (!requestAuthority(forward) ||
+      forward.orderId !== value.forwardOrderId ||
+      BigInt(forward.minimumReceive) < BigInt(value.forwardMinimum) ||
+      forward.expiresAt <= pricedAt ||
+      forward.expiresAt > pricedAt + 300_000 ||
+      value.knownOrderIds.includes(forward.orderId))
+  )
+    return false;
+  if (
+    reverse !== undefined &&
+    (!requestAuthority(reverse) ||
+      reverse.orderId !== value.reverseOrderId ||
+      BigInt(reverse.minimumReceive) < BigInt(value.reverseMinimum) ||
+      reverse.expiresAt <= pricedAt ||
+      reverse.expiresAt > pricedAt + 600_000 ||
+      value.knownOrderIds.includes(reverse.orderId) ||
+      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
+  )
+    return false;
+  if (
+    requestAuthority(forward) &&
+    requestAuthority(reverse) &&
+    (forward.nonce === reverse.nonce || forward.orderId === reverse.orderId)
+  )
+    return false;
   if (value.phase === 'unspent' && (forward !== undefined || reverse !== undefined)) return false;
   if (value.phase === 'complete' && forward !== undefined && reverse === undefined) return false;
   return Object.keys(value).every(key =>
