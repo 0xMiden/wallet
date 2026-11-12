@@ -76,6 +76,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
+import { awaitTestSendAuthorization } from './test-send-authorization';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { buildGcSaleRequest } from './gc-sale-request';
@@ -1841,8 +1842,8 @@ export class MidenClientInterface {
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(
-            (wasm, inner) =>
-              buildSendExecuteArgs(
+            async (wasm, inner) => {
+              const args = await buildSendExecuteArgs(
                 wasm,
                 inner,
                 accountId,
@@ -1851,7 +1852,10 @@ export class MidenClientInterface {
                 noteType,
                 amount,
                 reclaimAfter
-              ),
+              );
+              await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
+              return args;
+            },
             attempt,
             onStage,
             assertQuotedDeadline
@@ -1883,6 +1887,7 @@ export class MidenClientInterface {
           );
           return request.serialize();
         });
+        await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         await onStage?.('executing');
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
         // under. Executing against the raw `accountId` would let the account the
