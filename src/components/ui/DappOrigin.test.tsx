@@ -55,6 +55,7 @@ describe('DappOrigin', () => {
     const ascii = within(root).getByTestId('dapp-origin-ascii');
     expect(ascii).toHaveTextContent(/^xn--pple-43d\.example$/);
     expect(ascii).toHaveClass('text-muted', 'font-normal', 'shrink-0', 'break-all');
+    expect(root.textContent).toBe(`https://${A}pple.example xn--pple-43d.example`);
   });
 
   it('renders an xn-- origin exactly as today', () => {

@@ -55,6 +55,12 @@ describe('idnAsciiHost', () => {
     expect(idnAsciiHost('https://xn--pple-43d.example')).toBeNull();
   });
 
+  it('gives nothing when only a non-ASCII character outside the host differs', () => {
+    const c = String.fromCharCode(0x430);
+    expect(idnAsciiHost(`https://apple.example/${c}`)).toBeNull();
+    expect(idnAsciiHost(`https://apple.example:8443/path?q=${c}`)).toBeNull();
+  });
+
   it('gives nothing for a value the URL API cannot parse', () => {
     expect(idnAsciiHost(`not a url ${A}`)).toBeNull();
     expect(idnAsciiHost('')).toBeNull();

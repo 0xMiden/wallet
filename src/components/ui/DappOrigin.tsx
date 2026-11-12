@@ -37,6 +37,8 @@ export const DappOrigin: FC<DappOriginProps> = ({ origin, className, 'data-testi
           {domain}
         </span>
       )}
+      {/* A flex row ignores this space visually; it keeps the two forms apart as words for screen readers. */}
+      {asciiHost && ' '}
       {asciiHost && (
         <span className="text-muted font-normal shrink-0 break-all" data-testid="dapp-origin-ascii">
           {asciiHost}

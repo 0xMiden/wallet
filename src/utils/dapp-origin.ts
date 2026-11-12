@@ -44,7 +44,11 @@ export function splitDappOrigin(origin: string): { lead: string; domain: string 
 export function idnAsciiHost(origin: string): string | null {
   if (!Array.from(origin).some(char => char.charCodeAt(0) > 0x7f)) return null;
   try {
-    return new URL(origin).host;
+    const { host } = new URL(origin);
+    // A non-ASCII character in a path or query leaves the host as typed, so there is no second form to show.
+    const typedAuthority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(origin)?.[1] ?? '';
+    const typedHost = typedAuthority.slice(typedAuthority.lastIndexOf('@') + 1).toLowerCase();
+    return typedHost === host ? null : host;
   } catch {
     return null;
   }
