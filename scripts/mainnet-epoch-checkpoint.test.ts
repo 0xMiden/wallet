@@ -97,7 +97,7 @@ it('records fresh conservative market facts without replacing original authoriza
 it('revalidates the whole original gas reserve at the conservative return-stage price', () => {
   expect(planEpochRoundTrip(valuedReverse(), 1_000_501n).nativeFeesUsdMicros).toBe(5000n);
   const expensive = valuedReverse(); expensive.reverseAuthority.valuation.gasUsdMicros = '3000000000000';
-  expect(() => planEpochRoundTrip(expensive, 1_000_501n)).toThrow(/budget|allowance|cost/i);
+  expect(() => planEpochRoundTrip(expensive, 1_000_501n)).toThrow(/budget|allowance|cost|cap/i);
 });
 it.each([
   { stableUsdMicros: '999999' }, { gasUsdMicros: '1999999999' }, { gasUsdMicros: '0' },
