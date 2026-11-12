@@ -108,7 +108,7 @@ export const OneClickAssetPicker: React.FC<OneClickAssetPickerProps> = ({ side, 
         aria-expanded={open}
         data-testid={`one-click-${side}-asset-picker`}
       >
-        {asset && <TokenLogo symbol={asset.symbol} faucetId={asset.faucetId ?? asset.assetId} size="sm" />}
+        {asset && <TokenLogo faucetId={asset.faucetId} size="sm" />}
         <span className="text-row-title truncate">{asset?.symbol ?? t('selectAToken')}</span>
       </Pill>
       <Drawer open={open} onOpenChange={setOpen} screenKey={`one-click-${side}-asset`}>
@@ -123,7 +123,7 @@ export const OneClickAssetPicker: React.FC<OneClickAssetPickerProps> = ({ side, 
                   key={option.assetId}
                   variant="choice"
                   title={option.symbol}
-                  avatar={<TokenLogo symbol={option.symbol} faucetId={option.faucetId ?? option.assetId} />}
+                  avatar={<TokenLogo faucetId={option.faucetId} />}
                   checked={option.assetId === asset?.assetId}
                   accent="swap"
                   onClick={() => {

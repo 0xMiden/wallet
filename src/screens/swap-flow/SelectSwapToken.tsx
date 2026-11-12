@@ -86,7 +86,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 // is only a quantity if its own metadata carries real decimals.
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
-                // By priceSymbol, never by logoSymbol: IUSDT borrows the USDC logo, not its price. A
+                // By priceSymbol, never by the ticker: a solver token can stand in for another asset. A
                 // token without one is unquoted, so it is valued only at the nominal rate.
                 const label = midenTokenLabel(bridgeConfig, token.faucetId, token.symbol);
                 const fiatValue = balancesLoading
@@ -111,9 +111,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 return (
                   <AssetListItem
                     key={token.faucetId}
-                    icon={
-                      <TokenLogo symbol={token.symbol} faucetId={token.faucetId} fallbackSymbol={token.logoSymbol} />
-                    }
+                    icon={<TokenLogo faucetId={token.faucetId} />}
                     name={label}
                     amount={
                       !balancesLoading && scaleIsKnown ? (
