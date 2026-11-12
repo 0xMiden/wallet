@@ -1,5 +1,26 @@
-import type { OneClickAsset } from '../../../src/lib/one-click/types';
+import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
+import type { MainnetNearCheckpoint } from './mainnet-near-checkpoint';
+import type { MainnetEvmHolding } from './mainnet-one-click-evm';
+
+export interface MainnetNearPlanningFacts {
+  account: string;
+  accountHex: string;
+  sourceRunId: string;
+  pricedAt: string;
+  native: MainnetNearCheckpoint['native'];
+  baseFee: bigint;
+  lossBudgetUsdMicros: bigint;
+  config: OneClickConfig;
+  nativeAsset: OneClickAsset;
+  candidates: { holding: MainnetEvmHolding; tokenUsdMicros: bigint; gasUsdMicros: bigint }[];
+}
+export async function prepareMainnetNearRoundTrip(
+  _facts: MainnetNearPlanningFacts, _quote: (request: OneClickQuoteRequest) => Promise<OneClickQuoteResponse | undefined>
+): Promise<MainnetNearCheckpoint> {
+  throw new Error('Bounded funded native NEAR round-trip planning is not implemented');
+}
+
 
 export function selectMainnetNearNativeAsset(
   assets: readonly OneClickAsset[], nativeFaucetHex: string, balance: bigint, feeReserve: bigint
