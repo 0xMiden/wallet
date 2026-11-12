@@ -27,6 +27,7 @@ import {
   decodeStates,
   discoverGuardianForHotKey,
   discoverGuardianForSeed,
+  GUARDIAN_PROBE_CONCURRENCY,
   GuardianProbeTimeoutError,
   holdsCurrentState,
   selectBest,
@@ -51,17 +52,33 @@ interface FakeOperator {
   nonces?: Record<string, bigint>;
   /** Commitment of the state this operator serves per account; defaults to `state-<accountId>`, the chain's default too. */
   stateCommitments?: Record<string, string>;
+  stateCommitmentSequence?: Record<string, string[]>;
+  stateNonceSequence?: Record<string, bigint[]>;
+  deltas?: Record<number, string | undefined>;
   updatedAt?: Record<string, string>;
   failWith?: Error;
   /** Makes getState reject while the lookup still succeeds. */
   stateFailWith?: Error;
   /** Makes getState reject the first N calls, then succeed — exercises the retry. */
   stateFailFirst?: number;
+  stateFailOnCalls?: number[];
   /** Makes the lookup reject the first N calls, then succeed — exercises the lookup retry. */
   lookupFailFirst?: number;
+  transportHoldPath?: 'lookup' | 'initial-state' | 'delta' | 'settling-state';
+  transportHoldStateCalls?: number[];
+  transportIgnoreAbort?: boolean;
+  transportCalls?: number;
+  hideGuardianFetch?: boolean;
+  transportImmediate?: boolean;
+  authHoldPath?: 'lookup' | 'initial-state' | 'delta' | 'settling-state';
+  authGates?: Promise<void>[];
+  authDelaysMs?: Partial<Record<'lookup' | 'initial-state' | 'delta' | 'settling-state', number[]>>;
+  authWaits?: Array<'lookup' | 'initial-state' | 'delta' | 'settling-state'>;
+  authResumedAt?: number[];
   delayMs?: number;
   /** Internal: how many times getState has been called on this operator. */
   stateCalls?: number;
+  deltaCalls?: Array<{ accountId: string; nonce: number }>;
   /** Internal: how many times the lookup has been called on this operator. */
   lookupCalls?: number;
 }
@@ -76,6 +93,33 @@ const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
 /** The chain's tip commitment per account id; an account absent here is at `state-<accountId>`, the operators' default. */
 const mockChainCommitments = new Map<string, string>();
+const mockChainCommitmentSequence = new Map<string, string[]>();
+const mockChainCommitmentFailureSequence = new Map<string, boolean[]>();
+const mockGuardianFetch = jest.fn();
+const mockHeldGuardianFetches: Array<{
+  endpoint: string;
+  path: string;
+  signal: AbortSignal | null | undefined;
+  abortOrder?: number;
+  settleOrder?: number;
+  settle: () => void;
+}> = [];
+let mockGuardianFetchOrder = 0;
+
+async function mockWaitForSignerAuth(
+  operator: FakeOperator,
+  path: 'lookup' | 'initial-state' | 'delta' | 'settling-state'
+): Promise<void> {
+  if (operator.authHoldPath !== path) return;
+  operator.authWaits ??= [];
+  operator.authWaits.push(path);
+  const gate = operator.authGates?.shift();
+  if (gate) await gate;
+  const delayMs = operator.authDelaysMs?.[path]?.shift();
+  if (delayMs) await new Promise<void>(resolve => setTimeout(resolve, delayMs));
+  operator.authResumedAt ??= [];
+  operator.authResumedAt.push(Date.now());
+}
 /** Makes every chain read reject (a node that cannot be reached). */
 let mockChainFailWith: Error | undefined;
 /** Account ids the chain was asked about, in order. */
@@ -101,7 +145,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 // The shared native-HTTP double records the probe each endpoint takes and its verdict.
 jest.mock('lib/miden/guardian/native-http');
-const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+const { mockProbedEndpoints, mockProbeVerdicts, mockGuardianProbeRequestBudgets, resetMockProbes } = jest.requireMock<
   typeof import('lib/miden/guardian/__mocks__/native-http')
 >('lib/miden/guardian/native-http');
 
@@ -143,7 +187,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     async getAccountProof(accountId: string) {
       mockChainReads.push(accountId);
       if (mockChainFailWith) throw mockChainFailWith;
-      const commitment = mockChainCommitments.get(accountId) ?? `state-${accountId}`;
+      if (mockChainCommitmentFailureSequence.get(accountId)?.shift()) throw new Error('chain read failed');
+      const commitment =
+        mockChainCommitmentSequence.get(accountId)?.shift() ??
+        mockChainCommitments.get(accountId) ??
+        `state-${accountId}`;
       return { accountCommitment: () => ({ toHex: () => commitment }) };
     }
   }
@@ -152,11 +200,20 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
     constructor(public readonly url: string) {}
-    setSigner(_signer: { commitment: string }) {}
+    setSigner(_signer: { commitment: string }) {
+      if (mockBackend.get(this.url)?.hideGuardianFetch) {
+        Object.defineProperty(this, 'fetch', { value: undefined, configurable: true });
+      }
+    }
+    fetch(path: string, init?: RequestInit) {
+      return mockGuardianFetch(this.url, path, init);
+    }
     async lookupAccountByKeyCommitment(commitmentHex: string) {
       const operator = mockBackend.get(this.url);
       if (!operator) return { accounts: [] };
       operator.lookupCalls = (operator.lookupCalls ?? 0) + 1;
+      await mockWaitForSignerAuth(operator, 'lookup');
+      if (operator.transportHoldPath === 'lookup') await this.fetch('/lookup');
       if (operator.failWith) throw operator.failWith;
       if (operator.lookupFailFirst && operator.lookupCalls <= operator.lookupFailFirst) {
         throw new Error('transient lookup failure');
@@ -173,19 +230,55 @@ jest.mock('@openzeppelin/guardian-client', () => ({
     async getState(accountId: string) {
       const operator = mockBackend.get(this.url)!;
       operator.stateCalls = (operator.stateCalls ?? 0) + 1;
+      const authPath =
+        operator.authHoldPath === 'initial-state'
+          ? 'initial-state'
+          : operator.stateCalls === 1
+            ? 'initial-state'
+            : 'settling-state';
+      await mockWaitForSignerAuth(operator, authPath);
+      if (
+        operator.transportHoldPath === 'initial-state' ||
+        (operator.transportHoldPath === 'settling-state' &&
+          (operator.transportHoldStateCalls?.includes(operator.stateCalls) ?? operator.stateCalls === 2))
+      ) {
+        await this.fetch('/state');
+      }
       if (operator.stateFailWith) throw operator.stateFailWith;
       if (operator.stateFailFirst && operator.stateCalls <= operator.stateFailFirst) {
         throw new Error('transient state failure');
       }
+      if (operator.stateFailOnCalls?.includes(operator.stateCalls)) {
+        throw new Error('transient state failure');
+      }
+      const stateIndex = operator.stateCalls - 1;
+      const commitment =
+        operator.stateCommitmentSequence?.[accountId]?.[
+          Math.min(stateIndex, operator.stateCommitmentSequence[accountId]!.length - 1)
+        ] ??
+        operator.stateCommitments?.[accountId] ??
+        `state-${accountId}`;
+      const nonce =
+        operator.stateNonceSequence?.[accountId]?.[
+          Math.min(stateIndex, operator.stateNonceSequence[accountId]!.length - 1)
+        ] ?? operator.nonces?.[accountId];
       return {
         accountId,
-        commitment: `state-${accountId}`,
-        // `data` carries the operator and the account id so the Account.deserialize
-        // stub can look the scripted nonce and state commitment back up.
-        stateJson: { data: Buffer.from(`${this.url}|${accountId}`).toString('base64') },
+        commitment,
+        stateJson: {
+          data: Buffer.from(`${this.url}|${accountId}|${nonce ?? ''}|${commitment}`).toString('base64')
+        },
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: operator.updatedAt?.[accountId] ?? '2024-01-01T00:00:00.000Z'
       };
+    }
+    async getDelta(accountId: string, nonce: number) {
+      const operator = mockBackend.get(this.url)!;
+      operator.deltaCalls ??= [];
+      operator.deltaCalls.push({ accountId, nonce });
+      await mockWaitForSignerAuth(operator, 'delta');
+      if (operator.transportHoldPath === 'delta') await this.fetch('/delta');
+      return { newCommitment: operator.deltas?.[nonce] };
     }
   }
 }));
@@ -204,16 +297,20 @@ const fakeDeriveSeed = (hdIndex: number): Uint8Array => {
  */
 function scriptNonces() {
   mockDeserialize.mockImplementation((bytes: Uint8Array) => {
-    const [first, second] = Buffer.from(bytes).toString('utf8').split('|');
+    const [first, second, nonceSnapshot, commitmentSnapshot] = Buffer.from(bytes).toString('utf8').split('|');
     const accountId = second ?? first!;
     const operators = second === undefined ? Array.from(mockBackend.values()) : [mockBackend.get(first!)];
-    let nonce = 0n;
-    let commitment = `state-${accountId}`;
+    let nonce = nonceSnapshot ? BigInt(nonceSnapshot) : 0n;
+    let commitment = commitmentSnapshot ?? `state-${accountId}`;
     for (const operator of operators) {
-      const scriptedNonce = operator?.nonces?.[accountId];
-      if (scriptedNonce !== undefined) nonce = scriptedNonce;
-      const scriptedCommitment = operator?.stateCommitments?.[accountId];
-      if (scriptedCommitment !== undefined) commitment = scriptedCommitment;
+      if (nonceSnapshot === undefined) {
+        const scriptedNonce = operator?.nonces?.[accountId];
+        if (scriptedNonce !== undefined) nonce = scriptedNonce;
+      }
+      if (commitmentSnapshot === undefined) {
+        const scriptedCommitment = operator?.stateCommitments?.[accountId];
+        if (scriptedCommitment !== undefined) commitment = scriptedCommitment;
+      }
     }
     return {
       nonce: () => ({ asInt: () => nonce }),
@@ -226,6 +323,31 @@ function scriptNonces() {
 
 const testnet = { network: MIDEN_NETWORK_NAME.TESTNET };
 
+function loadDiscoverModule(): typeof import('./discover') {
+  let mod!: typeof import('./discover');
+  jest.isolateModules(() => {
+    mod = require('./discover');
+  });
+  return mod;
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitForCondition(condition: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise<void>(resolve => setTimeout(resolve, 5));
+  }
+  return true;
+}
+
 beforeEach(() => {
   mockBackend.clear();
   mockSecretKeys.length = 0;
@@ -233,6 +355,40 @@ beforeEach(() => {
   mockSeedsRequested.length = 0;
   resetMockProbes();
   mockChainCommitments.clear();
+  mockChainCommitmentSequence.clear();
+  mockChainCommitmentFailureSequence.clear();
+  mockHeldGuardianFetches.length = 0;
+  mockGuardianFetchOrder = 0;
+  mockGuardianFetch.mockReset();
+  mockGuardianFetch.mockImplementation((endpoint: string, path: string, init?: RequestInit) => {
+    const operator = mockBackend.get(endpoint);
+    operator!.transportCalls = (operator!.transportCalls ?? 0) + 1;
+    if (operator!.transportImmediate) return Promise.resolve({});
+    if (operator!.transportCalls > 1) return Promise.resolve({});
+    let resolveRequest: () => void = () => undefined;
+    const request = new Promise<void>(resolve => {
+      resolveRequest = resolve;
+    });
+    const held: (typeof mockHeldGuardianFetches)[number] = {
+      endpoint,
+      path,
+      signal: init?.signal,
+      settle: resolveRequest
+    };
+    mockHeldGuardianFetches.push(held);
+    void request.then(() => {
+      held.settleOrder = ++mockGuardianFetchOrder;
+    });
+    init?.signal?.addEventListener(
+      'abort',
+      () => {
+        held.abortOrder = ++mockGuardianFetchOrder;
+        if (!operator!.transportIgnoreAbort) resolveRequest();
+      },
+      { once: true }
+    );
+    return request;
+  });
   mockChainFailWith = undefined;
   mockChainReads.length = 0;
   mockRpcUrls.length = 0;
@@ -429,6 +585,240 @@ describe('discoverGuardianForSeed', () => {
     expect(mockChainReads).toEqual(['acct-1']);
   });
 
+  it('reuses the settling decode for the refreshed nonce', async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'chain-state'] },
+      stateNonceSequence: { 'acct-1': [4n, 5n] },
+      deltas: { 5: 'CHAIN-STATE' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(mockDeserialize).toHaveBeenCalledTimes(2);
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(2);
+    expect(mockSecretKeys).toHaveLength(2);
+    expect(mockSecretKeys[1]).not.toBe(mockSecretKeys[0]);
+    expect((mockSecretKeys[1] as { free: jest.Mock }).free).toHaveBeenCalledTimes(1);
+    expect(mockSigners).toHaveLength(2);
+    expect(mockSigners[1]).not.toBe(mockSigners[0]);
+    expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: true });
+  });
+
+  it('does not treat a settled Guardian state as current when the chain advances during the wait', async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'chain-state'] },
+      stateNonceSequence: { 'acct-1': [4n, 5n] },
+      deltas: { 5: 'chain-state' }
+    });
+    mockChainCommitmentSequence.set('acct-1', ['chain-state', 'chain-after-settle']);
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: false });
+    expect(result.best).toBeUndefined();
+    expect(mockChainReads).toEqual(['acct-1', 'acct-1']);
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(2);
+  });
+
+  it('keeps the settled Guardian selectable when the confirming chain read fails', async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'chain-state'] },
+      stateNonceSequence: { 'acct-1': [4n, 5n] },
+      deltas: { 5: 'chain-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+    mockChainCommitmentFailureSequence.set('acct-1', [false, true]);
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, nonce: 5n });
+    expect(result.matches[0]?.holdsCurrentState).toBeUndefined();
+    expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n });
+    expect(result.best?.holdsCurrentState).toBeUndefined();
+    expect(result.failures).toEqual([]);
+    expect(mockChainReads).toEqual(['acct-1', 'acct-1']);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(2);
+  });
+
+  it('keeps the stale operator demoted when a settled Guardian wins after chain confirmation fails', async () => {
+    mockBackend.set(OZ, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': 9n },
+      stateCommitments: { 'acct-1': 'old-state' },
+      deltas: { 10: 'not-chain' }
+    });
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'chain-state'] },
+      stateNonceSequence: { 'acct-1': [4n, 5n] },
+      deltas: { 5: 'chain-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+    mockChainCommitmentFailureSequence.set('acct-1', [false, true]);
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, LAMBDA] });
+
+    expect(result.best?.endpoint).toBe(LAMBDA);
+    expect(result.best?.nonce).toBe(5n);
+    expect(result.matches).toHaveLength(2);
+    expect(result.matches.find(match => match.endpoint === OZ)).toMatchObject({ holdsCurrentState: false });
+    expect(result.matches.find(match => match.endpoint === LAMBDA)).toMatchObject({
+      nonce: 5n,
+      holdsCurrentState: undefined
+    });
+    expect(mockChainReads).toEqual(['acct-1', 'acct-1']);
+  });
+
+  it('keeps a stale Guardian match when the next settling nonce is unsafe to request', async () => {
+    const nonce = BigInt(Number.MAX_SAFE_INTEGER);
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': nonce },
+      stateCommitments: { 'acct-1': 'old-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, nonce, holdsCurrentState: false });
+    expect(result.best).toBeUndefined();
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toBeUndefined();
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(1);
+  });
+
+  it('keeps the stale state when a settling read outlives the running-time deadline', async () => {
+    jest.useFakeTimers();
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      stateCommitmentSequence: { 'acct-1': ['old-state', 'still-old'] },
+      stateNonceSequence: { 'acct-1': [4n, 4n] },
+      deltas: { 5: 'chain-state' },
+      transportHoldPath: 'settling-state',
+      transportHoldStateCalls: [2],
+      transportIgnoreAbort: true
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+    const discovery = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    try {
+      for (let attempt = 0; attempt < 20 && mockHeldGuardianFetches.length === 0; attempt++) {
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(1);
+      expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(2);
+
+      await jest.advanceTimersByTimeAsync(20_000);
+      const result = await discovery;
+      const stateCallsAtDeadline = mockBackend.get(LAMBDA)?.stateCalls;
+      mockHeldGuardianFetches[0]!.settle();
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
+      expect(result.best).toBeUndefined();
+      expect(mockChainReads).toEqual(['acct-1', 'acct-1']);
+      expect(stateCallsAtDeadline).toBeGreaterThan(2);
+      expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(stateCallsAtDeadline);
+    } finally {
+      mockHeldGuardianFetches.forEach(fetch => fetch.settle());
+      await Promise.allSettled([discovery]);
+      jest.useRealTimers();
+    }
+  });
+
+  it('deserializes an unchanged Guardian state once', async () => {
+    mockBackend.set(LAMBDA, { accounts: ['acct-1'], nonces: { 'acct-1': 4n } });
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(mockDeserialize).toHaveBeenCalledTimes(1);
+    expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 4n, holdsCurrentState: true });
+  });
+
+  it('retries a failed settling state read until the Guardian publishes the matching state', async () => {
+    jest.useFakeTimers();
+    try {
+      mockBackend.set(LAMBDA, {
+        accounts: ['acct-1'],
+        stateCommitmentSequence: { 'acct-1': ['old-state', 'old-state', 'chain-state'] },
+        stateNonceSequence: { 'acct-1': [4n, 4n, 5n] },
+        stateFailOnCalls: [2],
+        deltas: { 5: 'chain-state' }
+      });
+      mockChainCommitments.set('acct-1', 'chain-state');
+
+      const discovery = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+      await jest.advanceTimersByTimeAsync(2_000);
+      const result = await discovery;
+
+      expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+      expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(3);
+      expect(result.best).toMatchObject({ endpoint: LAMBDA, nonce: 5n, holdsCurrentState: true });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not wait when the next Guardian delta is not the chain candidate', async () => {
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': 4n },
+      stateCommitments: { 'acct-1': 'old-state' },
+      deltas: { 5: 'another-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [LAMBDA] });
+
+    expect(mockBackend.get(LAMBDA)?.deltaCalls).toEqual([{ accountId: 'acct-1', nonce: 5 }]);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(1);
+    expect(result.best).toBeUndefined();
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
+  });
+
+  it('keeps a stale verdict when a matching candidate does not become canonical within the deadline', async () => {
+    jest.useFakeTimers();
+    const controller = new AbortController();
+    mockBackend.set(LAMBDA, {
+      accounts: ['acct-1'],
+      nonces: { 'acct-1': 4n },
+      stateCommitments: { 'acct-1': 'old-state' },
+      deltas: { 5: 'chain-state' }
+    });
+    mockChainCommitments.set('acct-1', 'chain-state');
+
+    const discovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: [LAMBDA],
+      signal: controller.signal
+    });
+    let settledByDeadline = false;
+    void discovery.then(() => {
+      settledByDeadline = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(20_000);
+    const completedWithinDeadline = settledByDeadline;
+    if (!completedWithinDeadline) controller.abort();
+    const result = await discovery;
+    const stateCallsAtExpiry = mockBackend.get(LAMBDA)?.stateCalls;
+    await jest.advanceTimersByTimeAsync(10_000);
+
+    expect(completedWithinDeadline).toBe(true);
+    expect(stateCallsAtExpiry).toBe(11);
+    expect(mockBackend.get(LAMBDA)?.stateCalls).toBe(stateCallsAtExpiry);
+    expect(result.best).toBeUndefined();
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
+  });
+
   it('picks the operator serving the chain state over the one the account left, even with its nonce unknown', async () => {
     mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 9n }, stateCommitments: { 'acct-1': 'old' } });
     mockBackend.set(GATEWAY, {
@@ -586,6 +976,722 @@ describe('discoverGuardianForSeed', () => {
 
     const known = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [hostCase] });
     expect(known.best?.option?.id).toBe('lambda-class');
+  });
+
+  it('keeps unresolved transports across aborted probe generations within GUARDIAN_PROBE_CONCURRENCY', async () => {
+    const endpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => 'https://guardian-' + index + '.example.com'
+    );
+    endpoints.forEach((endpoint, index) =>
+      mockBackend.set(endpoint, {
+        accounts: ['acct-' + index],
+        transportHoldPath: 'lookup',
+        transportIgnoreAbort: true
+      })
+    );
+    const controller = new AbortController();
+    const retryController = new AbortController();
+    const firstDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints,
+      signal: controller.signal
+    });
+    let secondDiscovery: Promise<GuardianDiscoveryResult> | undefined;
+    let thirdDiscovery: Promise<GuardianDiscoveryResult> | undefined;
+    const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+    const releaseFetches = async () => {
+      mockHeldGuardianFetches
+        .filter(fetch => endpoints.includes(fetch.endpoint) && fetch.settleOrder === undefined)
+        .forEach(fetch => fetch.settle());
+      await flush();
+    };
+
+    try {
+      for (let attempt = 0; attempt < 10 && mockHeldGuardianFetches.length < GUARDIAN_PROBE_CONCURRENCY; attempt++) {
+        await flush();
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+
+      controller.abort();
+      secondDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints,
+        signal: retryController.signal
+      });
+      await flush();
+
+      expect(mockGuardianFetch).toHaveBeenCalledTimes(GUARDIAN_PROBE_CONCURRENCY);
+      retryController.abort();
+      thirdDiscovery = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints });
+      await flush();
+
+      expect(mockGuardianFetch).toHaveBeenCalledTimes(GUARDIAN_PROBE_CONCURRENCY);
+      await releaseFetches();
+      const [aborted, cancelled, current] = await Promise.all([firstDiscovery, secondDiscovery, thirdDiscovery]);
+      expect(aborted.matches).toEqual([]);
+      expect(cancelled.matches).toEqual([]);
+      expect(cancelled.failures).toEqual([]);
+      expect(current.matches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.lookupCalls).toBe(3));
+    } finally {
+      await releaseFetches();
+      await Promise.allSettled([
+        firstDiscovery,
+        ...(secondDiscovery ? [secondDiscovery] : []),
+        ...(thirdDiscovery ? [thirdDiscovery] : [])
+      ]);
+    }
+  });
+
+  it('does not run lookups that timed out while queued after permits become free', async () => {
+    const heldEndpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => 'https://held-guardian-' + index + '.example.com'
+    );
+    heldEndpoints.forEach((endpoint, index) =>
+      mockBackend.set(endpoint, {
+        accounts: ['held-acct-' + index],
+        transportHoldPath: 'lookup',
+        transportIgnoreAbort: true
+      })
+    );
+    const queuedEndpoint = 'https://queued-guardian.example.com';
+    mockBackend.set(queuedEndpoint, {
+      accounts: ['queued-acct'],
+      transportHoldPath: 'lookup',
+      transportImmediate: true
+    });
+    const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+    const releaseFetches = async () => {
+      mockHeldGuardianFetches
+        .filter(fetch => heldEndpoints.includes(fetch.endpoint) && fetch.settleOrder === undefined)
+        .forEach(fetch => fetch.settle());
+      await flush();
+    };
+    const holdingDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: heldEndpoints,
+      timeoutMs: 5_000
+    });
+
+    try {
+      for (let attempt = 0; attempt < 20 && mockHeldGuardianFetches.length < GUARDIAN_PROBE_CONCURRENCY; attempt++) {
+        await flush();
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+
+      const timedOutDiscovery = await discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [queuedEndpoint],
+        timeoutMs: 10
+      });
+      expect(timedOutDiscovery.failures).toHaveLength(1);
+      expect(console.warn).toHaveBeenCalledWith(
+        '[guardian/discover] probe attempt timed out while waiting for a permit'
+      );
+
+      await releaseFetches();
+      await holdingDiscovery;
+      await flush();
+      expect(mockGuardianFetch.mock.calls.some(([endpoint]) => endpoint === queuedEndpoint)).toBe(false);
+    } finally {
+      await releaseFetches();
+      await holdingDiscovery;
+    }
+  });
+
+  it('fails with a named error and frees the permit when a Guardian client hides fetch', async () => {
+    const hiddenEndpoint = 'https://hidden-fetch-guardian.example.com';
+    mockBackend.set(hiddenEndpoint, { accounts: ['hidden-fetch-acct'], hideGuardianFetch: true });
+    const loggedErrors = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const hidden = await discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: [hiddenEndpoint]
+    });
+    const nextEndpoint = 'https://next-guardian.example.com';
+    mockBackend.set(nextEndpoint, { accounts: ['next-acct'] });
+    const next = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [nextEndpoint] });
+
+    expect(hidden.failures[0]?.message).toContain('Guardian client fetch is unavailable');
+    expect(loggedErrors).toHaveBeenCalledWith(
+      expect.stringContaining('could not be probed'),
+      expect.objectContaining({ name: 'GuardianProbeFetchUnavailableError' })
+    );
+    expect(next.matches).toHaveLength(1);
+  });
+
+  it('does not hold network permits while signer auth is pending', async () => {
+    const { discoverGuardianForSeed } = loadDiscoverModule();
+    const endpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => `https://auth-held-${index}.example.com`
+    );
+    const authGates = endpoints.map(() => [deferred(), deferred()]);
+    endpoints.forEach((endpoint, index) => {
+      mockBackend.set(endpoint, {
+        accounts: [`auth-held-acct-${index}`],
+        authHoldPath: 'lookup',
+        authGates: authGates[index]!.map(gate => gate.promise),
+        transportHoldPath: 'lookup',
+        transportImmediate: true
+      });
+    });
+    let initialDiscovery: Promise<GuardianDiscoveryResult> | undefined;
+    let freshDiscovery: Promise<GuardianDiscoveryResult> | undefined;
+    let freshReachedTransport = false;
+    let heldTransportCalls = 0;
+
+    try {
+      initialDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints,
+        timeoutMs: 30
+      });
+      const allInitialAuthCallsStarted = await waitForCondition(
+        () => endpoints.every(endpoint => mockBackend.get(endpoint)?.authWaits?.length === 1),
+        500
+      );
+      expect(allInitialAuthCallsStarted).toBe(true);
+      await initialDiscovery;
+
+      const freshEndpoint = 'https://auth-fresh.example.com';
+      mockBackend.set(freshEndpoint, {
+        accounts: ['auth-fresh-acct'],
+        transportHoldPath: 'lookup',
+        transportImmediate: true
+      });
+      freshDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [freshEndpoint],
+        timeoutMs: 100
+      });
+      await freshDiscovery;
+      freshReachedTransport = mockGuardianFetch.mock.calls.some(([endpoint]) => endpoint === freshEndpoint);
+    } finally {
+      authGates.flat().forEach(gate => gate.resolve());
+      await Promise.allSettled([
+        ...(initialDiscovery ? [initialDiscovery] : []),
+        ...(freshDiscovery ? [freshDiscovery] : [])
+      ]);
+      heldTransportCalls = mockGuardianFetch.mock.calls.filter(([endpoint]) => endpoints.includes(endpoint)).length;
+    }
+
+    expect(freshReachedTransport).toBe(true);
+    expect(heldTransportCalls).toBe(0);
+  });
+
+  it.each(['lookup', 'initial-state'] as const)(
+    'keeps a signal on the post-signer retry fetch for the %s path',
+    async path => {
+      const endpoint = `https://retry-auth-${path}.example.com`;
+      const accountId = `retry-auth-${path}-acct`;
+      const requestIndex = path === 'lookup' ? 0 : 1;
+      const firstAttemptModule = loadDiscoverModule();
+      const firstOperator: FakeOperator = {
+        accounts: [accountId],
+        authHoldPath: path,
+        authDelaysMs: { [path]: [50, 70] },
+        transportHoldPath: path,
+        transportImmediate: true
+      };
+      mockBackend.set(endpoint, firstOperator);
+      const firstStartedAt = Date.now();
+
+      const timedOut = await firstAttemptModule.discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [endpoint],
+        timeoutMs: 30
+      });
+      const returnedAt = Date.now();
+      const bothAuthCallsResumed = await waitForCondition(() => firstOperator.authResumedAt?.length === 2, 500);
+      const failedAttemptSignals = mockGuardianProbeRequestBudgets
+        .slice(requestIndex, requestIndex + 2)
+        .map(budget => budget.signal);
+
+      expect(bothAuthCallsResumed).toBe(true);
+      expect(returnedAt - firstStartedAt).toBeLessThan(firstOperator.authResumedAt![1]! - firstStartedAt);
+      expect(failedAttemptSignals).toHaveLength(2);
+      expect(failedAttemptSignals[0]).not.toBe(failedAttemptSignals[1]);
+      expect(failedAttemptSignals.map(signal => signal.aborted)).toEqual([true, true]);
+      expect(timedOut.failures.length > 0 || timedOut.matches.length > 0).toBe(true);
+      expect(mockGuardianFetch.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(0);
+
+      const successEndpoint = `https://retry-auth-success-${path}.example.com`;
+      const successOperator: FakeOperator = {
+        accounts: [accountId],
+        authHoldPath: path,
+        authDelaysMs: { [path]: [50, 10] },
+        transportHoldPath: path,
+        transportImmediate: true
+      };
+      mockBackend.set(successEndpoint, successOperator);
+      mockGuardianProbeRequestBudgets.length = 0;
+      mockGuardianFetch.mockClear();
+      const secondAttemptModule = loadDiscoverModule();
+      const succeeded = await secondAttemptModule.discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [successEndpoint],
+        timeoutMs: 30
+      });
+      const bothSuccessAuthCallsResumed = await waitForCondition(
+        () => successOperator.authResumedAt?.length === 2,
+        500
+      );
+      const successfulAttemptSignals = mockGuardianProbeRequestBudgets
+        .slice(requestIndex, requestIndex + 2)
+        .map(budget => budget.signal);
+      const successfulFetches = mockGuardianFetch.mock.calls.filter(([url]) => url === successEndpoint);
+
+      expect(bothSuccessAuthCallsResumed).toBe(true);
+      expect(successfulAttemptSignals).toHaveLength(2);
+      expect(successfulAttemptSignals[0]).not.toBe(successfulAttemptSignals[1]);
+      expect(successfulAttemptSignals.map(signal => signal.aborted)).toEqual([true, false]);
+      expect(successfulFetches).toHaveLength(1);
+      expect(successfulFetches[0]?.[2]?.signal).toBe(successfulAttemptSignals[1]);
+      expect(succeeded.matches.map(match => match.endpoint)).toContain(successEndpoint);
+    }
+  );
+
+  it('keeps per-poll signals isolated when settling-state auth outlives the poll', async () => {
+    const endpoint = 'https://settling-auth.example.com';
+    const accountId = 'settling-auth-acct';
+    const authGates = [deferred(), deferred()];
+    const operator: FakeOperator = {
+      accounts: [accountId],
+      stateCommitmentSequence: { [accountId]: ['old-state', 'chain-state'] },
+      stateNonceSequence: { [accountId]: [0n, 1n] },
+      deltas: { 1: 'chain-state' },
+      authHoldPath: 'settling-state',
+      authGates: authGates.map(gate => gate.promise),
+      transportHoldPath: 'settling-state',
+      transportHoldStateCalls: [2, 3],
+      transportImmediate: true
+    };
+    mockBackend.set(endpoint, operator);
+    mockChainCommitments.set(accountId, 'chain-state');
+    const { discoverGuardianForSeed } = loadDiscoverModule();
+    const discovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: [endpoint],
+      timeoutMs: 30
+    });
+
+    try {
+      const firstAuthStarted = await waitForCondition(() => operator.authWaits?.length === 1, 500);
+      expect(firstAuthStarted).toBe(true);
+      const secondAuthStarted = await waitForCondition(() => operator.authWaits?.length === 2, 2_500);
+      expect(secondAuthStarted).toBe(true);
+      authGates[1]!.resolve();
+      const result = await discovery;
+      const settlingSignals = mockGuardianProbeRequestBudgets.slice(3, 5).map(budget => budget.signal);
+      const settlingFetches = mockGuardianFetch.mock.calls.filter(
+        ([url, path]) => url === endpoint && path === '/state'
+      );
+
+      expect(result.matches).toHaveLength(1);
+      expect(settlingSignals).toHaveLength(2);
+      expect(settlingSignals[0]).not.toBe(settlingSignals[1]);
+      expect(settlingSignals.map(signal => signal.aborted)).toEqual([true, false]);
+      expect(settlingFetches).toHaveLength(1);
+      expect(settlingFetches[0]?.[2]?.signal).toBe(settlingSignals[1]);
+    } finally {
+      authGates.forEach(gate => gate.resolve());
+      await Promise.allSettled([discovery]);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+    }
+
+    expect(mockGuardianFetch.mock.calls.filter(([url, path]) => url === endpoint && path === '/state')).toHaveLength(1);
+  }, 8_000);
+
+  it('does not start delta transport when signer auth outlives the deadline', async () => {
+    const endpoint = 'https://delta-auth.example.com';
+    const accountId = 'delta-auth-acct';
+    const authGate = deferred();
+    const operator: FakeOperator = {
+      accounts: [accountId],
+      nonces: { [accountId]: 0n },
+      stateCommitments: { [accountId]: 'old-state' },
+      deltas: { 1: 'chain-state' },
+      authHoldPath: 'delta',
+      authGates: [authGate.promise],
+      transportHoldPath: 'delta',
+      transportImmediate: true
+    };
+    mockBackend.set(endpoint, operator);
+    mockChainCommitments.set(accountId, 'chain-state');
+    const { discoverGuardianForSeed } = loadDiscoverModule();
+    const discovery = discoverGuardianForSeed(fakeDeriveSeed, {
+      ...testnet,
+      endpoints: [endpoint],
+      timeoutMs: 30
+    });
+
+    try {
+      const authStarted = await waitForCondition(() => operator.authWaits?.length === 1, 500);
+      expect(authStarted).toBe(true);
+      const result = await discovery;
+      const deltaCallsBeforeRelease = mockGuardianFetch.mock.calls.filter(
+        ([url, path]) => url === endpoint && path === '/delta'
+      );
+      expect(result.matches.map(match => match.endpoint)).toEqual([endpoint]);
+      expect(result.failures).toEqual([]);
+      expect(operator.deltaCalls).toHaveLength(1);
+      expect(operator.stateCalls).toBe(1);
+      expect(deltaCallsBeforeRelease).toHaveLength(0);
+      authGate.resolve();
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(mockGuardianFetch.mock.calls.filter(([url, path]) => url === endpoint && path === '/delta')).toHaveLength(
+        0
+      );
+    } finally {
+      authGate.resolve();
+      await Promise.allSettled([discovery]);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+    }
+  });
+
+  it.each(['lookup', 'initial-state', 'delta', 'settling-state'] as const)(
+    'returns promptly when the parent aborts during pending signer auth for the %s path',
+    async path => {
+      const endpoint = `https://parent-abort-${path}.example.com`;
+      const accountId = `parent-abort-${path}-acct`;
+      const authGate = deferred();
+      const operator: FakeOperator = {
+        accounts: [accountId],
+        authHoldPath: path,
+        authGates: [authGate.promise],
+        transportHoldPath: path,
+        transportImmediate: true,
+        ...(path === 'delta' || path === 'settling-state'
+          ? {
+              nonces: { [accountId]: 0n },
+              stateCommitments: { [accountId]: 'old-state' },
+              stateCommitmentSequence: { [accountId]: ['old-state', 'chain-state'] },
+              deltas: { 1: 'chain-state' }
+            }
+          : {})
+      };
+      mockBackend.set(endpoint, operator);
+      if (path === 'delta' || path === 'settling-state') mockChainCommitments.set(accountId, 'chain-state');
+      const { discoverGuardianForSeed } = loadDiscoverModule();
+      const controller = new AbortController();
+      const addListener = jest.spyOn(controller.signal, 'addEventListener');
+      const removeListener = jest.spyOn(controller.signal, 'removeEventListener');
+      const discovery = discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [endpoint],
+        timeoutMs: 10_000,
+        signal: controller.signal
+      });
+
+      try {
+        const authStarted = await waitForCondition(() => operator.authWaits?.length === 1, 500);
+        expect(authStarted).toBe(true);
+        controller.abort(new Error('stop the probe'));
+        const settled = await Promise.race([
+          discovery.then(() => true),
+          new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100))
+        ]);
+        expect(settled).toBe(true);
+        const result = await discovery;
+        const abortListener = addListener.mock.calls.find(([type]) => type === 'abort')?.[1];
+        expect(result.matches).toEqual([]);
+        expect(result.failures).toEqual([]);
+        expect(abortListener).toBeDefined();
+        expect(
+          removeListener.mock.calls.some(([type, listener]) => type === 'abort' && listener === abortListener)
+        ).toBe(true);
+        authGate.resolve();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        expect(mockGuardianFetch.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(0);
+      } finally {
+        authGate.resolve();
+        mockHeldGuardianFetches.filter(fetch => fetch.signal?.aborted).forEach(fetch => fetch.settle());
+        await Promise.allSettled([discovery]);
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }
+    }
+  );
+
+  it.each(['lookup', 'initial-state', 'delta', 'settling-state'] as const)(
+    'cancels held probe fetches for the %s path when the deadline expires and frees permits',
+    async transportHoldPath => {
+      const discoverGuardianForSeed = loadDiscoverModule().discoverGuardianForSeed;
+      const makeEndpoints = (generation: string) =>
+        Array.from({ length: GUARDIAN_PROBE_CONCURRENCY }, (_, index) => {
+          const endpoint = `https://transport-${transportHoldPath}-${generation}-${index}.example.com`;
+          const accountId = `transport-${generation}-acct-${index}`;
+          const operator: FakeOperator = {
+            accounts: [accountId],
+            transportHoldPath,
+            ...(transportHoldPath === 'delta' || transportHoldPath === 'settling-state'
+              ? {
+                  stateCommitments: { [accountId]: 'old-state' },
+                  stateCommitmentSequence: { [accountId]: ['old-state', 'chain-state'] },
+                  nonces: { [accountId]: 0n },
+                  deltas: { 1: 'chain-state' }
+                }
+              : {})
+          };
+          mockBackend.set(endpoint, operator);
+          if (transportHoldPath === 'delta' || transportHoldPath === 'settling-state') {
+            mockChainCommitments.set(accountId, 'chain-state');
+          }
+          return endpoint;
+        });
+      const endpoints = makeEndpoints('first');
+      const controllers = endpoints.map(() => new AbortController());
+      const firstDiscoveries =
+        transportHoldPath === 'lookup' || transportHoldPath === 'initial-state'
+          ? [
+              discoverGuardianForSeed(fakeDeriveSeed, {
+                ...testnet,
+                endpoints,
+                timeoutMs: 30,
+                signal: controllers[0]!.signal
+              })
+            ]
+          : endpoints.map((endpoint, index) =>
+              discoverGuardianForSeed(fakeDeriveSeed, {
+                ...testnet,
+                endpoints: [endpoint],
+                timeoutMs: 30,
+                signal: controllers[index]!.signal
+              })
+            );
+      const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+      let laterDiscovery: Promise<GuardianDiscoveryResult> | undefined;
+      let laterController: AbortController | undefined;
+
+      try {
+        for (let attempt = 0; attempt < 50 && mockHeldGuardianFetches.length < endpoints.length; attempt++) {
+          await flush();
+        }
+        expect(mockHeldGuardianFetches).toHaveLength(endpoints.length);
+        await new Promise<void>(resolve => setTimeout(resolve, 70));
+        controllers.forEach(controller => controller.abort());
+        await Promise.all(firstDiscoveries);
+
+        expect(mockHeldGuardianFetches.map(fetch => fetch.signal?.aborted)).toEqual(endpoints.map(() => true));
+        expect(mockHeldGuardianFetches.every(fetch => fetch.abortOrder !== undefined)).toBe(true);
+        expect(mockHeldGuardianFetches.every(fetch => fetch.settleOrder !== undefined)).toBe(true);
+        expect(
+          mockHeldGuardianFetches.every(
+            fetch => fetch.abortOrder !== undefined && fetch.abortOrder < fetch.settleOrder!
+          )
+        ).toBe(true);
+
+        const fetchCountBeforeRetry = mockGuardianFetch.mock.calls.length;
+        laterController = new AbortController();
+        laterDiscovery = discoverGuardianForSeed(fakeDeriveSeed, {
+          ...testnet,
+          endpoints: makeEndpoints('later'),
+          timeoutMs: 30,
+          signal: laterController.signal
+        });
+        for (
+          let attempt = 0;
+          attempt < 50 && mockGuardianFetch.mock.calls.length === fetchCountBeforeRetry;
+          attempt++
+        ) {
+          await flush();
+        }
+        expect(mockGuardianFetch.mock.calls.length).toBeGreaterThan(fetchCountBeforeRetry);
+        laterController.abort();
+        await laterDiscovery;
+      } finally {
+        mockHeldGuardianFetches.forEach(fetch => fetch.settle());
+        controllers.forEach(controller => controller.abort());
+        laterController?.abort();
+        await Promise.allSettled([...firstDiscoveries, ...(laterDiscovery ? [laterDiscovery] : [])]);
+        await flush();
+        await flush();
+        await flush();
+      }
+    },
+    15_000
+  );
+
+  it('keeps in-flight state reads within the shared probe bound across aborted generations', async () => {
+    const endpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => 'https://state-guardian-' + index + '.example.com'
+    );
+    endpoints.forEach((endpoint, index) =>
+      mockBackend.set(endpoint, {
+        accounts: ['state-acct-' + index],
+        transportHoldPath: 'initial-state',
+        transportIgnoreAbort: true
+      })
+    );
+    const controllers = endpoints.map(() => new AbortController());
+    const abandonedRuns = endpoints.map((endpoint, index) =>
+      discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [endpoint],
+        signal: controllers[index]!.signal
+      })
+    );
+    const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+    const releaseFetches = async () => {
+      mockHeldGuardianFetches
+        .filter(fetch => endpoints.includes(fetch.endpoint) && fetch.settleOrder === undefined)
+        .forEach(fetch => fetch.settle());
+      await flush();
+    };
+    let currentRun: Promise<GuardianDiscoveryResult> | undefined;
+
+    try {
+      for (let attempt = 0; attempt < 20 && mockHeldGuardianFetches.length < GUARDIAN_PROBE_CONCURRENCY; attempt++) {
+        await flush();
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+
+      controllers.forEach(controller => controller.abort());
+      currentRun = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints });
+      const queuedStatesStarted = await waitForCondition(
+        () => endpoints.every(endpoint => mockBackend.get(endpoint)?.stateCalls === 2),
+        500
+      );
+
+      expect(queuedStatesStarted).toBe(true);
+      expect(mockGuardianFetch).toHaveBeenCalledTimes(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.lookupCalls).toBe(2));
+      await releaseFetches();
+      const [abandoned, current] = await Promise.all([Promise.all(abandonedRuns), currentRun]);
+
+      expect(abandoned.every(result => result.matches.length === 0)).toBe(true);
+      expect(current.matches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.stateCalls).toBe(2));
+    } finally {
+      await releaseFetches();
+      await Promise.allSettled([...abandonedRuns, ...(currentRun ? [currentRun] : [])]);
+    }
+  });
+
+  it('keeps in-flight delta reads within the shared probe bound across aborted generations', async () => {
+    const endpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => 'https://delta-guardian-' + index + '.example.com'
+    );
+    endpoints.forEach((endpoint, index) => {
+      const accountId = 'delta-acct-' + index;
+      mockBackend.set(endpoint, {
+        accounts: [accountId],
+        nonces: { [accountId]: 0n },
+        stateCommitmentSequence: { [accountId]: ['old-state', 'old-state', 'chain-' + index] },
+        stateNonceSequence: { [accountId]: [0n, 0n, 1n] },
+        deltas: { 1: 'chain-' + index },
+        transportHoldPath: 'delta',
+        transportIgnoreAbort: true
+      });
+      mockChainCommitments.set(accountId, 'chain-' + index);
+    });
+    const controllers = endpoints.map(() => new AbortController());
+    const abandonedRuns = endpoints.map((endpoint, index) =>
+      discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [endpoint],
+        signal: controllers[index]!.signal
+      })
+    );
+    const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+    const releaseFetches = async () => {
+      mockHeldGuardianFetches
+        .filter(fetch => endpoints.includes(fetch.endpoint) && fetch.settleOrder === undefined)
+        .forEach(fetch => fetch.settle());
+      await flush();
+    };
+    let currentRun: Promise<GuardianDiscoveryResult> | undefined;
+
+    try {
+      for (let attempt = 0; attempt < 20 && mockHeldGuardianFetches.length < GUARDIAN_PROBE_CONCURRENCY; attempt++) {
+        await flush();
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+
+      controllers.forEach(controller => controller.abort());
+      currentRun = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints });
+      const queuedDeltasStarted = await waitForCondition(
+        () => mockBackend.get(endpoints[0]!)?.deltaCalls?.length === 2,
+        500
+      );
+
+      expect(queuedDeltasStarted).toBe(true);
+      expect(mockGuardianFetch).toHaveBeenCalledTimes(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.lookupCalls).toBe(2));
+      await releaseFetches();
+      const [abandoned, current] = await Promise.all([Promise.all(abandonedRuns), currentRun]);
+
+      expect(abandoned.every(result => result.matches.length === 0)).toBe(true);
+      expect(current.matches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.deltaCalls).toHaveLength(2));
+    } finally {
+      await releaseFetches();
+      await Promise.allSettled([...abandonedRuns, ...(currentRun ? [currentRun] : [])]);
+    }
+  });
+
+  it('keeps in-flight settling state reads within the shared probe bound across aborted generations', async () => {
+    const endpoints = Array.from(
+      { length: GUARDIAN_PROBE_CONCURRENCY },
+      (_, index) => 'https://settling-guardian-' + index + '.example.com'
+    );
+    endpoints.forEach((endpoint, index) => {
+      const accountId = 'settling-acct-' + index;
+      mockBackend.set(endpoint, {
+        accounts: [accountId],
+        stateCommitmentSequence: { [accountId]: ['old-state', 'old-state', 'old-state', 'chain-state'] },
+        stateNonceSequence: { [accountId]: [0n, 0n, 0n, 1n] },
+        deltas: { 1: 'chain-state' },
+        transportHoldPath: 'settling-state',
+        transportHoldStateCalls: [2, 4],
+        transportIgnoreAbort: true
+      });
+      mockChainCommitments.set(accountId, 'chain-state');
+    });
+    const controllers = endpoints.map(() => new AbortController());
+    const abandonedRuns = endpoints.map((endpoint, index) =>
+      discoverGuardianForSeed(fakeDeriveSeed, {
+        ...testnet,
+        endpoints: [endpoint],
+        signal: controllers[index]!.signal
+      })
+    );
+    const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+    const releaseFetches = async () => {
+      mockHeldGuardianFetches
+        .filter(fetch => endpoints.includes(fetch.endpoint) && fetch.settleOrder === undefined)
+        .forEach(fetch => fetch.settle());
+      await flush();
+    };
+    let currentRun: Promise<GuardianDiscoveryResult> | undefined;
+
+    try {
+      for (let attempt = 0; attempt < 20 && mockHeldGuardianFetches.length < GUARDIAN_PROBE_CONCURRENCY; attempt++) {
+        await flush();
+      }
+      expect(mockHeldGuardianFetches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+
+      controllers.forEach(controller => controller.abort());
+      currentRun = discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints });
+      const queuedStatesStarted = await waitForCondition(() => mockBackend.get(endpoints[0]!)?.stateCalls === 4, 500);
+
+      expect(queuedStatesStarted).toBe(true);
+      expect(mockGuardianFetch).toHaveBeenCalledTimes(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.lookupCalls).toBe(2));
+      await releaseFetches();
+      const [abandoned, current] = await Promise.all([Promise.all(abandonedRuns), currentRun]);
+
+      expect(abandoned.every(result => result.matches.length === 0)).toBe(true);
+      expect(current.matches).toHaveLength(GUARDIAN_PROBE_CONCURRENCY);
+      endpoints.forEach(endpoint => expect(mockBackend.get(endpoint)?.stateCalls).toBe(4));
+    } finally {
+      await releaseFetches();
+      await Promise.allSettled([...abandonedRuns, ...(currentRun ? [currentRun] : [])]);
+    }
   });
 
   it('classifies a slow operator as a timeout without failing the probe', async () => {

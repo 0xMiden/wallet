@@ -223,7 +223,8 @@ describe('the approval sheet over the wallet webview', () => {
     const start = jest.fn(() => new Promise<never>(() => undefined));
     await Promise.all([
       expect(answerSheet(hostFor(), start, { decision: 'approve' }, contextFor())).rejects.toBeInstanceOf(HarnessFault),
-      jest.advanceTimersByTimeAsync(11_000)
+      // Past the 30 s close budget an earlier sheet gets before the next one is refused.
+      jest.advanceTimersByTimeAsync(31_000)
     ]);
     expect(start).not.toHaveBeenCalled();
   });

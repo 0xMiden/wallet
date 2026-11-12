@@ -143,6 +143,33 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+/**
+ * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
+ * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: () => ({ inputCount: 0, inputs: [], outputs: [] })
+}));
+
 const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -248,7 +275,9 @@ import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
 import { OperationAbortedError } from './offscreen-codec';
 
-const UNLOCKED_CONTEXT = { vault: { signData: jest.fn(async () => 'fake-sig-base64') } };
+const UNLOCKED_CONTEXT = {
+  vault: { signData: jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' })) }
+};
 
 const lockWallet = () => {
   mockWalletStatus = WalletStatus.Locked;
@@ -298,7 +327,7 @@ beforeEach(() => {
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
     fn({
       vault: {
-        signData: jest.fn(async () => 'fake-sig-base64')
+        signData: jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' }))
       }
     })
   );
@@ -769,7 +798,11 @@ describe('non-extension dApp requests settle instead of hanging', () => {
 
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(mockRequestConfirmation.mock.calls[0]![0]).toMatchObject({ type: 'sign', origin: 'https://miden.xyz' });
-    expect(res).toEqual({ type: MidenDAppMessageType.SignResponse, signature: 'fake-sig-base64' });
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-sig-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('signBytes rejects with NotGranted when the user denies', async () => {

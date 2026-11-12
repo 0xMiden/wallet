@@ -118,12 +118,15 @@ import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   isGuardianOutage,
   isNodeOutage,
+  ProposalFeeUnknownError,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { assertCustomEffectsApproved, customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
+import { withEffectCheckedSigner } from './effect-checked-signer';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
@@ -1133,8 +1136,8 @@ async function requeueTransactionForRetry(
 }
 
 /**
- * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
- * arm its wake. The wake fires a beat past eligibility, so the loop does not
+ * Requeue a pre-submit row at `stage` ('creating-proposal' for a guardian row) and,
+ * off the extension, arm its wake. The wake fires a beat past eligibility, so the loop does not
  * re-read the row while `nextEligibleAt` still excludes it and go straight back
  * to sleep, or at the row's reap boundary when a backed-off cooldown outlasts it.
  */
@@ -1145,9 +1148,10 @@ async function requeueWithWake(
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
   cause: ConsumeDeferralCause,
-  extraValues?: RequeueExtraValues
+  extraValues?: RequeueExtraValues,
+  stage: ITransactionStage = 'creating-proposal'
 ): Promise<void> {
-  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, cause, extraValues);
+  const requeued = await requeueTransactionForRetry(txId, txType, stage, cooldownSec, cause, extraValues);
   // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
   scheduleRequeueWake(
     txId,
@@ -2016,9 +2020,10 @@ const generateTransactionWithProvider = async (
   // (issue #260) — a wedge anywhere in its execute→prove→submit→apply then becomes
   // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
   // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
-  // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
-  // `withWasmClientLock`, same `getMidenClient()` and the realm's installed signer,
-  // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
+  // flag-OFF path makes the calls the inline switch it replaced made (same
+  // `withWasmClientLock`, same `getMidenClient()`, same underlying
+  // `sendTransaction`/`newTransaction`), signing through the write's own signer for
+  // its hold (`withHoldSigner`).
   // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
   // that would stall SW sync and block the reverse-IPC sign handler).
@@ -2036,140 +2041,190 @@ const generateTransactionWithProvider = async (
   // double-spend), and a round-tripped `ApplyTransactionAfterSubmitFailed` reaches
   // that same classifier (→ earn-deposit Failed so its awaiting caller stops;
   // bridged-send Completed, sync reconciles).
+  //
+  // Every write signs through a signer of its own that refuses a claim or a dApp transaction moving more than its row
+  // was approved to move (#2147), the check the Guardian leaf makes before its hot key signs. Taken here, outside every
+  // WASM hold, so the fee lookup it starts with never waits on the node inside one.
   let result: TransactionResult;
-  switch (transaction.type) {
-    case 'consume': {
-      // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
-      // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
-      const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-      const gcPurchase = gcPurchaseOf(transaction);
-      // A GC purchase's request is built right before it runs, so it binds a height the node still serves and the
-      // sale note the lineage holds now; a row that failed keeps the bytes of its last attempt until this rebuild.
-      const preparedBytes = gcPurchase
-        ? await midenClientProxy.buildPswapConsumeRequest(transaction.accountId, gcPurchase)
-        : preparedPswapReclaimBytes(transaction);
-      if (gcPurchase && preparedBytes) {
-        transaction.requestBytes = preparedBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = preparedBytes;
-        });
-      }
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        preparedBytes
-          ? midenClientProxy.newTransaction(
+  try {
+    result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
+      switch (transaction.type) {
+        case 'consume': {
+          // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
+          // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
+          const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          const gcPurchase = gcPurchaseOf(transaction);
+          // A GC purchase's request is built right before it runs, so it binds a height the node still serves and the
+          // sale note the lineage holds now; a row that failed keeps the bytes of its last attempt until this rebuild.
+          const preparedBytes = gcPurchase
+            ? await midenClientProxy.buildPswapConsumeRequest(transaction.accountId, gcPurchase)
+            : preparedPswapReclaimBytes(transaction);
+          if (gcPurchase && preparedBytes) {
+            transaction.requestBytes = preparedBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = preparedBytes;
+            });
+          }
+          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            preparedBytes
+              ? midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  preparedBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  attempt && stageStampFor(transaction.id, attempt)
+                )
+              : midenClientProxy.consumeNoteId(
+                  transaction as ConsumeTransaction,
+                  signer,
+                  attempt && stageStampFor(transaction.id, attempt)
+                )
+          );
+        }
+        case 'send': {
+          // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
+          // generating-transaction screen can time the proof + submit steps (#524).
+          // Those stamps are keyed by the ROW id, which the offscreen write DTO
+          // deliberately doesn't carry - so the proxy carries them on the OP id instead:
+          // flag-OFF it hands this callback straight to the inline `sendTransaction`,
+          // flag-ON it registers it op-scoped and replays the offscreen realm's
+          // `OFFSCREEN_STAGE_EVENT`s through it. Both states therefore stamp, which
+          // matters because the SW build (`vite.background.config.ts`) is the ONE build
+          // that defaults the flag ON - a stage callback that rode the inline leaf only
+          // would silently lose the timings on Chrome, the primary platform.
+          const attempt = attemptContextOf(transaction);
+          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            midenClientProxy.sendTransaction(
+              transaction as SendTransaction,
+              signer,
+              stageStampFor(transaction.id, attempt)
+            )
+          );
+        }
+        case 'swap': {
+          const attempt = attemptContextOf(transaction);
+          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            midenClientProxy.swapTransaction(
+              transaction as SwapTransaction,
+              signer,
+              stageStampFor(transaction.id, attempt)
+            )
+          );
+        }
+        case 'bridged-send':
+        case 'earn-deposit':
+          // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
+          // + earn-deposit now ALSO carry pre-built request bytes - the P2IDE collateral
+          // note with the mandate-binding attachment (smallocator PR #38), built at
+          // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
+          // the proxy so it runs offscreen flag-on, inline flag-off. The bare
+          // `sendTransaction` fallback is bridged-send only, for legacy rows queued
+          // before the binding migration: an Earn deposit without its bytes fails
+          // instead, since that fallback mints a note with no binding.
+          //
+          // The abandoned-intent guard the Guardian leaf has must apply here too: this
+          // shared block had none, so a non-Guardian account still minted the orphan
+          // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
+          // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
+          if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+          await requireBridgeSubmitClaim(transaction);
+          if (transaction.requestBytes) {
+            // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+            // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+            // injects `one_to_one` conversion info itself when the request's auth arg is unset - so
+            // these bytes were never actually failing for want of it. The annotation is kept so both
+            // leaves take one code path, and it is safe because the client returns early rather than
+            // colliding when an auth arg is already present, and the commitment built here is the
+            // same shape it would have built. Persisted because the commitment carries a fresh salt;
+            // the annotation is idempotent.
+            // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
+            const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+            const requestBytes = transaction.requestBytes;
+            return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+              midenClientProxy.newTransaction(
+                transaction.accountId,
+                requestBytes,
+                transaction.delegateTransaction,
+                signer,
+                attempt && stageStampFor(transaction.id, attempt)
+              )
+            );
+          }
+          return midenClientProxy.sendTransaction(transaction as SendTransaction, signer);
+        case 'execute':
+        default: {
+          // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
+          // carries bytes the wallet did not build, so if anything ever does need the auth arg
+          // attached post-hoc it is this one. For the wallet's own accounts the client still
+          // injects, so this pre-empts rather than repairs.
+          let executeBytes = transaction.requestBytes!;
+          // An approved execute is submitted only when a fresh preparation of these bytes still gives
+          // those effects. The check throws before `newTransaction`. A row with no approved record
+          // keeps the bytes it already carries.
+          if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+            const approvedEffects = transaction.approvedEffects;
+            executeBytes = await withWasmClientLock(async hold => {
+              const client = await getMidenClient();
+              assertWasmHoldCurrent(hold, 'after the custom request client build');
+              const prepared = await prepareCustomRequestBytes(
+                client.client,
+                transaction.accountId,
+                executeBytes,
+                hold
+              );
+              assertWasmHoldCurrent(hold, 'after custom request preparation');
+              await verifyPreparedCustomRequest(
+                customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+                approvedEffects,
+                transaction.spentAssetTotals
+              );
+              assertWasmHoldCurrent(hold, 'after the custom request effects check');
+              return prepared;
+            });
+          }
+          if (executeBytes !== transaction.requestBytes) {
+            transaction.requestBytes = executeBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = executeBytes;
+            });
+          }
+          const attempt = attemptContextOf(transaction);
+          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            midenClientProxy.newTransaction(
               transaction.accountId,
-              preparedBytes,
+              executeBytes,
               transaction.delegateTransaction,
-              signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
+              signer,
+              stageStampFor(transaction.id, attempt)
             )
-          : midenClientProxy.consumeNoteId(
-              transaction as ConsumeTransaction,
-              signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
-            )
-      );
-      break;
-    }
-    case 'send': {
-      // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
-      // generating-transaction screen can time the proof + submit steps (#524).
-      // Those stamps are keyed by the ROW id, which the offscreen write DTO
-      // deliberately doesn't carry — so the proxy carries them on the OP id instead:
-      // flag-OFF it hands this callback straight to the inline `sendTransaction`,
-      // flag-ON it registers it op-scoped and replays the offscreen realm's
-      // `OFFSCREEN_STAGE_EVENT`s through it. Both states therefore stamp, which
-      // matters because the SW build (`vite.background.config.ts`) is the ONE build
-      // that defaults the flag ON — a stage callback that rode the inline leaf only
-      // would silently lose the timings on Chrome, the primary platform.
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.sendTransaction(
-          transaction as SendTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
-    case 'swap': {
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.swapTransaction(
-          transaction as SwapTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
-    case 'bridged-send':
-    case 'earn-deposit':
-      // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
-      // + earn-deposit now ALSO carry pre-built request bytes — the P2IDE collateral
-      // note with the mandate-binding attachment (smallocator PR #38), built at
-      // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
-      // the proxy so it runs offscreen flag-on, inline flag-off. The bare
-      // `sendTransaction` fallback is bridged-send only, for legacy rows queued
-      // before the binding migration: an Earn deposit without its bytes fails
-      // instead, since that fallback mints a note with no binding.
-      //
-      // The abandoned-intent guard the Guardian leaf has must apply here too: this
-      // shared block had none, so a non-Guardian account still minted the orphan
-      // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
-      // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
-      if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
-      await requireBridgeSubmitClaim(transaction);
-      if (transaction.requestBytes) {
-        // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
-        // returned at the top of `generateTransaction`), and for a basic wallet miden-client
-        // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
-        // these bytes were never actually failing for want of it. The annotation is kept so both
-        // leaves take one code path, and it is safe because the client returns early rather than
-        // colliding when an auth arg is already present, and the commitment built here is the
-        // same shape it would have built. Persisted because the commitment carries a fresh salt;
-        // the annotation is idempotent.
-        // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
-        const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-        const requestBytes = transaction.requestBytes;
-        result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-          midenClientProxy.newTransaction(
-            transaction.accountId,
-            requestBytes,
-            transaction.delegateTransaction,
-            signCallback,
-            attempt && stageStampFor(transaction.id, attempt)
-          )
-        );
-      } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+          );
+        }
       }
-      break;
-    case 'execute':
-    default: {
-      // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
-      // carries bytes the wallet did not build, so if anything ever does need the auth arg
-      // attached post-hoc it is this one. For the wallet's own accounts the client still
-      // injects, so this pre-empts rather than repairs.
-      const executeBytes = transaction.requestBytes!;
-      if (executeBytes !== transaction.requestBytes) {
-        transaction.requestBytes = executeBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = executeBytes;
-        });
-      }
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.newTransaction(
-          transaction.accountId,
-          executeBytes,
-          transaction.delegateTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
+    });
+  } catch (error) {
+    // An unknown chain fee stops the check before it reads the summary, so the write fails before its submit. The
+    // Guardian leaf requeues the same failure for the same types (`isGuardianOutage`), and so does this one, with the
+    // same doubling wait but a cause and streak of its own, since no guardian is involved.
+    if (!(error instanceof ProposalFeeUnknownError) || !GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)) {
+      throw error;
     }
+    const requeueStreak = nextRequeueStreak(
+      await Repo.transactions.where({ id: transaction.id }).first(),
+      'chain-fee-unknown'
+    );
+    const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+    console.warn(`[transaction] the chain fee is not known yet, requeueing in ${cooldown}s`, error);
+    await requeueWithWake(
+      transaction.id,
+      transaction.type,
+      cooldown,
+      signCallback,
+      guardianProvider,
+      'chain_fee_unknown',
+      { requeueStreak },
+      'syncing'
+    );
+    return;
   }
 
   switch (transaction.type) {
@@ -4187,10 +4242,28 @@ const generateGuardianTransaction = async (
         preparedBytes = await withWasmClientLock(async hold => {
           const client = await getMidenClient();
           assertWasmHoldCurrent(hold, 'after the custom request client build');
-          return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold, diagnostics => {
-            observedDiagnostics = diagnostics;
-            transaction.failureDiagnostics = diagnostics;
-          });
+          const prepared = await prepareCustomRequestBytes(
+            client.client,
+            transaction.accountId,
+            requestBytes,
+            hold,
+            diagnostics => {
+              observedDiagnostics = diagnostics;
+              transaction.failureDiagnostics = diagnostics;
+            }
+          );
+          assertWasmHoldCurrent(hold, 'after custom request preparation');
+          // The wallet proposes only the effects that the user approved. A dry run of the prepared bytes must give
+          // the approved effects, and its spends must be the row's `spentAssetTotals`; else this throws
+          // `CustomTransactionEffectsChangedError` and nothing is proposed. See `custom-effects.ts` for the cases
+          // that fail by design.
+          await verifyPreparedCustomRequest(
+            customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+            transaction.approvedEffects,
+            transaction.spentAssetTotals
+          );
+          assertWasmHoldCurrent(hold, 'after the custom request effects check');
+          return prepared;
         });
       } finally {
         if (observedDiagnostics !== undefined) {
@@ -4213,6 +4286,32 @@ const generateGuardianTransaction = async (
         transaction.requestBytes = preparedBytes;
       }
       proposalResult = await service.createCustomProposal(preparedBytes);
+      // The proposal summary is the execution that will be signed. It has to be the effects the user
+      // approved. No other proposal type is a dApp execution. A mismatch abandons this nonce before
+      // it is kept or signed; a failed abandon is recorded so the account's next proposal retries it.
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        try {
+          assertCustomEffectsApproved(
+            transaction.approvedEffects,
+            { summaryBytes: proposalResult.txSummary },
+            transaction.spentAssetTotals
+          );
+        } catch (effectsError) {
+          try {
+            await withOutgoingGuardianDeadline(
+              () => service.abandonCandidate(proposalResult.nonce),
+              'abandoning a custom proposal whose summary differs from the approved effects'
+            );
+          } catch (abandonError) {
+            console.error('Failed to request Guardian candidate abandonment', {
+              nonce: proposalResult.nonce,
+              error: abandonError
+            });
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+          }
+          throw effectsError;
+        }
+      }
       break;
     }
   }
