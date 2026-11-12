@@ -864,6 +864,10 @@
     "message": "Epoch로 잔액을 확인할 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "잔액을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
     "englishSource": "Earn is not available on this network"
@@ -4720,6 +4724,14 @@
     "message": "사용 불가",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "지원되지 않음",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "알 수 없는 규모",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "일시적으로 이용 불가",
     "englishSource": "Temporarily unavailable"
@@ -5919,6 +5931,10 @@
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "연결된 지갑에는 이 네트워크에서 잔액이 양수인 토큰이 없습니다.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",

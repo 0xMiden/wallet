@@ -588,6 +588,11 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             return
         }
         if message.name == "messageHandler" {
+            // Miden patch: only the main frame of the page can speak to the wallet bridge.
+            guard message.frameInfo.isMainFrame else { return }
+            // Miden patch: each message carries the origin of the frame that sent it.
+            // The wallet compares this origin with the origin of the session.
+            let frameOrigin = Self.originString(message.frameInfo.securityOrigin)
             if let messageBody = message.body as? [String: Any] {
                 iabDebug("Received message from JavaScript:", messageBody)
                 // Miden patch (PR-4 chunk 7): include the instance id so the
@@ -595,10 +600,17 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 // the matching session.
                 var withId = messageBody
                 withId["id"] = self.instanceId
+                withId["frameOrigin"] = frameOrigin
+                withId["mainFrame"] = true
                 self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: withId)
             } else {
                 iabDebug("Received non-dictionary message from JavaScript:", message.body)
-                self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: ["id": self.instanceId, "rawMessage": String(describing: message.body)])
+                self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: [
+                    "id": self.instanceId,
+                    "rawMessage": String(describing: message.body),
+                    "frameOrigin": frameOrigin,
+                    "mainFrame": true
+                ])
             }
         } else if message.name == "preShowScriptSuccess" {
             guard let semaphore = preShowSemaphore else {
@@ -630,6 +642,19 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 printController.present(animated: true, completionHandler: nil)
             }
         }
+    }
+
+    // Miden patch: write a security origin in the form of the JavaScript `location.origin`.
+    // WKSecurityOrigin gives port 0 for the default port of the scheme. An origin that is
+    // not http or https, or that has no host, is "null".
+    static func originString(_ origin: WKSecurityOrigin) -> String {
+        let scheme = origin.protocol.lowercased()
+        let host = origin.host.lowercased()
+        guard scheme == "https" || scheme == "http", !host.isEmpty else { return "null" }
+        let defaultPort = scheme == "https" ? 443 : 80
+        let authority = host.contains(":") ? "[\(host)]" : host
+        guard origin.port != 0, origin.port != defaultPort else { return "\(scheme)://\(authority)" }
+        return "\(scheme)://\(authority):\(origin.port)"
     }
 
     func injectJavaScriptInterface() {

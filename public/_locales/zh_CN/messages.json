@@ -864,6 +864,10 @@
     "message": "无法通过 Epoch 查询您的余额。请重试。",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "无法加载您的余额。请检查网络连接并重试。",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "该网络不支持“赚取”功能",
     "englishSource": "Earn is not available on this network"
@@ -4720,6 +4724,14 @@
     "message": "不可用",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "不支持",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "未知规模",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "暂时不可用",
     "englishSource": "Temporarily unavailable"
@@ -5919,6 +5931,10 @@
   "bridgeDepositFailed": {
     "message": "桥接存款失败",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "您已连接的钱包在此网络上没有余额为正的代币。",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "您已连接的钱包在$network$上持有$balance$的$token$，该金额低于本次存款所需。未发送任何资金。",
