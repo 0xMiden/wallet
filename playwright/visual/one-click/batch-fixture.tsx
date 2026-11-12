@@ -108,12 +108,12 @@ async function prepare(state: string) {
       {
         id: 'eligible-send', accountId: account.publicKey, secondaryAccountId: 'visual-recipient',
         type: 'send', amount: 1n, status: ITransactionStatus.Completed,
-        initiatedAt: 1, displayIcon: 'SEND', badgeNetwork: 'mainnet'
+        initiatedAt: 1, displayIcon: 'SEND', badgeNetwork: 'mainnet', badgeEvidenceRevision: 'visual-send-v1'
       },
       {
         id: 'ineligible-deposit', accountId: account.publicKey, type: 'bridged-receive', amount: 1n,
         status: ITransactionStatus.Completed, initiatedAt: 1, displayIcon: 'SEND',
-        badgeNetwork: 'testnet', extraInputs: { phase: 'received' }
+        badgeNetwork: 'testnet', badgeEvidenceRevision: 'visual-deposit-v1', extraInputs: { phase: 'received' }
       }
     ];
   }
