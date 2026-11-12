@@ -178,6 +178,10 @@ const consumable = (
 const paybackDepthsOf = (notes: Array<{ id: string; swapOrder: { depth: number } }>) =>
   Object.fromEntries(notes.map(n => [n.id, n.swapOrder.depth]));
 
+/** The `swapPaybackAmounts` a payback claim of `notes` records: each note's amount, by note id. */
+const paybackAmountsOf = (notes: Array<{ id: string; amount: string }>) =>
+  Object.fromEntries(notes.map(n => [n.id, n.amount]));
+
 describe('swap order note settlement', () => {
   const toArray = jest.fn();
   const modify = jest.fn(async (_writer: unknown) => 1);
@@ -426,6 +430,36 @@ describe('swap order note settlement', () => {
     };
     tagWriter(winner);
     expect(winner.extraInputs.swapPaybackDepths).toEqual({ 'payback-0': 1, 'payback-a': 1, 'payback-b': 2 });
+  });
+
+  it("records each payback's amount on its claim, merged into the amounts of a claim that already held one", async () => {
+    const paybacks = [consumable('payback-a', 'payback', 'filled'), consumable('payback-b', 'payback', 'filled')];
+    paybacks[0]!.amount = '50';
+    paybacks[1]!.swapOrder.depth = 2;
+    paybacks[1]!.amount = '30';
+
+    await reconcileSwapOrderNotes('account-1', paybacks, false, 150);
+
+    expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls[0]![8]).toEqual(
+      expect.objectContaining({ swapPaybackAmounts: { 'payback-a': '50', 'payback-b': '30' } })
+    );
+    const tagWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const winner = {
+      type: 'consume',
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapPaybackAmounts: { 'payback-0': '7' } }
+    };
+    tagWriter(winner);
+    expect(winner.extraInputs.swapPaybackAmounts).toEqual({ 'payback-0': '7', 'payback-a': '50', 'payback-b': '30' });
+  });
+
+  it('records no payback amounts on a tip reclaim', async () => {
+    const tip = consumable('tip', 'tip', 'reclaimed');
+
+    await reconcileSwapOrderNotes('account-1', [tip], false, 300);
+
+    const link = jest.mocked(initiateConsumeNotesTransaction).mock.calls[0]![8];
+    expect(link).toEqual(expect.objectContaining({ swapSettleKind: 'reclaim' }));
+    expect(link).not.toHaveProperty('swapPaybackAmounts');
   });
 
   it('classifies multiple orders from one snapshot and skips missing entries', async () => {
@@ -879,7 +913,8 @@ describe('swap order note settlement', () => {
     expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls[0][8]).toEqual({
       swapOrderTxId: 'swap-1',
       swapSettleKind: 'settle',
-      swapPaybackDepths: { 'payback-0': 1, 'payback-1': 1 }
+      swapPaybackDepths: { 'payback-0': 1, 'payback-1': 1 },
+      swapPaybackAmounts: { 'payback-0': '50', 'payback-1': '50' }
     });
   });
 
@@ -907,7 +942,8 @@ describe('swap order note settlement', () => {
         swapOrderTxId: 'swap-1',
         swapSettleKind: 'settle',
         swapSettlePartial: true,
-        swapPaybackDepths: paybackDepthsOf(call[1])
+        swapPaybackDepths: paybackDepthsOf(call[1]),
+        swapPaybackAmounts: paybackAmountsOf(call[1])
       });
     }
     expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'consume-a' });
@@ -941,13 +977,15 @@ describe('swap order note settlement', () => {
         swapOrderTxId: 'swap-1',
         swapSettleKind: 'settle',
         swapSettlePartial: true,
-        swapPaybackDepths: paybackDepthsOf(paybacks.slice(0, 8))
+        swapPaybackDepths: paybackDepthsOf(paybacks.slice(0, 8)),
+        swapPaybackAmounts: paybackAmountsOf(paybacks.slice(0, 8))
       },
       {
         swapOrderTxId: 'swap-1',
         swapSettleKind: 'settle',
         swapSettlePartial: true,
-        swapPaybackDepths: paybackDepthsOf(paybacks.slice(8))
+        swapPaybackDepths: paybackDepthsOf(paybacks.slice(8)),
+        swapPaybackAmounts: paybackAmountsOf(paybacks.slice(8))
       },
       { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim', swapSettlePartial: true }
     ]);
@@ -1004,7 +1042,8 @@ describe('swap order note settlement', () => {
     expect(tagsWrittenBy(1)).toEqual({
       swapOrderTxId: 'swap-1',
       swapSettleKind: 'settle',
-      swapPaybackDepths: { payback: 1 }
+      swapPaybackDepths: { payback: 1 },
+      swapPaybackAmounts: { payback: '50' }
     });
     // The unfilled remainder is a reclaim — and now that it has its own row,
     // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
@@ -1705,7 +1744,8 @@ describe('swap order note settlement', () => {
     expect(consumeRow.extraInputs).toEqual({
       swapOrderTxId: 'swap-1',
       swapSettleKind: 'settle',
-      swapPaybackDepths: { payback: 1 }
+      swapPaybackDepths: { payback: 1 },
+      swapPaybackAmounts: { payback: '50' }
     });
   });
   describe('a Guardian-recovered order returned on its Cancel (#1487)', () => {
@@ -1999,7 +2039,12 @@ describe('swap order note settlement', () => {
       undefined,
       'swap_settlement',
       canSign,
-      { swapOrderTxId: 'swap-2', swapSettleKind: 'settle', swapPaybackDepths: { 'payback-88': 1 } }
+      {
+        swapOrderTxId: 'swap-2',
+        swapSettleKind: 'settle',
+        swapPaybackDepths: { 'payback-88': 1 },
+        swapPaybackAmounts: { 'payback-88': '50' }
+      }
     );
   });
 });

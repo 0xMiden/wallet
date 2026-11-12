@@ -679,6 +679,11 @@ export interface IConsumeSwapSettleExtraInputs {
    * A pass admits at most one unnamed note of a round, and the other copies are ordinary incoming payments.
    */
   swapPaybackDepths?: Record<string, number>;
+  /**
+   * The requested-asset amount each payback this claim covers carries, by note id, in base units as a decimal string.
+   * Classification sums the amounts of the rounds held here against the fill the order's lineage shows.
+   */
+  swapPaybackAmounts?: Record<string, string>;
 }
 
 /**

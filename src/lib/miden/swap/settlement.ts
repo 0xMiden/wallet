@@ -470,11 +470,16 @@ export async function reconcileSwapOrderNotes(
             note.swapOrder?.role === 'payback' ? [[note.id, note.swapOrder.depth]] : []
         )
       );
+      const paybackAmounts = Object.fromEntries(
+        batch.flatMap(
+          (note): Array<[string, string]> => (note.swapOrder?.role === 'payback' ? [[note.id, note.amount]] : [])
+        )
+      );
       const settlementLink: IConsumeSwapSettleExtraInputs = {
         swapOrderTxId: order.id,
         swapSettleKind: hasPayback ? 'settle' : 'reclaim',
         ...(splitOrder ? { swapSettlePartial: true } : {}),
-        ...(hasPayback ? { swapPaybackDepths: paybackDepths } : {})
+        ...(hasPayback ? { swapPaybackDepths: paybackDepths, swapPaybackAmounts: paybackAmounts } : {})
       };
       let txId: string;
       try {
@@ -502,8 +507,11 @@ export async function reconcileSwapOrderNotes(
         if (tx.type !== 'consume') return false;
         // Rounds merged, not replaced: the winner may hold a note of an earlier batch whose round it must keep.
         const swapPaybackDepths = { ...tx.extraInputs?.swapPaybackDepths, ...settlementLink.swapPaybackDepths };
+        // Amounts merge the same way: the winner keeps the amounts of its earlier batch.
+        const swapPaybackAmounts = { ...tx.extraInputs?.swapPaybackAmounts, ...settlementLink.swapPaybackAmounts };
         tx.extraInputs = { ...(tx.extraInputs ?? {}), ...settlementLink };
         if (settlementLink.swapPaybackDepths) tx.extraInputs.swapPaybackDepths = swapPaybackDepths;
+        if (settlementLink.swapPaybackAmounts) tx.extraInputs.swapPaybackAmounts = swapPaybackAmounts;
         return undefined;
       });
       queuedTransactionIds.push(txId);
