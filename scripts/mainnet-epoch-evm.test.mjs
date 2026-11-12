@@ -140,7 +140,7 @@ function senderFixture() {
     }
   };
   return { state, expiry, input, events, account, setAllowance: value => { allowance = value; },
-    counts: () => ({ signed, broadcasts }), build: () => createEpochEvmSender(state, expiry, input) };
+    counts: () => ({ signed, broadcasts }), build: () => createEpochEvmSender(state, input) };
 }
 const activeSignal = () => new AbortController().signal;
 

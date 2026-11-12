@@ -36,17 +36,27 @@ export interface EpochEvmSenderInput {
   persist: (state: MainnetEpochCheckpoint) => Promise<void>;
 }
 export function createEpochEvmSender(
-  state: MainnetEpochCheckpoint, expiry: bigint, input: EpochEvmSenderInput
+  state: MainnetEpochCheckpoint, input: EpochEvmSenderInput
 ): { send: (transaction: CounterpartyTransaction, signal: AbortSignal) => Promise<Hash> } {
   parseMainnetEpochCheckpoint(state);
   if (state.phase !== 'reverse-authorized' || state.transactions?.length || state.evmNonceBefore === undefined ||
-      state.returnAmount === undefined || state.forwardReceived === undefined)
+      state.returnAmount === undefined || state.forwardReceived === undefined || !state.reverseAuthority)
     throw new Error('Epoch sender requires fresh authority without an unresolved signed journal');
   const nonceBefore = state.evmNonceBefore;
   const amount = BigInt(state.returnAmount);
   const forwardReceived = BigInt(state.forwardReceived);
   const account = getAddress(state.evm.account);
   const { client } = input;
+  const minimumExpiry = BigInt(state.reverseAuthority.minimumExpiry);
+  const maximumExpiry = BigInt(state.reverseAuthority.maximumExpiry);
+  const inspectLive = (transaction: CounterpartyTransaction): 'approve' | 'deposit' => {
+    const now = Date.now();
+    for (let expiry = minimumExpiry; expiry <= maximumExpiry; expiry++) {
+      try { return inspectEpochEvmTransaction(state, transaction, expiry, now); }
+      catch { /* Try only the original bounded, uploaded expiry window. */ }
+    }
+    throw new Error('Epoch request does not match any exact compact expiry within its original authority');
+  };
   let busy = false;
   let blocked = false;
   let reset = false;
@@ -63,7 +73,7 @@ export function createEpochEvmSender(
     busy = true;
     try {
       active(signal);
-      const kind = inspectEpochEvmTransaction(state, transaction, expiry);
+      const kind = inspectLive(transaction);
       if (deposited) throw new Error('Epoch deposit was already attempted');
       const checked = { to: getAddress(transaction.to), data: transaction.data, value: transaction.value };
       const allowance = await client.readAllowance();
@@ -97,7 +107,7 @@ export function createEpochEvmSender(
         ...checked, chainId: state.evm.chainId, nonce, gas, maxFeePerGas, maxPriorityFeePerGas
       };
       active(signal);
-      inspectEpochEvmTransaction(state, transaction, expiry);
+      inspectLive(transaction);
       const raw = await input.sign(envelope);
       let decoded: ReturnType<typeof parseTransaction>;
       let signer: Address;
@@ -117,7 +127,7 @@ export function createEpochEvmSender(
       state.transactions = [...(state.transactions ?? []), entry];
       await input.persist(state);
       active(signal);
-      inspectEpochEvmTransaction(state, transaction, expiry);
+      inspectLive(transaction);
       // The caller must construct this public RPC transport with retryCount: 0.
       const broadcastHash = await client.sendRawTransaction({ serializedTransaction: raw });
       if (broadcastHash.toLowerCase() !== hash.toLowerCase()) throw new Error('Epoch broadcast returned another transaction hash');
