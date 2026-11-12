@@ -9,7 +9,7 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
-import { assertProposalEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
+import { assertProposalEffectApproved, assertViewEffectApproved, proposalEffectRefusal } from './proposal-effect-guard';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -417,5 +417,24 @@ describe('assertProposalEffectApproved', () => {
     await expect(assertProposalEffectApproved(send, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
     expect(getVerificationBaseFee).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertViewEffectApproved', () => {
+  it('refuses an execute whose view moves more than approved, after the fee lookup', async () => {
+    const order: string[] = [];
+    jest.mocked(getVerificationBaseFee).mockImplementationOnce(async () => {
+      order.push('fee');
+      return 2;
+    });
+    const decode = () => {
+      order.push('decode');
+      return summaryToView(PSWAP_FILL as never);
+    };
+    const transaction = execute([{ faucetId: 'bech32:fA', amount: 100n }]);
+    const refused = await assertViewEffectApproved(transaction, decode).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect((refused as Error).message).toContain('500 of bech32:fA leaves (approved 100)');
+    expect(order).toEqual(['fee', 'decode']);
   });
 });
