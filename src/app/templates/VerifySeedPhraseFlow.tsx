@@ -65,7 +65,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(mnemonic !== null);
-  const mask = useRevealMask({ remaskOnLeave: true, resetKey: mnemonic });
+  const mask = useRevealMask({ resetKey: mnemonic });
 
   const {
     register,
@@ -399,7 +399,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
+              <SeedPhraseGrid words={words} masked={mask.masked} />
 
               <SeedRevealToggle className="mt-3 self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 

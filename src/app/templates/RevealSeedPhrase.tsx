@@ -87,7 +87,7 @@ const RevealSeedPhrase: FC = () => {
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(secret !== null);
-  const mask = useRevealMask({ remaskOnLeave: true, resetKey: secret });
+  const mask = useRevealMask({ resetKey: secret });
 
   const {
     register,
@@ -354,7 +354,7 @@ const RevealSeedPhrase: FC = () => {
       >
         {isGuardReady && (
           <SubPageSection className="gap-3">
-            <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
+            <SeedPhraseGrid words={words} masked={mask.masked} />
 
             <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 

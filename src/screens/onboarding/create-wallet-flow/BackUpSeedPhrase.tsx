@@ -9,7 +9,6 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
-import { isMobile } from 'lib/platform';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { useRevealMask } from 'lib/ui/useRevealMask';
 
@@ -27,10 +26,9 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
-  const onMobile = isMobile();
   // Off mobile a blurred word would still be readable from the markup, so a hidden word is left out of the
   // DOM and the phrase hides again whenever the window is left. Mobile keeps the blur over real text.
-  const { revealed: isWordsVisible, toggle: onWordsVisibilityToggle } = useRevealMask({ remaskOnLeave: !onMobile });
+  const { revealed: isWordsVisible, masked, toggle: onWordsVisibilityToggle } = useRevealMask();
   // The shared implementation, not a third one: `useClipboardCopy` (whose doc says what backs it
   // on each surface) flips `copied` only once the write resolves and owns the timer it arms. The
   // local version wrote without awaiting and reported success unconditionally - on the seed
@@ -78,7 +76,6 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         <article className="grid grid-cols-3 gap-2">
           {isGuardReady &&
             seedPhrase.map((word, index) => {
-              const masked = !onMobile && !isWordsVisible;
               return (
                 <Pill
                   className="w-full justify-start"

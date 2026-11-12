@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
-import { isMobile } from 'lib/platform';
+import { revealMaskApplies } from 'lib/ui/useRevealMask';
 import { cn } from 'lib/ui/util';
 
 const WORD_COUNT = 12;
@@ -120,7 +120,7 @@ export interface SeedRevealToggleProps {
 /** Show/Hide for a masked phrase. Mobile shows the words at once, so it draws nothing there. */
 export const SeedRevealToggle: React.FC<SeedRevealToggleProps> = ({ revealed, onToggle, className }) => {
   const { t } = useTranslation();
-  if (isMobile()) return null;
+  if (!revealMaskApplies()) return null;
 
   return (
     <Pill
