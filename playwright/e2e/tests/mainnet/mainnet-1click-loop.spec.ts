@@ -7,6 +7,7 @@ import { waitForSendRow, TxStatus } from '../../helpers/history';
 import { mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
+import { runMainnetNearStage } from '../../helpers/mainnet-near-runtime';
 import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
 import { assertMainnetOneClickMayStart, loadMainnetOneClickCheckpoint, saveMainnetOneClickCheckpoint } from '../../helpers/mainnet-one-click-checkpoint';
 import { assertMainnetEvmFunding, createMainnetOneClickEvmSender, readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
@@ -33,8 +34,8 @@ import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', timeout: 1_200_000 });
 test.skip(process.env.E2E_NETWORK !== 'mainnet', 'mainnet 1Click settlement uses existing funded accounts');
-test.skip(!process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR, 'E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
-test.skip(!process.env.E2E_MAINNET_EVM_KEY, 'E2E_MAINNET_EVM_KEY is unset');
+test.skip(process.env.MAINNET_NEAR_MODE === undefined && !process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR, 'E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
+test.skip(process.env.MAINNET_NEAR_MODE === undefined && !process.env.E2E_MAINNET_EVM_KEY, 'E2E_MAINNET_EVM_KEY is unset');
 
 const CHECKPOINT_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 const SLIPPAGE_BPS = 100;
@@ -166,6 +167,10 @@ async function actualReviewQuote(
 
 test('settles the smallest observed funded 1Click round trip and returns the received balance', async ({ walletB }) => {
   test.setTimeout(1_200_000);
+  if (process.env.MAINNET_NEAR_MODE !== undefined) {
+    await runMainnetNearStage(walletB, process.env.MAINNET_NEAR_MODE);
+    return;
+  }
   const mode = process.env.MAINNET_ONE_CLICK_MODE ?? 'execute';
   if (mode !== 'preflight' && mode !== 'arm' && mode !== 'execute') throw new Error('Unknown mainnet 1Click stage');
   const sourceRunId = process.env.GITHUB_RUN_ID ?? 'local';
