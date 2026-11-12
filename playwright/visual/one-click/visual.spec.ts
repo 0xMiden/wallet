@@ -15,7 +15,7 @@ test('POL bridge logo proof', async ({ page }, testInfo) => {
     await expect.poll(() => listed.evaluate(image => image instanceof HTMLImageElement && image.naturalWidth > 0)).toBe(true);
   }
   const file = testInfo.outputPath(`pol-${process.env.QA_PHASE}.png`);
-  await page.screenshot({ path: file });
+  await page.screenshot({ path: file, animations: 'disabled' });
   const resized = await sharp(file)
     .resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true })
     .toBuffer();
