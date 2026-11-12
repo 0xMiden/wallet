@@ -16,6 +16,7 @@
     "windows": [
       {
         "title": "Bread",
+        "url": "desktop.html",
         "width": 900,
         "height": 700,
         "resizable": false,
