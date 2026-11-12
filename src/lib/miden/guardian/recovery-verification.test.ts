@@ -1,7 +1,9 @@
 import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 import { RPC_READ_TIMEOUT_MS, createNodeReads } from '../transaction/reconcile-reads';
 import {
   assertRecoverySignerMatches,
+  assertUndeployedStateFromSeed,
   judgeServedState,
   readAccountChainState,
   readServedStateFacts,
@@ -20,6 +22,25 @@ jest.mock('../transaction/reconcile-reads', () => ({
 jest.mock('./account', () => ({
   getSignerDetailsFromAccount: jest.fn(),
   getGuardianCommitmentFromAccount: jest.fn()
+}));
+jest.mock('./account-recipe', () => ({
+  ...jest.requireActual('./account-recipe'),
+  rebuildGuardianAccount: jest.fn()
+}));
+const mockLock = { held: 0, labels: new Array<string>(), revoked: false };
+jest.mock('../sdk/miden-client', () => ({
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: { label?: string }) => {
+    mockLock.held++;
+    mockLock.labels.push(options?.label ?? '');
+    try {
+      return await fn({});
+    } finally {
+      mockLock.held--;
+    }
+  },
+  assertWasmHoldCurrent: (_hold: object, where: string) => {
+    if (mockLock.revoked) throw new Error(`hold lost ${where}`);
+  }
 }));
 
 const signer = getSignerDetailsFromAccount as jest.Mock;
@@ -136,7 +157,11 @@ describe('recovery verification', () => {
       isNew: false,
       commitment: 'ab'
     });
-    const entry = (accountIdHex: string, verdict: Exclude<ServedStateVerdict, 'undeployed'>, tag = verdict) => ({
+    const entry = (
+      accountIdHex: string,
+      verdict: Exclude<ServedStateVerdict, 'undeployed'>,
+      tag: string = verdict
+    ) => ({
       state: servedState(accountIdHex),
       verdict,
       tag
@@ -168,6 +193,111 @@ describe('recovery verification', () => {
       expect(() => selectAdoptable([entry('0xa', 'verified'), entry('0xa', 'unverified')])).toThrow(
         expect.objectContaining({ code: 'GUARDIAN_RECOVERY_UNVERIFIED', message: 'guardianRecoveryUnverified' })
       );
+    });
+  });
+
+  describe('assertUndeployedStateFromSeed', () => {
+    const rebuild = jest.mocked(rebuildGuardianAccount);
+    const coldSeed = new Uint8Array(32).fill(7);
+    const served = (overrides: Partial<ServedGuardianState> = {}): ServedGuardianState => ({
+      bytes: new Uint8Array(),
+      accountIdHex: '0xacc',
+      nonce: 0n,
+      isNew: true,
+      commitment: 'abcd',
+      hotCommitment: 'aa',
+      coldCommitment: 'cc',
+      guardianCommitment: 'gg',
+      ...overrides
+    });
+    const same = { accountIdHex: '0xacc', commitment: '0xABCD' };
+    const otherId = { accountIdHex: '0xother', commitment: 'abcd' };
+    const refusal = { code: 'GUARDIAN_RECOVERY_UNVERIFIED', message: 'guardianRecoveryUnverified' };
+
+    beforeEach(() => {
+      mockLock.held = 0;
+      mockLock.labels = [];
+      mockLock.revoked = false;
+    });
+
+    it('refuses a served account with no readable hot slot, rebuilding nothing', async () => {
+      await expect(
+        assertUndeployedStateFromSeed(served({ hotCommitment: undefined }), coldSeed, '0xcold')
+      ).rejects.toMatchObject(refusal);
+      expect(rebuild).not.toHaveBeenCalled();
+    });
+
+    it('refuses a served account with no readable guardian slot, rebuilding nothing', async () => {
+      await expect(
+        assertUndeployedStateFromSeed(served({ guardianCommitment: undefined }), coldSeed, '0xcold')
+      ).rejects.toMatchObject(refusal);
+      expect(rebuild).not.toHaveBeenCalled();
+    });
+
+    it('passes when the rebuild from the derived account seed matches, making no legacy rebuild', async () => {
+      rebuild.mockResolvedValue(same);
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).resolves.toBeUndefined();
+      expect(rebuild).toHaveBeenCalledTimes(1);
+      expect(rebuild).toHaveBeenCalledWith({
+        hotCommitment: 'aa',
+        coldCommitment: '0xcold',
+        guardianCommitment: 'gg',
+        initSeed: await deriveGuardianAccountSeed(coldSeed)
+      });
+    });
+
+    it('passes when only the legacy rebuild from the recovery seed itself matches', async () => {
+      rebuild.mockResolvedValueOnce(otherId).mockResolvedValueOnce(same);
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).resolves.toBeUndefined();
+      expect(rebuild).toHaveBeenCalledTimes(2);
+      expect(rebuild.mock.calls[1]?.[0]).toEqual({
+        hotCommitment: 'aa',
+        coldCommitment: '0xcold',
+        guardianCommitment: 'gg',
+        initSeed: coldSeed
+      });
+    });
+
+    it('refuses when neither rebuild has the served id', async () => {
+      rebuild.mockResolvedValue(otherId);
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).rejects.toMatchObject(refusal);
+      expect(rebuild).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a rebuild with the same id and a different commitment', async () => {
+      rebuild.mockResolvedValue({ accountIdHex: '0xacc', commitment: 'ffff' });
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).rejects.toMatchObject(refusal);
+    });
+
+    it('rebuilds under the recover-guardian-rebuild hold', async () => {
+      rebuild.mockImplementation(async () => {
+        if (mockLock.held === 0) throw new Error('rebuilt with no WASM lock hold');
+        return otherId;
+      });
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).rejects.toMatchObject(refusal);
+      expect(mockLock.labels).toEqual(['recover-guardian-rebuild']);
+    });
+
+    it('stops before the legacy rebuild once the hold is lost', async () => {
+      rebuild.mockImplementation(async () => {
+        mockLock.revoked = true;
+        return otherId;
+      });
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).rejects.toThrow('hold lost');
+      expect(rebuild).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows a WebAssembly trap from the rebuild', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      rebuild.mockRejectedValue(trap);
+
+      await expect(assertUndeployedStateFromSeed(served(), coldSeed, '0xcold')).rejects.toBe(trap);
     });
   });
 

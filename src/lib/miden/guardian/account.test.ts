@@ -10,6 +10,7 @@
 
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { isExtension } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
@@ -25,6 +26,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
+import { guardianAccountConfig } from './account-recipe';
 import { bindFeeFaucetClientScope } from '../sdk/sync-and-record-fee-faucet';
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: () => 'rpc|testnet',
@@ -133,12 +135,13 @@ jest.mock('@miden-sdk/miden-sdk', () => {
 });
 
 // Only isExtension is steered; the rest of the module (isMobile for the native
-// HTTP origin) stays real.
-const mockIsExtension = jest.fn(() => false);
+// HTTP origin) stays real. The mock is created inside the factory because
+// lib/i18n reads it while the suite's imports load, before any const here exists.
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isExtension: () => mockIsExtension()
+  isExtension: jest.fn(() => false)
 }));
+const mockIsExtension = jest.mocked(isExtension);
 
 const mockAlarmsCreate = jest.fn(async (_name: string, _info: { periodInMinutes?: number }) => {});
 const mockAlarmsClear = jest.fn(async (_name: string) => true);
@@ -551,6 +554,23 @@ describe('createGuardianAccount', () => {
     // Endpoint is returned so vault can persist it per-account. No override was
     // supplied, so it resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
+  });
+
+  it('createGuardianAccount builds from the config the recovery rebuild uses', async () => {
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    const seed = new Uint8Array([1, 2, 3, 4]);
+
+    await createAndRegister(makeWebClient(), seed);
+
+    expect(multisigClientConfig.create.mock.calls[0]?.[0]).toEqual(
+      guardianAccountConfig({
+        hotCommitment: '0xhot-commit',
+        coldCommitment: '0xcommit-s1-2-3-4',
+        guardianCommitment: '0x' + 'ab'.repeat(32),
+        guardianPublicKey: 'g-pubkey',
+        initSeed: await deriveGuardianAccountSeed(seed)
+      })
+    );
   });
 
   it('creates the account on the normalized commitment of an unprefixed uppercase Guardian key', async () => {

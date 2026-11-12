@@ -8,6 +8,7 @@ import {
   GuardianRecoveryVerificationError
 } from '../sdk/guardian-recovery-errors';
 import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 
 /** One account the Guardian served for a derived key, with the facts later checks compare. Commitments are unprefixed lower-case. */
 export interface ServedGuardianState {
@@ -67,6 +68,40 @@ export async function assertRecoverySignerMatches(acc: Account, coldCommitment: 
   const served = await readSlot(() => getSignerDetailsFromAccount(acc, true));
   if (served !== undefined && sameCommitment(served, coldCommitment)) return;
   throw new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
+}
+
+/**
+ * Refuses a never-deployed account unless the recovery phrase rebuilds it, with the same id and commitment, from
+ * the matched index's cold seed and key and the served hot and guardian keys. Accounts created before the account
+ * seed was derived were built from the cold seed itself, so that seed is tried second.
+ */
+export async function assertUndeployedStateFromSeed(
+  state: ServedGuardianState,
+  coldSeed: Uint8Array,
+  coldCommitment: string
+): Promise<void> {
+  const unverified = () =>
+    new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
+  const { hotCommitment, guardianCommitment } = state;
+  if (hotCommitment === undefined || guardianCommitment === undefined) throw unverified();
+  const [{ assertWasmHoldCurrent, withWasmClientLock }, accountSeed] = await Promise.all([
+    import('../sdk/miden-client'),
+    deriveGuardianAccountSeed(coldSeed)
+  ]);
+  const rebuilt = await withWasmClientLock(
+    async hold => {
+      for (const initSeed of [accountSeed, coldSeed]) {
+        const account = await rebuildGuardianAccount({ hotCommitment, coldCommitment, guardianCommitment, initSeed });
+        assertWasmHoldCurrent(hold, 'recover-guardian-rebuild after a rebuild');
+        if (account.accountIdHex === state.accountIdHex && sameCommitment(account.commitment, state.commitment)) {
+          return true;
+        }
+      }
+      return false;
+    },
+    { label: 'recover-guardian-rebuild' }
+  );
+  if (!rebuilt) throw unverified();
 }
 
 export type AccountChainState = { kind: 'deployed'; commitment: string } | { kind: 'absent' } | { kind: 'unknown' };

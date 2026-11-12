@@ -2483,10 +2483,12 @@ describe('MidenClientInterface', () => {
       const matchAt = (n: number) => ({ state: { stateJson: { data: Buffer.from([n]).toString('base64') } } });
       const scripted: Array<number[]> = [[1, 2]];
       const accountNames: Record<number, string> = { 1: 'recovered-a', 2: 'recovered-b', 3: 'recovered-c' };
+      // Accounts never deployed; the chain read below still reports every account deployed.
+      const fresh = new Set<number>();
       const accountFor = (bytes: Uint8Array) => ({
         id: () => ({ toString: () => accountNames[bytes[0] ?? 0], free: jest.fn() }),
         nonce: () => ({ asInt: () => 1n, free: jest.fn() }),
-        isNew: () => false,
+        isNew: () => fresh.has(bytes[0] ?? 0),
         to_commitment: () => ({ toHex: () => '0xfeed', free: jest.fn() })
       });
       const events: string[] = [];
@@ -2495,6 +2497,11 @@ describe('MidenClientInterface', () => {
       const chainRead = jest.fn(async (_id: string): Promise<AccountChainState> => {
         if (held.count > 0) throw new Error('chain read with the WASM lock held');
         return { kind: 'deployed', commitment: 'feed' };
+      });
+      // By default the phrase rebuilds the account served for its cold key: index 0 serves accounts 1 and 2.
+      const rebuild = jest.fn(async (recipe: { coldCommitment: string; initSeed: Uint8Array }) => {
+        if (held.count === 0) throw new Error('rebuilt with no WASM lock hold');
+        return { accountIdHex: recipe.coldCommitment === '0xC001' ? 'recovered-a' : 'recovered-c', commitment: 'feed' };
       });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -2558,6 +2565,10 @@ describe('MidenClientInterface', () => {
         ...jest.requireActual('../guardian/recovery-verification'),
         readAccountChainState: chainRead
       }));
+      jest.doMock('../guardian/account-recipe', () => ({
+        ...jest.requireActual('../guardian/account-recipe'),
+        rebuildGuardianAccount: rebuild
+      }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
       }));
@@ -2587,7 +2598,9 @@ describe('MidenClientInterface', () => {
         scripted,
         events,
         signerSlots,
-        chainRead
+        chainRead,
+        fresh,
+        rebuild
       };
     };
 
@@ -2712,6 +2725,64 @@ describe('MidenClientInterface', () => {
       await expect(recover()).resolves.toHaveLength(2);
       expect(chainRead).toHaveBeenCalledTimes(2);
       expect(adopt).toHaveBeenCalledTimes(2);
+    });
+
+    it('seed recovery refuses a never-deployed account that does not rebuild from the recovery phrase, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainRead, scripted, fresh, rebuild, recover } = await setupRecovery();
+      scripted[0] = [1];
+      fresh.add(1);
+      chainRead.mockResolvedValue({ kind: 'absent' });
+      rebuild.mockResolvedValue({ accountIdHex: 'someone-else', commitment: 'feed' });
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryUnverified'
+      });
+      expect(rebuild).toHaveBeenCalledTimes(2);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery adopts a never-deployed account that rebuilds from the recovery phrase', async () => {
+      const { held, adopt, chainRead, scripted, fresh, rebuild, recover } = await setupRecovery();
+      scripted[0] = [1];
+      fresh.add(1);
+      chainRead.mockResolvedValue({ kind: 'absent' });
+
+      await expect(recover()).resolves.toEqual([expect.objectContaining({ accountId: 'recovered-a', hdIndex: 0 })]);
+      expect(rebuild).toHaveBeenCalledTimes(1);
+      expect(adopt).toHaveBeenCalledTimes(1);
+      expect(held.labels).toEqual(['recover-guardian-decode', 'recover-guardian-rebuild', 'recover-guardian-adopt']);
+    });
+
+    it('seed recovery rebuilds with the seed of the index that matched', async () => {
+      const { chainRead, scripted, signerSlots, fresh, rebuild, recover } = await setupRecovery();
+      scripted.splice(0, 1, [1], [], [3]);
+      signerSlots[3] = 'c003';
+      fresh.add(1).add(3);
+      chainRead.mockResolvedValue({ kind: 'absent' });
+      const { deriveGuardianAccountSeed } = await import('../guardian/account-recipe');
+
+      await expect(recover()).resolves.toEqual([
+        expect.objectContaining({ accountId: 'recovered-a', hdIndex: 0 }),
+        expect.objectContaining({ accountId: 'recovered-c', hdIndex: 2 })
+      ]);
+      expect(rebuild.mock.calls.map(([recipe]) => [recipe.coldCommitment, recipe.initSeed])).toEqual([
+        ['0xC001', await deriveGuardianAccountSeed(new Uint8Array(32).fill(1))],
+        ['0xC003', await deriveGuardianAccountSeed(new Uint8Array(32).fill(3))]
+      ]);
+    });
+
+    it('seed recovery never rebuilds when the chain cannot be read', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { adopt, chainRead, fresh, rebuild, recover } = await setupRecovery();
+      fresh.add(1).add(2);
+      chainRead.mockResolvedValue({ kind: 'unknown' });
+
+      await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE' });
+      expect(rebuild).not.toHaveBeenCalled();
+      expect(adopt).not.toHaveBeenCalled();
     });
 
     it('seed recovery accepts the recovery signer in any case or prefix', async () => {
