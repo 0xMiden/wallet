@@ -79,15 +79,18 @@ jobs:
                   if (asset.origin === new URL(url).origin && !scripts.includes(asset.pathname) && scripts.length < 40) scripts.push(asset.pathname.slice(0, 200));
                 }
               }
-              console.log(JSON.stringify({ url, status: response.status, contentType: response.headers.get('content-type'), scripts, schema, transactionPath }));
+              console.log(JSON.stringify({ url, status: response.status, contentType: response.headers.get('content-type'), scripts, schema, transactionPath, publicConfiguration: [...body.matchAll(/GRAPHQL_URL.{0,220}/g)].slice(0, 4).map(match => match[0]) }));
               for (const path of scripts) {
                 if (Date.now() >= deadline) break;
                 try {
                   const source = await boundedText(await fetch(new URL(path, url), { signal: signal() }));
-                  const urls = [...source.matchAll(/https?:\/\/[A-Za-z0-9._:/-]+/g)].map(match => new URL(match[0])).filter(value => value.hostname.includes('miden')).map(value => `${value.origin}${value.pathname}`.slice(0, 200));
+                  const urls = [...source.matchAll(/https?:\/\/[A-Za-z0-9._:/-]+/g)].map(match => new URL(match[0])).filter(value => (value.hostname.includes('miden') || value.hostname.includes('walnut') || value.pathname.includes('graphql'))).map(value => `${value.origin}${value.pathname}`.slice(0, 200));
                   const routes = [...source.matchAll(/["'`]\/(?:api|v1|graphql)[A-Za-z0-9._/-]*/g)].map(match => match[0].slice(1, 201));
                   const receiptCode = [...source.matchAll(/(?:getTransaction|fetchTransaction|output_?notes|input_?notes|transactions?\/|txHash|transactionId|graphql|apiBaseUrl|NEXT_PUBLIC_API)[^;]{0,180}/gi)].slice(0, 15).map(match => match[0]);
-                  console.log(JSON.stringify({ script: path, endpoints: [...new Set([...urls, ...routes])].slice(0, 30), receiptCode }));
+                  const configIndex = source.indexOf('NEXT_PUBLIC_GRAPHQL_URL');
+                  const publicConfiguration = configIndex < 0 ? undefined : source.slice(Math.max(0, configIndex - 800), configIndex + 800);
+                  const pageRoutes = path.endsWith('_buildManifest.js') ? [...source.matchAll(/["']\/[^"']+/g)].slice(0, 30).map(match => match[0].slice(1, 201)) : [];
+                  console.log(JSON.stringify({ script: path, endpoints: [...new Set([...urls, ...routes])].slice(0, 30), receiptCode, publicConfiguration, pageRoutes }));
                 } catch { console.log(JSON.stringify({ script: path, status: 'unavailable' })); }
               }
             } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { inspect } from 'node:util';
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, decodeFunctionData, parseTransaction, erc20Abi, getAddress, keccak256, toBytes, zeroAddress, zeroHash } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { COMPACT_ABI } from '@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
@@ -265,6 +266,31 @@ test('does not broadcast if durable signed-hash persistence fails', async () => 
   await assert.rejects(c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal()), /disk unavailable/);
   assert.deepEqual(c.counts(), { signed: 1, broadcasts: 0 });
 });
+for (const operation of ['gas estimation', 'signing', 'broadcast']) test(`withholds request bytes from ${operation} errors while blocking retries`, async () => {
+  const c = senderFixture();
+  const marker = 'UPSTREAM_REQUEST_BYTES_MUST_NOT_ENTER_LOGS';
+  const upstream = new Error(marker, { cause: new Error(marker) });
+  upstream.request = { serializedTransaction: marker };
+  let calls = 0;
+  const fail = async () => { calls++; throw upstream; };
+  if (operation === 'gas estimation') c.input.client.estimateGas = fail;
+  else if (operation === 'signing') c.input.sign = fail;
+  else c.input.client.sendRawTransaction = fail;
+  const sender = c.build();
+  const tx = approval(c.state, BigInt(c.state.returnAmount));
+  await assert.rejects(sender.send(tx, activeSignal()), error => {
+    assert.ok(!inspect(error, { depth: 10 }).includes(marker), 'Upstream request bytes must not reach error logs');
+    assert.equal(error.cause, undefined);
+    return true;
+  });
+  assert.equal(c.state.transactions?.length ?? 0, operation === 'broadcast' ? 1 : 0);
+  assert.ok(!JSON.stringify(c.state).includes(marker));
+  const counts = c.counts();
+  await assert.rejects(sender.send(tx, activeSignal()));
+  assert.deepEqual(c.counts(), counts);
+  assert.equal(calls, 1);
+});
+
 test('retains the signed hash and blocks further signing after ambiguous broadcast', async () => {
   const c = senderFixture();
   let calls = 0;
