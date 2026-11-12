@@ -205,7 +205,7 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
  *
  * Lives here rather than beside any one registration path because all three need
  * it: the direct switch's `/configure` loop, the coordinated switch's
- * `registerOnGuardian` loop and Guardian creation's `registerGuardianAccount` each
+ * `registerOnGuardianWithRetry` loop and Guardian creation's `registerGuardianAccount` each
  * retry a write that may have landed before its response was lost, and treating the operator's "I already have it" as a failure
  * would turn the idempotent case into a false `registerFailed`.
  */

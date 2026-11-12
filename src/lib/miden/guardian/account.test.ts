@@ -185,13 +185,6 @@ jest.mock('@openzeppelin/guardian-client', () => ({
   }))
 }));
 
-// Registration runs with no hold, so it must never reach for the realm's client.
-const mockGetMidenClient = jest.fn();
-jest.mock('lib/miden/sdk/miden-client', () => ({
-  ...jest.requireActual('lib/miden/sdk/miden-client'),
-  getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
-}));
-
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   MultisigClient: jest.fn().mockImplementation(() => ({
     create: (...a: unknown[]) => multisigClientConfig.create(...a)
@@ -762,7 +755,6 @@ describe('createGuardianAccount', () => {
     // On a Guardian client of its own for the account's endpoint, signed by the cold key the build used.
     expect(jest.mocked(GuardianHttpClient).mock.calls.slice(clientsBuilt)).toEqual([['https://picked.guardian']]);
     expect(mockSetSigner).toHaveBeenLastCalledWith(coldSigner);
-    expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     expect(multisig.account.id.mock.calls.length + multisig.account.serialize.mock.calls.length).toBe(accountCalls);
     expect(

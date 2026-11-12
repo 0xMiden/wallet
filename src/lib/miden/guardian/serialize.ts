@@ -251,7 +251,7 @@ export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 export const GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS = 60_000;
 
 /**
- * Delay (ms) before the next `registerOnGuardian` retry. On a 429 that carries a
+ * Delay (ms) before the next `/configure` retry. On a 429 that carries a
  * server Retry-After, honour that cooldown (clamped to
  * [base, rate-limited-max]) — the guardian just told us how long to wait, so a
  * blind exponential retry only earns another 429. Otherwise fall back to the
