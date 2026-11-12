@@ -351,4 +351,55 @@ describe('claim-floor fee retry', () => {
     });
     expect(mockFloorAsync).toHaveBeenCalledTimes(2);
   });
+
+  it('drops the pending retry when a native-asset change starts a read that is still in flight', async () => {
+    const second = deferred<number | null>();
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockResolvedValueOnce(null).mockReturnValueOnce(second.promise);
+    renderHook(() => useClaimFloorBaseFee());
+    // Settle the mount read: its continuation arms the retry.
+    await act(async () => {
+      await mockFloorAsync.mock.results[0]!.value;
+    });
+
+    await act(async () => {
+      mockSubscribe.mock.calls[0]![0]('native');
+    });
+    expect(mockFloorAsync).toHaveBeenCalledTimes(2);
+
+    // The changed asset's read has not answered when the old retry would have fired.
+    await act(async () => {
+      jest.advanceTimersByTime(FEE_PROBE_RETRY_COOLDOWN_MS);
+    });
+    expect(mockFloorAsync).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      second.resolve(5);
+    });
+  });
+
+  it('keeps a newer claim-floor read when an older one answers after it', async () => {
+    const first = deferred<number | null>();
+    const second = deferred<number | null>();
+    mockFloorSync.mockReturnValue(null);
+    mockFloorAsync.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useClaimFloorBaseFee());
+    await act(async () => {
+      mockSubscribe.mock.calls[0]![0]('native');
+    });
+    expect(mockFloorAsync).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve(5);
+    });
+    expect(result.current).toBe(5);
+    // The stale answer neither replaces the newer fee nor arms a retry.
+    await act(async () => {
+      first.resolve(null);
+    });
+    expect(result.current).toBe(5);
+    await act(async () => {
+      jest.advanceTimersByTime(FEE_PROBE_RETRY_COOLDOWN_MS);
+    });
+    expect(mockFloorAsync).toHaveBeenCalledTimes(2);
+  });
 });

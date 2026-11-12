@@ -21,7 +21,7 @@ import Dexie from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 
-import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import * as SdkHelpers from '../sdk/helpers';
 import * as WasmClient from '../sdk/miden-client';
 import { ConsumableNote, NoteTypeEnum } from '../types';
@@ -199,6 +199,53 @@ describe('queueConsumeNotes — settlement cohort', () => {
     const queued = (await consumeRows()).filter(row => row.id !== live.id);
     expect(queued).toHaveLength(1);
     expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('does not refuse a cohort note a live claim covers while an earlier claim of it backs off', async () => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+    const live = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    await Repo.transactions.add(live);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('fresh')],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      ['held', 'fresh']
+    );
+
+    const queued = (await consumeRows()).filter(row => row.id !== live.id && row.id !== failed.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('writes no row for a settlement cohort while a dApp transaction holds one member', async () => {
+    const dapp = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...dapp, heldNoteIds: ['held-by-dapp'], status: ITransactionStatus.Queued });
+
+    await expect(
+      initiateConsumeNotesTransaction(
+        ACCOUNT,
+        [note('fresh')],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement',
+        undefined,
+        { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+        ['held-by-dapp', 'fresh']
+      )
+    ).rejects.toBeInstanceOf(ClaimCohortRefusedError);
+    expect(await consumeRows()).toEqual([]);
   });
 });
 
