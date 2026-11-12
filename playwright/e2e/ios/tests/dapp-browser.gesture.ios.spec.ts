@@ -4,9 +4,12 @@ import { resolve } from 'node:path';
 
 import sharp from 'sharp';
 
+import type { PresentationMorphEvent } from '@miden/dapp-browser';
+
 import english from '../../../../public/_locales/en/en.json';
 import { DappBrowserDriver } from '../../harness/dapp-browser-driver';
 import { fixtureDapp, startDappFixtureServer } from '../../harness/dapp-fixture-server';
+import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { expect, test } from '../fixtures/two-simulators';
 import { SimulatorControl } from '../helpers/simulator-control';
 
@@ -103,6 +106,43 @@ async function footprint(file: string) {
   return { count, top, bottom, width: info.width, height: info.height };
 }
 
+function nativeMorphEvents(timeline: TimelineRecorder, sessionId: string, firstDownMs: number, beforeUpMs: number) {
+  return timeline.getEventsByCategory('browser_console').flatMap(entry => {
+    const atMs = Date.parse(entry.timestamp);
+    if (
+      entry.wallet !== 'A' ||
+      !Number.isFinite(atMs) ||
+      atMs < firstDownMs ||
+      atMs > beforeUpMs ||
+      typeof entry.data?.text !== 'string'
+    ) {
+      return [];
+    }
+    try {
+      const event: PresentationMorphEvent = JSON.parse(entry.data.text);
+      if (
+        !event ||
+        event.id !== sessionId ||
+        typeof event.morphId !== 'string' ||
+        !event.morphId.startsWith('native-') ||
+        typeof event.managedHostCloseToken !== 'string' ||
+        event.managedHostCloseToken.length === 0 ||
+        !['started', 'retargeted', 'settled', 'cancelled'].includes(event.phase) ||
+        !['expanded', 'collapsed'].includes(event.target) ||
+        typeof event.tracking !== 'boolean' ||
+        !Number.isFinite(event.progress) ||
+        !Number.isFinite(event.velocity) ||
+        !Number.isSafeInteger(event.visibilitySequence)
+      ) {
+        return [];
+      }
+      return [{ atMs, event }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 test.describe('iOS native capsule gestures', () => {
   test.skip(process.env.DAPP_PRESENTATION_GESTURE_IOS !== '1', 'Requires the dedicated native idb input lane');
 
@@ -122,7 +162,7 @@ test.describe('iOS native capsule gestures', () => {
     );
   });
 
-  test('native capsule tracks, reverses and commits on the same document', async ({ walletA }, testInfo) => {
+  test('native capsule tracks, reverses and commits on the same document', async ({ walletA, timeline }, testInfo) => {
     await walletA.createGuardianWallet();
     const notification = await walletA.settleNotificationPrompt();
     expect(notification.answered, 'system permission UI must be gone before native input').toBe(true);
@@ -187,12 +227,10 @@ test.describe('iOS native capsule gestures', () => {
         );
         void command.catch(() => undefined);
         const samples = [];
-        let observedTracking = false;
         let nativeResult: NativeReply | undefined;
         try {
           await expect.poll(() => started, { timeout: 20_000 }).toBe(true);
           for (let index = 0; touching && index < 10; index += 1) {
-            observedTracking ||= (await driver.state()).motion?.tracking === true;
             const file = testInfo.outputPath(`${name}-during-${index}.png`);
             const captureStartMs = Date.now();
             await sim.screenshot(walletA.udid, file);
@@ -204,10 +242,53 @@ test.describe('iOS native capsule gestures', () => {
           nativeResult = await command;
         }
         if (!nativeResult) throw new Error('Native HID result is missing');
+        const nativeEvents = nativeMorphEvents(timeline, initialSession.id, firstDownMs, beforeUpMs);
+        const observedTracking = nativeEvents.some(
+          ({ event }) => event.phase === 'retargeted' && event.target === 'collapsed' && event.tracking
+        );
+        const morphIdentities = new Set(nativeEvents.map(({ event }) => event.morphId));
+        const lifetimes = new Set(nativeEvents.map(({ event }) => event.managedHostCloseToken));
+        const visibilitySequences = new Set(nativeEvents.map(({ event }) => event.visibilitySequence));
+        const nativeEvidence = nativeEvents.map(({ atMs, event }) => ({
+          atMs,
+          sessionMatches: event.id === initialSession.id,
+          phase: event.phase,
+          target: event.target,
+          tracking: event.tracking,
+          progress: event.progress,
+          velocity: event.velocity,
+          visibilitySequence: event.visibilitySequence
+        }));
+        await writeFile(
+          testInfo.outputPath(`${name}-input-evidence.json`),
+          JSON.stringify(
+            {
+              sourceSha: process.env.GITHUB_SHA,
+              name,
+              bounds,
+              points,
+              nativeResult,
+              firstDownMs,
+              beforeUpMs,
+              observedTracking,
+              morphIdentityCount: morphIdentities.size,
+              lifetimeCount: lifetimes.size,
+              visibilitySequenceCount: visibilitySequences.size,
+              nativeEvents: nativeEvidence,
+              before,
+              samples
+            },
+            null,
+            2
+          )
+        );
         expect(nativeResult.pid).toBe(initial.pid);
         expect(nativeResult.upSamples).toBe(1);
         expect(nativeResult.downSamples).toBeGreaterThan(1);
         expect(observedTracking, 'actual HID contact must enter native gesture tracking').toBe(true);
+        expect(morphIdentities.size, 'one native morph must own this HID command').toBe(1);
+        expect(lifetimes.size, 'the native events must retain one managed lifetime').toBe(1);
+        expect(visibilitySequences.size, 'the native events must retain one visibility command').toBe(1);
         expect(firstDownMs > 0, 'the first native DOWN timestamp must be positive').toBe(true);
         expect(beforeUpMs).toBeGreaterThan(firstDownMs);
         expect(
@@ -257,6 +338,7 @@ test.describe('iOS native capsule gestures', () => {
           firstDownMs,
           beforeUpMs,
           observedTracking,
+          nativeEvents: nativeEvidence,
           before,
           samples,
           after,
