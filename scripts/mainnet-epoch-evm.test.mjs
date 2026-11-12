@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { encodeFunctionData, decodeFunctionData, erc20Abi, getAddress, keccak256, toBytes, zeroAddress, zeroHash } from 'viem';
+import { encodeFunctionData, decodeFunctionData, parseTransaction, erc20Abi, getAddress, keccak256, toBytes, zeroAddress, zeroHash } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { COMPACT_ABI } from '@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 import { getTokenId } from '@epoch-protocol/epoch-intents-sdk/dist/helpers/chains.js';
 import { BASE_MANDATE_TYPESTRING, EVM_TO_MIDEN_EXTRA_TYPESTRING, getClaimHash, getCompactTypehash } from '@epoch-protocol/epoch-commons-sdk';
-import { inspectEpochEvmTransaction, createEpochEvmSender } from '../node_modules/.cache/nightly-epoch-evm.mjs';
+import { inspectEpochEvmTransaction, createEpochEvmSender, reconcileEpochEvmReceipts } from '../node_modules/.cache/nightly-epoch-evm.mjs';
 import { epochCheckpointFixture, epochReverseAuthorityFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
 
 const hash = `0x${'a'.repeat(64)}`;
@@ -268,6 +268,60 @@ test('refuses an aborted request without signing', async () => {
   const abort = new AbortController(); abort.abort();
   await assert.rejects(c.build().send(approval(c.state, BigInt(c.state.returnAmount)), abort.signal));
   assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
+
+async function recoveryFixture() {
+  const c = senderFixture();
+  const raw = [];
+  const send = c.input.client.sendRawTransaction;
+  c.input.client.sendRawTransaction = async input => { raw.push(input.serializedTransaction); return send(input); };
+  const sender = c.build();
+  await sender.send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  await sender.send(deposit(c.state, c.expiry), activeSignal());
+  const evidence = raw.map(bytes => {
+    const tx = parseTransaction(bytes);
+    const hash = keccak256(bytes);
+    return { transaction: { ...tx, hash, from: c.account.address, input: tx.data },
+      receipt: { transactionHash: hash, status: 'success', gasUsed: 1000n, effectiveGasPrice: 1n } };
+  });
+  c.state.phase = 'recovery-required'; c.state.paidEvmFees = '0';
+  c.state.transactions.forEach(tx => { delete tx.feeWei; });
+  c.state.reverseAuthority.preparedAt = new Date(Date.now() - 600_000).toISOString();
+  return { ...c, evidence };
+}
+test('reconciles actual signed hashes/receipts under original expired authority without renewing signing or budgets', async () => {
+  const c = await recoveryFixture();
+  const original = JSON.stringify({ source: c.state.sourceRunId, authorization: c.state.authorizationRunId,
+    reverse: c.state.reverseAuthority, nonce: c.state.reverseNonce, amount: c.state.returnAmount, budget: c.state.evmFeeBudget });
+  assert.equal(reconcileEpochEvmReceipts(c.state, c.evidence), true);
+  assert.equal(c.state.paidEvmFees, '2000');
+  assert.deepEqual(c.state.transactions.map(tx => tx.feeWei), ['1000', '1000']);
+  assert.equal(c.state.phase, 'recovery-required');
+  assert.equal(JSON.stringify({ source: c.state.sourceRunId, authorization: c.state.authorizationRunId,
+    reverse: c.state.reverseAuthority, nonce: c.state.reverseNonce, amount: c.state.returnAmount, budget: c.state.evmFeeBudget }), original);
+  assert.throws(() => c.build());
+  assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 });
+});
+for (const [name, change] of [
+  ['missing receipt', c => { c.evidence.pop(); }],
+  ['different signed hash', c => { c.evidence[1].transaction.hash = hash; }],
+  ['different receipt hash', c => { c.evidence[1].receipt.transactionHash = hash; }],
+  ['different payer', c => { c.evidence[1].transaction.from = `0x${'9'.repeat(40)}`; }],
+  ['different nonce', c => { c.evidence[1].transaction.nonce++; }],
+  ['different execution bytes', c => { c.evidence[1].transaction.input += '00'; }],
+  ['different live chain', c => { c.evidence[1].transaction.chainId = 1; }],
+  ['receipt above signed gas bound', c => { c.evidence[1].receipt.gasUsed = 1_000_000n; }],
+  ['contradictory saved fee', c => { c.state.transactions[0].feeWei = '2000'; }]
+]) test(`blocks readonly recovery on ${name}, without creating another signature`, async () => {
+  const c = await recoveryFixture(); change(c);
+  assert.throws(() => reconcileEpochEvmReceipts(c.state, c.evidence));
+  assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 });
+});
+test('counts a reverted deposit receipt but never treats it as permission to claim or retry funding', async () => {
+  const c = await recoveryFixture(); c.evidence[1].receipt.status = 'reverted';
+  assert.equal(reconcileEpochEvmReceipts(c.state, c.evidence), false);
+  assert.equal(c.state.paidEvmFees, '2000');
+  assert.equal(c.state.phase, 'recovery-required');
 });
 
 test('requires a reverse-authorized phase instead of reusing settled or ambiguous state', () => {

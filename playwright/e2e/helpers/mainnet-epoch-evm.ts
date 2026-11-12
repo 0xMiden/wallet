@@ -8,6 +8,15 @@ import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isHex, ke
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochEvmTransaction } from './mainnet-epoch-checkpoint';
 
+export interface EpochEvmRecoveryEvidence {
+  transaction: { hash: Hash; from: Address; to: Address | null; input: Hex; value: bigint; nonce: number;
+    chainId?: number; gas: bigint; maxFeePerGas?: bigint; type: string };
+  receipt: { transactionHash: Hash; status: 'success' | 'reverted'; gasUsed: bigint; effectiveGasPrice: bigint };
+}
+export function reconcileEpochEvmReceipts(_state: MainnetEpochCheckpoint, _evidence: readonly EpochEvmRecoveryEvidence[]): boolean {
+  throw new Error('Epoch EVM receipt reconciliation is not implemented');
+}
+
 export interface EpochEvmEnvelope {
   chainId: number;
   to: Address;
