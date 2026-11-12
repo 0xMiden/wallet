@@ -213,6 +213,56 @@ describe('consume', () => {
   });
 });
 
+describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', type => {
+  const approved = () =>
+    row({
+      type,
+      faucetId: 'hex:bech32:fA',
+      amount: 100n,
+      extraInputs: { requestedFaucetId: 'bech32:fB', requestedAmount: 1000n, sourceFaucetId: 'bech32:fA' }
+    });
+  const sends = (...assets: Asset[]) =>
+    summary({
+      removed: [...assets, fa('usdcx', 2n)],
+      outputs: [...assets.map(asset => note([asset])), feeNote(2n)]
+    });
+
+  it('permits only the persisted offered amount, with the kernel fee excluded', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 100n)))).toBeUndefined();
+    expect(refusalOf(approved(), sends(fa('fA', 99n)))).toBeUndefined();
+  });
+
+  it('refuses one unit beyond the offered amount', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 101n)))).toBe('101 of bech32:fA leaves (approved 100)');
+  });
+
+  it('never treats the requested or received asset as permission to spend it', () => {
+    expect(refusalOf(approved(), sends(fa('fA', 100n), fa('fB', 1n)))).toBe('1 of bech32:fB leaves (approved 0)');
+  });
+
+  it('refuses an outgoing NFT', () => {
+    const outgoing = summary({
+      removed: [fa('usdcx', 2n)],
+      outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
+      unlisted: 1
+    });
+    expect(refusalOf(approved(), outgoing)).toContain('an unapproved NFT of bech32:fN leaves');
+  });
+
+  it('refuses effects the summary cannot list', () => {
+    expect(refusalOf(approved(), summary({ unlisted: 1 }))).toContain('vault change(s) the summary does not list');
+  });
+
+  it('does not sign a row missing its persisted amount or faucet', async () => {
+    givenSummary(sends(fa('fA', 1n)));
+    for (const missing of [{ amount: undefined }, { faucetId: undefined }]) {
+      await expect(assertProposalEffectApproved({ ...approved(), ...missing }, 'sum')).rejects.toThrow(
+        ProposalEffectRefusedError
+      );
+    }
+  });
+});
+
 describe('execute', () => {
   const sends = (...assets: Asset[]) =>
     summary({
@@ -297,7 +347,10 @@ describe('execute', () => {
 describe('assertProposalEffectApproved', () => {
   it.each([
     ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])]
+    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])],
+    ...(['send', 'swap', 'earn-deposit'] as const).map(
+      type => [type, row({ type, faucetId: 'bech32:fA', amount: 100n })] as const
+    )
   ])('refuses a %s proposal with no summary to check', async (_type, transaction) => {
     givenSummary(summary({}));
     await expect(assertProposalEffectApproved(transaction, undefined)).rejects.toThrow(ProposalEffectRefusedError);
@@ -307,7 +360,10 @@ describe('assertProposalEffectApproved', () => {
 
   it.each([
     ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])]
+    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])],
+    ...(['send', 'swap', 'earn-deposit'] as const).map(
+      type => [type, row({ type, faucetId: 'bech32:fA', amount: 100n })] as const
+    )
   ])('refuses a %s proposal whose summary does not decode, a trap included', async (_type, transaction) => {
     jest.mocked(TransactionSummary.deserialize).mockImplementation(() => {
       throw new Error('unexpected end of input');
@@ -412,9 +468,9 @@ describe('assertProposalEffectApproved', () => {
 
   it('leaves an unchecked type alone without reading its summary', async () => {
     givenSummary(PSWAP_FILL);
-    const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
-    await expect(assertProposalEffectApproved(send, undefined)).resolves.toBeUndefined();
-    await expect(assertProposalEffectApproved(send, 'sum')).resolves.toBeUndefined();
+    const unchecked = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertProposalEffectApproved(unchecked, undefined)).resolves.toBeUndefined();
+    await expect(assertProposalEffectApproved(unchecked, 'sum')).resolves.toBeUndefined();
     expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
     expect(getVerificationBaseFee).not.toHaveBeenCalled();
   });
