@@ -111,6 +111,7 @@ final class BreadPresentationController {
     private boolean capsuleTracking;
     private boolean capsuleReducedMotion;
     private boolean interactiveCollapse;
+    private boolean backGestureStarted;
     private boolean backPreview;
     private float downX;
     private float downY;
@@ -966,6 +967,25 @@ final class BreadPresentationController {
         if (!beginInteractiveCollapse(0, 0)) return false;
         backPreview = true;
         return true;
+    }
+
+    void beginBackGesture() {
+        backGestureStarted = true;
+    }
+
+    boolean finishBackGesture() {
+        boolean started = backGestureStarted;
+        backGestureStarted = false;
+        return started;
+    }
+
+    boolean backPreviewActive() {
+        return backPreview;
+    }
+
+    void cancelBackGesture() {
+        backGestureStarted = false;
+        cancelBackPreview();
     }
 
     void progressBackPreview(float progress) {

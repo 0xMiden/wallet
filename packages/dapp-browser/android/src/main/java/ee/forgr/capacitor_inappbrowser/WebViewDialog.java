@@ -120,8 +120,6 @@ public class WebViewDialog extends Dialog {
     private Object presentationBackCallback;
     private enum BackAction { PAGE, MINIMIZE, DISMISS, NONE }
     private BackAction backAction = BackAction.NONE;
-    private boolean backPreviewStarted;
-    private boolean backGestureStarted;
     private boolean permanentlyClosed;
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
@@ -171,20 +169,18 @@ public class WebViewDialog extends Dialog {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             presentationBackCallback = new OnBackAnimationCallback() {
                 @Override public void onBackStarted(BackEvent event) {
-                    backGestureStarted = true;
+                    presentation.beginBackGesture();
                     backAction = currentBackAction();
-                    backPreviewStarted = backAction == BackAction.MINIMIZE && presentation.beginBackPreview();
+                    if (backAction == BackAction.MINIMIZE) presentation.beginBackPreview();
                 }
 
                 @Override public void onBackProgressed(BackEvent event) {
-                    if (backPreviewStarted && presentation != null) presentation.progressBackPreview(event.getProgress());
+                    if (presentation != null) presentation.progressBackPreview(event.getProgress());
                 }
 
                 @Override public void onBackCancelled() {
-                    if (backPreviewStarted && presentation != null) presentation.cancelBackPreview();
-                    backPreviewStarted = false;
+                    if (presentation != null) presentation.cancelBackGesture();
                     backAction = BackAction.NONE;
-                    backGestureStarted = false;
                 }
 
                 @Override public void onBackInvoked() {
@@ -231,12 +227,14 @@ public class WebViewDialog extends Dialog {
     }
 
     private void finishPredictiveBack() {
-        BackAction action = backGestureStarted ? backAction : currentBackAction();
-        boolean preview = backPreviewStarted;
+        boolean gestureStarted = presentation != null && presentation.finishBackGesture();
+        boolean preview = presentation != null && presentation.backPreviewActive();
+        BackAction action = gestureStarted ? backAction : currentBackAction();
         backAction = BackAction.NONE;
-        backPreviewStarted = false;
-        backGestureStarted = false;
-        if (permanentlyClosed || managedClosing()) return;
+        if (permanentlyClosed || managedClosing()) {
+            if (preview && presentation != null) presentation.cancelBackPreview();
+            return;
+        }
         performBackAction(action, preview);
     }
 
@@ -255,8 +253,7 @@ public class WebViewDialog extends Dialog {
         presentationBackDispatcher = null;
         presentationBackCallback = null;
         backAction = BackAction.NONE;
-        backPreviewStarted = false;
-        backGestureStarted = false;
+        if (presentation != null) presentation.cancelBackGesture();
     }
 
     boolean presentationMorph(String to, JSObject card, JSObject velocity, String morphId, Integer revision, Integer sequence) {

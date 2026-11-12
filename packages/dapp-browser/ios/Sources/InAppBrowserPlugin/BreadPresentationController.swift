@@ -39,6 +39,7 @@ final class BreadPresentationController: NSObject, UIGestureRecognizerDelegate {
     private let cover = UIView()
     private let button = UIButton(type: .system)
     private var capsulePanRecognizer: UIPanGestureRecognizer?
+    private var rejectedCapsulePan = false
     private let capsuleBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private var revealAnimator: UIViewPropertyAnimator?
     private let errorLabel = UILabel()
@@ -490,10 +491,20 @@ final class BreadPresentationController: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === capsulePanRecognizer else { return true }
-        guard state.effectiveVisibility, !moving, animator != nil, owner?.managedClose?.closing != true,
-              let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else {
+            rejectedCapsulePan = true
+            return false
+        }
         let velocity = pan.velocity(in: button)
-        return BreadCapsuleDrag.shouldBegin(horizontalVelocity: velocity.x, verticalVelocity: velocity.y)
+        return capsulePanShouldBegin(horizontalVelocity: velocity.x, verticalVelocity: velocity.y)
+    }
+
+    func capsulePanShouldBegin(horizontalVelocity: CGFloat, verticalVelocity: CGFloat) -> Bool {
+        let shouldBegin = state.effectiveVisibility && !moving && animator != nil
+            && owner?.managedClose?.closing != true
+            && BreadCapsuleDrag.shouldBegin(horizontalVelocity: horizontalVelocity, verticalVelocity: verticalVelocity)
+        rejectedCapsulePan = !shouldBegin
+        return shouldBegin
     }
 
     func handleCapsulePan(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {
@@ -1017,13 +1028,21 @@ final class BreadPresentationController: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func capsuleTouchDown() {
+        rejectedCapsulePan = false
         BreadFrameRateBoost.shared.hold()
         prepareMorph()
     }
 
-    @objc private func capsuleTouchEnded() { BreadFrameRateBoost.shared.release() }
+    @objc private func capsuleTouchEnded() {
+        rejectedCapsulePan = false
+        BreadFrameRateBoost.shared.release()
+    }
 
     @objc private func minimizeTapped() {
+        guard !rejectedCapsulePan else {
+            capsuleTouchEnded()
+            return
+        }
         guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else {
             capsuleTouchEnded()
             return

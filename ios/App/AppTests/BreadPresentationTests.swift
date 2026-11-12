@@ -2298,6 +2298,33 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 0, verticalVelocity: -1))
     }
 
+    func testHorizontalOrUpwardCapsuleDragEndingInsideDoesNotMinimize() async throws {
+        let (horizontal, horizontalPlugin) = try await revealedMorph()
+        defer { horizontal.dispose(); BreadFrameRateBoost.shared.release() }
+        let horizontalButton = try capsule(horizontal)
+        XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 40, verticalVelocity: 10))
+        horizontalButton.sendActions(for: .touchDown)
+        XCTAssertFalse(horizontal.presentation.capsulePanShouldBegin(horizontalVelocity: 40, verticalVelocity: 10))
+        horizontalButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(horizontalPlugin.minimizations.isEmpty,
+                      "a horizontal drag that ends inside the capsule does not minimize")
+
+        let (upward, upwardPlugin) = try await revealedMorph()
+        defer { upward.dispose() }
+        let upwardButton = try capsule(upward)
+        XCTAssertFalse(BreadCapsuleDrag.shouldBegin(horizontalVelocity: 0, verticalVelocity: -40))
+        upwardButton.sendActions(for: .touchDown)
+        XCTAssertFalse(upward.presentation.capsulePanShouldBegin(horizontalVelocity: 0, verticalVelocity: -40))
+        upwardButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(upwardPlugin.minimizations.isEmpty,
+                      "an upward drag that ends inside the capsule does not minimize")
+
+        let (tap, tapPlugin) = try await revealedMorph()
+        defer { tap.dispose() }
+        try capsule(tap).sendActions(for: .touchUpInside)
+        XCTAssertEqual(tapPlugin.minimizations.count, 1, "a tap still minimizes")
+    }
+
     func testCapsulePullMapsDownwardDistanceToCollapseProgress() {
         XCTAssertEqual(BreadCapsuleDrag.progress(translationY: 90, distance: 300), 0.7, accuracy: 1e-9)
         XCTAssertGreaterThan(BreadCapsuleDrag.progress(translationY: -30, distance: 300), 1)

@@ -1869,7 +1869,7 @@ describe('native morph expand', () => {
 describe('native morph adoption', () => {
   afterEach(() => jest.useRealTimers());
 
-  function minimizeEvent(extra: { morphId?: string | null; policyRevision?: number } = {}) {
+  function minimizeEvent(extra: { morphId?: string; policyRevision?: number } = {}) {
     return {
       id: 'origin',
       managedHostCloseToken: lifetime(),
@@ -1935,10 +1935,10 @@ describe('native morph adoption', () => {
     expect(parked()).toEqual([]);
   });
 
-  it('parks a null-id native minimize through the guarded route without a morph wait', async () => {
+  it('parks a native minimize without a morph id through the guarded route without a morph wait', async () => {
     await openForeground();
     jest.useFakeTimers();
-    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: null })));
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent()));
     await settle();
 
     expect(control().motion).toBeNull();

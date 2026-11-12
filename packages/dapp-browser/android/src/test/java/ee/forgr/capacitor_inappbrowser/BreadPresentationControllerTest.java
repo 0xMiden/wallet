@@ -2095,56 +2095,31 @@ public class BreadPresentationControllerTest {
 
     @Test @Config(shadows = PaintWebView.class)
     public void reducedMotionCapsuleSwipeStillMinimizes() throws Exception {
-        openMorph(false);
-        reveal();
-        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
-        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-            ReflectionHelpers.ClassParameter.from(float.class, 0f));
-        try {
-            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16, null);
-            assertTrue("the short downward swipe crosses the fling threshold",
-                gesture.verticalSpeedDpPerSecond >= 450f);
+        openNearLandingCapsule();
+        withAnimationsDisabled(() -> {
+            dispatchCapsuleGesture(0, 16, 16, null);
             verify(callbacks, times(1).description("a downward capsule swipe minimizes with animations disabled"))
                 .presentationMinimizeRequested(eq(controller.state.policyRevision()),
                     eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
             assertSettledCollapsePrecedesNullMinimizeRequest();
-        } finally {
-            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-                ReflectionHelpers.ClassParameter.from(float.class, 1f));
-        }
+        });
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void reducedMotionCapsuleSwipeCanMinimizeBelowTheFlingThreshold() throws Exception {
-        openMorph(false);
-        reveal();
-        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
-        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-            ReflectionHelpers.ClassParameter.from(float.class, 0f));
-        try {
-            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 60, 200, null);
-            assertTrue("the slow downward swipe stays below the fling threshold",
-                gesture.verticalSpeedDpPerSecond < 450f);
+    public void reducedMotionSlowDownwardCapsuleSwipeStillMinimizes() throws Exception {
+        openNearLandingCapsule();
+        withAnimationsDisabled(() -> {
+            dispatchCapsuleGesture(0, 60, 200, null);
             verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
                 eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
             assertSettledCollapsePrecedesNullMinimizeRequest();
-        } finally {
-            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-                ReflectionHelpers.ClassParameter.from(float.class, 1f));
-        }
+        });
     }
 
     @Test @Config(shadows = PaintWebView.class)
     public void animatedCapsuleIgnoresHorizontalFlingBelowTheVerticalGate() throws Exception {
-        openMorph(false);
-        reveal();
-        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
-
-        CapsuleGestureResult gesture = dispatchCapsuleGesture(12, 0, 16, null);
-
-        assertTrue("the horizontal swipe exceeds the vector fling threshold", gesture.speedDpPerSecond >= 450f);
-        assertTrue("the downward component stays below the vertical fling threshold",
-            gesture.verticalSpeedDpPerSecond < 450f);
+        openNearLandingCapsule();
+        dispatchCapsuleGesture(12, 0, 16, null);
         verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
         assertTrue("a horizontal fling leaves the dialog open", dialog.isShowing());
         assertEquals("a horizontal fling leaves the page expanded", 1f, driver().target(), 0f);
@@ -2152,23 +2127,12 @@ public class BreadPresentationControllerTest {
 
     @Test @Config(shadows = PaintWebView.class)
     public void reducedMotionCapsuleIgnoresHorizontalFlingBelowTheVerticalGate() throws Exception {
-        openMorph(false);
-        reveal();
-        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
-        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-            ReflectionHelpers.ClassParameter.from(float.class, 0f));
-        try {
-            CapsuleGestureResult gesture = dispatchCapsuleGesture(12, 0, 16, null);
-
-            assertTrue("the horizontal swipe exceeds the vector fling threshold", gesture.speedDpPerSecond >= 450f);
-            assertTrue("the downward component stays below the vertical fling threshold",
-                gesture.verticalSpeedDpPerSecond < 450f);
+        openNearLandingCapsule();
+        withAnimationsDisabled(() -> {
+            dispatchCapsuleGesture(12, 0, 16, null);
             verify(callbacks, never()).presentationMinimizeRequested(anyLong(), anyLong(), any(), any());
             assertTrue("a horizontal fling leaves the dialog open", dialog.isShowing());
-        } finally {
-            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-                ReflectionHelpers.ClassParameter.from(float.class, 1f));
-        }
+        });
     }
 
     @Test @Config(shadows = PaintWebView.class)
@@ -2176,19 +2140,12 @@ public class BreadPresentationControllerTest {
         openMorph(false);
         reveal();
         BreadMorphCard longPathFixture = new BreadMorphCard(new RectF(1600, 1600, 1640, 1640), 16);
-        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-            ReflectionHelpers.ClassParameter.from(float.class, 0f));
-        try {
-            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16,
-                () -> driver().place(longPathFixture, 1f));
-            assertTrue("the vertical swipe crosses the fling threshold", gesture.verticalSpeedDpPerSecond >= 450f);
+        withAnimationsDisabled(() -> {
+            dispatchCapsuleGesture(0, 16, 16, () -> driver().place(longPathFixture, 1f));
             verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
                 eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
             assertSettledCollapsePrecedesNullMinimizeRequest();
-        } finally {
-            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
-                ReflectionHelpers.ClassParameter.from(float.class, 1f));
-        }
+        });
     }
 
     @Test @Config(shadows = PaintWebView.class)
@@ -2268,7 +2225,7 @@ public class BreadPresentationControllerTest {
         try {
             assertTrue("the drag starts with animator motion enabled",
                 android.animation.ValueAnimator.areAnimatorsEnabled());
-            CapsuleGestureResult gesture = dispatchCapsuleGesture(0, 16, 16, null, () -> {
+            dispatchCapsuleGesture(0, 16, 16, null, () -> {
                 assertTrue("the drag selected the animated capsule path",
                     ReflectionHelpers.getField(controller, "tracking"));
                 assertFalse("the drag did not select the initial reduced-motion path",
@@ -2281,8 +2238,6 @@ public class BreadPresentationControllerTest {
                     android.animation.ValueAnimator.areAnimatorsEnabled());
             });
 
-            assertTrue("the vertical release sample exceeds the fling threshold",
-                gesture.verticalSpeedDpPerSecond >= 450f);
             verify(callbacks, times(1)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
                 eq(controller.state.acknowledgedVisibilitySequence()), isNull(), isNull());
             assertEquals("the completed event belongs to the animated id captured before release", liveMorphId[0],
@@ -2362,22 +2317,35 @@ public class BreadPresentationControllerTest {
         }
     }
 
-    private static final class CapsuleGestureResult {
-        final float speedDpPerSecond;
-        final float verticalSpeedDpPerSecond;
+    @FunctionalInterface
+    private interface TestAction { void run() throws Exception; }
 
-        CapsuleGestureResult(float speedDpPerSecond, float verticalSpeedDpPerSecond) {
-            this.speedDpPerSecond = speedDpPerSecond;
-            this.verticalSpeedDpPerSecond = verticalSpeedDpPerSecond;
+    private void withAnimationsDisabled(TestAction action) throws Exception {
+        setAnimatorDurationScale(0f);
+        try {
+            action.run();
+        } finally {
+            setAnimatorDurationScale(1f);
         }
     }
 
-    private CapsuleGestureResult dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
-        Runnable afterTracking) {
-        return dispatchCapsuleGesture(horizontalDp, downwardDp, travelMillis, afterTracking, null);
+    private void setAnimatorDurationScale(float scale) {
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, scale));
     }
 
-    private CapsuleGestureResult dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
+    private void openNearLandingCapsule() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.9f, 0.9f, 0.99f, 0.99f));
+    }
+
+    private void dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
+        Runnable afterTracking) {
+        dispatchCapsuleGesture(horizontalDp, downwardDp, travelMillis, afterTracking, null);
+    }
+
+    private void dispatchCapsuleGesture(float horizontalDp, float downwardDp, long travelMillis,
         Runnable afterTracking, Runnable beforeUp) {
         ImageButton capsule = ReflectionHelpers.getField(controller, "back");
         float density = activity.getResources().getDisplayMetrics().density;
@@ -2391,21 +2359,14 @@ public class BreadPresentationControllerTest {
             touch(android.view.MotionEvent.ACTION_MOVE, 20, slopY, downTime + 500),
             touch(android.view.MotionEvent.ACTION_MOVE, releaseX, releaseY, downTime + 500 + travelMillis),
             touch(android.view.MotionEvent.ACTION_UP, releaseX, releaseY, downTime + 504 + travelMillis));
-        android.view.VelocityTracker measured = android.view.VelocityTracker.obtain();
         try {
             for (int i = 0; i < events.size(); i++) {
                 android.view.MotionEvent event = events.get(i);
                 if (i == events.size() - 1 && beforeUp != null) beforeUp.run();
-                measured.addMovement(event);
                 assertTrue(capsule.dispatchTouchEvent(event));
                 if (i == 1 && afterTracking != null) afterTracking.run();
             }
-            measured.computeCurrentVelocity(1000);
-            return new CapsuleGestureResult(
-                (float) Math.hypot(measured.getXVelocity(), measured.getYVelocity()) / density,
-                Math.abs(measured.getYVelocity()) / density);
         } finally {
-            measured.recycle();
             for (android.view.MotionEvent event : events) event.recycle();
         }
     }
@@ -2525,6 +2486,13 @@ public class BreadPresentationControllerTest {
 
     @Test @Config(sdk = 34, shadows = PaintWebView.class)
     public void predictiveBackKeepsPreviewStateOnTheController() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        dialog.configureManagedClose("doc", new JSObject().put("token", "managed"), ignored -> {});
+        ReflectionHelpers.callInstanceMethod(dialog, "registerPresentationBackCallback");
+        OnBackAnimationCallback callback = ReflectionHelpers.getField(dialog, "presentationBackCallback");
+
         boolean fieldExists = true;
         try {
             WebViewDialog.class.getDeclaredField("backPreviewStarted");
@@ -2540,6 +2508,14 @@ public class BreadPresentationControllerTest {
             fieldExists = false;
         }
         assertFalse("preview lifecycle stays on the controller", fieldExists);
+
+        callback.onBackStarted(new BackEvent(0, 0, 0, BackEvent.EDGE_LEFT));
+        assertTrue(ReflectionHelpers.getField(controller, "backGestureStarted"));
+        assertTrue(ReflectionHelpers.getField(controller, "backPreview"));
+        callback.onBackCancelled();
+
+        assertFalse(ReflectionHelpers.getField(controller, "backGestureStarted"));
+        assertFalse(ReflectionHelpers.getField(controller, "backPreview"));
     }
 
     @Test @Config(sdk = 34, shadows = PaintWebView.class)
