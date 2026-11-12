@@ -13,7 +13,7 @@ const CANONICAL: Record<string, string> = {
   '0xself': 'mtst1account'
 };
 const canonical = (id: string) => {
-  const head = id.split('_')[0];
+  const head = id.split('_')[0] ?? id;
   return CANONICAL[head] ?? head;
 };
 
