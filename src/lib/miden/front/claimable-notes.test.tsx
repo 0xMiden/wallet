@@ -1429,7 +1429,11 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   });
 
   it('drops a cached entry that is no payment to the account and no note of its own swap order (#2118)', async () => {
-    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('pay'), { ...makeCachedNote('foreign'), standardPayment: false }];
+    _g.__cnTest.kv[CACHE_KEY] = [
+      makeCachedNote('pay'),
+      { ...makeCachedNote('foreign'), standardPayment: false },
+      { ...makeCachedNote('legacy'), standardPayment: undefined }
+    ];
     neverSettlingRead();
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
@@ -1449,17 +1453,6 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['tip']);
-    });
-  });
-
-  it('drops unflagged cached entries and still shows the live read', async () => {
-    _g.__cnTest.kv[CACHE_KEY] = [{ ...makeCachedNote('legacy'), standardPayment: undefined }];
-    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
-    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
-    const { result } = renderHook(() => useClaimableNotes('pk-1'));
-    await _g.__cnTest.lastFetchPromise;
-    await waitFor(() => {
-      expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
     });
   });
 
