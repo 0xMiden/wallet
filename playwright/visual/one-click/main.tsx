@@ -96,20 +96,22 @@ const quote: OneClickQuoteResponse = {
 };
 
 function BridgeReviewFixture({ kind }: { kind: string }) {
+  const pol = kind === 'pol';
   const existing = kind === 'existing';
   const slow = kind === 'slow';
   const executor = kind === 'executor';
   return (
     <EvmBridgeDepositReview
       amount={slow ? '0.05' : executor ? '10' : '10.6512'}
-      symbol={slow ? 'ETH' : 'USDC'}
+      symbol={pol ? 'POL' : slow ? 'ETH' : 'USDC'}
+      outputFaucetId={pol ? 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6' : undefined}
       route={slow ? 'agglayer' : executor ? 'usdcx' : 'epoch'}
       outputAmount={slow ? '0.05' : '10'}
       fee={executor ? '0.006' : undefined}
-      networkName="Sepolia"
-      networkId="sepolia"
+      networkName={pol ? 'Polygon' : 'Sepolia'}
+      networkId={pol ? 'polygon' : 'sepolia'}
       destinationName="Main account"
-      sourceChainId={11155111}
+      sourceChainId={pol ? 137 : 11155111}
       extensionId="abcdefghijklmnopabcdefghijklmnop"
       promptAmount={slow ? '0.05' : executor ? '10' : '10.6512'}
       promptContract={

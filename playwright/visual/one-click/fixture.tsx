@@ -3,7 +3,9 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 export const NetworkModeBanner = () => null;
 export const useHideNavbarWhileOpen = () => undefined;
 export const useUserVisibleError = () => undefined;
-export const useTokenLogoUri = () => undefined;
+export const POL_PROOF_FAUCET = 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6';
+export const useTokenLogoUri = (faucetId?: string) =>
+  faucetId === POL_PROOF_FAUCET ? new URL('./pol-proof.png', import.meta.url).href : undefined;
 export const getTestNetworkNameKey = () => 'mainnet';
 export const getEffectiveExplorerUrl = (): string | undefined => 'https://explorer.mainnet.miden.io';
 export const getEffectiveGuardianUrl = (): string => 'https://guardian.cedar.internal.lambdaclass.com';

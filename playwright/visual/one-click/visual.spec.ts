@@ -1,5 +1,26 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import sharp from 'sharp';
+import { writeFile } from 'node:fs/promises';
+
+test('POL bridge logo proof', async ({ page }, testInfo) => {
+  const dark = testInfo.project.name.endsWith('dark') ? '&dark' : '';
+  await page.goto(`/?bridge=pol${dark}`);
+  await expect(page.getByText('10.6512 POL', { exact: true }).first()).toBeVisible();
+  const listed = page.locator('img[src*="pol-proof.png"]');
+  if (process.env.QA_PHASE === 'before') {
+    await expect(listed).toHaveCount(0);
+    await expect(page.locator('img[src="/misc/token-logos/default.svg"]').first()).toBeVisible();
+  } else {
+    await expect(listed).toHaveCount(1);
+    await expect.poll(() => listed.evaluate(image => image instanceof HTMLImageElement && image.naturalWidth > 0)).toBe(true);
+  }
+  const file = testInfo.outputPath(`pol-${process.env.QA_PHASE}.png`);
+  await page.screenshot({ path: file });
+  const resized = await sharp(file)
+    .resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true })
+    .toBuffer();
+  await writeFile(file, resized);
+});
 
 const browserErrorsByPage = new WeakMap<Page, string[]>();
 

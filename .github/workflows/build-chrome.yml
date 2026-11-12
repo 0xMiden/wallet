@@ -1,224 +1,66 @@
-name: Build Chrome Extension
-
+name: POL bridge logo visual proof
 on:
-  workflow_call:
-    inputs:
-      network:
-        type: string
-        default: both
-      feature_eligibility_url:
-        type: string
-        required: true
-    secrets:
-      APTABASE_APP_KEY:
-        required: false
-      SENTRY_DSN:
-        required: false
-
   workflow_dispatch:
-    inputs:
-      network:
-        description: 'Network to build for'
-        required: false
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - testnet
-          - devnet
-
 permissions:
-  contents: write # needed to attach assets to a GitHub Release
-  actions: write # needed for artifact cleanup
-  pull-requests: read # the linked-PR injections read a dispatched branch's pull request
-
-concurrency:
-  group: build-chrome-${{ github.ref }}
-  cancel-in-progress: true
-
+  contents: read
 jobs:
-  setup:
-    runs-on: ubuntu-slim
-    outputs:
-      networks: ${{ steps.set.outputs.networks }}
-      eligibility_url: ${{ steps.eligibility.outputs.endpoint }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - id: set
-        shell: bash
-        env:
-          NETWORK_SELECTION: ${{ inputs.network || 'both' }}
-        run: |
-          case "$NETWORK_SELECTION" in
-            both) echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT" ;;
-            testnet|devnet) printf 'networks=["%s"]\n' "$NETWORK_SELECTION" >> "$GITHUB_OUTPUT" ;;
-            *) echo 'Unsupported build network' >&2; exit 1 ;;
-          esac
-      - name: Check feature eligibility endpoint
-        id: eligibility
-        shell: bash
-        env:
-          FEATURE_ELIGIBILITY_URL: ${{ inputs.feature_eligibility_url || vars.FEATURE_ELIGIBILITY_URL }}
-          FEATURE_ELIGIBILITY_NETWORKS: ${{ steps.set.outputs.networks }}
-          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
-            node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          import { validateEndpoint } from './services/feature-eligibility/check-deployment.mjs';
-          const endpoint = validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL).href;
-          appendFileSync(process.env.GITHUB_OUTPUT, `endpoint=${endpoint}\n`);
-          NODE
-          else
-            node services/feature-eligibility/check-deployment.mjs
-          fi
-
-  build:
-    needs: setup
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        network: ${{ fromJSON(needs.setup.outputs.networks) }}
-
-    runs-on: ubuntu-latest
-    name: Build Chrome (${{ matrix.network }})
-
+        include:
+          - phase: before
+            source: 0b4ddef5fbbc18e589b412fdb6734fe8992c8fdc
+          - phase: after
+            source: 1e3c56bcaae1b059e577fc06d27405c53f64734a
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          ref: ${{ matrix.source }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      # On a dispatch from a pull request's branch these build against that pull request's linked
-      # web-sdk and Guardian PRs, as its own CI does. Dispatch only, so a release build never runs
-      # them and installs the published packages exactly as before.
-      - name: Inject linked web-sdk PR
-        id: inject-web-sdk
-        if: github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        if: github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Install dependencies
-        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
-        run: yarn install --frozen-lockfile
-      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
-      - name: Install dependencies (linked PRs injected)
-        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
-        uses: ./.github/actions/yarn-install
-
-      - name: Build Chrome extension
+      - name: Apply fixture only and record source
         env:
-          MIDEN_NETWORK: ${{ matrix.network }}
-          # PRODUCTION build. Every vite config gates BOTH minification and
-          # source maps on this one variable:
-          #
-          #   sourcemap: process.env.MODE_ENV !== 'production'
-          #   minify:    process.env.MODE_ENV === 'production'
-          #
-          # It was never set here, so the extension users install shipped
-          # UNMINIFIED and with its full source maps: 59.9 MB of .map files and
-          # 34.5 MB of formatted, commented JavaScript, in a 29.96 MB zip that
-          # was 40% source maps. `build:mobile` already sets this — the
-          # extension was simply missed.
-          #
-          # Measured on the 1.15.20 tree: 29.96 MB -> 15.43 MB zipped (-48.5%).
-          MODE_ENV: production
-          NODE_ENV: production
-          # Baked into the bundle, so not confidential once shipped -- these are
-          # write-only ingestion ids, and a secret only keeps them out of git.
-          # Absent (a fork) each resolves to '' and turns its feature off.
-          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          FEATURE_ELIGIBILITY_URL: ${{ needs.setup.outputs.eligibility_url }}
-        run: yarn build:chrome
-
-      - name: Resolve artifact version
-        id: artifact_version
-        uses: ./.github/actions/artifact-version
-
-      - name: Compute artifact name
-        id: name
-        shell: bash
+          QA_SHA: ${{ github.sha }}
+          PRODUCT_SHA: ${{ matrix.source }}
+          QA_PHASE: ${{ matrix.phase }}
         run: |
-          VERSION="${{ steps.artifact_version.outputs.version }}"
-          NETWORK="${{ matrix.network }}"
-          ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
-          FILE="MidenWallet.${VERSION}.${ENV_CAP}.zip"
-          {
-            echo "version=${VERSION}"
-            echo "env_cap=${ENV_CAP}"
-            echo "file=${FILE}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Rename zip
-        shell: bash
-        run: |
-          mkdir -p release-output
-          mv dist/chrome.zip "release-output/${{ steps.name.outputs.file }}"
-
-      - name: Upload Chrome artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MidenWallet-${{ steps.name.outputs.version }}-${{ steps.name.outputs.env_cap }}-Chrome
-          path: release-output/${{ steps.name.outputs.file }}
-          retention-days: 30
-          if-no-files-found: error
-
-      - name: Attach to GitHub Release
-        if: github.event_name == 'release'
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_SHA"
+          git diff --exit-code 0b4ddef5fbbc18e589b412fdb6734fe8992c8fdc 1e3c56bcaae1b059e577fc06d27405c53f64734a -- package.json yarn.lock
+          git checkout "$QA_SHA" -- playwright/visual/one-click/fixture.tsx playwright/visual/one-click/main.tsx playwright/visual/one-click/visual.spec.ts playwright/visual/one-click/pol-proof.png
+          git diff --exit-code "$PRODUCT_SHA" -- src public package.json yarn.lock
+          mkdir -p proof
+          printf 'phase=%s\nproduct=%s\nfixture=%s\ncatalog=f932eb8f8ef46291f06b8667608967020a8169c0\n' "$QA_PHASE" "$PRODUCT_SHA" "$QA_SHA" > proof/source.txt
+          echo '54b9b701b345a7c36e60c942cbd8a03e5a688c8cd4c0fd37787bde3a2b4147bc  playwright/visual/one-click/pol-proof.png' | sha256sum -c -
+          git diff --name-only "$PRODUCT_SHA" > proof/fixture-paths.txt
+      - name: Install frozen dependencies
+        run: yarn install --frozen-lockfile --network-timeout 120000
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+      - name: Capture production review in both themes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "release-output/${{ steps.name.outputs.file }}" --clobber
-
-  # Cleanup old artifacts, keep only last 10 builds per network
-  cleanup:
-    runs-on: ubuntu-slim
-    needs: build
-    steps:
-      - name: Delete old artifacts
-        uses: actions/github-script@v7
+          QA_PHASE: ${{ matrix.phase }}
+          PLAYWRIGHT_JSON_OUTPUT_FILE: proof/results.json
+        run: yarn playwright test --config playwright.one-click-visual.config.ts --grep 'POL bridge logo proof' --reporter=list,json
+      - name: Verify four captures executed
+        run: |
+          node - <<'NODE'
+          const assert = require('node:assert/strict');
+          const {stats} = require('./proof/results.json');
+          assert.equal(stats.expected, 4);
+          assert.equal(stats.unexpected, 0);
+          assert.equal(stats.skipped, 0);
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          script: |
-            const { data: artifacts } = await github.rest.actions.listArtifactsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100
-            });
-
-            const groups = {};
-            for (const artifact of artifacts.artifacts) {
-              const m = artifact.name.match(/^MidenWallet-[^-]+-(Testnet|Devnet)-Chrome$/);
-              if (m) {
-                const key = m[1];
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(artifact);
-              }
-            }
-
-            for (const [prefix, items] of Object.entries(groups)) {
-              items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-              const toDelete = items.slice(10);
-              for (const artifact of toDelete) {
-                console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
-                await github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: artifact.id
-                });
-              }
-            }
-
-            console.log('Cleanup complete. Kept 10 most recent Chrome builds per network.');
+          name: pol-logo-${{ matrix.phase }}
+          path: |
+            proof/
+            test-results/one-click-visual/
+          retention-days: 7
