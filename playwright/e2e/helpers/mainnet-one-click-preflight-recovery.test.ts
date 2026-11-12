@@ -50,6 +50,7 @@ function registerMainnetLoop(): void {
   mockSavedCheckpoints.length = 0;
   mockRegisteredCallback = undefined;
 
+  jest.doMock('@playwright/test', () => ({ expect: jest.fn() }));
   jest.doMock('../fixtures/two-wallets', () => ({ test: mockPlaywrightTest, expect: jest.fn() }));
   jest.doMock('./mainnet-one-click-ui', () => ({
     confirmMainnetOneClickReview: jest.fn(),
@@ -109,6 +110,7 @@ describe('mainnet 1Click checkpoint recovery', () => {
       else process.env[key] = value;
     }
     jest.resetModules();
+    jest.dontMock('@playwright/test');
     jest.dontMock('../fixtures/two-wallets');
     jest.dontMock('./mainnet-one-click-ui');
     jest.dontMock('../ios/helpers/wc-counterparty');
@@ -130,6 +132,13 @@ describe('mainnet 1Click checkpoint recovery', () => {
     mockNativeCheckpoint = { phase: 'forward-authorized', sourceRunId: '99', authorizationRunId: '99' };
     const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
     await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/same-run.*forward|forward.*same-run/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
+  });
+  it('never refreshes an existing original native reverse nonce or quote after an uncertain attempt', async () => {
+    process.env.MAINNET_NEAR_MODE = 'reverse'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    mockNativeCheckpoint = { phase: 'forward-settled', sourceRunId: '100', authorizationRunId: '100', evmNonceBefore: 0 };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/original.*reverse.*(used|unresolved)|never.*(refresh|renew)/i);
     expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
   });
   it('blocks an unknown original native claim outcome before restoration, funding or renewed authority', async () => {
