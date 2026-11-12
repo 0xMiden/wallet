@@ -89,7 +89,7 @@ export class IntercomServer {
 
   private handleMessage(msg: any, port: Runtime.Port) {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
-      // Checked before the idle answer and the replay queue, so a refused request is neither answered nor replayed.
+      // Checked first, so a refused request never gets the idle state and is never queued for replay.
       if (!this.servesSender(port, msg.data?.type)) {
         this.send(port, {
           type: MessageType.Err,
