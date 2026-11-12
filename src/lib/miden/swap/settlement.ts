@@ -443,8 +443,9 @@ export async function reconcileSwapOrderNotes(
       // is one the order's lineage accounts for. Classification admits a note only as a standard payment of exactly
       // the order's requested asset, at a round a fill reached, one note per round, and only while the rounds held
       // here (`swapPaybackAmounts`) and the rounds claimable now pay at least what the lineage says was filled. A
-      // payback the order cannot account for is left out of the classification and claimed as an ordinary payment,
-      // under the native claim floor or by hand from the claim list.
+      // payback the order cannot account for is left out of the classification. On the extension it is claimed as an
+      // ordinary payment, under the native claim floor or by hand; on mobile and desktop it stays on its order
+      // flagged `coverageShort` and is claimed by hand.
       // A solver CAN partial-fill into many small paybacks, but every payback of one order goes into one consume,
       // so a trickle of fills costs one fee per lap rather than one per note. One lap's fee can still exceed a very
       // small fill, which is the price of settling promptly on funds the user is owed.

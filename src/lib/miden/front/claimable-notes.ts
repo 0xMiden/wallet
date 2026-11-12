@@ -165,7 +165,7 @@ function attachMetadataToNotes(
 
 /**
  * Whether the claim list shows a note: every note but a swap note settlement claims unattended. A payback marked
- * `coverageShort` is one settlement will not claim, so it is listed to accept by hand.
+ * `coverageShort` is listed for a manual claim, and settlement may still claim it on its own read of notes and lineages.
  */
 const isListedClaimableNote = (note: { swapOrder?: { autoConsume?: boolean; coverageShort?: true } }): boolean =>
   !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
