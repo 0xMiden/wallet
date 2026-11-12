@@ -17,6 +17,7 @@
 - [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] The bridge-in token drawer lists only Agglayer tokens with positive balances and scrolls long lists below a fixed header with vertical overscroll containment. Unreadable balances stay unavailable, and balances from a previous account or chain are cleared.
 
 ## 1.17.11 (2026-11-09)
 
