@@ -830,6 +830,51 @@ const swapTx = (delegateTransaction: boolean) =>
   new SwapTransaction('acct', 'offered', 5n, 'requested', 7n, delegateTransaction);
 
 describe('swap (site 8)', () => {
+  it('cannot execute or submit a PSWAP before its actual request upload authorization', async () => {
+    const harness = buildHarness();
+    const refused = new Error('exact PSWAP authorization refused');
+    const gate = jest.fn(async () => {
+      throw refused;
+    });
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toBe(refused);
+    expect(gate).toHaveBeenCalledWith('sdk-acct', { pswapRequest: true }, 'swap');
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+  it('checks PSWAP authority after an async executing-stage write can expire it', async () => {
+    const harness = buildHarness();
+    const refused = new Error('original PSWAP authority expired during stage write');
+    let expired = false;
+    const gate = jest.fn(async () => {
+      if (expired) throw refused;
+    });
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(
+      withWasmClientLock(async () =>
+        client.swapTransaction(swapTx(false), async stage => {
+          if (stage === 'executing') {
+            await Promise.resolve();
+            expired = true;
+          }
+        })
+      )
+    ).rejects.toBe(refused);
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+  it('executes the same PSWAP request object held once, without drawing another serial', async () => {
+    const harness = buildHarness();
+    const gate = jest.fn(async (_actor: string, _request: unknown, _kind: string) => {});
+    jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+    const { client, withWasmClientLock } = await load(harness);
+    await withWasmClientLock(async () => client.swapTransaction(swapTx(false)));
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(harness.executeRequest.mock.calls[0]?.[1]).toBe(gate.mock.calls[0]?.[1]);
+  });
   it('a local attempt executes the PSWAP request it built and proves in the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);

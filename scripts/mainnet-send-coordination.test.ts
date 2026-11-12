@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isRecord } from '../src/lib/update/guards';
+import type { TestMainnetSwapScope } from '../src/lib/miden/sdk/test-send-request';
 import {
   armMainnetSendAuthorization,
   releaseMainnetSendAuthorization,
@@ -101,6 +102,40 @@ it('never renews original authority when only its policy disappeared', async () 
   data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
   await expect(armMainnetSendAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
   expect(data[KEY]).toBeUndefined();
+});
+it('arms the exact reviewed PSWAP as a distinct request kind', async () => {
+  const swap: TestMainnetSwapScope & { expiresAt: number } = {
+    kind: 'swap',
+    accountId: scope.accountId,
+    faucetId: scope.faucetId,
+    amount: scope.amount,
+    requestedFaucetId: '0x5cb79d29507d3ad17bb6dc60279e89',
+    requestedAmount: '1001000',
+    expiresAt: scope.expiresAt
+  };
+  const actual = await armMainnetSendAuthorization(page, swap);
+  expect(data[KEY]).toEqual({ ...actual, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: actual.accountId, nonce: actual.nonce });
+});
+it('persists the actual PSWAP order identity before its exact upload and release', async () => {
+  const swap: TestMainnetSwapScope & { expiresAt: number } = {
+    kind: 'swap',
+    accountId: scope.accountId,
+    faucetId: scope.faucetId,
+    amount: scope.amount,
+    requestedFaucetId: '0x5cb79d29507d3ad17bb6dc60279e89',
+    requestedAmount: '1001000',
+    expiresAt: scope.expiresAt
+  };
+  const original = { ...swap, nonce: handle.nonce };
+  const actual = { ...authority, orderId: '42' };
+  data[KEY] = { ...original, ...actual, status: 'waiting' };
+  const pending = releaseMainnetSendAuthorization(page, original, options());
+  await uploaded;
+  finish();
+  expect(await pending).toEqual(actual);
+  expect(persist).toHaveBeenCalledWith(actual);
+  expect(data[KEY]).toEqual({ ...original, ...actual, status: 'released' });
 });
 for (const status of ['armed', 'waiting', 'spent'])
   it(`never replaces an existing ${status} send authority`, async () => {

@@ -3,8 +3,10 @@ import { createHash, webcrypto } from 'node:crypto';
 import { isRecord } from '../src/lib/update/guards';
 import { canonicalRequestBytes } from './canonical-request-bytes.mjs';
 const mockInspect = jest.fn();
+const mockInspectSwap = jest.fn();
 jest.mock('../src/lib/miden/sdk/test-send-request', () => ({
-  inspectTestMainnetSendRequest: (...args: unknown[]) => mockInspect(...args)
+  inspectTestMainnetSendRequest: (...args: unknown[]) => mockInspect(...args),
+  inspectTestMainnetSwapRequest: (...args: unknown[]) => mockInspectSwap(...args)
 }));
 import {
   awaitTestSendAuthorization,
@@ -56,6 +58,7 @@ beforeEach(() => {
   });
   serialize.mockImplementation(() => Uint8Array.from(bytes));
   mockInspect.mockReturnValue(noteId);
+  mockInspectSwap.mockReturnValue({ noteId, orderId: '42' });
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { storage: { local: { get, set } } } });
   Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
 });
@@ -110,6 +113,38 @@ it.each([null, { accountId: account, nonce: 'foreign' }, { accountId: 'foreign',
     expect(serialize).not.toHaveBeenCalled();
   }
 );
+it('holds exact PSWAP bytes and their actual serial-derived order, without reinterpreting them as a native send', async () => {
+  const swap = {
+    nonce: scope.nonce,
+    accountId: account,
+    faucetId: scope.faucetId,
+    amount: scope.amount,
+    kind: 'swap',
+    requestedFaucetId: '0x5cb79d29507d3ad17bb6dc60279e89',
+    requestedAmount: '1001000',
+    expiresAt: scope.expiresAt
+  };
+  data[KEY] = { ...swap, status: 'armed' };
+  data[`${KEY}_required`] = { accountId: account, nonce: swap.nonce };
+  const promise = awaitTestSendAuthorization(account, { serialize }, 'swap');
+  await held(promise);
+  expect(mockInspectSwap).toHaveBeenCalledWith(swap, bytes);
+  expect(mockInspect).not.toHaveBeenCalled();
+  expect(data[KEY]).toMatchObject({ ...swap, noteId, orderId: '42', status: 'waiting' });
+  patch({ status: 'released' });
+  await jest.advanceTimersByTimeAsync(500);
+  await promise;
+  expect(data[KEY]).toMatchObject({ orderId: '42', status: 'spent' });
+});
+it('never uses a native send policy to authorize a PSWAP call', async () => {
+  const outcome = awaitTestSendAuthorization(account, { serialize }, 'swap').then(
+    () => 'released',
+    () => 'blocked'
+  );
+  expect(await Promise.race([outcome, observed.then(() => 'waiting')])).toBe('blocked');
+  expect(serialize).not.toHaveBeenCalled();
+  expect(mockInspect).not.toHaveBeenCalled();
+});
 it('holds exact inspected send bytes, exposes only public fingerprints, then spends the original authority once', async () => {
   data[`${KEY}_required`] = { accountId: account, nonce: scope.nonce };
   let finished = false;
