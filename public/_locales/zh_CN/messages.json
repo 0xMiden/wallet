@@ -4026,6 +4026,10 @@
     "message": "你不能寄到自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新收款人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4061,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "钱包在签署该交易前已中止了该交易，因为它无法确认该交易仅转移了您批准的金额。资金并未发生转移。",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "钱包无法读取网络手续费，因此未对本次交易进行签名。未发送任何内容。请稍后再试。",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
@@ -6359,6 +6367,10 @@
   "opaqueSignatureTitle": {
     "message": "不透明签名请求",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "此签名无法授权从您的账户发起交易。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",

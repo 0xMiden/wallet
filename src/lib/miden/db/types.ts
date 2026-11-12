@@ -851,7 +851,8 @@ export type IRequeueStreakArm =
   | 'guardian-unreachable'
   | 'guardian-pending-conflict'
   | 'guardian-rate-limited'
-  | 'node-unreachable';
+  | 'node-unreachable'
+  | 'chain-fee-unknown';
 
 export interface IRequeueStreak {
   arm: IRequeueStreakArm;

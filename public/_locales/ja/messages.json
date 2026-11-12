@@ -4026,6 +4026,10 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新しい受取人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4061,6 +4065,10 @@
   "proposalEffectRefused": {
     "message": "ウォレットは、この取引があなたが承認した分のみを移動させるものであることを確認できなかったため、署名する前にこの取引を停止しました。資金の移動は一切行われませんでした。",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "ウォレットがネットワーク手数料を読み取れなかったため、この取引に署名しませんでした。何も送信されていません。しばらくしてから再度お試しください。",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
@@ -6359,6 +6367,10 @@
   "opaqueSignatureTitle": {
     "message": "不透明な署名要求",
     "englishSource": "Opaque signature request"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "この署名では、お客様の口座からの取引を承認することはできません。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
     "message": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",

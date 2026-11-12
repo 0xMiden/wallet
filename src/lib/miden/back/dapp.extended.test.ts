@@ -275,7 +275,9 @@ import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
 import { OperationAbortedError } from './offscreen-codec';
 
-const UNLOCKED_CONTEXT = { vault: { signData: jest.fn(async () => 'fake-sig-base64') } };
+const UNLOCKED_CONTEXT = {
+  vault: { signData: jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' })) }
+};
 
 const lockWallet = () => {
   mockWalletStatus = WalletStatus.Locked;
@@ -325,7 +327,7 @@ beforeEach(() => {
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
     fn({
       vault: {
-        signData: jest.fn(async () => 'fake-sig-base64')
+        signData: jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' }))
       }
     })
   );
@@ -796,7 +798,11 @@ describe('non-extension dApp requests settle instead of hanging', () => {
 
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(mockRequestConfirmation.mock.calls[0]![0]).toMatchObject({ type: 'sign', origin: 'https://miden.xyz' });
-    expect(res).toEqual({ type: MidenDAppMessageType.SignResponse, signature: 'fake-sig-base64' });
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-sig-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('signBytes rejects with NotGranted when the user denies', async () => {
