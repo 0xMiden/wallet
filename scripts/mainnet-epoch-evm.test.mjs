@@ -351,6 +351,34 @@ test('counts a reverted deposit receipt but never treats it as permission to cla
   assert.equal(c.state.phase, 'recovery-required');
 });
 
+test('requires explicit return-stage valuation before constructing any EVM signer', () => {
+  const c = senderFixture(); delete c.state.reverseAuthority.valuation;
+  assert.throws(() => c.build(), /valuation|price/i);
+  assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
+test('refuses a stale market valuation even when the compact authorization was prepared now', () => {
+  const c = senderFixture();
+  c.state.reverseAuthority.valuation = { pricedAt: new Date(Date.now() - 600_001).toISOString(), stableUsdMicros: '1000000', gasUsdMicros: '2000000000' };
+  assert.throws(() => c.build(), /valuation|price|stale/i);
+  assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
+test('cannot replace uploaded valuation facts after the signer was constructed', async () => {
+  const c = senderFixture();
+  c.state.reverseAuthority.valuation = { pricedAt: c.state.reverseAuthority.preparedAt,
+    stableUsdMicros: '1000000', gasUsdMicros: '2000000000' };
+  const sender = c.build();
+  c.state.reverseAuthority.valuation.pricedAt = new Date(Date.now() - 600_001).toISOString();
+  await assert.rejects(sender.send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal()), /valuation|price|changed/i);
+  assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
+test('does not sign if repricing the original entire native gas reserve exceeds its original USD allowance', () => {
+  const c = senderFixture();
+  c.state.reverseAuthority.valuation = { pricedAt: c.state.reverseAuthority.preparedAt,
+    stableUsdMicros: '1000000', gasUsdMicros: '3000000000000' };
+  assert.throws(() => c.build(), /budget|cost|allowance|cap/i);
+  assert.deepEqual(c.counts(), { signed: 0, broadcasts: 0 });
+});
+
 test('requires a reverse-authorized phase instead of reusing settled or ambiguous state', () => {
   const { state, expiry, now } = context();
   for (const phase of ['forward-settled', 'complete', 'recovery-required']) {
