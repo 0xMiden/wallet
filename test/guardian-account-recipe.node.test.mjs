@@ -11,6 +11,10 @@ const rewrites = new Map([
   ['@openzeppelin/miden-multisig-client', import.meta.resolve('@openzeppelin/miden-multisig-client')]
 ]);
 
+const legacyAccounts = JSON.parse(
+  await readFile(new URL('./fixtures/guardian-legacy-accounts.json', import.meta.url), 'utf8')
+).accounts;
+
 let client;
 let createMultisigAccount;
 let deriveGuardianAccountSeed;
@@ -160,3 +164,20 @@ test('the derived and legacy seeds give different accounts', async () => {
 
   assert.notEqual(derived.accountIdHex, legacy.accountIdHex);
 });
+
+for (const fixture of legacyAccounts) {
+  test(`reads and rebuilds ${fixture.accountIdHex}, a never-deployed account the ${fixture.set} libraries created from the recovery seed itself`, async () => {
+    const served = sdk.Account.deserialize(new Uint8Array(Buffer.from(fixture.accountBase64, 'base64')));
+    assert.equal(served.isNew(), true);
+    assert.equal(served.id().toString(), fixture.accountIdHex);
+    assert.equal(normalize(served.to_commitment().toHex()), fixture.commitment);
+
+    const rebuilt = await rebuildGuardianAccount({
+      hotCommitment: fixture.hotCommitment,
+      coldCommitment: fixture.coldCommitment,
+      guardianCommitment: fixture.guardianCommitment,
+      initSeed: new Uint8Array(Buffer.from(fixture.coldSeed, 'hex'))
+    });
+    assert.deepEqual(rebuilt, { accountIdHex: fixture.accountIdHex, commitment: fixture.commitment });
+  });
+}
