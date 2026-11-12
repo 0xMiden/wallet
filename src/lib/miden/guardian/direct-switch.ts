@@ -5,6 +5,7 @@ import {
   RpcClient,
   Signature,
   Word,
+  type Account,
   type Felt,
   type TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
@@ -22,7 +23,12 @@ import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/c
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import {
+  assertGuardianKeyCommitment,
+  getGuardianCommitmentFromAccount,
+  getSignerCommitmentsFromAccount,
+  getSignerDetailsFromAccount
+} from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
@@ -45,10 +51,12 @@ import { syncBeforeVerdict } from '../sync-lock';
 export const HOT_KEY_ROTATED_OUT = 'HotKeyRotatedOutError';
 
 /**
- * The direct switch's refusal to sign with a hot key the chain no longer names
- * in signer slot 0: another device rotated the key. Carries what the persisted
- * verdict needs (`HotKeyRotatedOutVerdict`), so the pipeline that catches it
- * can record the finding instead of failing the row with an opaque error.
+ * The direct switch's refusal to sign with a hot key that no on-chain signer
+ * slot holds any more: another device rotated the key out. The check is by
+ * membership, since the signer set can hold more than one hot key. Carries what
+ * the persisted verdict needs (`HotKeyRotatedOutVerdict`), so the pipeline that
+ * catches it can record the finding instead of failing the row with an opaque
+ * error.
  */
 export class HotKeyRotatedOutError extends Error {
   readonly hotPublicKey: string;
@@ -56,7 +64,7 @@ export class HotKeyRotatedOutError extends Error {
 
   constructor(accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) {
     super(
-      `Guardian account ${accountPublicKey} names a different hot signer on chain than this device holds; ` +
+      `Guardian account ${accountPublicKey} holds no on-chain signer for this device's hot key; ` +
         'another device has rotated the hot key, so this device cannot sign a direct guardian switch'
     );
     this.name = HOT_KEY_ROTATED_OUT;
@@ -311,6 +319,40 @@ const ecdsaSignatureAdviceEntry = (
 };
 
 /**
+ * The commitment of one of this device's keys, or undefined when the key does
+ * not derive. A key that does not derive says nothing about the pairing, so the
+ * caller falls back to the slot convention instead of refusing.
+ */
+const deriveDeviceCommitment = (publicKeyHex: string, role: 'hot' | 'cold'): Promise<string | undefined> =>
+  commitmentFromPublicKeyHex(publicKeyHex).catch(deriveError => {
+    console.warn(
+      `Could not derive a commitment from this device's ${role} key; continuing on the account's own signer read:`,
+      deriveError
+    );
+    return undefined;
+  });
+
+/**
+ * This device's own on-chain signer commitment (unprefixed hex): the slot whose
+ * commitment matches the derived device commitment, in ANY position, else
+ * undefined. Only when the device key did not derive does this read the slot by
+ * the creation convention (`[hot, cold]`), which breaks after a membership
+ * change and is kept only as that fallback.
+ */
+const ownSignerOf = async (
+  account: Account,
+  signers: readonly string[],
+  deviceCommitment: string | undefined,
+  cold: boolean
+): Promise<string | undefined> => {
+  if (deviceCommitment === undefined) {
+    return (await getSignerDetailsFromAccount(account, cold)).commitment;
+  }
+  const own = signers.find(signer => sameCommitment(signer, deviceCommitment));
+  return own === undefined ? undefined : stripHexPrefix(own);
+};
+
+/**
  * Build a fully-signed update-guardian TransactionRequest WITHOUT the outgoing
  * guardian: request + summary are built locally against a freshly-synced
  * account, the summary commitment is signed by BOTH on-device keys (hot +
@@ -387,6 +429,18 @@ export const createDirectSwitchGuardianRequest = async (
     }
   }
 
+  // This device's own hot and cold commitments, derived from the keys it holds.
+  // The request files each signature under the on-chain signer that its key
+  // commits to, found by MEMBERSHIP: the set can hold more than one hot key, and
+  // a membership change moves the slots, so no slot is this device's by position.
+  //
+  // Only a DERIVED disagreement refuses: a helper that cannot parse this device's
+  // own key says nothing about whether the pairing is right, and this is the
+  // last exit from a dead operator. A key that does not derive falls back to the
+  // creation slot convention (`getSignerDetailsFromAccount`), as before.
+  const deviceHotCommitment = await deriveDeviceCommitment(hotPublicKey, 'hot');
+  const deviceColdCommitment = await deriveDeviceCommitment(coldPublicKey, 'cold');
+
   // Build the unsigned request and execute it for its summary in ONE lock
   // scope (same rule as createReplaceHotKeyProposal): the WASM client is
   // single-threaded, and splitting resolve/build/summary across lock windows
@@ -416,9 +470,27 @@ export const createDirectSwitchGuardianRequest = async (
     }
     assertWasmHoldCurrent(hold, 'direct-request: after the account read');
     const accountIdHex = account.id().toString();
-    const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
-    const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
+    const signers = getSignerCommitmentsFromAccount(account);
+    const hotCommitment = await ownSignerOf(account, signers, deviceHotCommitment, false);
+    const coldCommitment = await ownSignerOf(account, signers, deviceColdCommitment, true);
     assertWasmHoldCurrent(hold, 'direct-request: after the signer reads');
+    // The advice entry pairs the chain's signer commitment with a signature from
+    // this device's wallet record. If no slot holds the record's hot key, another
+    // device rotated it out: refuse here, before the build, the proving and the
+    // two vault prompts. Without this, the entry would be filed under a
+    // commitment the key does not recover to, and the threshold-2
+    // `update_guardian` would refuse as unauthorized on chain, with
+    // `switch-guardian` in no requeue set and no user Retry.
+    // `finalizeDirectGuardianSwitch` makes the same comparison for the mirror-image reason.
+    if (hotCommitment === undefined) {
+      throw new HotKeyRotatedOutError(walletAccount.publicKey, hotPublicKey, stripHexPrefix(signers[0] ?? ''));
+    }
+    if (coldCommitment === undefined) {
+      throw new Error(
+        `Guardian account ${walletAccount.publicKey} holds no on-chain signer for this device's cold key; ` +
+          'a direct guardian switch needs both device keys to sign'
+      );
+    }
     const webClient = midenClient.client;
     // `accountId` is what the builder commits the multisig auth args for; left
     // unset, `boundBlockNum` binds the sync height, which the signed rebuild
@@ -443,7 +515,7 @@ export const createDirectSwitchGuardianRequest = async (
     };
   });
 
-  // Hot and cold must be DISTINCT on-chain signers: if index 0 and index 1 ever
+  // Hot and cold must be DISTINCT on-chain signers: if the two keys ever
   // resolve to the same commitment, the two advice entries would collide on one
   // Poseidon2 key (it is derived from the signer commitment), the map would hold
   // ONE signature, and the threshold-2 `update_guardian` would fail on-chain as
@@ -453,39 +525,6 @@ export const createDirectSwitchGuardianRequest = async (
       `Guardian account ${walletAccount.publicKey} resolves the same on-chain signer commitment for hot and cold; ` +
         'a direct guardian switch needs two distinct signers to meet the update_guardian threshold'
     );
-  }
-
-  // And the KEY this device is about to sign hot with has to be the key the
-  // on-chain slot it will be filed under actually names.
-  //
-  // The advice entry pairs `built.hotCommitment` — read from the account, i.e.
-  // the chain's view — with a signature produced by `hotPublicKey`, read from
-  // this device's wallet record. Those are two different sources, and they
-  // diverge for real: if another device rotated the hot key, this record is
-  // stale. Nothing downstream notices. The entry is filed under the chain's
-  // commitment, on-chain ECDSA recovery yields a different public key, and the
-  // threshold-2 `update_guardian` refuses as unauthorized — after the build, the
-  // proving and the two vault prompts, with `switch-guardian` in no requeue set
-  // and no user Retry, so the only diagnostic the user ever gets is an opaque
-  // authorization failure on the recovery path they reached because their
-  // guardian was already down.
-  //
-  // `finalizeDirectGuardianSwitch` already makes exactly this comparison, with
-  // the same helper in the same realm, for the mirror-image reason. Deriving is
-  // free and precedes every signature, so the divergence is worth naming here
-  // rather than discovering on chain. Only a DERIVED disagreement refuses, as
-  // there: a helper that cannot parse this device's own key says nothing about
-  // whether the pairing is right, and this is the last exit from a dead
-  // operator.
-  const deviceHotCommitment = await commitmentFromPublicKeyHex(hotPublicKey).catch(deriveError => {
-    console.warn(
-      `Could not derive a commitment from this device's hot key; continuing on the account's own signer read:`,
-      deriveError
-    );
-    return undefined;
-  });
-  if (deviceHotCommitment !== undefined && !sameCommitment(deviceHotCommitment, built.hotCommitment)) {
-    throw new HotKeyRotatedOutError(walletAccount.publicKey, hotPublicKey, built.hotCommitment);
   }
 
   // Sign OUTSIDE the lock — vault signing doesn't touch the WASM client, and
@@ -909,7 +948,7 @@ export const finalizeDirectGuardianSwitch = async (
   // And THIS DEVICE has to be in the policy it is installing.
   //
   // Note what the comparison is between. Deriving the left-hand side from the
-  // same account read as the allowlist proves nothing — that read's own slot 0 is
+  // same account read as the allowlist proves nothing — any signer of that read is
   // a member of that read by construction, and the check is a tautology. The
   // question is whether the WALLET RECORD's hot key — the key `setSigner` below
   // authenticates `/configure` with, and the only one this device can actually

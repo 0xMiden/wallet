@@ -278,6 +278,18 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.BackupRefreshRequest:
+      return {
+        type: WalletMessageType.BackupRefreshResponse,
+        outcome: await Actions.refreshBackup(req.reason)
+      };
+
+    case WalletMessageType.BackupDeleteProfileRequest:
+      return {
+        type: WalletMessageType.BackupDeleteProfileResponse,
+        outcome: await Actions.deleteBackup()
+      };
+
     case WalletMessageType.CheckGuardianDriftRequest: {
       const guardianSyncStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
       return {

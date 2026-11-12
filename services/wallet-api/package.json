@@ -1,0 +1,17 @@
+{
+  "name": "miden-wallet-api",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker for the encrypted wallet backup. Wrangler bundles the dependencies at deploy.",
+  "scripts": {
+    "build": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json",
+    "check-deployment": "node check-deployment.mjs",
+    "dev": "npx wrangler@4.151.3 dev --port 8787",
+    "migrate:local": "npx wrangler@4.151.3 d1 migrations apply miden-wallet-api --local",
+    "migrate:remote": "npx wrangler@4.151.3 d1 migrations apply miden-wallet-api --remote",
+    "test": "node --test check-deployment.test.mjs && npx jest --config ../../jest.config.ts --rootDir ../.. services/wallet-api/test"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.7"
+  }
+}

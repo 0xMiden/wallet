@@ -10,7 +10,8 @@ export function resolveDeploymentSource({
   ref,
   source = 'published-release',
   releaseTag = '',
-  sha = ''
+  sha = '',
+  label = 'Wallet eligibility'
 }) {
   if (source === 'main') {
     if (eventName !== 'workflow_dispatch' || ref !== 'refs/heads/main') {
@@ -21,7 +22,7 @@ export function resolveDeploymentSource({
     return {
       mode: 'main',
       ref: sha,
-      message: `Wallet eligibility main ${sha}`
+      message: `${label} main ${sha}`
     };
   }
 
@@ -40,11 +41,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ref: process.env.DEPLOY_WORKFLOW_REF,
     source: process.env.DEPLOYMENT_SOURCE || 'published-release',
     releaseTag: process.env.RELEASE_TAG || '',
-    sha: process.env.DEPLOY_WORKFLOW_SHA || ''
+    sha: process.env.DEPLOY_WORKFLOW_SHA || '',
+    label: process.env.DEPLOYMENT_LABEL || 'Wallet eligibility'
   });
 
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    Object.entries(resolved).map(([key, value]) => `${key}=${value}`).join('\n') + '\n'
+    Object.entries(resolved)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n') + '\n'
   );
 }

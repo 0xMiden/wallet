@@ -218,7 +218,9 @@ jest.mock('lib/miden/back/actions', () => ({
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
   estimateUsdcxBurnFee: jest.fn(),
-  retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 }))
+  retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 })),
+  refreshBackup: jest.fn(),
+  deleteBackup: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -949,6 +951,22 @@ describe('processRequest', () => {
     expect(Actions.applyUserGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
     expect(res.type).toBe(WalletMessageType.ApplyUserGuardianEndpointResponse);
     expect(res.outcome).toBe('applied');
+  });
+
+  it('BackupRefreshRequest runs the refresh of the named event and answers its outcome', async () => {
+    Actions.refreshBackup.mockResolvedValueOnce('updated');
+    const res = await dispatch({ type: WalletMessageType.BackupRefreshRequest, reason: 'transaction-completed' });
+    expect(Actions.refreshBackup).toHaveBeenCalledWith('transaction-completed');
+    expect(Actions.deleteBackup).not.toHaveBeenCalled();
+    expect(res).toEqual({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+  });
+
+  it('BackupDeleteProfileRequest deletes the backup profile and answers its outcome', async () => {
+    Actions.deleteBackup.mockResolvedValueOnce('disabled');
+    const res = await dispatch({ type: WalletMessageType.BackupDeleteProfileRequest });
+    expect(Actions.deleteBackup).toHaveBeenCalledTimes(1);
+    expect(Actions.refreshBackup).not.toHaveBeenCalled();
+    expect(res).toEqual({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'disabled' });
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

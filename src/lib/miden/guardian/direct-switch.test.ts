@@ -11,6 +11,7 @@ import {
   isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
   isGuardianUnreachableError,
+  isHotKeyRotatedOutError,
   readChainAccountCommitment,
   readDirectSwitchCommitState,
   readLastSyncedVerdict
@@ -88,13 +89,17 @@ jest.mock('../back/miden-client-proxy', () => ({
   }
 }));
 
+// The positional reader is only the fallback for a device key that does not derive.
 const mockGetSignerDetails = jest.fn();
+// The full on-chain signer set the membership check reads.
+const mockGetSignerCommitments = jest.fn((..._args: unknown[]): string[] => []);
 // `assertGuardianKeyCommitment` is kept REAL — it is pure string validation, and
 // stubbing the guard that keeps wire data out of the transaction script would
 // make these tests blind to exactly what it exists to stop.
 jest.mock('./account', () => ({
   ...jest.requireActual('./account'),
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
+  getSignerCommitmentsFromAccount: (...args: unknown[]) => mockGetSignerCommitments(...args)
 }));
 
 // The shared native-HTTP double records each probe's verdict.
@@ -116,10 +121,12 @@ jest.mock('./operator-map', () => ({
 // key, which these fixtures are not); `sameCommitment` stays REAL so the
 // prefix/case normalization the allowlist check relies on is exercised rather
 // than assumed. The stub mirrors production's shape: one commitment per key, so
-// a different device's key derives a different commitment.
-const mockCommitmentFromPublicKeyHex = jest.fn(async (publicKeyHex: string) =>
-  publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
-);
+// a different device's key derives a different commitment. This device's two
+// keys derive the commitments the on-chain signer set holds (case aside).
+const DEVICE_KEY_COMMITMENTS: Record<string, string> = { '0xhotpk': 'HOTCOMMITMENT', '0xcoldpk': 'COLDCOMMITMENT' };
+const deviceKeyCommitment = async (publicKeyHex: string) =>
+  DEVICE_KEY_COMMITMENTS[publicKeyHex] ?? `commitment-of-${publicKeyHex}`;
+const mockCommitmentFromPublicKeyHex = jest.fn(deviceKeyCommitment);
 jest.mock('lib/secure-hot-key/commitment', () => ({
   ...jest.requireActual('lib/secure-hot-key/commitment'),
   commitmentFromPublicKeyHex: (...args: [string]) => mockCommitmentFromPublicKeyHex(...args)
@@ -300,9 +307,7 @@ beforeEach(() => {
     getAccount: jest.fn(async () => sdkAccount),
     client: { kind: 'web-client' }
   });
-  mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
-    publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
-  );
+  mockCommitmentFromPublicKeyHex.mockImplementation(deviceKeyCommitment);
   mockProxySyncState.mockImplementation(async () => {
     if (evictDuringSync) currentWasmHold = null;
   });
@@ -310,6 +315,7 @@ beforeEach(() => {
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
   }));
+  mockGetSignerCommitments.mockReturnValue(['hotcommitment', 'coldcommitment']);
   mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT });
   // The post-rotation account names the NEW operator's key, which is the state
   // `finalizeDirectGuardianSwitch` is entitled to push to it. Driven through the
@@ -595,12 +601,13 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(signWord).not.toHaveBeenCalled();
   });
 
-  // Hot and cold must be DISTINCT on-chain signers (index 0 and index 1). If they
-  // ever resolve to the same commitment, the two advice entries would collide on
-  // one Poseidon2 key and the map would hold ONE signature, failing the
-  // threshold-2 `update_guardian` on-chain instead of here.
+  // Hot and cold must be DISTINCT on-chain signers. If they ever resolve to the
+  // same commitment, the two advice entries would collide on one Poseidon2 key
+  // and the map would hold ONE signature, failing the threshold-2
+  // `update_guardian` on-chain instead of here.
   it('refuses to build when hot and cold resolve to the same signer commitment', async () => {
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'the-only-signer' });
+    mockGetSignerCommitments.mockReturnValue(['the-only-signer']);
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('the-only-signer');
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
@@ -636,7 +643,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     // commitment for the on-chain-slot check below, and a blanket resolve would
     // make the operator's answer stand in for the device's key too.
     mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
-      publicKeyHex === '0xoperatorkey' ? NEW_GUARDIAN_COMMITMENT : 'hotcommitment'
+      publicKeyHex === '0xoperatorkey' ? NEW_GUARDIAN_COMMITMENT : deviceKeyCommitment(publicKeyHex)
     );
 
     await expect(
@@ -644,28 +651,58 @@ describe('createDirectSwitchGuardianRequest', () => {
     ).resolves.toBeDefined();
   });
 
-  // The advice entry files this device's signature under the commitment the
-  // ACCOUNT names in slot 0. If another device rotated the hot key, the wallet
-  // record this device signs from is stale and the two are different keys — so
-  // on-chain recovery yields a key the slot does not name and `update_guardian`
-  // refuses as unauthorized, after the build, the proving and two vault prompts,
-  // with no requeue and no Retry. `finalizeDirectGuardianSwitch` already refuses
-  // the same device up front; this is the same comparison one step earlier,
-  // where it still costs nothing.
-  it('refuses when the account names a different hot signer on chain than this device holds', async () => {
-    mockCommitmentFromPublicKeyHex.mockImplementation(async () => 'a-different-devices-hot-commitment');
+  // The advice entry files this device's signature under the on-chain signer its
+  // key commits to. If another device rotated the hot key out, no slot holds the
+  // key this device signs from — so on-chain recovery would yield a key no slot
+  // names and `update_guardian` would refuse as unauthorized, after the build,
+  // the proving and two vault prompts, with no requeue and no Retry.
+  // `finalizeDirectGuardianSwitch` already refuses the same device up front; this
+  // is the same comparison one step earlier, where it still costs nothing.
+  it('refuses when no on-chain signer holds this device hot key', async () => {
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+      publicKeyHex === '0xhotpk' ? 'a-different-devices-hot-commitment' : deviceKeyCommitment(publicKeyHex)
+    );
+
+    const error = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).catch(
+      (e: unknown) => e
+    );
+
+    expect(isHotKeyRotatedOutError(error)).toBe(true);
+    expect(error).toMatchObject({ hotPublicKey: '0xhotpk', onChainHotCommitment: 'hotcommitment' });
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  // N hot keys: `[hot_dev1, cold, hot_dev2]`. This device is dev2, so its hot key
+  // sits at slot 2, not slot 0. Membership decides: it is not rotated out, and
+  // each signature is filed under the device's own slot.
+  it('signs with the device hot key at slot 2 of the signer set and is not rotated out', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xotherdevicehot', '0xcoldcommitment', '0xhotcommitment']);
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
-    ).rejects.toThrow('another device has rotated the hot key');
+    ).resolves.toBeDefined();
+
+    expect(signWord).toHaveBeenCalledTimes(2);
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+  });
+
+  it('refuses when no on-chain signer holds this device cold key', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xhotcommitment', '0xsomeothercold']);
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow("no on-chain signer for this device's cold key");
     expect(signWord).not.toHaveBeenCalled();
   });
 
   // Prefix and case are presentation, not identity: storage hands back
-  // `0x`-prefixed hex and `getSignerDetailsFromAccount` hands back bare, so a
+  // `0x`-prefixed hex and the derived commitment can differ in case, so a
   // strict string compare here would refuse every healthy account.
   it('accepts a device hot commitment that differs from the account read only in prefix and case', async () => {
-    mockCommitmentFromPublicKeyHex.mockImplementation(async () => '0xHOTCOMMITMENT');
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+      publicKeyHex === '0xhotpk' ? '0xHOTCOMMITMENT' : deviceKeyCommitment(publicKeyHex)
+    );
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
@@ -840,15 +877,15 @@ describe('createDirectSwitchGuardianRequest', () => {
           evictCurrentHold();
           return sdkAccount;
         });
-        return mockGetSignerDetails;
+        return mockGetSignerCommitments;
       }
     ],
     [
       'the signer reads',
       () => {
-        mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => {
-          if (getCold) evictCurrentHold();
-          return { commitment: getCold ? 'coldcommitment' : 'hotcommitment' };
+        mockGetSignerCommitments.mockImplementationOnce(() => {
+          evictCurrentHold();
+          return ['hotcommitment', 'coldcommitment'];
         });
         return mockedMultisigClient.buildUpdateGuardianTransactionRequest;
       }

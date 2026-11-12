@@ -5,7 +5,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { clearGuardianCache, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 
 const mockAccountRead = jest.fn(async () => ({ id: () => ({ toString: () => 'sdk-account' }) }));
-const mockSignerRead = jest.fn(async () => ({ commitment: 'commitment' }));
+const mockSignerRead = jest.fn(async (): Promise<string | undefined> => 'commitment');
 const mockServiceLoad = jest.fn(async () => ({ guardianEndpoint: 'https://guardian.invalid' }));
 const hold = {};
 
@@ -23,7 +23,7 @@ jest.mock('../sdk/helpers', () => ({
 const mockSignerSet = jest.fn((): string[] => []);
 jest.mock('../guardian/account', () => ({
   getSignerCommitmentsFromAccount: () => mockSignerSet(),
-  getSignerDetailsFromAccount: () => mockSignerRead(),
+  findOwnSignerCommitment: () => mockSignerRead(),
   resolveGuardianEndpoint: () => 'https://guardian.invalid'
 }));
 jest.mock('lib/miden/guardian', () => ({ MultisigService: { init: () => mockServiceLoad() } }));
@@ -94,6 +94,19 @@ it('names only the exact missing-hot-key guard', async () => {
   expect(error).toBeInstanceOf(Error);
   expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_select', proposalGuard: 'hot_key_missing' });
   expect(mockAccountRead).not.toHaveBeenCalled();
+});
+
+it('names the missing-hot-key guard at the signer read when no on-chain signer holds the hot key', async () => {
+  mockSignerRead.mockResolvedValueOnce(undefined);
+  const error: unknown = await getOrCreateMultisigService(account.publicKey, providerFor([account])).catch(
+    value => value
+  );
+  expect(error).toBeInstanceOf(Error);
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    proposalStep: 'service_signer_read',
+    proposalGuard: 'hot_key_missing'
+  });
+  expect(mockServiceLoad).not.toHaveBeenCalled();
 });
 
 it.each(['service_account_read', 'service_signer_read', 'service_load'])(

@@ -17,10 +17,10 @@ import {
 } from './guardian-manager';
 import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
-const mockGetSignerDetailsFromAccount = jest.fn();
+const mockFindOwnSignerCommitment = jest.fn();
 jest.mock('../guardian/account', () => ({
   getSignerCommitmentsFromAccount: () => [],
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
+  findOwnSignerCommitment: (...args: unknown[]) => mockFindOwnSignerCommitment(...args),
   // Mirror the real resolver: the per-account endpoint, else the default.
   resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint || 'https://default.guardian.test'
@@ -95,7 +95,8 @@ describe('guardian-manager', () => {
     mockMultisigServiceInit.mockReset();
     clearGuardianCache();
     currentWasmHold = TEST_HOLD;
-    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc' });
+    // The on-chain form can carry a 0x prefix; the service gets it exactly once.
+    mockFindOwnSignerCommitment.mockResolvedValue('0xabc');
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'acc-id' }) });
   });
 
@@ -108,8 +109,9 @@ describe('guardian-manager', () => {
       const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
       expect(result).toBe(service);
-      // The publicKey arg comes from WalletAccount.hotPublicKey (not from
-      // getSignerDetailsFromAccount anymore), prefixed with `0x`.
+      // The publicKey arg comes from WalletAccount.hotPublicKey, prefixed with `0x`, and the
+      // commitment is the signer that key commits to, found by membership.
+      expect(mockFindOwnSignerCommitment).toHaveBeenCalledWith(expect.anything(), HOT_PK);
       expect(mockMultisigServiceInit).toHaveBeenCalledWith(
         expect.anything(),
         `0x${HOT_PK}`,
@@ -364,6 +366,16 @@ describe('guardian-manager', () => {
       );
     });
 
+    it('refuses to build a service when no on-chain signer holds the device hot key', async () => {
+      mockFindOwnSignerCommitment.mockResolvedValueOnce(undefined);
+      const provider = makeProvider([guardianAccount]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow(
+        "no on-chain signer holds this device's hot key"
+      );
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+    });
+
     it('throws when the SDK has no record of the account', async () => {
       mockGetAccount.mockResolvedValueOnce(null);
       const provider = makeProvider([guardianAccount]);
@@ -397,7 +409,7 @@ describe('guardian-manager', () => {
       await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
-      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      expect(mockFindOwnSignerCommitment).not.toHaveBeenCalled();
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
@@ -409,9 +421,9 @@ describe('guardian-manager', () => {
      * not growing an await is one edit from being wrong, and nothing would have caught it.
      */
     it('refuses the build when the eviction lands during the signer read', async () => {
-      mockGetSignerDetailsFromAccount.mockImplementationOnce(async () => {
+      mockFindOwnSignerCommitment.mockImplementationOnce(async () => {
         currentWasmHold = null;
-        return { commitment: 'abc' };
+        return 'abc';
       });
       const provider = makeProvider([guardianAccount]);
 
@@ -419,7 +431,7 @@ describe('guardian-manager', () => {
         name: 'WasmClientPoisonedError'
       });
       // Unlike the case above, the signer read DID happen. What must not happen is the build.
-      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalled();
+      expect(mockFindOwnSignerCommitment).toHaveBeenCalled();
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
   });

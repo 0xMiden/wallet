@@ -44,7 +44,7 @@ export function useRotationGateRows(accountPublicKey: string): RotationGateRows 
         {
           next: all =>
             setRows({
-              rotationRows: all.filter(r => r.type === 'replace-hot-key'),
+              rotationRows: all.filter(r => r.type === 'replace-hot-key' && !r.extraInputs?.revokedSignerCommitment),
               fundingRows: all.filter(r => r.type === 'consume'),
               loaded: true
             }),

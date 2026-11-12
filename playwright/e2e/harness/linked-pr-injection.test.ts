@@ -388,6 +388,7 @@ const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
 const workflowViolations = (file: string, text: string): string[] =>
   guarded(file, text) && !immutableStoreWorkflow(file, text) && !technicalScreenshotWorkflow(file, text)
     ? jobs(file, text).flatMap(job => {
+        if (linkedRuntimeExemptJobs.has(`${file} ${job.id}`)) return [];
         const why = violation(job);
         return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
       })
@@ -401,6 +402,11 @@ const workflowViolations = (file: string, text: string): string[] =>
 const publishedCheckoutInstall = (file: string, step: Step): boolean =>
   file === 'e2e-upgrade.yml' && ['previous', 'candidate'].includes(keyOf(step, 'working-directory') ?? '');
 
+const linkedRuntimeExemptJobs = new Set([
+  'deploy-wallet-api.yml deploy',
+  'wallet-api.yml check'
+]);
+
 const workflowFiles = readdirSync(workflowsDir)
   .filter(name => /\.ya?ml$/.test(name))
   .sort();
@@ -409,7 +415,7 @@ const source = (file: string): string => readFileSync(resolve(workflowsDir, file
 const guardedJobs = workflowFiles.flatMap(file =>
   guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file)) && !technicalScreenshotWorkflow(file, source(file))
     ? jobs(file, source(file))
-        .filter(job => job.steps.some(installs))
+        .filter(job => job.steps.some(installs) && !linkedRuntimeExemptJobs.has(`${file} ${job.id}`))
         .map(job => ({ file, job }))
     : []
 );
@@ -434,6 +440,15 @@ function rewriteShell(script: string, extra: Record<string, string>) {
 describe('every install a push or a dispatch can run injects the linked PRs first', () => {
   it('injects the linked web-sdk and Guardian PRs, in that order, before installing, in every such job', () => {
     expect(workflowFiles.flatMap(file => workflowViolations(file, source(file)))).toEqual([]);
+  });
+
+  it('keeps Worker service installs outside the linked wallet runtime injection rule', () => {
+    for (const name of ['deploy-wallet-api.yml deploy', 'wallet-api.yml check']) {
+      const [file, id] = name.split(' ');
+      expect(jobOf(file!, id!).steps.some(installs)).toBe(true);
+      expect(guardedNames).not.toContain(name);
+      expect(workflowViolations(file!, source(file!))).toEqual([]);
+    }
   });
 
   it('reads the jobs it guards, Chrome, Android, iOS and desktop builds among them', () => {

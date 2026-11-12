@@ -1,5 +1,5 @@
 import { formatBigInt } from 'lib/i18n/numbers';
-import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { type HotKeyActivationMode, isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -11,7 +11,7 @@ import {
 } from 'lib/miden/transaction/constants';
 import { newestRow } from 'lib/miden/transaction/rotation-funding';
 
-export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
+export type RotationGateView = 'recovery-seed' | 'choose-role' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
 export type RotationFundingReason = 'rotation-shortfall' | 'below-base-fee' | 'claim-in-progress';
 
@@ -35,6 +35,11 @@ export type GateRow = Pick<
 export interface RotationGateViewInput {
   /** The rotation row the overlay tracks, once it has one. */
   trackedRow?: GateRow;
+  /**
+   * The first lookup is done, the user did not choose a device role in this overlay, and no rotation has a role
+   * to resume (`resumableActivationMode`). Without a role, no new rotation can start.
+   */
+  roleChoicePending?: boolean;
   initError: string | null;
   /** `null` while unknown; `0` on a chain that charges nothing. */
   baseFee: number | null;
@@ -51,10 +56,35 @@ export interface RotationGateViewInput {
 }
 
 export type RotationGateViewResult =
-  | { view: 'recovery-seed' | 'failed' | 'rotating' }
+  | { view: 'recovery-seed' | 'choose-role' | 'failed' | 'rotating' }
   | { view: 'funding'; status: RotationFundingStatus; reason: RotationFundingReason; failedClaim?: GateRow };
 
 export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
+
+/** A rotation row as the device-role choice reads it. */
+export type RotationModeRow = Pick<ITransaction, 'status' | 'initiatedAt' | 'queuedSeq'> &
+  Partial<Pick<ITransaction, 'extraInputs'>>;
+
+/** The mode a rotation row was queued with. A row without a mode is from before the field existed: a replace. */
+export const activationModeOf = (row: RotationModeRow): HotKeyActivationMode => {
+  switch (row.extraInputs?.mode) {
+    case 'add':
+      return 'add';
+    default:
+      return 'replace';
+  }
+};
+
+/**
+ * The role the user chose for the account's last rotation, while that rotation did not complete (it is live or
+ * failed), else `null`. A reload or a second surface continues with this role and does not ask again. A completed
+ * rotation finished its activation, so a new flag (another device took the account over) asks again.
+ */
+export const resumableActivationMode = (rotationRows: readonly RotationModeRow[]): HotKeyActivationMode | null => {
+  const newest = newestRow(rotationRows);
+  if (newest === undefined || newest.status === ITransactionStatus.Completed) return null;
+  return activationModeOf(newest);
+};
 
 /** The balance trigger. The pre-fetch placeholder is a zero native row, so it waits for a real read. */
 export const isBelowBaseFee = (
@@ -93,7 +123,9 @@ const fundingStatus = (
 
 /**
  * What the everyday-key rotation gate shows (#805), first match wins: the recovery-seed
- * prompt, the funding panel, the failure surface, the spinner. Funding needs a chain that
+ * prompt, the device-role screen, the funding panel, the failure surface, the spinner.
+ * The device-role screen shows while a role is necessary and nothing exists to adopt: no
+ * tracked row, no live rotation, no live funding claim and no error to show. Funding needs a chain that
  * charges (`baseFee !== 0`) and one of: the tracked rotation failed for want of its fee,
  * the balance is below one fee, or the gate's own claim is live. An unknown fee keeps the
  * shortfall trigger, which is authoritative, and loses only the balance one.
@@ -105,6 +137,15 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
   }
   const shortfall = trackedRow !== undefined && isVaultShortfallRow(trackedRow);
   const claimLive = input.fundingRows.some(isLiveTransaction);
+  if (
+    input.roleChoicePending === true &&
+    input.initError === null &&
+    trackedRow === undefined &&
+    !claimLive &&
+    !input.rotationRows.some(isLiveTransaction)
+  ) {
+    return { view: 'choose-role' };
+  }
   if (input.baseFee !== 0 && (shortfall || input.belowBaseFee || claimLive)) {
     const reason: RotationFundingReason = shortfall
       ? 'rotation-shortfall'
