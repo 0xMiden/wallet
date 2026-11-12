@@ -1408,6 +1408,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAddress: 'sender-1',
       isBeingClaimed: false,
       type: 'public',
+      standardPayment: true,
       receivedAt,
       metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
     };
@@ -1424,6 +1425,41 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1', 'cached-2']);
+    });
+  });
+
+  it('drops a cached entry that is no payment to the account and no note of its own swap order (#2118)', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('pay'), { ...makeCachedNote('foreign'), standardPayment: false }];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['pay']);
+    });
+  });
+
+  it("keeps a cached note of the account's own swap order", async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      {
+        ...makeCachedNote('tip'),
+        standardPayment: false,
+        swapOrder: { orderId: '7', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+      }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['tip']);
+    });
+  });
+
+  it('drops unflagged cached entries and still shows the live read', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [{ ...makeCachedNote('legacy'), standardPayment: undefined }];
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
     });
   });
 
