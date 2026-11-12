@@ -289,7 +289,7 @@ describe('the loop on a single-key account', () => {
       bb: summaryInputs(summary('acct-a', { removed: [], added: [fa('bech32:fB', 50n)] }))
     });
     let recorded: unknown;
-    mockClient.methods.consumeNoteId.mockImplementation(async () => {
+    mockClient.methods.consumeNoteId!.mockImplementation(async () => {
       recorded = await mockClient.sign!(PUBLIC_KEY, new Uint8Array([0xbb])).catch((error: unknown) => error);
       throw new OperationAbortedError('op-1', 'deadline');
     });
