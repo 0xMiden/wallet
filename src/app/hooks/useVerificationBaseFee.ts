@@ -52,7 +52,7 @@ function useBaseFee(
       cancelled = true;
       unsub();
     };
-  }, []);
+  }, [hook, readAsync]);
 
   return baseFee;
 }
