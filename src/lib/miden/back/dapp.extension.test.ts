@@ -1345,6 +1345,33 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(notes[0].noteId).toBe('note-full');
   });
 
+  it('requestConsumableNotes marks each note with whether it is a standard payment', async () => {
+    const base = { noteType: 1, senderAccountId: 'sender-bech32', state: 2, assets: [], swapAttachment: null };
+    const partialNote = { ...base, noteId: null, nullifier: null, standardPayment: true };
+    const dtos = [
+      { ...base, noteId: 'pay', nullifier: 'n-1', standardPayment: true },
+      { ...base, noteId: 'other', nullifier: 'n-2', standardPayment: false },
+      { ...base, noteId: 'legacy', nullifier: 'n-3' },
+      partialNote
+    ];
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue(dtos);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    const notes = (res as any).consumableNotes;
+    expect(notes.map((n: any) => [n.noteId, n.standardPayment])).toEqual([
+      ['pay', true],
+      ['other', false],
+      ['legacy', false]
+    ]);
+  });
+
   it('requestAssets resolves when confirmed', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({

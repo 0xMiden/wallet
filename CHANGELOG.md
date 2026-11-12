@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
 - [BREAKING][all] A dApp's signBytes(data, "word"), and signBytes(data, "signingInputs") with a Blind or Arbitrary payload, now signs a domain-separated commitment that cannot authorize a transaction: the commitment of SigningInputs.newArbitrary([tag, ...payload]), where the tag is Poseidon2 of "miden-wallet/sign-bytes/v1". A transaction summary is signed as before, and the approval sheet says such a signature cannot authorize a transaction. The response also carries the signed word as signedCommitment. Migration: verify with publicKey.verify(signedCommitment, signature), or compute the word with domainSeparatedSignCommitment(data, kind) from @miden-sdk/miden-sdk 0.17.10.
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.

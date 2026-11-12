@@ -61,7 +61,8 @@ import {
   MidenDAppConsumableNotesRequest,
   MidenDAppConsumableNotesResponse,
   MidenDAppWaitForTxRequest,
-  MidenDAppWaitForTxResponse
+  MidenDAppWaitForTxResponse,
+  DAppConsumableNote
 } from 'lib/adapter/types';
 import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
@@ -1193,7 +1194,7 @@ export const generatePromisifyRequestConsumableNotes = (
   req: MidenDAppConsumableNotesRequest,
   sessionId?: string
 ) =>
-  servePrivateDataRead<InputNoteDetails[], MidenDAppConsumableNotesResponse>(
+  servePrivateDataRead<DAppConsumableNote[], MidenDAppConsumableNotesResponse>(
     resolve,
     reject,
     origin,
@@ -1211,8 +1212,8 @@ export const generatePromisifyRequestConsumableNotes = (
     }
   );
 
-async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]> {
-  let consumableNotes: InputNoteDetails[] = [];
+async function getConsumableNotes(accountId: string): Promise<DAppConsumableNote[]> {
+  let consumableNotes: DAppConsumableNote[] = [];
   try {
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
@@ -1226,11 +1227,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
-        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1, plus
+        // whether the note is a P2ID/P2IDE payment so a dApp can tell it from
+        // another script's note.
         const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
           assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
-        return notes.flatMap<InputNoteDetails>(note => {
+        return notes.flatMap<DAppConsumableNote>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
@@ -1244,7 +1247,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               senderAccountId: note.senderAccountId,
               nullifier: note.nullifier,
               state: note.state,
-              assets: note.assets
+              assets: note.assets,
+              standardPayment: note.standardPayment === true
             }
           ];
         });

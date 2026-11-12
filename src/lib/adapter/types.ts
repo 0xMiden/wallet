@@ -14,6 +14,9 @@ import {
 import { TransactionOutput } from 'lib/miden/db/types';
 import { GuardianInfo } from 'lib/shared/types';
 
+// The adapter-base 0.17.0 InputNoteDetails lacks standardPayment; drop this alias once the wallet moves to the adapter that adds it.
+export type DAppConsumableNote = InputNoteDetails & { standardPayment: boolean };
+
 export type MidenDAppMessage = MidenDAppRequest | MidenDAppResponse;
 
 export type MidenDAppRequest =
