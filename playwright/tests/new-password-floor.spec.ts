@@ -29,12 +29,13 @@ test.describe('new-password floor', () => {
     await verify.fill(eleven);
     await expect(continueButton).toBeDisabled();
     await expect(page.getByText('At least 12 characters', { exact: true })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath('posture-password-11.png') });
+    await page.screenshot({ path: testInfo.outputPath('posture-password-11.png'), animations: 'disabled' });
 
     const twelve = 'Abcdef12345!';
     await password.fill(twelve);
     await verify.fill(twelve);
     await expect(continueButton).toBeEnabled();
-    await page.screenshot({ path: testInfo.outputPath('posture-password-12.png') });
+    // The button fades between its states; capture the settled colour, not the start of the fade.
+    await page.screenshot({ path: testInfo.outputPath('posture-password-12.png'), animations: 'disabled' });
   });
 });
