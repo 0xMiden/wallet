@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  AccountId, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteAttachment, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
+  AccountId, Note, NoteAndArgs, NoteAndArgsArray, NoteArray, NoteAssets, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -10,7 +10,8 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
-export { inspectMainnetReturnNote } from './mainnet-miden-request';
+import { inspectMainnetReturnNote } from './mainnet-miden-request';
+export { inspectMainnetReturnNote };
 
 export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
   if (noteFile.length < 1 || noteFile.length > 1_048_576)
@@ -91,26 +92,8 @@ export function inspectEpochReturnNote(
   state: MainnetEpochCheckpoint, expectedNoteId: string, bytes: Uint8Array
 ): bigint {
   parseMainnetEpochCheckpoint(state);
-  if (!/^0x[0-9a-f]{64}$/i.test(expectedNoteId) || bytes.length < 1 || bytes.length > 1_048_576)
-    throw new Error('Invalid Epoch return note identity or byte size');
-  const note = NoteFile.deserialize(bytes).note();
-  if (!note || note.id().toString() !== expectedNoteId.toLowerCase() ||
-      note.metadata().sender().toString() === state.accountHex || note.assets().assets().length !== 1)
-    throw new Error('Epoch return must be the exact provider-correlated non-self note');
-  const assets = note.assets().fungibleAssets();
-  const asset = assets[0];
-  if (assets.length !== 1 || !asset || asset.faucetId().toString() !== state.native.hex ||
-      asset.amount() < BigInt(state.reverseMinimum))
-    throw new Error('Epoch return note asset or amount differs from its authorization');
-  const amount = asset.amount();
-  const expected = Note.createP2IDNote(note.metadata().sender(), AccountId.fromHex(state.accountHex),
-    new NoteAssets([asset]), NoteType.Public, new NoteAttachment());
-  const actualStorage = note.recipient().storage().items().map(value => value.asInt());
-  const expectedStorage = expected.recipient().storage().items().map(value => value.asInt());
-  if (note.script().root().toHex() !== expected.script().root().toHex() || actualStorage.length !== expectedStorage.length ||
-      actualStorage.some((value, index) => value !== expectedStorage[index]))
-    throw new Error('Epoch return is not the exact non-reclaimable P2ID to the authorized Guardian');
-  return amount;
+  return inspectMainnetReturnNote({ noteId: expectedNoteId, accountHex: state.accountHex,
+    faucetHex: state.native.hex, minimumOutput: BigInt(state.reverseMinimum) }, bytes);
 }
 
 function inspectEpochCollateralNote(
