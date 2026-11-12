@@ -9,7 +9,17 @@ jest.mock('@capacitor/core', () => ({
   registerPlugin: () => ({ enable: () => mockEnable(), disable: () => mockDisable() })
 }));
 
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
+const mockSetProtected = jest.fn();
+let mockPlatform: 'mobile' | 'desktop' | 'extension' = 'mobile';
+
+jest.mock('lib/desktop/content-protection', () => ({
+  setWindowContentProtected: (enabled: boolean) => mockSetProtected(enabled)
+}));
+
+jest.mock('lib/platform', () => ({
+  isMobile: () => mockPlatform === 'mobile',
+  isDesktop: () => mockPlatform === 'desktop'
+}));
 
 const settle = () =>
   act(async () => {
@@ -39,6 +49,8 @@ describe('useScreenshotGuard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetScreenshotGuardForTest();
+    mockPlatform = 'mobile';
+    mockSetProtected.mockResolvedValue(undefined);
     mockEnable.mockResolvedValue(undefined);
     mockDisable.mockResolvedValue(undefined);
   });
@@ -197,5 +209,58 @@ describe('useScreenshotGuard', () => {
     secondEnable.resolve();
     await settle();
     expect(result.current).toBe(true);
+  });
+
+  describe('on desktop', () => {
+    beforeEach(() => {
+      mockPlatform = 'desktop';
+    });
+
+    it('on desktop, withholds until window protection is on, then reports ready', async () => {
+      const enable = deferred();
+      mockSetProtected.mockReturnValue(enable.promise);
+      const { result } = renderHook(() => useScreenshotGuard());
+      await settle();
+      expect(result.current).toBe(false);
+      expect(mockSetProtected).toHaveBeenCalledTimes(1);
+      expect(mockSetProtected).toHaveBeenCalledWith(true);
+      expect(mockEnable).not.toHaveBeenCalled();
+
+      enable.resolve();
+      await settle();
+      expect(result.current).toBe(true);
+    });
+
+    it('on desktop, two holders share one enable and the last release turns protection off', async () => {
+      const first = renderHook(() => useScreenshotGuard());
+      const second = renderHook(() => useScreenshotGuard());
+      await settle();
+      expect(mockSetProtected).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      expect(mockSetProtected).not.toHaveBeenCalledWith(false);
+
+      second.unmount();
+      expect(mockSetProtected.mock.calls.filter(([enabled]) => enabled === false)).toHaveLength(1);
+    });
+
+    it('on desktop, a failed enable still reports ready and logs', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockSetProtected.mockRejectedValue(new Error('no window flag'));
+      const { result } = renderHook(() => useScreenshotGuard());
+      await settle();
+      expect(result.current).toBe(true);
+      expect(warn).toHaveBeenCalledWith('[screenshot-guard] content protection failed:', expect.any(Error));
+      warn.mockRestore();
+    });
+  });
+
+  it('on the extension, reports ready at once and protects nothing', async () => {
+    mockPlatform = 'extension';
+    const { result } = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(result.current).toBe(true);
+    expect(mockEnable).not.toHaveBeenCalled();
+    expect(mockSetProtected).not.toHaveBeenCalled();
   });
 });
