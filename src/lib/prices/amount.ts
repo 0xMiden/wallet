@@ -11,7 +11,7 @@ export type UsdQuoteStatus = 'ready' | 'loading' | 'unavailable' | 'stale';
 export function usdQuoteStatus(quote: TokenPriceInfo | undefined, now = Date.now()): UsdQuoteStatus {
   if (!quote || isNominalQuote(quote) || !Number.isFinite(quote.price) || quote.price <= 0) return 'unavailable';
   if (isFixedQuote(quote)) return 'ready';
-  if (quote.observedAt === undefined) return 'unavailable';
+  if (quote.observedAt === undefined || !Number.isFinite(quote.observedAt)) return 'unavailable';
   return quote.observedAt > now || now - quote.observedAt > USD_QUOTE_MAX_AGE_MS ? 'stale' : 'ready';
 }
 

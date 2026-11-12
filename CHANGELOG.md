@@ -2,7 +2,7 @@
 
 ## 1.17.12 (TBD)
 
-- [CHANGE][all] Label the token detail balance as available to distinguish it from pending activity.
+- [CHANGE][all] Show available token balances separately from pending claim activity, reuse matching claims in token history, and identify the source and freshness of USD quotes.
 - [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
 - [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.

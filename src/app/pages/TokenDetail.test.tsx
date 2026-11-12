@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -17,6 +18,7 @@ import {
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -115,6 +117,22 @@ jest.mock('lib/miden/front', () => ({
   useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata()
 }));
 
+let mockActivityItems: PendingActivityItem[] = [];
+let mockActivityLoading = false;
+const mockUseActivityClaimList = jest.fn();
+const mockRenderPendingItem = (item: PendingActivityItem) => <span>{item.note.id}</span>;
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: (...args: unknown[]) => {
+    mockUseActivityClaimList(...args);
+    return {
+      representedItems: mockActivityItems,
+      listItems: mockActivityItems,
+      renderPendingItem: mockRenderPendingItem,
+      isLoadingNotes: mockActivityLoading
+    };
+  }
+}));
+
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
 // state object, matching the sibling KeysSettings.test.tsx pattern.
 let mockTokenPrices: Record<string, unknown> = {};
@@ -172,6 +190,8 @@ jest.mock('lib/prices', () => ({
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
+const mockUseQuoteClock = jest.fn();
+jest.mock('lib/prices/use-quote-clock', () => ({ useQuoteClock: (deadline?: number) => mockUseQuoteClock(deadline) }));
 
 // `useRetryableSWR(key, fetcher, opts)` — invoke the fetcher (so the inline
 // `() => fetchKlineData(symbol, timeframe)` closure is covered) then return the
@@ -243,14 +263,28 @@ jest.mock('components/UnverifiedTokenSheet', () => ({
 // TokenDetail forwards.
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
-  default: (props: { address: string; tokenId?: string; fullHistory?: boolean; dateStyle?: string }) => (
+  default: (props: {
+    address: string;
+    tokenId?: string;
+    fullHistory?: boolean;
+    dateStyle?: string;
+    pendingItems?: PendingActivityItem[];
+    drawnPendingItems?: PendingActivityItem[];
+    renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+    externalLoading?: boolean;
+  }) => (
     <div
       data-testid="history"
       data-address={props.address}
       data-token-id={props.tokenId}
       data-full-history={String(props.fullHistory)}
       data-date-style={props.dateStyle ?? ''}
-    />
+      data-pending-ids={props.pendingItems?.map(item => item.note.id).join(',') ?? ''}
+      data-drawn-pending-ids={props.drawnPendingItems?.map(item => item.note.id).join(',') ?? ''}
+      data-external-loading={String(props.externalLoading)}
+    >
+      {(props.drawnPendingItems ?? props.pendingItems ?? []).map(item => props.renderPendingItem?.(item))}
+    </div>
   )
 }));
 
@@ -385,13 +419,21 @@ type Overrides = {
   balances?: unknown;
   metadata?: Record<string, unknown>;
   network?: MIDEN_NETWORK_NAME;
-  priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
-  tokenPrices?: Record<string, unknown>;
+  priceInfo?: PriceFixture;
+  tokenPrices?: Record<string, PriceFixture>;
   klineData?: unknown;
   /** The first kline load still in flight: SWR reports `data: undefined`. */
   klineLoading?: boolean;
   /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
   explorerUrl?: string | null;
+};
+
+type PriceFixture = {
+  price: number;
+  change24h: number;
+  percentageChange24h?: number;
+  observedAt?: number;
+  provider?: 'binance' | 'kraken';
 };
 
 function configure(o: Overrides = {}) {
@@ -404,9 +446,15 @@ function configure(o: Overrides = {}) {
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockWalletNetwork = o.network;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
-  mockTokenPrices = o.tokenPrices ?? {
+  const prices = o.tokenPrices ?? {
     ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
   };
+  mockTokenPrices = Object.fromEntries(
+    Object.entries(prices).map(([symbol, quote]) => [
+      symbol,
+      { ...quote, observedAt: quote.observedAt ?? Date.now(), provider: quote.provider ?? 'binance' }
+    ])
+  );
   mockGetExplorerAccountUrl.mockReturnValue(
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
@@ -432,8 +480,23 @@ const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
   return render(<TokenDetail tokenId={tokenId} />);
 };
 
+const pendingItem = (id: string, faucetId: string): PendingActivityItem => ({
+  note: {
+    id,
+    faucetId,
+    amount: '1000000',
+    senderAddress: 'mtst1sender',
+    isBeingClaimed: false,
+    type: 'unknown',
+    metadata: { name: 'Test token', symbol: 'IETH', decimals: 6 }
+  },
+  status: 'pending'
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockActivityItems = [];
+  mockActivityLoading = false;
   mockTokenPrices = {};
   mockTokenMetadataOverrides = {};
   mockSetTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
@@ -499,6 +562,52 @@ describe('TokenDetail', () => {
     expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
     expect(screen.queryByRole('radiogroup', { name: 'chartTimeframe' })).not.toBeInTheDocument();
     expect(mockFetchKlineData).not.toHaveBeenCalled();
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailFixedQuoteContext');
+  });
+
+  it('shows verified market provenance and schedules the existing freshness clock', () => {
+    const observedAt = Date.now() - 1_000;
+    renderPage({ priceInfo: { price: 2000, change24h: 3.2, observedAt, provider: 'kraken' } });
+
+    const context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveTextContent('tokenDetailMarketQuoteContext');
+    expect(context).toHaveTextContent('ETH');
+    expect(context).toHaveTextContent('Kraken');
+    expect(context).toHaveTextContent(new Date(observedAt).toLocaleString());
+    expect(mockUseQuoteClock).toHaveBeenCalledWith(observedAt + USD_QUOTE_MAX_AGE_MS + 1);
+  });
+
+  it('hides a stale quote from the available value and current-price chart', () => {
+    renderPage({
+      priceInfo: {
+        price: 2000,
+        change24h: 0,
+        observedAt: Date.now() - USD_QUOTE_MAX_AGE_MS - 1,
+        provider: 'binance'
+      }
+    });
+
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$25000.00')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteStaleTitle');
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+  });
+
+  it('does not value a market quote without provider provenance', () => {
+    const { rerender } = renderPage();
+    mockTokenPrices = {
+      ETH: { price: 2000, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+    };
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$25000.00')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+  });
+
+  it('values a known zero balance with a fresh market quote', () => {
+    renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 0, metadata: { symbol: 'ETH' } }] });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$0.00')).toBeInTheDocument();
   });
 
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
@@ -509,6 +618,20 @@ describe('TokenDetail', () => {
     expect(within(hero).getByText('12.50')).toBeInTheDocument();
     // No fiat line at all, not even the dash that means "not priced yet".
     expect(hero.querySelector('p')).toBeNull();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+  });
+
+  it('does not use a same-symbol quote for an unlisted faucet', () => {
+    const faucetId = 'mtst1same-symbol-unlisted';
+    renderPage(
+      {
+        balances: [{ tokenId: faucetId, balance: 12.5, metadata: { symbol: 'ETH', decimals: 18 } }],
+        tokenPrices: { ETH: { price: 2000, change24h: 0 } }
+      },
+      faucetId
+    );
+
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$25000.00')).not.toBeInTheDocument();
     expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
   });
 
@@ -595,6 +718,20 @@ describe('TokenDetail', () => {
     expect(history).toHaveAttribute('data-address', 'pk-123');
     expect(history).toHaveAttribute('data-token-id', TOKEN_ID);
     expect(history).toHaveAttribute('data-full-history', 'true');
+  });
+
+  it('passes only matching-faucet claim cards through the shared token History', () => {
+    mockActivityItems = [pendingItem('matching', TOKEN_ID), pendingItem('same-symbol-other-faucet', 'mtst1other')];
+    mockActivityLoading = true;
+    renderPage();
+
+    const history = screen.getByTestId('history');
+    expect(mockUseActivityClaimList).toHaveBeenCalledWith('', 'all');
+    expect(history).toHaveAttribute('data-pending-ids', 'matching');
+    expect(history).toHaveAttribute('data-drawn-pending-ids', 'matching');
+    expect(history).toHaveAttribute('data-external-loading', 'true');
+    expect(screen.getByText('matching')).toBeInTheDocument();
+    expect(screen.queryByText('same-symbol-other-faucet')).not.toBeInTheDocument();
   });
 
   // The caption list starts flush under the heading on its own; a margin pulling it up would also

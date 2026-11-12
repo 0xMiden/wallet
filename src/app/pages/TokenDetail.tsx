@@ -12,6 +12,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
+import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
@@ -40,8 +41,10 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -97,6 +100,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { data: balances, isLoading: balancesLoading } = useAllBalances(account.publicKey, allTokensMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const { representedItems, listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'all');
 
   const token = balances?.find(b => b.tokenId === tokenId);
   const metadata = token?.metadata || allTokensMetadata[tokenId];
@@ -105,20 +109,51 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = !balancesLoading && balances ? (token?.balance ?? 0) : null;
-  // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
-  // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
-  // without one has no dollar figure and no price section.
+  const scaleIsKnown = hasKnownScale(metadata);
   const priceSymbol = priceSymbolFor(tokenId, symbol);
   const quote = quotedPrice(tokenPrices, priceSymbol);
-  const fiatValue = balance === null || !quote ? null : balance * quote.price;
+  const fixedQuote = isFixedQuote(quote);
+  const quoteStatus = usdQuoteStatus(quote);
+  const hasMarketProvider = quote?.provider === 'binance' || quote?.provider === 'kraken';
+  const hasMarketTimestamp = typeof quote?.observedAt === 'number' && Number.isFinite(quote.observedAt);
+  const quoteReady = quoteStatus === 'ready' && (fixedQuote || (hasMarketProvider && hasMarketTimestamp));
+  useQuoteClock(quoteReady && !fixedQuote ? quoteExpiryMs(quote) : undefined);
+  const fiatValue =
+    scaleIsKnown && balance !== null && balance >= 0 && Number.isFinite(balance) && quoteReady && quote
+      ? balance * quote.price
+      : null;
+  const safeFiatValue = fiatValue !== null && Number.isFinite(fiatValue) ? fiatValue : null;
+  const tokenPendingItems = representedItems.filter(
+    item => normalizedFaucetId(item.note.faucetId) === normalizedFaucetId(tokenId)
+  );
+  const drawnTokenPendingItems = listItems.filter(
+    item => normalizedFaucetId(item.note.faucetId) === normalizedFaucetId(tokenId)
+  );
+  const noQuoteAfterLoad = !quote && Boolean(priceSymbol) && pricesLoaded(tokenPrices, [priceSymbol]);
+  const quoteNotice = Boolean(
+    priceSymbol &&
+    !isNominalQuote(quote) &&
+    ((quote && !quoteReady) || noQuoteAfterLoad)
+  );
+  const quoteContext = quote && !isNominalQuote(quote) && priceSymbol;
+  const quoteNetwork = t(getEffectiveNetworkName());
+  const quoteDetails = fixedQuote
+    ? t('tokenDetailFixedQuoteContext', { symbol: priceSymbol, network: quoteNetwork })
+    : quote?.provider && quote.observedAt !== undefined && hasMarketTimestamp
+      ? t('tokenDetailMarketQuoteContext', {
+          symbol: priceSymbol,
+          network: quoteNetwork,
+          provider: quote.provider === 'binance' ? 'Binance' : 'Kraken',
+          retrievedAt: new Date(quote.observedAt).toLocaleString()
+        })
+      : t('tokenDetailQuoteUnavailableBody');
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
   // an unresolved faucet it is not this user's holding — and the fiat figure
   // below is that same wrong number multiplied by a price. The hero is the most
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
-  const scaleIsKnown = hasKnownScale(metadata);
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
-  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+  const formatFiat = adaptiveFormatterFor(safeFiatValue ?? 0);
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
@@ -178,7 +213,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               // The dash while prices load; no line once they have and none quotes this token.
               scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
                 <AnimatedNumber
-                  value={fiatValue}
+                  value={safeFiatValue}
                   format={value => `$${formatFiat(value)}`}
                   // Same dash as the value above: this line hasn't priced anything yet either.
                   placeholder="—"
@@ -186,6 +221,25 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               ) : undefined
             }
           />
+
+          {(quoteContext || quoteNotice) && (
+            <Notice
+              variant="inline"
+              tone={quoteStatus === 'stale' ? 'warning' : 'neutral'}
+              role={quoteReady ? 'note' : 'status'}
+              title={
+                quoteStatus === 'stale'
+                  ? t('tokenDetailQuoteStaleTitle')
+                  : quoteNotice
+                    ? t('tokenDetailQuoteUnavailableTitle')
+                    : undefined
+              }
+              className="-mt-3"
+              data-testid="token-detail-quote-context"
+            >
+              {quoteContext ? quoteDetails : t('tokenDetailQuoteUnavailableBody')}
+            </Notice>
+          )}
 
           {verification === 'unverified' && (
             // A token's name and logo are whatever its creator chose; only the list vouches for it. One
@@ -237,7 +291,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
+          {quoteReady && quote && !isNominalQuote(quote) && !fixedQuote && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
               <SectionDivider />
@@ -259,6 +313,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               // The section's heading names the list; each day is a quiet caption under it.
               dateStyle="caption"
               scrollParentRef={scrollParentRef}
+              pendingItems={tokenPendingItems}
+              drawnPendingItems={drawnTokenPendingItems}
+              renderPendingItem={renderPendingItem}
+              externalLoading={isLoadingNotes}
             />
           </section>
         </div>

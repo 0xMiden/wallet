@@ -56,6 +56,9 @@ describe('trustworthy USD estimates', () => {
     expect(nominal?.price).toBe(1);
     expect(usdQuoteStatus(nominal)).toBe('unavailable');
     expect(usdQuoteStatus({ ...quote(), observedAt: undefined })).toBe('unavailable');
+    for (const observedAt of [NaN, Infinity, -Infinity]) {
+      expect(usdQuoteStatus({ ...quote(), observedAt })).toBe('unavailable');
+    }
     for (const price of [0, -1, NaN, Infinity]) expect(usdQuoteStatus(quote(price))).toBe('unavailable');
   });
 

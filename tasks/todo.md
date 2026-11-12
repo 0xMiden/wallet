@@ -5,18 +5,25 @@
 - [x] Read the accepted brief and author clarification. Keep #2027 identity/layout ownership separate and preserve existing Send/Receive and History.
 - [x] Preserve the original candidate `cac4880ccf75001dfa8ec361da883ffa5dce6207` and its tree before integration.
 - [x] Integrate current main `eafabde38be4e07fb71bc6e459b9975974eb6f5d` as signed merge `87f3ad2e87a65c6a8b17c026087f3de7f522254e`.
-- [ ] Add provider provenance at the existing price-feed boundary with focused regression tests.
-- [ ] Reuse matching pending claim/retry cards in the same token-filtered History and keep pending amounts out of Available.
-- [ ] Render loading, stale, unavailable, fixed and fresh quote states; value only a known balance with a fresh trusted quote.
-- [ ] Run focused tests and light static gates through `ci-local`; keep passing CI in the coordinator's combined gate.
+- [x] Add provider provenance at the existing price-feed boundary with focused regression tests.
+- [x] Reuse matching pending claim/retry cards in the same token-filtered History and keep pending amounts out of Available.
+- [x] Render loading, stale, unavailable, fixed and fresh quote states; value only a known balance with a fresh trusted quote.
+- [x] Expand the existing #2028 CHANGELOG entry under `1.17.12 (TBD)` to cover pending claims and quote provenance.
+- [x] Bind test-only expected-red inputs to signed pre-Task-3 checkpoint `4022f5d`; construct and push QA-only branch `qa/2028-token-detail-expected-red-20261112` at `920d09d85589fbb99d43b9d8b261aeb167da717f` (tree `3dc64f6279780ceb5132c6c54bb98ece032ac7ec`).
+- [x] Verify expected-red run `43252233119` on exact QA head `920d09d85589fbb99d43b9d8b261aeb167da717f`: all eight named tests executed, six intended assertions failed, two controls passed, and no setup/runtime errors occurred.
+- [x] Stop the `ci-local` admission retry at a safe boundary after the 2026-11-12T17:01:20Z refusal at load 8.76/6.0; exit 75, no tests executed. Preserve the refusal log.
+- [ ] Run the full named page and amount Jest suites in a lean source-bound CI route; keep full passing CI in the coordinator's combined gate.
 - [ ] Capture current-source compact mobile and extension screenshots in light and dark through the approved visual route.
 
 ## Review
 
 - The original candidate added the Available label only. Its earlier focused page suite passed 103 tests on that old checkpoint; this does not certify current main or the full issue.
-- Current main is `eafabde38be4e07fb71bc6e459b9975974eb6f5d`. Merge `87f3ad2e87a65c6a8b17c026087f3de7f522254e` has tree `d938448bbbbb238271d6dfb277d7a95edeff54f6`, with candidate and current main as parents.
-- The Available changelog entry remains under `1.17.12 (TBD)`. The #2074 unread-balance guard matches current main at blob `4c2bba530e38563eb97fbb7e1befc49cc06e63c4`.
+- The branch integration checkpoint is signed merge `87f3ad2e87a65c6a8b17c026087f3de7f522254e` on main `eafabde38be4e07fb71bc6e459b9975974eb6f5d`, with tree `d938448bbbbb238271d6dfb277d7a95edeff54f6`. Root's v9 snapshot now observes main `40ade316a52fcca79b3e8a96729142bb99ed08e6`; that later integration stays with the coordinator's combined gate.
+- The expanded #2028 changelog entry remains under `1.17.12 (TBD)`. At the `eafabde` integration checkpoint, the #2074 unread-balance guard matched blob `4c2bba530e38563eb97fbb7e1befc49cc06e63c4`.
 - No focused tests, source build, screenshots, PR, or current issue review were run on the integrated checkpoint.
+- Feed provenance is complete in signed commit `4022f5daa89a6d9aeb6c8c05ceead588cd5a145b`; its red-before and green named feed suite passed (17 tests).
+- TokenDetail, quote-timestamp and changelog changes are ready for a signed local source checkpoint. The page and amount Jest suites never executed: the guarded `ci-local` retry loop was stopped at session `11117` after repeated pre-execution load refusals, most recently 8.76 versus the 6.0 limit at 2026-11-12T17:01:20Z. Read-only `git diff --check` passed. The test-only QA binding is `/private/tmp/walletissues-coordination-20261111/2028-test-only-qa-prep.json` (SHA-256 `11f046b2332c69c707baf345dcd2624410b576b57667df1960e0fb64269e2037`). Its pushed expected-red QA branch `qa/2028-token-detail-expected-red-20261112` is `920d09d85589fbb99d43b9d8b261aeb167da717f` (tree `3dc64f6279780ceb5132c6c54bb98ece032ac7ec`, workflow blob `32a2deaf87951cdd35b88edeb408743b85ab6f9f`).
+- Expected-red proof is complete on exact QA SHA `920d09d85589fbb99d43b9d8b261aeb167da717f`, run `43252233119`, job `131300850204`: all eight named tests executed, six intended assertions failed, two controls passed, 132 unrelated tests were skipped, and there were zero runtime-error suites. Checkout, source-binding checks, frozen dependency install, expected-result assertion and artifact upload passed. Results, source-binding and test log are preserved under `/private/tmp/walletissues-coordination-20261111/2028-qa-run-43252233119-artifacts`; no passing CI or production verification is claimed.
 
 # Follow-up to #1790: describe wallet-file contents accurately
 
