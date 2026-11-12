@@ -2817,12 +2817,7 @@ describe('guardian custom proposals preserve the prepared request through signin
       approvedEffects,
       spentAssetTotals
     );
-    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 4)).toEqual([
-      'guardian-acc',
-      prepared,
-      false,
-      signCallback
-    ]);
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 4)).toEqual(['guardian-acc', prepared, false, signCallback]);
     expect(mockVerifyPreparedCustomRequest.mock.invocationCallOrder[0]).toBeLessThan(
       mockProxyNewTransaction.mock.invocationCallOrder[0]!
     );
@@ -2834,9 +2829,11 @@ describe('guardian custom proposals preserve the prepared request through signin
     const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
     const { service } = arrange(id, { ...executeCase.row, approvedEffects });
     const mismatch = new Error('approved effects changed');
-    service.createCustomProposal.mockResolvedValueOnce(
-      { id: 'proposal-mismatch', nonce: 19, txSummary: 'proposal-summary' } as never
-    );
+    service.createCustomProposal.mockResolvedValueOnce({
+      id: 'proposal-mismatch',
+      nonce: 19,
+      txSummary: 'proposal-summary'
+    } as never);
     mockAssertCustomEffectsApproved.mockImplementationOnce(() => {
       throw mismatch;
     });
