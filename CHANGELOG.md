@@ -3,6 +3,8 @@
 ## 1.17.12 (TBD)
 
 - [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
+- [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
+- [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
 - [BREAKING][all] A dApp's signBytes(data, "word"), and signBytes(data, "signingInputs") with a Blind or Arbitrary payload, now signs a domain-separated commitment that cannot authorize a transaction: the commitment of SigningInputs.newArbitrary([tag, ...payload]), where the tag is Poseidon2 of "miden-wallet/sign-bytes/v1". A transaction summary is signed as before, and the approval sheet says such a signature cannot authorize a transaction. The response also carries the signed word as signedCommitment. Migration: verify with publicKey.verify(signedCommitment, signature), or compute the word with domainSeparatedSignCommitment(data, kind) from @miden-sdk/miden-sdk 0.17.10.
 - [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
