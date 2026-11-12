@@ -30,11 +30,9 @@ export interface DepositErc20Row {
 export interface DepositEpochRow {
   /** The document's key on the route. */
   key: string;
-  /** The token's symbol, which keys its logo. */
-  symbol: string;
   /** The token's address on the chain; the zero address for the native coin. */
   address: string;
-  /** The Miden faucet it arrives in: the logo falls back to that faucet's token-list logo (POL, USDG). */
+  /** The Miden faucet it arrives in, which keys its token-list logo (POL, USDG). */
   midenFaucetId: string;
   /** The row's title and balance unit. */
   name: string;
@@ -48,12 +46,10 @@ interface TokenRow {
   token: DepositToken;
   /** The row's title and balance unit. */
   name: string;
-  /** Keys the row's logo. */
-  logoSymbol: string;
   /** Prices the row's balance on the drawer's chain. */
   priceAddress?: string;
-  /** The faucet whose token-list logo is drawn when the wallet ships no mark for `logoSymbol`. */
-  logoFaucetId?: string;
+  /** The Miden faucet the token arrives in, which keys its token-list logo; undefined while that faucet does not exist. */
+  logoFaucetId: string | undefined;
   /** Formatted balance for display (from the connected EVM wallet). */
   balance: string;
   loading?: boolean;
@@ -70,6 +66,8 @@ export interface EvmBridgeTokenDrawerProps {
   ethBalance?: string;
   ethBalanceValue?: bigint | null;
   ethLoading?: boolean;
+  /** The Miden faucet AggLayer delivers native ETH into, which keys the ETH row's logo. */
+  ethFaucetId?: string;
   /**
    * Circle's USDC, which bridges only through Circle xReserve. The row is
    * drawn only when the balance is given, which the host does where that route can start.
@@ -80,6 +78,8 @@ export interface EvmBridgeTokenDrawerProps {
   /** The Circle USDC row's name: the token's symbol and its network. */
   circleUsdcLabel?: string;
   circleUsdcLoading?: boolean;
+  /** The USDCx faucet Circle USDC arrives in, which keys the Circle USDC row's logo. */
+  circleUsdcFaucetId?: string;
   /**
    * The ERC-20s the AggLayer bridge registers on the chosen chain, each bridging through AggLayer alone. Drawn after
    * ETH and Circle USDC, in registry order. Show only tokens with a positive base-unit balance.
@@ -109,10 +109,12 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   ethBalance,
   ethBalanceValue,
   ethLoading,
+  ethFaucetId,
   circleUsdcBalance,
   circleUsdcBalanceValue,
   circleUsdcLabel,
   circleUsdcLoading,
+  circleUsdcFaucetId,
   erc20Rows = [],
   erc20Unavailable = false,
   erc20ListLoading,
@@ -139,7 +141,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     rows.push({
       token: 'ETH',
       name: 'ETH',
-      logoSymbol: 'ETH',
+      logoFaucetId: ethFaucetId,
       priceAddress: '0x0000000000000000000000000000000000000000',
       balance: ethBalance
     });
@@ -147,7 +149,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     rows.push({
       token: 'ETH',
       name: 'ETH',
-      logoSymbol: 'ETH',
+      logoFaucetId: ethFaucetId,
       priceAddress: '0x0000000000000000000000000000000000000000',
       balance: ethBalance,
       unreadable: true
@@ -157,19 +159,18 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     rows.push({
       token: 'CIRCLE_USDC',
       name: circleUsdcLabel ?? 'USDC',
-      logoSymbol: 'USDC',
+      logoFaucetId: circleUsdcFaucetId,
       priceAddress: circleUsdcAddress,
       balance: circleUsdcBalance,
       loading: circleUsdcLoading,
       unreadable: !circleUsdcLoading && circleUsdcBalanceValue === null
     });
   }
-  for (const { key, symbol, address, midenFaucetId, name, balance, value, loading } of epochRows) {
+  for (const { key, address, midenFaucetId, name, balance, value, loading } of epochRows) {
     if (loading) {
       rows.push({
         token: { kind: 'epoch', key },
         name,
-        logoSymbol: symbol,
         logoFaucetId: midenFaucetId,
         priceAddress: address,
         balance,
@@ -180,7 +181,6 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     rows.push({
       token: { kind: 'epoch', key },
       name,
-      logoSymbol: symbol,
       logoFaucetId: midenFaucetId,
       priceAddress: address,
       balance,
@@ -193,7 +193,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       rows.push({
         token: { kind: 'erc20', contractAddress: token.contractAddress },
         name,
-        logoSymbol: token.symbol,
+        logoFaucetId: token.delivery?.midenFaucetId,
         priceAddress: token.contractAddress,
         balance,
         unreadable: true
@@ -204,7 +204,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     rows.push({
       token: { kind: 'erc20', contractAddress: token.contractAddress },
       name,
-      logoSymbol: token.symbol,
+      // A token the bridge has never carried has no faucet until its first deposit, so it draws the default mark.
+      logoFaucetId: token.delivery?.midenFaucetId,
       priceAddress: token.contractAddress,
       balance,
       loading: false
@@ -219,8 +220,9 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         </DrawerHeader>
 
         <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4" data-testid="bridge-token-scroll">
+          {/* The choices are one fill group, as in the send and swap token sheets. */}
           <ListGroup>
-            {rows.map(({ token, name, logoSymbol, logoFaucetId, priceAddress, balance, loading, unreadable }) => (
+            {rows.map(({ token, name, logoFaucetId, priceAddress, balance, loading, unreadable }) => (
               <ListRow
                 accent="receive"
                 key={depositTokenKey(token)}
@@ -239,7 +241,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
                     </div>
                   )
                 }
-                avatar={<TokenLogo symbol={logoSymbol} faucetId={logoFaucetId} size="lg" />}
+                avatar={<TokenLogo faucetId={logoFaucetId} size="lg" />}
                 checked={sameDepositToken(token, selected)}
                 onClick={() => onSelect(token)}
                 data-testid={`bridge-token-${depositTokenKey(token)}`}

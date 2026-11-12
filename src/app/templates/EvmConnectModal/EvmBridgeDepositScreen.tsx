@@ -2561,7 +2561,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             <EvmBridgeDepositForm
               token={setupToken}
               balanceUnreadable={balanceUnreadable}
-              logoFaucetId={route === 'epoch' ? midenUsdcFaucetId : undefined}
+              logoFaucetId={outputFaucetId}
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
@@ -2603,7 +2603,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       usdPrices,
       sourceTokenAddress,
       outputFaucetId,
-      midenUsdcFaucetId,
       deliveredSymbol,
       fastNative,
       token,
@@ -2695,15 +2694,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         ethBalanceValue={ethBalance.value}
         ethLoading={ethBalance.loading}
+        ethFaucetId={selectNativeEthFaucet(bridgeConfig, agglayerChainId) ?? undefined}
         circleUsdcBalance={circleOffered ? circleUsdcBalance.formatted : undefined}
         circleUsdcBalanceValue={circleUsdcBalance.value}
+        circleUsdcFaucetId={nativeUsdFaucetId ?? undefined}
         epochRows={epochTokens.flatMap((candidate): DepositEpochRow[] => {
           if (ownRowCarries(candidate)) return [];
           const balance = epochBalances[candidate.key] ?? EMPTY_BALANCE;
           return [
             {
               key: candidate.key,
-              symbol: candidate.symbol,
               address: candidate.address,
               midenFaucetId: candidate.midenFaucetId,
               name: candidate.key === 'USDC' ? evmUsdcLabel(bridgeConfig, candidate.symbol) : candidate.symbol,
