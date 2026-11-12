@@ -17,10 +17,17 @@ export async function awaitTestConsumeAuthorization(
   request: { serialize(): Uint8Array }
 ): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
-  const policy: unknown = (await chrome.storage.local.get(KEY))[KEY];
-  if (policy === undefined) return;
+  const stored = await chrome.storage.local.get([KEY, `${KEY}_required`]);
+  const policy: unknown = stored[KEY];
+  const required: unknown = stored[`${KEY}_required`];
+  if (policy === undefined) {
+    if (required !== undefined) throw new Error('Missing required native consume authorization');
+    return;
+  }
   if (
     !isRecord(policy) ||
+    (required !== undefined &&
+      (!isRecord(required) || required.accountId !== policy.accountId || required.nonce !== policy.nonce)) ||
     policy.status !== 'armed' ||
     typeof policy.nonce !== 'string' ||
     !policy.nonce ||

@@ -178,12 +178,15 @@ it('attributes only exact real ERC20 receipt transfers from the provider-reporte
   const f = forwardEvidence();
   expect(inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toBe(1001000n);
 });
-it.each([500500n, 1001000n])('rejects ambiguous same-recipient payouts of %s instead of attributing their sum', value => {
-  const f = forwardEvidence();
-  f.log.data = encodeAbiParameters([{ type: 'uint256' }], [value]);
-  f.receipt.logs.push({ ...f.log, logIndex: 1 });
-  expect(() => inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toThrow(/ambiguous/i);
-});
+it.each([500500n, 1001000n])(
+  'rejects ambiguous same-recipient payouts of %s instead of attributing their sum',
+  value => {
+    const f = forwardEvidence();
+    f.log.data = encodeAbiParameters([{ type: 'uint256' }], [value]);
+    f.receipt.logs.push({ ...f.log, logIndex: 1 });
+    expect(() => inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toThrow(/ambiguous/i);
+  }
+);
 const invalidForward: Array<[string, (value: ReturnType<typeof forwardEvidence>) => void]> = [
   [
     'foreign transaction',
