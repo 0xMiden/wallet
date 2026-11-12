@@ -437,4 +437,49 @@ describe('assertViewEffectApproved', () => {
     expect((refused as Error).message).toContain('500 of bech32:fA leaves (approved 100)');
     expect(order).toEqual(['fee', 'decode']);
   });
+
+  it('refuses when the decode fails', async () => {
+    const failure = new Error('unexpected end of input');
+    const refused = await assertViewEffectApproved(claim, () => {
+      throw failure;
+    }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: 'Refused to sign this consume transaction: the transaction summary could not be read',
+      cause: failure
+    });
+  });
+
+  it('passes a refusal from the decode through as the same error', async () => {
+    const inner = new ProposalEffectRefusedError('consume', 'the proposal summary could not be read', 'copy');
+    await expect(
+      assertViewEffectApproved(claim, () => {
+        throw inner;
+      })
+    ).rejects.toBe(inner);
+  });
+
+  it('passes a kill of the decoding hold through unchanged', async () => {
+    const kill = new WasmClientPoisonedError('watchdog');
+    await expect(
+      assertViewEffectApproved(claim, async () => {
+        throw kill;
+      })
+    ).rejects.toBe(kill);
+  });
+
+  it('rejects an unknown fee without calling the decode', async () => {
+    jest.mocked(getVerificationBaseFee).mockResolvedValueOnce(null);
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    await expect(assertViewEffectApproved(claim, decode)).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unchecked type alone without calling the decode', async () => {
+    const decode = jest.fn(() => summaryToView(PSWAP_FILL as never));
+    const send = row({ type: 'send', faucetId: 'bech32:fA', amount: 500n });
+    await expect(assertViewEffectApproved(send, decode)).resolves.toBeUndefined();
+    expect(decode).not.toHaveBeenCalled();
+    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+  });
 });
