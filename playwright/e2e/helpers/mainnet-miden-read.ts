@@ -18,6 +18,12 @@ export async function readMainnetMidenBlock(rpcUrl: string): Promise<number> {
   return height;
 }
 
+export async function verifyMainnetMidenNoteInclusion(
+  _rpcUrl: string, _noteId: string, _blockNumber: number, _senderHex: string
+): Promise<void> {
+  throw new Error('Actual mainnet note inclusion verification is not implemented');
+}
+
 export async function readMainnetFaucetMetadata(
   faucetId: string, rpcUrl: string
 ): Promise<{ symbol: string; decimals: number }> {
