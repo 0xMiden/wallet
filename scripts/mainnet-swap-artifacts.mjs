@@ -26,13 +26,16 @@ export function swapStepAttempted(jobs, leg, provider = 'swap') {
 export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
   validateProvider(provider);
   const prefix = provider === 'near' ? '1click' : provider;
-  const stages = ['final', 'reverse-authorized', 'forward-authorized'];
+  const stages = ['final', ...(provider === 'swap' ? [] : ['refund-authorized', 'return-authorized']), 'reverse-authorized', 'forward-authorized'];
   if (provider === 'near') stages.push('execute-started', 'preflight');
   for (const run of [...runs].sort((a, b) => b.id - a.id)) {
     if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
     if (run.id <= baseline) return { bootstrap: true };
     const artifacts = await getArtifacts(run.id);
     if (!Array.isArray(artifacts?.artifacts)) throw new Error('Invalid workflow artifact response');
+    const has = stage => artifacts.artifacts.some(artifact => artifact.name === `mainnet-${prefix}-${stage}-${run.id}`);
+    if (provider !== 'swap' && !has('final') && has('return-authorized') && has('refund-authorized'))
+      throw new Error(`Contradictory mainnet ${provider} return and refund authorization`);
     for (const stage of stages) {
       const name = `mainnet-${prefix}-${stage}-${run.id}`;
       const matching = artifacts.artifacts.filter(artifact => artifact.name === name);

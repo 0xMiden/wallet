@@ -336,6 +336,7 @@ export async function runEpochReverse(
     const notes = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(noteId ?? '')]), 'Epoch return inclusion', { retries: 0 });
     if (notes.length !== 1 || notes[0]?.noteId.toString() !== noteId) throw new Error('Epoch return note is not recorded on the live chain');
     state.returnNoteId = noteId; await persist();
+    await awaitMainnetLoopAuthorization(path, `${gatePath}.claim`, signal);
     await wallet.navigateTo(ACTIVITY_PENDING_PATH);
     const current = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(noteId ?? ''));
     if (!current.length) await wallet.page.locator(`[data-pending-note-id="${noteId}"]`).getByRole('button', { name: /^Accept$/ }).click();
@@ -349,7 +350,7 @@ export async function runEpochReverse(
     assertNeverStartedBuilding(claim, 'before verified Epoch return claim release', TxStatus.Queued);
     const unexpected = (await readTransactionRows(wallet.page)).filter(row => row.id !== claim?.id && row.id !== blocker &&
       row.accountId && canonicalMainnetLoopFaucet(row.accountId) === state.accountHex && row.status === TxStatus.Queued);
-    if (unexpected.length) throw new Error('Epoch claim queue contains unrelated operations');
+    if (unexpected.length || signal.aborted) throw new Error('Epoch claim queue is unrelated or aborted');
     await releaseQueueBlocker(wallet.page, blocker);
     const receipt = await waitForTransactionRow(wallet.page, claim.id, row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
       { what: 'the exact Epoch return consume receipt', timeoutMs: 300_000 });
