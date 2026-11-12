@@ -1287,6 +1287,39 @@ describe('swap order note settlement', () => {
     }
   );
 
+  it('logs once while a held-back payback stops an order, and again after the cohort was admitted', async () => {
+    const initiate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const line = '[swap-settlement] paybacks wait for a held-back payback of the order';
+    const heldBackLogs = () => debug.mock.calls.filter(call => call[0] === line);
+    // A filled order settles its paybacks whatever the clock, so every pass reaches the queue.
+    const paybacks = [consumable('payback-1', 'payback', 'filled')];
+    try {
+      jest
+        .mocked(initiateConsumeNotesTransaction)
+        .mockRejectedValueOnce(new initiate.ClaimCohortRefusedError())
+        .mockRejectedValueOnce(new initiate.ClaimCohortRefusedError());
+      await reconcileSwapOrderNotes('account-1', paybacks, false, 0);
+      await reconcileSwapOrderNotes('account-1', paybacks, false, 0);
+      expect(heldBackLogs()).toEqual([[line, 'swap-1']]);
+
+      // The cohort is admitted, so the next hold-back is a new stretch and logs again.
+      await reconcileSwapOrderNotes('account-1', paybacks, false, 0);
+      jest.mocked(initiateConsumeNotesTransaction).mockRejectedValueOnce(new initiate.ClaimCohortRefusedError());
+      await reconcileSwapOrderNotes('account-1', paybacks, false, 0);
+      expect(heldBackLogs()).toEqual([
+        [line, 'swap-1'],
+        [line, 'swap-1']
+      ]);
+    } finally {
+      debug.mockRestore();
+      jest.mocked(initiateConsumeNotesTransaction).mockReset();
+      jest.mocked(initiateConsumeNotesTransaction).mockResolvedValue('consume-1');
+    }
+  });
+
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip')], true, 220);
 

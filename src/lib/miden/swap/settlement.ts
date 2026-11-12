@@ -140,8 +140,12 @@ const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? []
 /** Orders already logged for a short payback drop. A later snapshot that keeps the paybacks forgets the order. */
 const shortPaybackLogged = new Set<string>();
 
+/** Orders already logged for a payback cohort held back by one member. Admitting the cohort forgets the order. */
+const heldBackCohortLogged = new Set<string>();
+
 export function __resetShortPaybackLogsForTests(): void {
   shortPaybackLogged.clear();
+  heldBackCohortLogged.clear();
 }
 
 /**
@@ -465,7 +469,9 @@ export async function reconcileSwapOrderNotes(
     // payback chunks never stamp and the repair runs only while both stamps are absent.
     const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
     // The coverage sum counted every payback still on the order, so this pass claims that set together. Each chunk
-    // is admitted with the whole cohort; after a refusal no later payback chunk is queued. The tip reclaim still runs.
+    // is admitted with the whole cohort; after a refusal no later payback chunk is queued. The tip reclaim still runs,
+    // and once it lands the lineage no longer says what was filled, so the paybacks still unheld then are listed for a
+    // manual claim instead.
     const paybackCohort = paybackNotes.map(note => note.id);
     let stopPaybackChunks = false;
     for (const batch of [...paybackChunks, ...reclaimChunks]) {
@@ -526,9 +532,13 @@ export async function reconcileSwapOrderNotes(
         );
       } catch (error) {
         // A cohort that cannot be claimed together writes nothing, so there is no row to re-tag. A fee refusal of
-        // one payback chunk stops the later ones the same way: the next pass claims what is still unheld together.
+        // one payback chunk stops the later ones the same way: a later pass claims what is still unheld together.
         if (error instanceof ClaimCohortRefusedError) {
           stopPaybackChunks = true;
+          if (!heldBackCohortLogged.has(order.id)) {
+            heldBackCohortLogged.add(order.id);
+            console.debug('[swap-settlement] paybacks wait for a held-back payback of the order', order.id);
+          }
           continue;
         }
         if (!(error instanceof ClaimFeeRefusedError)) throw error;
@@ -551,6 +561,7 @@ export async function reconcileSwapOrderNotes(
         if (settlementLink.swapPaybackAmounts) tx.extraInputs.swapPaybackAmounts = swapPaybackAmounts;
         return undefined;
       });
+      if (hasPayback) heldBackCohortLogged.delete(order.id);
       queuedTransactionIds.push(txId);
     }
   }
