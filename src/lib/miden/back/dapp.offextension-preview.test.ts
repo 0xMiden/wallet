@@ -124,6 +124,25 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
+/** The dry run itself is covered by `simulate-custom-tx.test.ts`; here it gives the view the sheet must show. */
+const mockSimulate = jest.fn();
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
+}));
+
+/** The decoded view of the dry run. The real decoders stay in place for the sign tests. */
+const mockSimulatedView = jest.fn();
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: (result: { summaryBytes?: string }) =>
+    result.summaryBytes === undefined ? undefined : mockSimulatedView(result.summaryBytes),
+  simulatedOutputRecipients: (result: { summaryBytes?: string }) => (result.summaryBytes === undefined ? undefined : [])
+}));
+
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: () => ({ inputCount: 0, inputs: [], outputs: [] })
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     getCurrentAccountPublicKey: jest.fn().mockResolvedValue('miden-account-1'),
@@ -193,6 +212,18 @@ beforeEach(() => {
   // the state every test here inspects.
   mockRequestConfirmation.mockResolvedValue({ confirmed: false });
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'USDC' });
+  mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
+  mockSimulatedView.mockReturnValue({
+    account: 'miden-account-1',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  });
   sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
   // Silence the decode-failure breadcrumbs the "cannot decode" cases emit.
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -334,38 +365,48 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
       }
     }) as unknown as Parameters<typeof requestTransaction>[1];
 
-  it('decodes the request bytes and renders the outgoing assets', async () => {
+  it('renders the simulated asset movement, never the movement the request declares', async () => {
+    // The request declares 9 USDC; the dry run of the same bytes moves 2.5 USDC. The sheet shows only the dry run.
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => [noteCarrying([fungibleAsset('faucet-usdc', 9000000n)])]
+      })
+    };
+    mockSimulatedView.mockReturnValue({
+      account: 'miden-account-1',
+      outgoing: [{ faucetId: 'faucet-usdc', amount: 2500000n }],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    });
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    const rows = sheetRows();
+    expect(rows).toContain('Leaves this account, -2.5 USDC');
+    expect(rows).not.toContain('Sending, -9 USDC');
+    expect(rows).not.toContain('Declared by the site, the wallet has not verified these amounts');
+  });
+
+  it('refuses a request that cannot be simulated before showing a confirmation sheet', async () => {
     sdk.TransactionRequest = {
       deserialize: () => ({
         expectedOutputOwnNotes: () => [noteCarrying([fungibleAsset('faucet-usdc', 2500000n)])]
       })
     };
+    mockSimulate.mockResolvedValue({ error: 'note not found' });
 
     await expect(
       requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
-    ).rejects.toThrow(DECLINED);
+    ).rejects.toThrow(`${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`);
 
-    const rows = sheetRows();
-    expect(rows).toContain('Sending, -2.5 USDC');
-    expect(rows).toContain('Declared by the site, the wallet has not verified these amounts');
-  });
-
-  it('lists the NFT of an NFT-only output note by its faucet and short id', async () => {
-    sdk.TransactionRequest = {
-      deserialize: () => ({
-        expectedOutputOwnNotes: () => [
-          noteCarrying([], [nftAsset('mtst1nftfaucetaaaaaaaaaaaaaaaaaa', `0x${'ab'.repeat(32)}`)])
-        ]
-      })
-    };
-
-    await expect(
-      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
-    ).rejects.toThrow(DECLINED);
-
-    const rows = sheetRows();
-    expect(rows).toContain('Sending, NFT 0xabababab\u2026ababab from faucet mtst1nftfaucetaaaaaaaaaaaaaaaaaa');
-    expect(rows).not.toContain('Assets, no fungible asset moves');
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
   it('labels the dApp-declared recipient as declared instead of presenting it as the destination', async () => {
@@ -461,134 +502,40 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
-  it('keeps the opaque warning when a valid request cannot be summarized', async () => {
+  it('refuses a request whose request decode traps before showing a confirmation sheet (F-001)', async () => {
     sdk.TransactionRequest = {
-      deserialize: () => ({
-        expectedOutputOwnNotes: () => {
-          throw new Error('summary unavailable');
-        }
-      })
-    };
-
-    await expect(
-      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
-    ).rejects.toThrow(DECLINED);
-
-    expect(sheetRows()).toContain(
-      'Warning, the wallet could not decode this transaction request — it cannot show what it does'
-    );
-  });
-
-  it('refuses a request whose summary traps before showing a confirmation sheet (F-001)', async () => {
-    sdk.TransactionRequest = {
-      deserialize: () => ({
-        expectedOutputOwnNotes: () => {
-          throw new WebAssembly.RuntimeError('unreachable');
-        }
-      })
-    };
-
-    await expect(
-      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
-    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
-
-    expect(mockRequestConfirmation).not.toHaveBeenCalled();
-  });
-
-  it('refuses a request whose carried note decode traps before showing a confirmation sheet (F-001)', async () => {
-    sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
-    sdk.NoteFile = {
       deserialize: () => {
         throw new WebAssembly.RuntimeError('unreachable');
       }
     };
-    sdk.Note = { deserialize: () => noteCarrying([fungibleAsset('faucet-usdc', 4000000n)]) };
 
     await expect(
-      requestTransaction(
-        DAPP_ORIGIN,
-        {
-          type: MidenDAppMessageType.TransactionRequest,
-          sourcePublicKey: 'miden-account-1',
-          transaction: {
-            type: 'custom',
-            payload: {
-              address: 'miden-account-1',
-              transactionRequest: 'dHhieXRlcw==',
-              recipientAddress: '',
-              inputNoteIds: [],
-              importNotes: ['bm90ZQ==']
-            }
-          }
-        } as unknown as Parameters<typeof requestTransaction>[1],
-        'session-1'
-      )
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
 
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
-  it('reports the incoming assets of the notes the request carries', async () => {
+  it('lists an NFT the dry run moves by its faucet and short id', async () => {
     sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
-    sdk.NoteFile = {
-      deserialize: () => {
-        throw new Error('bare Note, not a NoteFile');
-      }
-    };
-    sdk.Note = { deserialize: () => noteCarrying([fungibleAsset('faucet-usdc', 4000000n)]) };
-
-    const withImportedNote = {
-      type: MidenDAppMessageType.TransactionRequest,
-      sourcePublicKey: 'miden-account-1',
-      transaction: {
-        type: 'custom',
-        payload: {
-          address: 'miden-account-1',
-          transactionRequest: 'dHhieXRlcw==',
-          recipientAddress: '',
-          inputNoteIds: [],
-          importNotes: ['bm90ZQ==']
-        }
-      }
-    } as unknown as Parameters<typeof requestTransaction>[1];
-
-    await expect(requestTransaction(DAPP_ORIGIN, withImportedNote, 'session-1')).rejects.toThrow(DECLINED);
-
-    expect(sheetRows()).toContain('Receiving, +4 USDC');
-  });
-
-  it('reports the NFT of a carried note as receiving', async () => {
-    sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
-    sdk.NoteFile = {
-      deserialize: () => {
-        throw new Error('bare Note, not a NoteFile');
-      }
-    };
-    sdk.Note = {
-      deserialize: () => noteCarrying([], [nftAsset('mtst1nftfaucetaaaaaaaaaaaaaaaaaa', `0x${'cd'.repeat(32)}`)])
-    };
+    mockSimulatedView.mockReturnValue({
+      account: 'miden-account-1',
+      outgoing: [],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaa', assetId: '0xcdcdcdcd…cdcdcd' }],
+      unlistedAssets: 0,
+      inputNotesConsumed: 1,
+      outputNotesCreated: 0,
+      storageChanged: false
+    });
 
     await expect(
-      requestTransaction(
-        DAPP_ORIGIN,
-        {
-          type: MidenDAppMessageType.TransactionRequest,
-          sourcePublicKey: 'miden-account-1',
-          transaction: {
-            type: 'custom',
-            payload: {
-              address: 'miden-account-1',
-              transactionRequest: 'dHhieXRlcw==',
-              recipientAddress: '',
-              inputNoteIds: [],
-              importNotes: ['bm90ZQ==']
-            }
-          }
-        } as unknown as Parameters<typeof requestTransaction>[1],
-        'session-1'
-      )
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
     ).rejects.toThrow(DECLINED);
 
-    expect(sheetRows()).toContain('Receiving, NFT 0xcdcdcdcd\u2026cdcdcd from faucet mtst1nftfaucetaaaaaaaaaaaaaaaaaa');
+    expect(sheetRows()).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^Enters this account, NFT 0xcdcdcdcd\u2026cdcdcd from faucet /)])
+    );
   });
 });

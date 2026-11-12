@@ -6319,6 +6319,10 @@
     "message": "Este dApp está solicitando uma transação personalizada. A carteira não conseguiu decodificar os detalhes da transação — só continue se você souber exatamente o que ela faz.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "A carteira não conseguiu simular essa transação, portanto não pode mostrar o que ela faz. Você não pode aprová-la.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Valor bruto",
     "englishSource": "Raw value"

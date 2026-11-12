@@ -162,9 +162,30 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
  * The custom path now dry-runs the request before raising the sheet, to state
  * its effects there (see `dapp.custom-consent.test.ts`). Stubbed so this file's
  * assertions do not depend on a real client, and cannot wait on its timeout.
+ * The approval needs a dry run that succeeds, so the stub gives one, and the
+ * decode of its bytes gives a view that moves nothing.
  */
 jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ error: 'no client in this suite' }))
+  simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'sumB64' }))
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: () => ({ inputCount: 0, inputs: [], outputs: [] })
 }));
 
 jest.mock('lib/miden/back/vault', () => ({

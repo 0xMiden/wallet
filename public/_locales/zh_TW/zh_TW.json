@@ -1380,6 +1380,7 @@
   "unverifiedTokenTitle": "未驗證的代幣",
   "couldNotVerifyBySimulation": "無法透過模擬進行驗證。以下數值均為該網站所聲明者。",
   "couldNotDecodeTransaction": "此 dApp 正在請求一筆自訂交易。錢包無法解碼其詳細資訊——請僅在您確切了解其運作方式的情況下繼續。",
+  "customTransactionNotSimulated": "該錢包無法模擬此交易，因此無法顯示其運作方式。您無法批准此交易。",
   "rawValue": "原始值",
   "opaqueSignatureTitle": "不透明簽名請求",
   "opaqueSignatureWarning": "此網站要求您簽署一個原始值。錢包無法顯示其授權的內容。請僅在您完全信任此網站的情況下繼續。",

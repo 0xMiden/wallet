@@ -113,6 +113,7 @@ import {
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { assertCustomEffectsApproved, customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
@@ -2098,7 +2099,26 @@ const generateTransactionWithProvider = async (
       // carries bytes the wallet did not build, so if anything ever does need the auth arg
       // attached post-hoc it is this one. For the wallet's own accounts the client still
       // injects, so this pre-empts rather than repairs.
-      const executeBytes = transaction.requestBytes!;
+      let executeBytes = transaction.requestBytes!;
+      // An approved execute is submitted only when a fresh preparation of these bytes still gives
+      // those effects. The check throws before `newTransaction`. A row with no approved record
+      // keeps the bytes it already carries.
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        const approvedEffects = transaction.approvedEffects;
+        executeBytes = await withWasmClientLock(async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'after the custom request client build');
+          const prepared = await prepareCustomRequestBytes(client.client, transaction.accountId, executeBytes, hold);
+          assertWasmHoldCurrent(hold, 'after custom request preparation');
+          await verifyPreparedCustomRequest(
+            customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+            approvedEffects,
+            transaction.spentAssetTotals
+          );
+          assertWasmHoldCurrent(hold, 'after the custom request effects check');
+          return prepared;
+        });
+      }
       if (executeBytes !== transaction.requestBytes) {
         transaction.requestBytes = executeBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -4110,10 +4130,28 @@ const generateGuardianTransaction = async (
         preparedBytes = await withWasmClientLock(async hold => {
           const client = await getMidenClient();
           assertWasmHoldCurrent(hold, 'after the custom request client build');
-          return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold, diagnostics => {
-            observedDiagnostics = diagnostics;
-            transaction.failureDiagnostics = diagnostics;
-          });
+          const prepared = await prepareCustomRequestBytes(
+            client.client,
+            transaction.accountId,
+            requestBytes,
+            hold,
+            diagnostics => {
+              observedDiagnostics = diagnostics;
+              transaction.failureDiagnostics = diagnostics;
+            }
+          );
+          assertWasmHoldCurrent(hold, 'after custom request preparation');
+          // The wallet proposes only the effects that the user approved. A dry run of the prepared bytes must give
+          // the approved effects, and its spends must be the row's `spentAssetTotals`; else this throws
+          // `CustomTransactionEffectsChangedError` and nothing is proposed. See `custom-effects.ts` for the cases
+          // that fail by design.
+          await verifyPreparedCustomRequest(
+            customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+            transaction.approvedEffects,
+            transaction.spentAssetTotals
+          );
+          assertWasmHoldCurrent(hold, 'after the custom request effects check');
+          return prepared;
         });
       } finally {
         if (observedDiagnostics !== undefined) {
@@ -4136,6 +4174,32 @@ const generateGuardianTransaction = async (
         transaction.requestBytes = preparedBytes;
       }
       proposalResult = await service.createCustomProposal(preparedBytes);
+      // The proposal summary is the execution that will be signed. It has to be the effects the user
+      // approved. No other proposal type is a dApp execution. A mismatch abandons this nonce before
+      // it is kept or signed; a failed abandon is recorded so the account's next proposal retries it.
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        try {
+          assertCustomEffectsApproved(
+            transaction.approvedEffects,
+            { summaryBytes: proposalResult.txSummary },
+            transaction.spentAssetTotals
+          );
+        } catch (effectsError) {
+          try {
+            await withOutgoingGuardianDeadline(
+              () => service.abandonCandidate(proposalResult.nonce),
+              'abandoning a custom proposal whose summary differs from the approved effects'
+            );
+          } catch (abandonError) {
+            console.error('Failed to request Guardian candidate abandonment', {
+              nonce: proposalResult.nonce,
+              error: abandonError
+            });
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+          }
+          throw effectsError;
+        }
+      }
       break;
     }
   }
