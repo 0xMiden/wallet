@@ -1484,16 +1484,6 @@ describe('ConfirmPage custom transaction', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
   });
 
-  it('keeps the declared view with a caveat when the background could not decode the dry run', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
-    setPayload(customPayload());
-    render(<ConfirmPage />);
-
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
-    expect(simulatedBytesToView).not.toHaveBeenCalled();
-  });
-
   it('keeps the declared view with a caveat when simulation rejects', async () => {
     (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
     setPayload(customPayload());

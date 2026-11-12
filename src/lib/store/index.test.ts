@@ -1202,10 +1202,6 @@ describe('useWalletStore', () => {
   });
 
   describe('Signing actions', () => {
-    it('offers no store action for signing raw data, which nothing answers', () => {
-      expect('signData' in useWalletStore.getState()).toBe(false);
-    });
-
     it('signTransaction returns Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,

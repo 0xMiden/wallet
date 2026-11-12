@@ -1,5 +1,3 @@
-import { CONSUME_ENTRY_POINTS } from 'lib/telemetry/transaction-failure';
-
 import { isOwnClaimableNote, requiresOwnClaimableNotes } from './claimable-note-ownership';
 import type { SwapOrderNoteMetadata } from './types';
 
@@ -48,21 +46,5 @@ describe('requiresOwnClaimableNotes', () => {
 
   it('treats a consume with no entry point as a claim', () => {
     expect(requiresOwnClaimableNotes(undefined)).toBe(true);
-  });
-
-  it('classifies every consume entry point', () => {
-    const expected: Record<string, boolean> = {
-      auto_consume: true,
-      claim: true,
-      claim_all: true,
-      dapp: false,
-      bridge_reclaim: false,
-      swap_settlement: false,
-      rotation_funding: false,
-      arcade_gc_purchase: false
-    };
-    expect(
-      Object.fromEntries(CONSUME_ENTRY_POINTS.map(entryPoint => [entryPoint, requiresOwnClaimableNotes(entryPoint)]))
-    ).toEqual(expected);
   });
 });

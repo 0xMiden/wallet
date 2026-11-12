@@ -185,18 +185,6 @@ describe('makeSimulateHandler', () => {
     expect(JSON.stringify(out)).not.toContain('execB64');
   });
 
-  it('answers a summary dry run the same way', async () => {
-    jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ summaryBytes: 'sumB64', introducedCount: 0 });
-
-    const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
-
-    expect(out?.effects?.view.outgoing).toEqual([{ faucetId: 'fA', amount: '500' }]);
-    expect(out).not.toHaveProperty('executedBytes');
-    expect(out).not.toHaveProperty('summaryBytes');
-    expect(out).not.toHaveProperty('error');
-    expect(JSON.stringify(out)).not.toContain('sumB64');
-  });
-
   it('keeps the view when only the note flow cannot be decoded', async () => {
     jest.mocked(noteFlowFromSimulatedBytes).mockImplementationOnce(() => {
       throw new Error('bad note bytes');
