@@ -76,14 +76,29 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
   if (mode === 'reverse' && (!previous || previous.sourceRunId !== runId || previous.phase !== 'forward-settled' ||
       previous.evmNonceBefore !== undefined || previous.reverseQuote || previous.returnAmount || previous.transactions?.length || previous.consumeAuthority))
     throw new Error('Original native NEAR reverse authority is used or unresolved; never refresh it');
-  // shortcut: fresh funding stays disabled until real recovery adapters and the all-provider workflow barrier are wired.
-  if (mode !== 'prepare') throw new Error('Native NEAR funded stage is not enabled before integrated recovery');
+  if (mode !== 'prepare') {
+    if (process.env.MAINNET_LOOP_RECOVERY_CLEARED !== 'true') throw new Error('The all-provider recovery barrier must clear before native NEAR funding');
+    if (!previous) throw new Error('Missing original native NEAR authority');
+    const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
+    const key = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
+    if (!keyPair || !/^[0-9a-f]{64}$/i.test(key) || privateKeyToAddress(`0x${key}`).toLowerCase() !== previous.evm.account.toLowerCase())
+      throw new Error('Existing original Guardian and EVM keys are required before native NEAR funding');
+    await restoreMainnetLoopGuardian(wallet, keyPair);
+    if (await wallet.getAccountAddress() !== previous.account) throw new Error('Original native NEAR Guardian changed');
+    const signal = AbortSignal.timeout(1_100_000);
+    try {
+      if (mode === 'forward') await runMainnetNearForward(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.forward`, signal);
+      else await runMainnetNearReverse(wallet, previous, `${MAINNET_NEAR_STATE_PATH}.reverse`, signal);
+    } catch { throw new Error('Native NEAR stage blocked; retain original public authority and never retry uncertain submissions'); }
+    return;
+  }
   if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
     throw new Error('Cannot replace unresolved original native NEAR authority');
   if (previous?.sourceRunId === runId) throw new Error('Native NEAR authority already exists for this source run');
   const swap = loadMainnetSwapCheckpoint('test-results/mainnet-swap-state/roundtrip.json');
   const epoch = loadMainnetEpochCheckpoint('test-results/mainnet-epoch-state/roundtrip.json');
   const allowance = remainingMainnetLoopBudget(runId, 'near', [{ provider: 'swap', checkpoint: swap }, { provider: 'epoch', checkpoint: epoch }]);
+  if (process.env.MAINNET_LOOP_RECOVERY_CLEARED !== 'true') throw new Error('The all-provider recovery barrier must clear before native NEAR preparation');
   const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
   const key = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
   if (!keyPair || !/^[0-9a-f]{64}$/i.test(key)) throw new Error('Existing funded Guardian and EVM keys are required');
@@ -477,7 +492,7 @@ export async function recoverMainnetNear(
       .map(item => item.hash.toLowerCase()).filter(hash => hash !== sourceHash))];
     const hash = ids[0];
     if (ids.length !== 1 || !hash || !isHash(hash)) throw new Error('Missing unique actual provider-correlated native NEAR refund transaction');
-    await claimMainnetNearNote(wallet, state, hash, 'refund', gatePath, signal); return;
+    await claimMainnetNearNote(wallet, state, hash, 'refund', `${gatePath}.refund`, signal); return;
   }
   if (forward.status !== 'SUCCESS') throw new Error('Original native NEAR deposit is still unresolved; no fresh funding permitted');
   const destinations = forward.swapDetails.destinationChainTxHashes; const destination = destinations[0]?.hash.toLowerCase();

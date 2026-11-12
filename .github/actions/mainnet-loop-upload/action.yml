@@ -16,13 +16,16 @@ inputs:
   snapshot-directory:
     required: true
     description: Exclusive job-local snapshot directory.
-  skip-after-deposit:
-    default: 'false'
-    description: Skip an unused later EVM envelope after the only deposit was signed.
   alternative-gates:
     default: ''
     description: Newline separated gates proving that recovery took another authorization path.
 outputs:
+  envelope-kind:
+    value: ${{ steps.snapshot.outputs.envelope_kind }}
+    description: Last signed envelope kind from the exact immutable snapshot, not a newer live journal.
+  alternative-gate:
+    value: ${{ steps.snapshot.outputs.alternative_gate }}
+    description: Actual ready recovery path when this stage was unused.
   skipped:
     value: ${{ steps.snapshot.outputs.skipped }}
     description: Whether this stage was unused.
@@ -36,19 +39,14 @@ runs:
         GATE: ${{ inputs.gate }}
         PID_FILE: ${{ inputs.process-id }}
         SNAPSHOT_DIRECTORY: ${{ inputs.snapshot-directory }}
-        SKIP_AFTER_DEPOSIT: ${{ inputs.skip-after-deposit }}
         ALTERNATIVE_GATES: ${{ inputs.alternative-gates }}
       run: |
         set -euo pipefail
-        deadline=$((SECONDS + 330))
+        deadline=$((SECONDS + 1100))
         while [ ! -f "${GATE}.ready" ]; do
-          if [ "$SKIP_AFTER_DEPOSIT" = true ] && [ -f "$CHECKPOINT" ]; then
-            kind="$(node -e 'const fs=require("node:fs");const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(s.transactions?.at(-1)?.kind??"")' "$CHECKPOINT")"
-            if [ "$kind" = deposit ]; then echo 'skipped=true' >> "$GITHUB_OUTPUT"; exit 0; fi
-          fi
           while IFS= read -r alternative; do
             if [ -n "$alternative" ] && [ -f "${alternative}.ready" ]; then
-              echo 'skipped=true' >> "$GITHUB_OUTPUT"; exit 0
+              printf 'skipped=true\nalternative_gate=%s\n' "$alternative" >> "$GITHUB_OUTPUT"; exit 0
             fi
           done <<< "$ALTERNATIVE_GATES"
           read -r pid < "$PID_FILE"
@@ -58,6 +56,13 @@ runs:
           sleep 1
         done
         node scripts/mainnet-loop-upload.mjs snapshot "$CHECKPOINT" "$GATE" "$SNAPSHOT_DIRECTORY"
+        node --input-type=module - "$SNAPSHOT_DIRECTORY/roundtrip.json" <<'NODE'
+        import { appendFileSync, readFileSync } from 'node:fs';
+        const state = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+        const kind = state.transactions?.at(-1)?.kind ?? '';
+        if (!['', 'approve', 'deposit', 'transfer'].includes(kind)) throw new Error('Unexpected actual signed envelope kind');
+        appendFileSync(process.env.GITHUB_OUTPUT, `envelope_kind=${kind}\n`);
+        NODE
     - id: upload
       if: steps.snapshot.outputs.skipped != 'true'
       uses: actions/upload-artifact@v4

@@ -6,7 +6,7 @@ import { test } from '../../fixtures/two-wallets';
 import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from '../../helpers/balance-truth';
 import { loadMainnetEpochCheckpoint, saveMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from '../../helpers/mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider, prepareEpochRoundTrip } from '../../helpers/mainnet-epoch-provider';
-import { recoverEpochForward, recoverEpochReturn, runEpochRefund, runEpochReverse } from '../../helpers/mainnet-epoch-runtime';
+import { recoverEpochForward, recoverEpochReturn, runEpochRefund, runEpochForward, runEpochReverse } from '../../helpers/mainnet-epoch-runtime';
 import { planEpochRoundTrip } from '../../helpers/mainnet-epoch-ui';
 import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
@@ -31,6 +31,12 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     throw new Error('Epoch requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetEpochCheckpoint(STATE_PATH);
   if (mode === 'recover') {
+    if (previous?.phase === 'forward-authorized' && !previous.forwardAuthority && !previous.forwardNoteId && !previous.forwardMidenTxId &&
+        !previous.forwardReceived && !previous.forwardEvmTxHash && previous.reverseNonce === undefined && !previous.reverseAuthority &&
+        !previous.transactions?.length && !previous.consumeAuthority && previous.paidMidenFees === '0' && previous.paidEvmFees === '0' &&
+        process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED === 'false') {
+      previous.phase = 'unspent'; previous.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(STATE_PATH, previous);
+    }
     if (!previous || ['complete', 'unspent', 'cancelled'].includes(previous.phase)) {
       writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
       return;
@@ -74,13 +80,32 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
       sourceRunId: previous.sourceRunId })}\n`);
     return;
   }
-  // shortcut: fresh funded stages stay disabled until recovery and the all-provider workflow barrier are complete.
-  if (mode !== 'prepare') throw new Error('Epoch fresh funded stage is not yet enabled');
+  if (mode !== 'prepare') {
+    if (!previous || previous.sourceRunId !== runId || previous.authorizationRunId !== runId ||
+        (mode === 'forward' && (previous.phase !== 'forward-authorized' || previous.forwardNoteId || previous.forwardAuthority)) ||
+        (mode === 'reverse' && (previous.phase !== 'forward-settled' || previous.reverseNonce !== undefined || previous.reverseAuthority ||
+          previous.evmNonceBefore !== undefined || previous.transactions?.length || previous.consumeAuthority || previous.returnMidenTxId)))
+      throw new Error('Epoch requires unused original same-run authority; never renew uncertain funding');
+    if (process.env.MAINNET_LOOP_RECOVERY_CLEARED !== 'true') throw new Error('The all-provider recovery barrier must clear before Epoch funding');
+    const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
+    const key = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
+    if (!keyPair || !/^[0-9a-f]{64}$/i.test(key) || privateKeyToAccount(`0x${key}`).address.toLowerCase() !== previous.evm.account.toLowerCase())
+      throw new Error('Existing original Guardian and EVM keys are required before Epoch funding');
+    await restoreMainnetLoopGuardian(walletB, keyPair);
+    if (await walletB.getAccountAddress() !== previous.account) throw new Error('Original Epoch Guardian changed');
+    const signal = AbortSignal.timeout(1_100_000);
+    try {
+      if (mode === 'forward') await runEpochForward(walletB, previous, STATE_PATH, runId, `${STATE_PATH}.forward`, signal);
+      else await runEpochReverse(walletB, previous, STATE_PATH, runId, `0x${key}`, `${STATE_PATH}.reverse`, signal);
+    } catch { throw new Error('Epoch stage blocked; retain original public authority and never retry uncertain submissions'); }
+    return;
+  }
   if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
     throw new Error('Cannot replace an unresolved Epoch authorization');
   if (previous?.sourceRunId === runId) throw new Error('Epoch authorization already exists for this run');
   const predecessor = loadMainnetSwapCheckpoint('test-results/mainnet-swap-state/roundtrip.json');
   const allowance = remainingMainnetLoopBudget(runId, 'epoch', [{ provider: 'swap', checkpoint: predecessor }]);
+  if (process.env.MAINNET_LOOP_RECOVERY_CLEARED !== 'true') throw new Error('The all-provider recovery barrier must clear before Epoch preparation');
   const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
   const rawEvmKey = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
   if (!keyPair || !/^[0-9a-f]{64}$/i.test(rawEvmKey)) throw new Error('Existing funded mainnet account keys are required');

@@ -45,6 +45,12 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
       throw new Error(`Contradictory mainnet ${provider} return and refund authorization`);
     const jobs = has('final') ? { jobs: [] } : await getJobs(run.id);
     if (!has('final')) {
+      if (provider !== 'swap') {
+        if (stepAttempted(jobs, [`Upload mainnet ${provider} native return claim`, `Authorize original ${provider} return claim`]) && !has('return-authorized'))
+          throw new Error(`Original mainnet ${provider} claim checkpoint missing; refusing a pre-claim downgrade`);
+        if (stepAttempted(jobs, [`Authorize original ${provider} refund`]) && !has('refund-authorized'))
+          throw new Error(`Original mainnet ${provider} refund checkpoint missing; refusing an older authority`);
+      }
       if (provider === 'near' && stepAttempted(jobs, ['Run mainnet near forward']) &&
           !['forward-authorized', 'refund-authorized', ...reverseStages].some(has))
         throw new Error('Recovery checkpoint missing for attempted native NEAR forward; refusing a read-only preflight downgrade');

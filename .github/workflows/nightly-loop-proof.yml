@@ -95,3 +95,17 @@ jobs:
             console.log(JSON.stringify({ publicNoteProof: { noteId: sample.note_id, blockNumber: height, verified }, purpose: 'Read-only real SDK Merkle inclusion check; no note bytes or keys' }));
           } catch { console.log(JSON.stringify({ url, stage, status: 'unavailable' })); }
           NODE
+      - name: Format tracked integration source after immutable checks
+        if: always()
+        run: |
+          git fetch --depth=1 origin b03e844f3f09606f997799d0e1c99f76f0111edc
+          git diff --name-only -z --diff-filter=ACMR b03e844f3f09606f997799d0e1c99f76f0111edc HEAD | xargs -0 -r yarn prettier --write --ignore-unknown
+          git diff --binary > "$RUNNER_TEMP/mainnet-loop-format.patch"
+      - name: Retain tracked source formatting patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-loop-format-${{ github.sha }}
+          path: ${{ runner.temp }}/mainnet-loop-format.patch
+          retention-days: 1
+          if-no-files-found: error
