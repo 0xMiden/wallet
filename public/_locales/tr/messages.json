@@ -4026,6 +4026,10 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Yeni alıcı",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

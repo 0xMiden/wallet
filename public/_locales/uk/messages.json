@@ -4026,6 +4026,10 @@
     "message": "Не можна відправляти на власну адресу",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Новий одержувач",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

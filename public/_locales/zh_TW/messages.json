@@ -4026,6 +4026,10 @@
     "message": "您無法寄送至您自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新收款人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

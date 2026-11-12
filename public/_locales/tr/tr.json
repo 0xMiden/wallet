@@ -883,6 +883,7 @@
   "invalidMidenAccountId": "Geçersiz Miden hesap kimliği",
   "midenAddressWrongNetwork": "Bu adres, başka bir Miden ağına aittir",
   "cannotSendToSelf": "Kendi adresinize gönderim yapamazsınız",
+  "newRecipient": "Yeni alıcı",
   "networkFee": "Network Fee",
   "networkFeeMax": "Maksimum ağ ücreti",
   "networkFeeEstimateNote": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
