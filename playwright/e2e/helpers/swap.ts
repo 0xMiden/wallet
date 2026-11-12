@@ -53,7 +53,6 @@ export interface SwapTokenDescriptor {
   /** bech32 faucet id, as the wallet keys balances. */
   faucetId: string;
   decimals: number;
-  logoSymbol: string;
 }
 
 export interface SwapPair {
@@ -212,14 +211,12 @@ export async function fundSwapPair(
   const offer: SwapTokenDescriptor = {
     symbol: opts.offerSymbol,
     faucetId: await hexFaucetToBech32(maker, offerFaucetHex),
-    decimals: opts.offerDecimals ?? 8,
-    logoSymbol: 'MIDEN'
+    decimals: opts.offerDecimals ?? 8
   };
   const request: SwapTokenDescriptor = {
     symbol: opts.requestSymbol,
     faucetId: await hexFaucetToBech32(maker, requestFaucetHex),
-    decimals: opts.requestDecimals ?? 8,
-    logoSymbol: 'ETH'
+    decimals: opts.requestDecimals ?? 8
   };
   const tokens = [offer, request];
   const decimalsByFaucet = new Map([
