@@ -28,6 +28,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection
 
 const props = {
   token: { id: 'usdc', name: 'USDC', decimals: 6, balance: 100, fiatPrice: 1, scaleIsKnown: true },
+  logoFaucetId: undefined,
   tokenLabel: 'Circle USDC',
   arrivingName: 'USDCx',
   network: { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
