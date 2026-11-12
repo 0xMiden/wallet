@@ -182,7 +182,7 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
         ...previous,
         serviceUrl,
         ...(feePolicy === undefined ? {} : { feePolicy }),
-        midenAssets: [{ assetId: nativeAssetId, faucetId: native.faucetId, decimals: native.decimals }],
+        midenAssets: [{ assetId: nativeAssetId, faucetId: hex, decimals: native.decimals }],
         evmAssets
       }
     }
