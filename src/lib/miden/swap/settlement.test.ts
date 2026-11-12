@@ -2043,7 +2043,7 @@ describe('swap order note settlement', () => {
         swapOrderTxId: 'swap-2',
         swapSettleKind: 'settle',
         swapPaybackDepths: { 'payback-88': 1 },
-        swapPaybackAmounts: { 'payback-88': '50' }
+        swapPaybackAmounts: { 'payback-88': '5' }
       }
     );
   });
