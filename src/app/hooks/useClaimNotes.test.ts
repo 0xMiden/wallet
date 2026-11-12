@@ -187,6 +187,110 @@ describe('useClaimNotes failed-note check (#456)', () => {
     expect(result.current.retriableTxIds.get('b')).toBe('tx-new');
   });
 
+  describe('chooses the newest eligible claim row per note (#2069)', () => {
+    const now = Math.floor(Date.now() / 1000);
+
+    const failedRow = (id: string, noteIds: string[], initiatedAt: number, queuedSeq: number) => ({
+      ...failedConsume(...noteIds),
+      id,
+      initiatedAt,
+      queuedSeq
+    });
+
+    const unconfirmedRow = (id: string, noteIds: string[], initiatedAt: number, queuedSeq: number) => ({
+      type: 'consume',
+      status: 4,
+      id,
+      noteIds,
+      initiatedAt,
+      queuedSeq,
+      submitEvidence: [{ attemptId: `${id}-attempt`, capturedAt: now, source: 'end' }]
+    });
+
+    async function expectSelected(
+      noteIds: string[],
+      failedRows: unknown[],
+      unconfirmedRows: unknown[],
+      expected: Array<[string, string]>
+    ) {
+      setNotes(...noteIds);
+      mockGetFailedTransactions.mockResolvedValue(failedRows);
+      mockGetUnconfirmedTransactions.mockResolvedValue(unconfirmedRows);
+
+      const { result, unmount } = renderHook(() => useClaimNotes());
+      await waitFor(() => {
+        for (const [noteId, txId] of expected) {
+          expect(result.current.retriableTxIds.get(noteId)).toBe(txId);
+        }
+      });
+      unmount();
+    }
+
+    it('Older Unconfirmed loses, newer Unconfirmed still wins', async () => {
+      await expectSelected(
+        ['a'],
+        [
+          {
+            ...failedRow('tx-failed', ['a'], 200, 1),
+            neverCommittedAt: now,
+            submitEvidence: [{ attemptId: 'kept', capturedAt: now - 60, source: 'end', candidateKept: true }]
+          }
+        ],
+        [unconfirmedRow('tx-unconfirmed', ['a'], 100, 9)],
+        [['a', 'tx-failed']]
+      );
+
+      await expectSelected(
+        ['a'],
+        [failedRow('tx-failed', ['a'], 100, 1)],
+        [unconfirmedRow('tx-unconfirmed', ['a'], 200, 9)],
+        [['a', 'tx-unconfirmed']]
+      );
+    });
+
+    it('uses queuedSeq to order rows from the same second', async () => {
+      await expectSelected(
+        ['a'],
+        [failedRow('tx-failed', ['a'], 100, 5)],
+        [unconfirmedRow('tx-unconfirmed', ['a'], 100, 1)],
+        [['a', 'tx-failed']]
+      );
+
+      await expectSelected(
+        ['a'],
+        [failedRow('tx-failed', ['a'], 100, 1)],
+        [unconfirmedRow('tx-unconfirmed', ['a'], 100, 5)],
+        [['a', 'tx-unconfirmed']]
+      );
+    });
+
+    it('chooses the newest row independently for each note', async () => {
+      await expectSelected(
+        ['a', 'b'],
+        [failedRow('tx-a', ['a'], 300, 1)],
+        [unconfirmedRow('tx-ab', ['a', 'b'], 100, 1)],
+        [
+          ['a', 'tx-a'],
+          ['b', 'tx-ab']
+        ]
+      );
+    });
+
+    it('filters ineligible rows before comparing timestamps', async () => {
+      await expectSelected(
+        ['a'],
+        [failedRow('tx-failed', ['a'], 100, 1)],
+        [
+          {
+            ...unconfirmedRow('tx-unconfirmed', ['a'], 300, 1),
+            submitEvidence: [checkable]
+          }
+        ],
+        [['a', 'tx-failed']]
+      );
+    });
+  });
+
   it('checks again as soon as a claim stops holding its note, with no tab switch (#2060)', async () => {
     mockUseClaimableNotes.mockReturnValue({
       data: [{ ...note('a'), isBeingClaimed: true, claimingTxId: 'tx-held' }],

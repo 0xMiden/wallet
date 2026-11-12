@@ -149,10 +149,21 @@ export function useClaimNotes(): ClaimNotesState {
     try {
       // A failed claim's notes are open to a fresh claim, Failed or Unconfirmed; a claim that holds them is not (#1081).
       const claimRows = [...(await getFailedTransactions()), ...(await getUnconfirmedTransactions())];
+      const retriableOrder = new Map<string, { initiatedAt: number; queuedSeq: number }>();
       for (const tx of claimRows) {
         if (!isFailedClaim(tx)) continue;
         for (const failedNoteId of tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) {
-          retriableIds.set(failedNoteId, tx.id);
+          const initiatedAt = tx.initiatedAt ?? 0;
+          const queuedSeq = tx.queuedSeq ?? 0;
+          const previous = retriableOrder.get(failedNoteId);
+          if (
+            previous === undefined ||
+            initiatedAt > previous.initiatedAt ||
+            (initiatedAt === previous.initiatedAt && queuedSeq >= previous.queuedSeq)
+          ) {
+            retriableOrder.set(failedNoteId, { initiatedAt, queuedSeq });
+            retriableIds.set(failedNoteId, tx.id);
+          }
         }
       }
 
