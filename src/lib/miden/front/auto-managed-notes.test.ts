@@ -3,7 +3,10 @@ import { renderHook } from '@testing-library/react';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch, useManuallyClaimableNotes } from './auto-managed-notes';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
-type NoteFixture = Pick<ConsumableNote, 'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder' | 'fromCache'>;
+type NoteFixture = Pick<
+  ConsumableNote,
+  'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder' | 'fromCache' | 'standardPayment'
+>;
 
 let mockFaucetId: string | null = 'faucet-native';
 let mockAutoConsume = true;
@@ -42,6 +45,7 @@ const note = (id: string, faucetId: string, amount: string, extra: Partial<NoteF
   faucetId,
   amount,
   isBeingClaimed: false,
+  standardPayment: true,
   ...extra
 });
 const manualSwapOrder: SwapOrderNoteMetadata = {
@@ -59,6 +63,9 @@ const nativeDust = note('dust', 'faucet-native', '1');
 const nativeInFlight = note('in-flight', 'faucet-native', '1000000', { isBeingClaimed: true });
 const nativeCached = note('cached', 'faucet-native', '1000000', { fromCache: true });
 const otherCached = note('other-cached', 'faucet-other', '1000000', { fromCache: true });
+// Another trader's public PSWAP order on a pair tag the account still tracks (#2118).
+const nativeForeignOrder = note('foreign-order', 'faucet-native', '1000000', { standardPayment: false });
+const nativeUnflagged = note('unflagged', 'faucet-native', '1000000', { standardPayment: undefined });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -72,6 +79,12 @@ beforeEach(() => {
 describe('selectAutoConsumeBatch', () => {
   it('takes the native notes that are neither swap-managed nor already being claimed', () => {
     expect(selectAutoConsumeBatch([native, other, nativeManualSwap, nativeInFlight], 'faucet-native', FEE)).toEqual([
+      native
+    ]);
+  });
+
+  it("takes only standard payments, never another trader's PSWAP order or an unflagged note (#2118)", () => {
+    expect(selectAutoConsumeBatch([native, nativeForeignOrder, nativeUnflagged], 'faucet-native', FEE)).toEqual([
       native
     ]);
   });
@@ -112,6 +125,12 @@ describe('excludeAutoManagedNotes', () => {
     expect(excludeAutoManagedNotes([native, other, nativeManualSwap], 'faucet-native', true, FEE)).toEqual([
       other,
       nativeManualSwap
+    ]);
+  });
+
+  it('keeps a native note that is not a standard payment, since no auto-consumer claims it', () => {
+    expect(excludeAutoManagedNotes([native, nativeForeignOrder], 'faucet-native', true, FEE)).toEqual([
+      nativeForeignOrder
     ]);
   });
 

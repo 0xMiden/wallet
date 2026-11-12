@@ -116,6 +116,16 @@ describe('paybackClaimStateFrom', () => {
     });
   });
 
+  it('offers no Retry for a payout claim whose signing was refused, which Retry would refuse (#2147)', () => {
+    const refused = claim('refused', { initiatedAt: 120, proposalEffectRefused: true });
+    expect(paybackClaimStateFrom(swap(), [refused], open)).toEqual({ stuck: false });
+    expect(paybackClaimStateFrom(swap(), [claim('older', { initiatedAt: 105 }), refused], open)).toEqual({
+      stuck: true,
+      failedClaimId: 'older',
+      reason: 'other'
+    });
+  });
+
   it('is not stuck while a payout claim is queued, running or awaiting its verdict', () => {
     for (const status of [
       ITransactionStatus.Queued,

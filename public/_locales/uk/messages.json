@@ -823,6 +823,10 @@
     "message": "Цей огляд було підготовлено для іншого депозитного токена. Поверніться назад і введіть суму ще раз.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "У заставній note має бути вказано перевірений токен, перевірена сума та налаштований розподільник. Нічого не було надіслано. Поверніться назад і спробуйте ще раз.",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума заробленого",
     "englishSource": "Total earned"
@@ -855,6 +859,14 @@
   "earnPositionsLoadError": {
     "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Не вдалося перевірити ваш баланс за допомогою Epoch. Спробуйте ще раз.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "earnBalanceLoadError": {
+    "message": "Не вдалося завантажити ваш баланс. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "Функція «Earn» недоступна в цій мережі",
@@ -1243,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "Мережа відхилила цю заявку. Спробуйте ще раз.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Ваш «Guardian» все ще утримує цю транзакцію, тому її поки що неможливо повторити.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Мережа підтвердила, що ця транзакція так і не відбулася, тому нічого не було переміщено. Ваш «Guardian» все ще утримує її, тому повторну спробу поки що неможливо здійснити.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Ваш «Guardian» все ще утримує цю транзакцію. Ви можете повторити спробу через $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Ви можете спробувати ще раз через $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Відповіді на це подання не надійшло. Гаманець не може підтвердити, чи пройшло воно успішно. Можливо, операція ще завершиться, тому перевірте, перш ніж спробувати ще раз.",
@@ -4020,6 +4058,10 @@
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
   },
+  "proposalEffectRefused": {
+    "message": "Гаманець зупинив цю транзакцію перед її підписанням, оскільки не зміг підтвердити, що транзакція переміщує лише те, що ви затвердили. Кошти не були переміщені.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сума повинна бути меншою за залишок на рахунку",
     "englishSource": "Amount must be less than balance"
@@ -4683,6 +4725,14 @@
   "unavailable": {
     "message": "Недоступно",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "Непідтримувані",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Невідома шкала",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Тимчасово недоступно",
@@ -5887,6 +5937,10 @@
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "У вашому підключеному гаманці немає токенів із позитивним балансом у цій мережі.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "У вашому підключеному гаманці на $network$ зберігається $balance$ $token$, що менше, ніж потрібно для цього депозиту. Нічого не було надіслано.",

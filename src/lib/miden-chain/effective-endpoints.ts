@@ -369,6 +369,11 @@ export function hasCustomEndpointOverride(override: unknown): boolean {
   return override != null && (!isEndpointOverride(override) || !isNetworkChoiceOverride(override));
 }
 
+/** Network provenance is usable only when the effective endpoints are canonical. */
+export function provenBadgeNetwork(): MIDEN_NETWORK_NAME | undefined {
+  return hasCustomEndpointOverride(getActiveOverride()) ? undefined : getEffectiveNetworkName();
+}
+
 /**
  * Whether a developer endpoint override is stored. The network choice onboarding stores is not one, so an
  * ordinary mainnet wallet shows no developer endpoints; Developer Settings still reads it as the stored choice.

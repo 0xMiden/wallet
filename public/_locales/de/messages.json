@@ -823,6 +823,11 @@
     "message": "Diese Überprüfung wurde für einen anderen Einzahlungstoken erstellt. Gehen Sie zurück und geben Sie den Betrag erneut ein.",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Gesamtverdienst",
     "englishSource": "Total earned"
@@ -855,6 +860,14 @@
   "earnPositionsLoadError": {
     "message": "Ihre Positionen konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "Ihr Kontostand konnte mit Epoch nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
+  },
+  "earnBalanceLoadError": {
+    "message": "Ihr Guthaben konnte nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "„Earn“ ist in diesem Netzwerk nicht verfügbar",
@@ -1243,6 +1256,32 @@
   "submissionRejectedByNetwork": {
     "message": "Das Netzwerk hat diesen Beitrag abgelehnt. Versuchen Sie es erneut.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Ihr „Guardian“ hält diese Transaktion noch fest, daher kann sie noch nicht erneut versucht werden.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Das Netzwerk hat bestätigt, dass diese Transaktion nie durchgeführt wurde, es hat also keine Bewegung stattgefunden. Ihr „Guardian“ hält die Token weiterhin, daher kann der Vorgang noch nicht erneut versucht werden.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Ihr Guardian hält diese Transaktion weiterhin. Sie können es nach $time$ erneut versuchen.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Sie können es nach $time$ erneut versuchen.",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Auf diese Übermittlung ging keine Antwort ein. Die Wallet kann nicht bestätigen, ob sie erfolgreich übermittelt wurde. Möglicherweise wird der Vorgang noch abgeschlossen; überprüfen Sie dies daher, bevor Sie es erneut versuchen.",
@@ -4020,6 +4059,10 @@
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
   },
+  "proposalEffectRefused": {
+    "message": "Die Wallet hat diese Transaktion vor der Signierung gestoppt, da sie nicht bestätigen konnte, dass die Transaktion ausschließlich den von Ihnen genehmigten Betrag bewegt. Es wurden keine Gelder bewegt.",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
@@ -4689,6 +4732,14 @@
   "unavailable": {
     "message": "Nicht verfügbar",
     "englishSource": "Unavailable"
+  },
+  "assetPriceUnsupported": {
+    "message": "Nicht unterstützt",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Unbekannte Skala",
+    "englishSource": "Unknown scale"
   },
   "bridgeFeatureUnavailableTitle": {
     "message": "Vorübergehend nicht verfügbar",
@@ -5893,6 +5944,10 @@
   "bridgeDepositFailed": {
     "message": "Einzahlung über die Bridge fehlgeschlagen",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Ihre verbundene Wallet enthält in diesem Netzwerk keine Token mit einem positiven Guthaben.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Ihre verbundene Wallet enthält $balance$ $token$ auf $network$, was weniger ist, als für diese Einzahlung erforderlich ist. Es wurde nichts gesendet.",

@@ -1,5 +1,8 @@
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
+import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
@@ -10,7 +13,7 @@ import {
   ITransactionStatus,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
-import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded, someInCauseChain } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -34,6 +37,11 @@ export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try ag
 // A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
 export const SUBMIT_CROSSING_UNRECORDED_ERROR =
   'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
+
+// A proof that kept going stale stops before its submit (#2060), so nothing reached the network and Retry is safe.
+export const STALE_PROOF_ERROR =
+  'The network window for this transaction closed before it could be sent, so nothing was sent and no funds moved. ' +
+  'Please try again.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
@@ -228,28 +236,35 @@ export function isUnconfirmedFailure(
   );
 }
 
+type OutcomeRow = Pick<
+  ITransaction,
+  'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
+> &
+  Partial<
+    Pick<ITransaction, 'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'>
+  >;
+
 /**
- * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
- * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
- * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
- * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
- * which stays on `isUnconfirmedFailure`, agrees with History.
+ * An eligible row, not proven safe and not a definite failure, holding an entry neither proven dead nor retired before
+ * its submit: an earlier attempt may have crossed after a later one failed before its own. An ineligible row's entries
+ * are inert, so it keeps today's label, and the rotation gate, which stays on `isUnconfirmedFailure`, agrees with
+ * History.
  */
-export function isOutcomeUnconfirmed(
-  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
-    Partial<
-      Pick<
-        ITransaction,
-        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
-      >
-    >
-): boolean {
-  if (row.status === ITransactionStatus.Unconfirmed) return true;
-  if (isUnconfirmedFailure(row)) return true;
-  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
-    return false;
+export function hasUnresolvedAttempt(row: OutcomeRow): boolean {
+  if (row.neverCommittedAt !== undefined || !canAwaitVerdict(row)) return false;
   if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
   return (row.submitEvidence ?? []).some(isUnresolvedEntry);
+}
+
+/**
+ * Not confirmed before any stored submit outcome is read (#1081): an Unconfirmed row, a #1250 row
+ * (`isUnconfirmedFailure`), or a Failed row that `hasUnresolvedAttempt` holds. Surfaces read `readsAsNotConfirmed`,
+ * which applies this rule and the stored outcome together.
+ */
+export function isOutcomeUnconfirmed(row: OutcomeRow): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  return row.status === ITransactionStatus.Failed && hasUnresolvedAttempt(row);
 }
 
 /**
@@ -275,12 +290,9 @@ export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
 export const GUARDIAN_HOLD_RETRY_ERROR =
   'The Guardian is still holding this transaction. You can retry it after {time}.';
 
-/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+/** The hold refusal for logs, naming when `clearsAtSec` (unix seconds) falls; a surface shows `retryRefusalText`. */
 export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
-  GUARDIAN_HOLD_RETRY_ERROR.replace(
-    '{time}',
-    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  );
+  GUARDIAN_HOLD_RETRY_ERROR.replace('{time}', formatHoldDeadline(clearsAtSec, { locale: 'en' }));
 
 /**
  * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
@@ -579,6 +591,37 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/**
+ * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
+ * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
+ * and is kept as the row's raw error; `displayMessage` is the localized sentence the row shows. Matched by identity
+ * ahead of every text classifier, so no requeue arm reads it as transient.
+ */
+export class ProposalEffectRefusedError extends Error {
+  constructor(
+    readonly transactionType: string,
+    detail: string,
+    readonly displayMessage: string,
+    options?: { cause?: unknown }
+  ) {
+    super(`Refused to sign this ${transactionType} transaction: ${detail}`, options);
+    this.name = 'ProposalEffectRefusedError';
+  }
+}
+
+/**
+ * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
+ * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
+ * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
+ * marks the failure an outage.
+ */
+export class ProposalFeeUnknownError extends Error {
+  constructor() {
+    super('The chain fee is not known yet, so this proposal was not signed.');
+    this.name = 'ProposalFeeUnknownError';
+  }
+}
+
 // Hedged: the proposal stages call the node as well as the guardian.
 export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
@@ -589,20 +632,70 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
  * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
- * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
- * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
+ * in the cause chain is never an outage. An unknown chain fee anywhere below that is: the next attempt can learn it.
+ * Otherwise a Guardian request timeout anywhere in the chain always is, ahead of the kernel-failure exclusions,
+ * because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
-  if (error instanceof RotationGateConsumeRefusal) return false;
+  if (error instanceof RotationGateConsumeRefusal || error instanceof ProposalEffectRefusedError) return false;
   // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
   // sent (#1313).
   if (isKilledPipeline(error)) return false;
+  // After the kill, so a kill that wraps this class stays a kill. Before the transport text, so the class decides.
+  if (someInCauseChain(error, link => link instanceof ProposalFeeUnknownError)) return true;
   // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
   // below cannot see.
   if (isGuardianRequestTimeout(error)) return true;
   if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
+}
+
+// The kernel ran, so what follows is a verdict on the transaction. Its printed diagnostic can quote source, whose line
+// numbers and words read as transport failures.
+const KERNEL_PROGRAM_FAILED = /failed to execute transaction kernel program/;
+
+// miden-client 0.17's report of a request that reached the transport. The gRPC kind comes next, then tonic's status.
+const NODE_REQUEST_FAILED = /grpc request failed for [a-z_]+: /;
+
+// The kinds that leave the same request free to succeed later: no answer, or a node saying to come back. Every other
+// kind answers the request, and `RpcError::is_indeterminate_submission` lists most of those as deliberate.
+const NODE_UNANSWERED_KIND =
+  /^(?:unknown error|operation was (?:cancelled|aborted)|request to Miden node timed out|Miden node is unavailable|Miden node returned an internal error|request was rate-limited)/;
+
+// `RpcError::ConnectionError`, the one failure outside a request that the transport heuristic does not know.
+const NODE_NOT_CONNECTED = /failed to connect to the Miden node/;
+
+// The SDK naming the read it was making, often of its own store. The browser's failed fetch has no object.
+const SDK_NAMED_READ = /\bfailed to fetch (?=[a-z])/g;
+
+// `ClientError::RpcError`'s own text, which heads every RPC failure, an answer the node gave included.
+const SDK_RPC_WRAPPER = /\bRPC error\b/g;
+
+// The SDK reporting its own store: `ClientError::StoreError`, the data store's wrapper, or a bare `StoreError`. It
+// prints the rejected IndexedDB promise with its name, message and stack, whose words and line numbers read as
+// transport failures. Matched as a link of the error chain, because `data store error`, which can head an RPC failure,
+// is not one.
+const SDK_STORE_FAILURE = /(?:^|: )(?:storage error|store error|database-related non-query error): /;
+
+/**
+ * The node gave the leaf no usable answer, so the same request can succeed later. The cost is lopsided: a transient
+ * failure read as final only ends the row with Retry open, while a final one read as transient spends MAX_QUEUED_AGE on
+ * proposals that cannot land. So a kernel failure never counts, a request the SDK reports is decided by its gRPC kind
+ * alone, since the text after the kind is the node's own and can read as anything, and a kind not named here counts as
+ * an answer. A report of the SDK's own store says nothing about the node. Only what is left reaches the transport
+ * heuristic, without the SDK's own words that it would misread.
+ */
+export function isNodeOutage(error: unknown): boolean {
+  if (isKilledPipeline(error) || isGuardianRequestTimeout(error) || isProverProcedureMismatch(error)) return false;
+  const raw = formatRawTransactionError(error);
+  if (KERNEL_PROGRAM_FAILED.test(raw) || deterministicKernelFailureCopy(raw) !== undefined) return false;
+  if (isPermanentHttpRejection(raw)) return false;
+  const request = NODE_REQUEST_FAILED.exec(raw);
+  if (request !== null) return NODE_UNANSWERED_KIND.test(raw.slice(request.index + request[0].length));
+  if (SDK_STORE_FAILURE.test(raw)) return false;
+  const transport = raw.replace(SDK_NAMED_READ, '').replace(SDK_RPC_WRAPPER, '');
+  return NODE_NOT_CONNECTED.test(transport) || isLikelyNetworkError(transport);
 }
 
 /**
@@ -654,9 +747,15 @@ function classifyTransactionError(
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
   }
+  if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
+  }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
   if (isSubmitCrossingUnrecorded(error)) {
     return SUBMIT_CROSSING_UNRECORDED_ERROR;
+  }
+  if (isStaleProofError(error)) {
+    return STALE_PROOF_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote
@@ -674,13 +773,15 @@ function classifyTransactionError(
   // a failed on-device prove was misreported as a remote timeout.
   // Guardian txs stamp an explicit 'proving' stage BEFORE submit, so a failure
   // there is provably pre-submit — safe to reassure "no funds moved".
-  if (stage === 'proving') {
+  // A re-execution's sync or execute also fails at that stage, and no prover ran (#2060).
+  const proverRan = !isFailedReexecution(error);
+  if (proverRan && stage === 'proving') {
     return delegateTransaction ? REMOTE_PROVER_FAILED_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
   // Non-Guardian txs surface a prover timeout under the broad 'sending' stage,
   // which spans execute→prove→submit — so we can't guarantee pre-submit. Use the
   // hedged timeout copy for the remote case rather than a false safety claim.
-  if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
+  if (proverRan && stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
   const kernelFailureCopy = deterministicKernelFailureCopy(raw);

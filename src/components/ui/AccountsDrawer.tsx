@@ -33,7 +33,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
   // `ListRow` fires the tap haptic itself, so the handler only closes and navigates.
   const handleSettings = () => {
     onOpenChange(false);
-    navigate('/settings');
+    navigate('/me');
   };
 
   const handleCardColorSelect = (color: CardColor) => {

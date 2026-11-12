@@ -162,6 +162,39 @@ export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfir
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;
 
+/**
+ * This attempt may have reached its submit call: a crossing is on record for it, and its leaf did not prove it ended
+ * before that call. The row's `stage` cannot say so alone, because the stamp swallows a stage write that fails after
+ * the crossing write landed (#2060).
+ */
+export const attemptMayHaveCrossed = (
+  row: Pick<ITransaction, 'submitEvidence'> | undefined,
+  attemptId: string | undefined
+): boolean => row?.submitEvidence?.some(entry => entry.attemptId === attemptId && entry.preSubmitEnd !== true) === true;
+
+/**
+ * The nonce of the candidate an end from outside this row's pipeline leaves on its Guardian (#2060): only an attempt
+ * that may have crossed, on a row that can await a verdict, and only a nonce known to be this attempt's. Nothing
+ * outside the leaf abandons, so such a candidate stays until the node's verdict or the Guardian's own discard.
+ */
+export const crossedCandidateNonce = (
+  row: Pick<
+    ITransaction,
+    | 'type'
+    | 'extraInputs'
+    | 'restoredFromBackup'
+    | 'rotationFunding'
+    | 'attemptId'
+    | 'submitEvidence'
+    | 'guardianCandidate'
+  >
+): number | undefined => {
+  if (!canAwaitVerdict(row) || !attemptMayHaveCrossed(row, row.attemptId)) return undefined;
+  const recorded = row.submitEvidence?.find(entry => entry.attemptId === row.attemptId)?.guardianProposalNonce;
+  if (recorded !== undefined) return recorded;
+  return row.guardianCandidate?.attemptId === row.attemptId ? row.guardianCandidate?.nonce : undefined;
+};
+
 /** The row's latest attempt entry; entries are appended in attempt order. */
 export const latestEntry = (row: Pick<ITransaction, 'submitEvidence'>): ISubmitEvidence | undefined => {
   const entries = row.submitEvidence ?? [];
@@ -202,7 +235,8 @@ export interface EvidencePatch {
  * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks; an id never changes once set, because
  * an attempt submits at most one transaction and its stamp precedes any error text about it, so evidence naming
  * another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are
- * sticky. `raisedFlag` is honoured only when the pin creates the entry.
+ * sticky. `raisedFlag` is honoured only when the pin creates the entry. A pre-submit end drops a kept mark an outside
+ * end left, since the leaf that proves it abandons that candidate itself; a keep that follows records it again.
  */
 export function upsertEvidenceEntry(
   entries: readonly ISubmitEvidence[] | undefined,
@@ -257,7 +291,10 @@ export function upsertEvidenceEntry(
   }
   if (patch.raisedFlag === true && current === undefined) next.raisedFlag = true;
   if (patch.candidateKept === true) next.candidateKept = true;
-  if (patch.preSubmitEnd === true) next.preSubmitEnd = true;
+  if (patch.preSubmitEnd === true) {
+    next.preSubmitEnd = true;
+    delete next.candidateKept;
+  }
   if (index === -1) list.push(next);
   else list[index] = next;
   return list;

@@ -60,6 +60,7 @@ const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridg
     agglayer: { indexer: skipped },
     epoch: {
       allocator: skipped,
+      allocatorAccount: skipped,
       market: skipped,
       midenUsdcFaucet: { state: 'error', message: 'down' },
       vaults: skipped
