@@ -54,7 +54,7 @@ describe('DappOrigin', () => {
     expect(root).toHaveClass('flex-wrap', 'gap-x-1.5');
     const ascii = within(root).getByTestId('dapp-origin-ascii');
     expect(ascii).toHaveTextContent(/^xn--pple-43d\.example$/);
-    expect(ascii).toHaveClass('text-muted', 'font-normal', 'shrink-0', 'break-all');
+    expect(ascii).toHaveClass('text-muted', 'font-normal', 'shrink-0', 'break-all', 'max-w-full');
     expect(root.textContent).toBe(`https://${A}pple.example xn--pple-43d.example`);
   });
 
