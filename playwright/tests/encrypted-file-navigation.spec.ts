@@ -60,9 +60,17 @@ test.describe('encrypted file export navigation', () => {
         const page = await extensionContext.newPage();
         await page.setViewportSize({ width: surface.width, height: surface.height });
         await page.emulateMedia({ colorScheme: theme });
+        if (surface.name === 'popup') {
+          // The popup entry closes tabs unless Chrome reports them as action-popup views.
+          await page.addInitScript(() => {
+            const getViews = chrome.extension.getViews.bind(chrome.extension);
+            chrome.extension.getViews = (properties?: chrome.extension.FetchProperties) =>
+              properties?.type === 'popup' ? [window] : getViews(properties);
+          });
+        }
         await page.goto(`${origin}/${surface.shell}#/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
         const profileTab = page.getByRole('button', { name: 'Profile', exact: true });
-        await profileTab.waitFor({ state: 'visible', timeout: 20_000 });
+        await expect(profileTab, `Profile entry in ${surface.name}/${theme}`).toBeVisible({ timeout: 20_000 });
         await profileTab.click({ timeout: 10_000 });
         await expect.poll(() => new URL(page.url()).hash).toBe('#/me');
         await expect(page.getByTestId('profile-settings-menu')).toBeVisible();
