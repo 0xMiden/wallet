@@ -8,7 +8,7 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, assertMainnetConsumeRequestHash, mainnetConsumeRequestHash } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, assertMainnetConsumeRequestHash, mainnetConsumeRequestHash, inspectMainnetReturnNote } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -87,6 +87,15 @@ function returnFile(options = {}) {
     sdk.InputNote.authenticated(note, sdk.NoteInclusionProof.mockAtBlock(1000))
   ).serialize()) };
 }
+for (const privacy of [false, true]) test(`validates a ${privacy ? 'private' : 'public'} NEAR/ Epoch return without fabricating another provider's checkpoint`, () => {
+  const input = returnFile({ private: privacy });
+  const scope = { noteId: input.noteId, accountHex: input.snapshot.accountHex,
+    faucetHex: input.snapshot.native.hex, minimumOutput: BigInt(input.snapshot.reverseMinimum) };
+  assert.equal(inspectMainnetReturnNote(scope, input.bytes), 1_000_001n);
+  assert.throws(() => inspectMainnetReturnNote({ ...scope, minimumOutput: 0n }, input.bytes));
+  assert.throws(() => inspectMainnetReturnNote({ ...scope, noteId: `0x${'b'.repeat(64)}` }, input.bytes));
+});
+
 function consumeHash(bytes, change = builder => builder) {
   const note = sdk.NoteFile.deserialize(bytes).note();
   const builder = new sdk.TransactionRequestBuilder().withInputNotes(new sdk.NoteAndArgsArray([new sdk.NoteAndArgs(note, null)]))

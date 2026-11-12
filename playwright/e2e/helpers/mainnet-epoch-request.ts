@@ -10,6 +10,8 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
+export { inspectMainnetReturnNote } from './mainnet-miden-request';
+
 export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
   if (noteFile.length < 1 || noteFile.length > 1_048_576)
     throw new Error('Invalid mainnet consume note size');

@@ -55,20 +55,27 @@ jobs:
           }
           const targets = [
             ['https://1click.chaindefuser.com/v1/receipts/resolve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"transactionHashes":[]}' }],
-            ['https://explorer.mainnet.miden.io', {}]
+            ['https://explorer.mainnet.miden.io', {}],
+            ['https://explorer.mainnet.miden.io/api/openapi.json', {}],
+            ['https://explorer.mainnet.miden.io/api/transactions?limit=1', {}]
           ];
           for (const [url, init] of targets) {
             try {
               const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
               const body = await boundedText(response);
-              const scripts = url.includes('explorer.') ? [...body.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].slice(0, 12).map(match => new URL(match[1], url)).filter(asset => asset.origin === new URL(url).origin).map(asset => asset.pathname.slice(0, 200)) : [];
-              console.log(JSON.stringify({ url, status: response.status, contentType: response.headers.get('content-type'), scripts }));
+              let schema = {};
+              if (response.headers.get('content-type')?.includes('application/json')) {
+                try { const json = JSON.parse(body); schema = { keys: Object.keys(json).slice(0, 20), paths: Object.keys(json.paths ?? {}).slice(0, 80) }; } catch {}
+              }
+              const scripts = url === 'https://explorer.mainnet.miden.io' ? [...body.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].slice(0, 12).map(match => new URL(match[1], url)).filter(asset => asset.origin === new URL(url).origin).map(asset => asset.pathname.slice(0, 200)) : [];
+              console.log(JSON.stringify({ url, status: response.status, contentType: response.headers.get('content-type'), scripts, schema }));
               for (const path of scripts) {
                 try {
                   const source = await boundedText(await fetch(new URL(path, url), { signal: AbortSignal.timeout(8000) }));
                   const urls = [...source.matchAll(/https?:\/\/[A-Za-z0-9._:/-]+/g)].map(match => new URL(match[0])).filter(value => value.hostname.includes('miden')).map(value => `${value.origin}${value.pathname}`.slice(0, 200));
                   const routes = [...source.matchAll(/["'`]\/(?:api|v1|graphql)[A-Za-z0-9._/-]*/g)].map(match => match[0].slice(1, 201));
-                  console.log(JSON.stringify({ script: path, endpoints: [...new Set([...urls, ...routes])].slice(0, 30) }));
+                  const receiptCode = path.includes('3ngxyst0c4xrx') ? [...source.matchAll(/(?:transaction|output_notes|input_notes|baseURL|\/tx)[^;]{0,140}/gi)].slice(0, 30).map(match => match[0]) : [];
+                  console.log(JSON.stringify({ script: path, endpoints: [...new Set([...urls, ...routes])].slice(0, 30), receiptCode }));
                 } catch { console.log(JSON.stringify({ script: path, status: 'unavailable' })); }
               }
             } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
