@@ -1,6 +1,7 @@
 import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
+import { developmentOneClickServiceUrl } from './development-service';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
 import { assertNearIntentsRoute } from './identity';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
@@ -127,8 +128,19 @@ function validateConfig(config: NearIntentsConfig): string {
     isOneClickLocalE2EEnabled() &&
     ['http:', 'https:'].includes(url.protocol) &&
     ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  const localDevelopmentService =
+    process.env.MODE_ENV === 'development' &&
+    process.env.MIDEN_E2E_TEST !== 'true' &&
+    url.protocol === 'http:' &&
+    (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.origin === developmentOneClickServiceUrl());
   if (isOneClickLocalE2EEnabled() && !localTestService) throw new Error('Invalid 1Click test service URL');
-  if ((url.protocol !== 'https:' && !localTestService) || url.username || url.password || url.search || url.hash) {
+  if (
+    (url.protocol !== 'https:' && !localTestService && !localDevelopmentService) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
     throw new Error('Invalid 1Click service URL');
   }
   if (!Array.isArray(config.midenAssets) || config.midenAssets.length > 64)

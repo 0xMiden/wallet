@@ -140,6 +140,14 @@ private struct ReownCryptoProvider: CryptoProvider {
     }
 }
 
+private struct ReownKeychainSettings: Decodable {
+    let group: String
+
+    enum CodingKeys: String, CodingKey {
+        case group = "ReownKeychainAccessGroup"
+    }
+}
+
 private struct PendingReownRequest {
     let call: CAPPluginCall
     let request: Request
@@ -275,18 +283,23 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
 
-        // Reown persists its relay client-id in a keychain access group AND a
-        // UserDefaults suite named by `groupIdentifier` (RelayClientFactory /
-        // NetworkingClientFactory). It MUST be a group this app is entitled to —
-        // otherwise the keychain ops return errSecMissingEntitlement, which the KMS
-        // force-tries (`try! kms.create…`) → EXC_BREAKPOINT/swift_unexpectedError at
-        // launch. The old `group.com.miden.wallet` App Group was dropped from
-        // App.entitlements in #405 (owned by a former Apple team, not provisionable),
-        // so point Reown at the app's OWN entitled keychain access group
-        // ($(AppIdentifierPrefix)com.miden.bread = <teamID>.com.miden.bread). No App
-        // Group / provisioning-profile change required.
+        // Xcode expands the same signing prefix and bundle ID in Info.plist and App.entitlements.
+        // Reown must use this entitled group or its keychain writes can fail at startup.
+        let keychainGroup: String
+        do {
+            let infoURL = Bundle.main.bundleURL.appendingPathComponent("Info.plist")
+            let data = try Data(contentsOf: infoURL)
+            keychainGroup = try PropertyListDecoder().decode(ReownKeychainSettings.self, from: data).group
+            guard !keychainGroup.isEmpty, !keychainGroup.contains("$(") else {
+                call.reject("The Reown keychain group is not configured")
+                return
+            }
+        } catch {
+            call.reject("Could not read the Reown keychain group")
+            return
+        }
         Networking.configure(
-            groupIdentifier: "LHU7B7J5WL.com.miden.bread",
+            groupIdentifier: keychainGroup,
             projectId: projectId,
             socketFactory: ReownSocketFactory()
         )

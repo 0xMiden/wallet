@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Local development uses the LAN proxy, and Reown's keychain group follows the Xcode signing prefix and bundle ID.
 - [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
 
 ## 1.17.11 (2026-11-09)

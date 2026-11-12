@@ -10,7 +10,7 @@ import {
 const NOW = 1_800_000_000_000;
 const KEY = 'bridge_config_v1:testnet';
 const FLOOR = 'bridge_config_floor_v1';
-const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/refs/pull/38/head/testnet.json';
 const SERVED_BASE = 'http://127.0.0.1:8550/config';
 
 const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
@@ -112,7 +112,9 @@ afterAll(() => {
 describe('bridgeConfigUrl', () => {
   it('reads the published repo, one file per network', () => {
     expect(bridgeConfigUrl('testnet')).toBe(PUBLISHED);
-    expect(bridgeConfigUrl('devnet')).toBe('https://raw.githubusercontent.com/0xMiden/wallet-config/main/devnet.json');
+    expect(bridgeConfigUrl('devnet')).toBe(
+      'https://raw.githubusercontent.com/0xMiden/wallet-config/refs/pull/38/head/devnet.json'
+    );
   });
 
   it('reads the served document in an E2E build given MIDEN_REMOTE_CONFIG_URL', () => {

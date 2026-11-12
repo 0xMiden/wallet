@@ -26,6 +26,7 @@ import {
   nearIntentsDepositStatus,
   nearIntentsTrackingOf
 } from './deposit-status';
+import { DepositWalletGrid } from './DepositWalletGrid';
 import { formatCountdown } from './format';
 
 /** Resolution of the QR image; on screen the code scales to its frame. */
@@ -175,6 +176,7 @@ export const NearIntentsDepositPage: React.FC<NearIntentsDepositPageProps> = ({ 
                 </Notice>
               </div>
             )}
+            <DepositWalletGrid tracking={tracking} />
           </section>
         )
       )}
