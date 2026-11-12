@@ -182,6 +182,8 @@ export interface MidenDAppSignRequest extends MidenDAppMessageBase {
 export interface MidenDAppSignResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.SignResponse;
   signature: string;
+  // Base64 of the word the key signed. Absent from wallets before domain-separated signing.
+  signedCommitment?: string;
 }
 
 export interface MidenDAppLoginKeyRequest extends MidenDAppMessageBase {

@@ -38,6 +38,7 @@ import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/pr
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
+import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
@@ -220,19 +221,8 @@ const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 // (`AuthSecretKey.ecdsaWithRNG(...).sign(word).serialize()[0] === 0x01`).
 const ECDSA_SIGNATURE_SCHEME_TAG = 0x01;
 
-function signingInputsCommitmentHex(bytes: Uint8Array): string {
-  const inputs = SigningInputs.deserialize(bytes);
-  try {
-    const commitment = inputs.toCommitment();
-    try {
-      return commitment.toHex();
-    } finally {
-      commitment.free();
-    }
-  } finally {
-    inputs.free();
-  }
-}
+/** A dApp signature and the base64 word the key signed. */
+export type SignedBytes = { signature: string; signedCommitment: string };
 
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
@@ -2453,7 +2443,7 @@ export class Vault {
 
   async authorize(_sendTransaction: SendTransaction) {}
 
-  async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<string> {
+  async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<SignedBytes> {
     // A Guardian account's signing key is its hot key, stored by `hotPublicKey` under the secure-hot-key
     // facade, while the dApp holds the hot key's COMMITMENT from connect. The default path below reads
     // accAuthSecretKeyStrgKey(<commitment>), which for a Guardian account holds the cold (recovery) key under
@@ -2468,22 +2458,16 @@ export class Vault {
     const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
     const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
 
-    const dataAsUint8Array = b64ToU8(data);
-
-    let signature = null;
-    switch (signKind) {
-      case 'word':
-        let word = Word.deserialize(dataAsUint8Array);
-        signature = wasmSecretKey.sign(word);
-        break;
-      case 'signingInputs':
-        let signingInputs = SigningInputs.deserialize(dataAsUint8Array);
-        signature = wasmSecretKey.signData(signingInputs);
-        break;
+    const inputs = signBytesInputs(b64ToU8(data), signKind);
+    const commitment = inputs.toCommitment();
+    try {
+      // signData signs inputs.toCommitment(); the word is returned so a verifier checks exactly what was signed.
+      const signature = wasmSecretKey.signData(inputs);
+      return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
+    } finally {
+      commitment.free();
+      inputs.free();
     }
-
-    let signatureAsBytes = signature.serialize();
-    return u8ToB64(signatureAsBytes);
   }
 
   private async signDataWithHotKey(
@@ -2491,7 +2475,7 @@ export class Vault {
     publicKey: string,
     data: string,
     signKind: SignKind
-  ): Promise<string> {
+  ): Promise<SignedBytes> {
     if (!account.hotPublicKey) {
       // A recovered account before its everyday key is activated (`requiresHotKeyRotation`), or one with no key.
       throw new PublicError(
@@ -2507,10 +2491,20 @@ export class Vault {
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
       );
     }
-    const bytes = b64ToU8(data);
-    // The SDK defines signData(inputs) as sign(inputs.toCommitment()), so signing that word with the hot key gives
-    // the signature a single-key account returns. The native hot-key plugins sign only 32-byte words.
-    const wordHex = signKind === 'signingInputs' ? signingInputsCommitmentHex(bytes) : `0x${bytesToHex(bytes)}`;
+    // Same inputs as the single-key path, and signData(inputs) is sign(inputs.toCommitment()), so signing that word
+    // with the hot key gives the signature and signed word a single-key account returns. The native hot-key plugins
+    // sign only 32-byte words.
+    const inputs = signBytesInputs(b64ToU8(data), signKind);
+    const commitment = inputs.toCommitment();
+    let wordHex: string;
+    let signedCommitment: string;
+    try {
+      wordHex = commitment.toHex();
+      signedCommitment = u8ToB64(commitment.serialize());
+    } finally {
+      commitment.free();
+      inputs.free();
+    }
     const sigHex = await this.signWord(account.hotPublicKey, wordHex);
     // `signWord` strips the ECDSA scheme tag; `signBytes` returns the full serialized Signature, as the default
     // path does, and consumers such as MidenWalletSigner strip the tag themselves.
@@ -2518,7 +2512,7 @@ export class Vault {
     const fullSignature = new Uint8Array(rawEcdsaSig.length + 1);
     fullSignature[0] = ECDSA_SIGNATURE_SCHEME_TAG;
     fullSignature.set(rawEcdsaSig, 1);
-    return u8ToB64(fullSignature);
+    return { signature: u8ToB64(fullSignature), signedCommitment };
   }
 
   /**

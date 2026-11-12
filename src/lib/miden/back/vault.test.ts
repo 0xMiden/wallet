@@ -322,6 +322,14 @@ jest.mock('lib/i18n', () => ({
 // ---------------------------------------------------------------------------
 // Exposed so `importAccountFromPrivateKey` tests can stub per-test
 // behaviour (e.g. force `deserialize` to throw for the invalid-hex path).
+const mockSignBytesInputs = jest.fn();
+jest.mock('lib/miden/sign-bytes/domain', () => ({
+  signBytesInputs: (data: Uint8Array, kind: string) => mockSignBytesInputs(data, kind)
+}));
+const fakeInputs = (commitmentBytes: number[]) => ({
+  toCommitment: jest.fn(() => ({ serialize: () => new Uint8Array(commitmentBytes), free: jest.fn() })),
+  free: jest.fn()
+});
 let mockDeserializedCommitment = 'a1b2';
 let mockBuiltAccountIdMarker = 'imported-account-id';
 const defaultDeserializedSecret = () => ({
@@ -778,19 +786,43 @@ describe('Vault (instance)', () => {
       await encryptAndSaveMany([[keys.accAuthSecretKey(pk), hex]], vaultKey);
     }
 
-    it('signData returns a base64 signature for sign kind "word"', async () => {
-      const vault = await seedVault('pw');
-      await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
-      const sig = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word');
-      expect(typeof sig).toBe('string');
-      expect(sig.length).toBeGreaterThan(0);
-    });
+    it.each(['word', 'signingInputs'] as const)(
+      'signData signs the domain inputs for kind %s and returns their commitment',
+      async kind => {
+        const vault = await seedVault('pw');
+        await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
+        const inputs = fakeInputs([5, 6, 7]);
+        mockSignBytesInputs.mockReturnValueOnce(inputs);
+        const key = defaultDeserializedSecret();
+        mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
 
-    it('signData returns a base64 signature for sign kind "signingInputs"', async () => {
+        const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), kind);
+
+        expect(mockSignBytesInputs).toHaveBeenCalledWith(new Uint8Array(Buffer.from('hello')), kind);
+        expect(key.signData).toHaveBeenCalledWith(inputs);
+        expect(key.sign).not.toHaveBeenCalled();
+        expect(res).toEqual({
+          signature: Buffer.from([9, 9, 9]).toString('base64'),
+          signedCommitment: Buffer.from([5, 6, 7]).toString('base64')
+        });
+        expect(inputs.free).toHaveBeenCalled();
+      }
+    );
+
+    it('signData passes a TransactionSummary to the key exactly as decoded', async () => {
       const vault = await seedVault('pw');
       await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
-      const sig = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs');
-      expect(typeof sig).toBe('string');
+      // signBytesInputs returns the decoded summary object itself for that variant.
+      const summary = fakeInputs([1, 2, 3]);
+      mockSignBytesInputs.mockReturnValueOnce(summary);
+      const key = defaultDeserializedSecret();
+      mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
+
+      const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs');
+
+      expect(key.signData).toHaveBeenCalledTimes(1);
+      expect(key.signData.mock.calls[0]![0]).toBe(summary);
+      expect(res.signedCommitment).toBe(Buffer.from([1, 2, 3]).toString('base64'));
     });
 
     it('signTransaction returns a hex signature', async () => {

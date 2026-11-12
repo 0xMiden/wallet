@@ -49,7 +49,7 @@ _g.__dappExtTestStoreListeners = new Set<(state: unknown) => void>();
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-signature-base64')
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
     }
   })
 );
@@ -57,7 +57,7 @@ const mockFetchAccounts = jest.fn(async () => [] as unknown[]);
 // What an unlocked store hands `withUnlocked`'s callback here.
 const unlockedContext = () => ({
   vault: {
-    signData: jest.fn(async () => 'fake-signature-base64'),
+    signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' })),
     fetchAccounts: mockFetchAccounts
   }
 });
@@ -774,7 +774,11 @@ describe('requestSign — extension flow', () => {
     );
     const res = await sigPromise;
     expect(res.type).toBe(MidenDAppMessageType.SignResponse);
-    expect((res as any).signature).toBe('fake-signature-base64');
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-signature-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('rejects with NotGranted when the user declines', async () => {
@@ -1798,11 +1802,22 @@ describe('Full confirmation cycles in extension mode', () => {
     it('accepts the b64 form the wallet itself handed out at connect', async () => {
       arrangeSignerAccount();
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
-        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+        fn({
+          vault: {
+            signData: jest.fn(async () => ({
+              signature: 'fake-signature-base64',
+              signedCommitment: 'fake-commitment-b64'
+            }))
+          }
+        })
       );
 
       const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
-      expect((res as any).signature).toBe('fake-signature-base64');
+      expect(res).toEqual({
+        type: MidenDAppMessageType.SignResponse,
+        signature: 'fake-signature-base64',
+        signedCommitment: 'fake-commitment-b64'
+      });
     });
 
     it.each([

@@ -787,10 +787,10 @@ const generatePromisifySign = async (
       }
       // The entry gate ran before the sheet opened; the session or the current account may have changed since (#1419).
       await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-      const signature = await withUnlocked(async ({ vault }) =>
+      const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
-      resolve({ type: MidenDAppMessageType.SignResponse, signature });
+      resolve({ type: MidenDAppMessageType.SignResponse, signature, signedCommitment });
     } catch (e) {
       reject(dappSendFailure(e));
     }
@@ -836,18 +836,13 @@ const generatePromisifySign = async (
           try {
             // See the mobile/desktop arm: same post-approval re-check.
             await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-            let signature = await withUnlocked(async ({ vault }) => {
-              const signDataResult = await vault.signData(
-                req.sourcePublicKey,
-                req.payload,
-                req.kind,
-                req.sourceAccountId
-              );
-              return signDataResult;
-            });
+            const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
+              vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
+            );
             resolve({
               type: MidenDAppMessageType.SignResponse,
-              signature
+              signature,
+              signedCommitment
             });
           } catch (e) {
             reject(dappSendFailure(e));
@@ -3756,9 +3751,10 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
 /**
  * What the mobile modal / desktop overlay show for `signBytes`.
  *
- * A `signingInputs` payload is a full TRANSACTION authorization — `Vault.signData`
- * runs `wasmSecretKey.signData(SigningInputs.deserialize(...))` on it — so
- * approving one can move the whole balance. The extension decodes it
+ * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
+ * authorization, signed as decoded, so approving one can move the whole balance.
+ * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
+ * (`signBytesInputs`) and never authorize a transaction. The extension decodes it
  * (`SigningInputsPayloadContent` in ConfirmPage) and renders the summary's asset
  * movement; off-extension `signBytes` had no approval sheet at all — it fell into
  * `requestConfirm`'s throw and the dApp's promise never settled (see
