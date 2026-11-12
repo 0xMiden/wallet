@@ -1,7 +1,6 @@
 import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 
 import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
-import { RPC_READ_TIMEOUT_MS, createNodeReads } from '../transaction/reconcile-reads';
 import {
   assertRecoverySignerMatches,
   assertUndeployedStateFromSeed,
@@ -14,6 +13,7 @@ import {
   type ServedGuardianState,
   type ServedStateVerdict
 } from './recovery-verification';
+import { RPC_READ_TIMEOUT_MS, createNodeReads } from '../transaction/reconcile-reads';
 
 jest.mock('lib/i18n', () => ({ getMessage: (key: string) => key }));
 jest.mock('../transaction/reconcile-reads', () => ({

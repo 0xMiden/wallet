@@ -4,12 +4,12 @@ import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 import { getMessage } from 'lib/i18n';
 import { sameCommitment } from 'lib/secure-hot-key/commitment';
 
+import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 import {
   GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
   GUARDIAN_RECOVERY_UNVERIFIED,
   GuardianRecoveryVerificationError
 } from '../sdk/guardian-recovery-errors';
-import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 
 /** One account the Guardian served for a derived key, with the facts later checks compare. Commitments are unprefixed lower-case. */
 export interface ServedGuardianState {

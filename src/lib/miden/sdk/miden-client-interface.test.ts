@@ -3,8 +3,8 @@ import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/h
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
-import type { AccountChainState } from '../guardian/recovery-verification';
 import type { WasmLockHold } from './miden-client';
+import type { AccountChainState } from '../guardian/recovery-verification';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 // The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.
