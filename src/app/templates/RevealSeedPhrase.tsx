@@ -87,7 +87,7 @@ const RevealSeedPhrase: FC = () => {
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(secret !== null);
-  const mask = useRevealMask({ remaskOnLeave: true });
+  const mask = useRevealMask({ remaskOnLeave: true, resetKey: secret });
 
   const {
     register,

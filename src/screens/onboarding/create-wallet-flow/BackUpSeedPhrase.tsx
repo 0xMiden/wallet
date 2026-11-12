@@ -91,6 +91,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
                     className={classNames(
                       'flex w-full min-w-0 gap-1',
                       'transition duration-300 ease-in-out motion-reduce:transition-none',
+                      // A masked word has no text to blur.
                       isWordsVisible || masked ? '[filter:none]' : '[filter:blur(8px)]'
                     )}
                   >

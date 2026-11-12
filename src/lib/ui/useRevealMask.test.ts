@@ -86,3 +86,15 @@ it('re-subscribes when remaskOnLeave changes', () => {
   });
   expect(result.current.revealed).toBe(true);
 });
+
+it('hides again when the reset key changes', () => {
+  const { result, rerender } = renderHook(({ resetKey }) => useRevealMask({ remaskOnLeave: false, resetKey }), {
+    initialProps: { resetKey: 'a' as string | null }
+  });
+  act(() => result.current.toggle());
+  rerender({ resetKey: 'a' });
+  expect(result.current.revealed).toBe(true);
+
+  rerender({ resetKey: null });
+  expect(result.current.revealed).toBe(false);
+});

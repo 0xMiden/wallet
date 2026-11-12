@@ -1560,6 +1560,25 @@ describe('RevealSeedPhrase', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('starts masked again when a new secret replaces one that auto-hid', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    mockSecret = null;
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   // -------------------------------------------------------------------------
   // Unmount cleanup.
   // -------------------------------------------------------------------------
