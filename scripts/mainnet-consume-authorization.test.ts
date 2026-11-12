@@ -71,6 +71,14 @@ it('never executes after an asynchronously suspended final spent-state write exc
   const current = data[KEY]; if (!isRecord(current)) throw new Error('Missing unit held policy');
   data[KEY] = { ...current, status: 'released' }; await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked');
 });
+it('never overwrites a replacement consume authority installed during initial asynchronous request inspection', async () => {
+  const replacement = { ...policy(), nonce: '22222222-2222-4222-8222-222222222222' };
+  serialize.mockImplementationOnce(() => { data[KEY] = replacement; return Uint8Array.from(bytes); });
+  const promise = run(); const outcome = promise.then(() => 'released', () => 'blocked');
+  await Promise.race([observed, outcome]);
+  const current = data[KEY]; if (isRecord(current) && current.status === 'waiting') data[KEY] = { ...current, status: 'released' };
+  await jest.advanceTimersByTimeAsync(500); expect(await outcome).toBe('blocked'); expect(data[KEY]).toEqual(replacement);
+});
 it('never overwrites a replacement consume authority installed during asynchronous final byte verification', async () => {
   const promise = run(); await waitForHeld(promise); const outcome = promise.then(() => 'released', () => 'blocked');
   const replacement = { ...policy(), nonce: '22222222-2222-4222-8222-222222222222' };
