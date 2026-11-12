@@ -8,14 +8,19 @@ import { Buffer } from 'buffer';
 
 import { getMessage } from 'lib/i18n/core';
 import * as Repo from 'lib/miden/repo';
-import { getVerificationBaseFee, isVerificationBaseFeeKnownAbsent } from 'lib/miden-chain/native-asset';
+import {
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 
 import { completeConsumeTransaction, completeCustomTransaction } from './complete';
-import { ProposalEffectRefusedError } from './constants';
+import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { withEffectCheckedSigner, type RawSigner } from './effect-checked-signer';
 import { generateTransactionsLoop } from './index';
 import { isRequeueableTransaction } from './retry';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransaction, ITransactionStatus, SendTransaction, SwapTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import { buildSdkSignCallback } from './sign-callback';
@@ -75,7 +80,7 @@ jest.mock('../sdk/helpers', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => 'bech32:usdcx',
-  getVerificationBaseFeeSync: () => 0,
+  getVerificationBaseFeeSync: jest.fn(() => 0),
   getVerificationBaseFee: jest.fn(async () => 0),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
@@ -190,6 +195,7 @@ const runRow = async (row: ITransaction): Promise<ITransaction> => {
 beforeEach(async () => {
   jest.clearAllMocks();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 0);
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(0);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockImplementation(() => false);
   mockClient.methods = {
     syncState: jest.fn(async () => ({ blockNum: () => 1 })),
@@ -268,6 +274,31 @@ describe('the loop on a single-key account', () => {
     expect(executed.proposalEffectRefused).toBeUndefined();
     expect(executed.nextEligibleAt).toBeUndefined();
     expect(loopSigner).not.toHaveBeenCalled();
+  });
+
+  it('does not requeue a claim for an unknown chain fee when the write is killed after the sign recorded it', async () => {
+    // Known before the write, so the claim enters the client. Unknown on the sign's cache read, and on a second lookup.
+    let feeLookups = 0;
+    jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
+      feeLookups += 1;
+      return feeLookups === 1 ? 0 : null;
+    });
+    jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+    givenSigning({
+      bb: summaryInputs(summary('acct-a', { removed: [], added: [fa('bech32:fB', 50n)] }))
+    });
+    let recorded: unknown;
+    mockClient.methods.consumeNoteId.mockImplementation(async () => {
+      recorded = await mockClient.sign!(PUBLIC_KEY, new Uint8Array([0xbb])).catch((error: unknown) => error);
+      throw new OperationAbortedError('op-1', 'deadline');
+    });
+    const claim = await runRow(claimRow);
+    expect(mockClient.methods.consumeNoteId).toHaveBeenCalled();
+    expect(recorded).toBeInstanceOf(Error);
+    expect(recorded instanceof Error ? recorded.cause : undefined).toBeInstanceOf(ProposalFeeUnknownError);
+    expect(loopSigner).not.toHaveBeenCalled();
+    expect(claim.lastDeferral).not.toBe('chain_fee_unknown');
   });
 });
 

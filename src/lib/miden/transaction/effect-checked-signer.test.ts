@@ -9,8 +9,10 @@ import {
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { withEffectCheckedSigner, type RawSigner } from './effect-checked-signer';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   SigningInputs: { deserialize: jest.fn() },
@@ -396,6 +398,37 @@ it('propagates a fee lookup rejection before the write runs', async () => {
   const run = jest.fn();
   await expect(withEffectCheckedSigner(execute, baseSigner(), run)).rejects.toBe(failure);
   expect(run).not.toHaveBeenCalled();
+});
+
+const INDEFINITE_SUBMIT =
+  'submission of transaction 0x' +
+  'ab'.repeat(32) +
+  ' came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally';
+
+it.each<[string, () => Error]>([
+  ['WasmClientPoisonedError', () => new WasmClientPoisonedError('watchdog')],
+  ['OperationAbortedError', () => new OperationAbortedError('op-1', 'deadline')],
+  ['indefinite submit', () => new Error(INDEFINITE_SUBMIT)]
+])('rejects with the %s from run after the sign recorded an unknown fee', async (_label, killOf) => {
+  // Known before the write, so run starts. Unknown on the sign's cache read, and on a second lookup.
+  const kill = killOf();
+  let feeLookups = 0;
+  jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
+    feeLookups += 1;
+    return feeLookups === 1 ? 2 : null;
+  });
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+  jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+  givenSigning(summaryInputs(tokenPayment('acct-a')));
+  const sign = baseSigner();
+  let recorded: unknown;
+  const outcome = withEffectCheckedSigner(execute, sign, async signer => {
+    recorded = await signer('pk', 'aa').catch((error: unknown) => error);
+    throw kill;
+  });
+  await expect(outcome).rejects.toBe(kill);
+  expect(recorded).toBeInstanceOf(ProposalFeeUnknownError);
+  expect(sign).not.toHaveBeenCalled();
 });
 
 it('rejects from the signer when the cached fee is unknown, without decoding the summary', async () => {

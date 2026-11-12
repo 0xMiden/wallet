@@ -9,6 +9,7 @@ import { ProposalFeeUnknownError } from './constants';
 import { assertCachedViewEffectApproved, effectRefusal, isEffectChecked } from './proposal-effect-guard';
 import type { ITransaction } from '../db/types';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from '../sdk/helpers';
+import { isIndefiniteSubmitOutcomeError, isKilledPipeline } from '../sdk/sdk-error-code';
 
 /** A keystore signer as the wallet's signing paths take it: hex public key and hex `SigningInputs` in, signature out. */
 export type RawSigner = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
@@ -68,8 +69,10 @@ async function assertSignable(transaction: ITransaction, signingInputsHex: strin
  * dry run or another write of the same account signing meanwhile is never judged against this row.
  *
  * The SDK forwards only a refused signer's message, and a caller may swallow it, so once a check fails the signer
- * refuses everything after it and the write rejects with that first error, the same instance, whether `run` resolved
- * or not. A type the check does not cover runs with `sign` itself.
+ * refuses everything after it and the write rejects with that first error, the same instance, when `run` resolves or
+ * rejects with an ordinary error. A killed pipeline or an indefinite submit from `run` is thrown instead, the same
+ * abandoned-write class the Guardian arms use: a recorded fee refusal, effect refusal or trap does not replace it.
+ * A type the check does not cover runs with `sign` itself.
  *
  * The signer runs inside the SDK's sign callback, which on the inline path holds the WASM client lock, so it decodes
  * the inputs on their own, as `Vault.signTransaction` does, and never takes the lock.
@@ -104,6 +107,8 @@ export async function withEffectCheckedSigner<T>(
   try {
     result = await run(signer);
   } catch (error) {
+    // The abandoned-write class the Guardian arms use outranks a recorded refusal. Anything else still throws it.
+    if (isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error)) throw error;
     if (check.failed) throw check.failed.error;
     throw error;
   }
