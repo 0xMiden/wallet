@@ -883,6 +883,7 @@
   "invalidMidenAccountId": "Неверный идентификатор учетной записи Miden",
   "midenAddressWrongNetwork": "Этот адрес принадлежит другой сети Miden",
   "cannotSendToSelf": "Нельзя отправлять на свой собственный адрес",
+  "newRecipient": "Новый получатель",
   "networkFee": "Network Fee",
   "networkFeeMax": "Максимальная комиссия сети",
   "networkFeeEstimateNote": "Точная комиссия зависит от транзакции и, как правило, ниже. Сумма, которую вы заплатили, будет указана в квитанции.",
