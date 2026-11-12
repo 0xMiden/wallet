@@ -1,4 +1,4 @@
-name: QA fresh-tracker capsule physical-input regressions
+name: QA capsule full Android unit module
 
 on:
   workflow_dispatch:
@@ -8,36 +8,30 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: capsule-fresh-tracker-red-${{ github.ref }}
+  group: capsule-full-unit-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   android:
-    name: Compile Android
+    name: Full Android dApp-browser unit module
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts - Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
     timeout-minutes: 60
     env:
       GRADLE_OPTS: -Dorg.gradle.workers.max=2
-      RESULTS: ${{ github.workspace }}/native-fresh-tracker-red
+      RESULTS: ${{ github.workspace }}/native-full-unit
     steps:
       - uses: actions/checkout@v4
-      - name: Bind the exact test and unchanged native source
+      - name: Bind fixed production and regression source
         run: |
           mkdir -p "$RESULTS"
           python3 <<'PYBIND'
           import json, os, pathlib, subprocess
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': '2cf9267369d9c2f708d3d7af4472dc72a593ab79', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'c496d479bc9032e2b5913964acf91981f3e78a3f'}
+          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': 'a27c7dc5bff48be852b0333a8288579b4f660787', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'c496d479bc9032e2b5913964acf91981f3e78a3f'}
           actual = {name: git('rev-parse', 'HEAD:' + name) for name in expected}
           source = {'head': git('rev-parse', 'HEAD'), 'tree': git('rev-parse', 'HEAD^{tree}'),
-                    'expected_test_base': '4d86b8810f6dfadacb87136227dca7d282a63502',
-                    'native_base': 'a5f75ebe548463a655d1f9230aa9905d819fc543',
+                    'expected_product_source': '3b5533bc75094a51b310bb60b671bbc6c3eb30a5',
                     'expected': expected, 'actual': actual}
           pathlib.Path(os.environ['RESULTS'], 'source-binding.json').write_text(json.dumps(source, indent=2) + '\n')
           assert source['head'] == os.environ['GITHUB_SHA']
@@ -49,42 +43,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
       - name: Run Install
         uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
       - name: Build debug APK
         run: |
           set -o pipefail
           yarn test:e2e:android:build 2>&1 | tee "$RESULTS/build-debug.log"
-      - name: Prove both physical-input regressions fail
+      - name: Run the complete Android unit module without selectors
         run: |
           set +e
           cd android
-          ./gradlew :miden-dapp-browser:testDebugUnitTest --tests ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest.capsuleReturnToScreenStartCancelsAfterItsParentTransforms --tests ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest.capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms --max-workers=2 --console=plain > "$RESULTS/gradle.log" 2>&1
+          ./gradlew :miden-dapp-browser:testDebugUnitTest --max-workers=2 --console=plain > "$RESULTS/gradle.log" 2>&1
           status=$?
           printf '%s\n' "$status" > "$RESULTS/gradle-exit.txt"
           cat "$RESULTS/gradle.log"
           exit "$status"
-      - name: Classify exactly two executed functional failures
+      - name: Require full counts and both regression cases with no failures or skips
         if: always()
         run: |
           python3 <<'PYCLASSIFY'
@@ -97,44 +79,36 @@ jobs:
           for source in pathlib.Path('packages/dapp-browser/android/build/test-results/testDebugUnitTest').glob('*.xml'):
               shutil.copy2(source, junit / source.name)
               cases.extend(ET.parse(source).getroot().iter('testcase'))
-          expected = {
-              'capsuleReturnToScreenStartCancelsAfterItsParentTransforms': (
-                  'the page follows the contact back to its original screen position',
-                  "a physical return to the contact's start cancels the collapse"),
-              'capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms': (
-                  'capsule velocity must match raw physical event history',)}
-          failures = [(case, failure) for case in cases for failure in case.findall('failure')]
-          errors = sum(len(case.findall('error')) for case in cases)
-          messages = {case.attrib.get('name'): [failure.attrib.get('message', '')
-                      for failure in case.findall('failure')] for case in cases}
+          expected = {'capsuleReturnToScreenStartCancelsAfterItsParentTransforms',
+                      'capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms'}
+          counts = {tag: sum(len(case.findall(tag)) for case in cases) for tag in ('failure', 'error', 'skipped')}
+          regressions = [case.attrib['name'] for case in cases
+                         if case.attrib.get('classname') == 'ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest'
+                         and case.attrib.get('name') in expected]
           exit_path = output / 'gradle-exit.txt'
           gradle_exit = int(exit_path.read_text().strip()) if exit_path.exists() else None
-          def predicted_message(name, message):
-              return message.removeprefix('java.lang.AssertionError: ').startswith(expected[name])
-          return_case, velocity_case = expected
-          assert predicted_message(return_case, 'java.lang.AssertionError: the page follows the contact back to its original screen position expected:<1.0> but was:<0.1>')
-          assert predicted_message(velocity_case, 'java.lang.AssertionError: capsule velocity must match raw physical event history expected:<1.0> but was:<0.1>')
-          assert not predicted_message(return_case, 'java.lang.AssertionError: raw screen coordinates differ')
-          assert not predicted_message(velocity_case, 'java.lang.AssertionError: the page follows the contact back to its original screen position')
-          functional = (gradle_exit not in (None, 0) and len(cases) == 2 and errors == 0
-                        and len(failures) == 2 and set(messages) == set(expected)
-                        and all(case.attrib.get('classname') == 'ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest'
-                                for case in cases)
-                        and all(len(messages[name]) == 1 and predicted_message(name, messages[name][0])
-                                for name in expected))
-          result = {'source': os.environ['GITHUB_SHA'], 'selectors': list(expected), 'executed': len(cases),
-                    'failures': len(failures), 'errors': errors, 'gradle_exit': gradle_exit,
-                    'messages': messages, 'functional_red': functional}
+          def accepted(executed, failures, errors, skipped, names, status):
+              return executed >= 324 and failures == errors == skipped == 0 and set(names) == expected and len(names) == 2 and status == 0
+          assert accepted(324, 0, 0, 0, sorted(expected), 0)
+          assert not accepted(0, 0, 0, 0, sorted(expected), 0)
+          assert not accepted(324, 1, 0, 0, sorted(expected), 0)
+          assert not accepted(324, 0, 1, 0, sorted(expected), 0)
+          assert not accepted(324, 0, 0, 1, sorted(expected), 0)
+          assert not accepted(324, 0, 0, 0, [], 0)
+          assert not accepted(324, 0, 0, 0, sorted(expected), 1)
+          passed = accepted(len(cases), counts['failure'], counts['error'], counts['skipped'], regressions, gradle_exit)
+          result = {'source': os.environ['GITHUB_SHA'], 'executed': len(cases), **counts,
+                    'regressions': regressions, 'gradle_exit': gradle_exit, 'full_module_pass': passed}
           (output / 'classification.json').write_text(json.dumps(result, indent=2) + '\n')
           print(json.dumps(result))
-          if not functional:
-              sys.exit('Not functional red: require both exact selectors and their predicted return/velocity assertion failures')
+          if not passed:
+              sys.exit('Full module gate failed: require at least324 cases, both regressions, zero failures/errors/skips and Gradle0')
           PYCLASSIFY
-      - name: Upload exact-source red evidence
+      - name: Upload exact-source full module evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: capsule-fresh-tracker-red-${{ github.run_id }}
-          path: native-fresh-tracker-red/
+          name: capsule-full-unit-${{ github.run_id }}
+          path: native-full-unit/
           retention-days: 7
           if-no-files-found: error
