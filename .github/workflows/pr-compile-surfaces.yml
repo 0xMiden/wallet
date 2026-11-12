@@ -1,217 +1,128 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: QA 2147 C-01 mutation evidence
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
-
-concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  android:
-    name: Compile Android
+  regression:
+    name: C-01 all-hunk mutation measurement
     runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
+    timeout-minutes: 35
+    env:
+      EXPECTED_SOURCE_SHA: 'a4b2e40d7ad95446bb718820e0b3a38fa01d9af0'
+      EXPECTED_SOURCE_TREE: '9c4221f0eb58d5fded335a0791b7ebf3df98d851'
+      EXPECTED_SOURCE_PARENT: '1fe48b4a2badf7223e22dfa655c7b5b950e2932f'
+      ORIGINAL_REVIEW_HEAD: '657f4b98cb0aa7756865c0030ea11bc99bb7a016'
+      PR_BASE_SHA: '94e5ba9b2a40df2e706a323e0155510880cabaa0'
+      EXPECTED_QA_BRANCH: 'ci/qa-2147-c01-mutate-9c4221f0-20261112-v1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+      UV_THREADPOOL_SIZE: '2'
+      CARGO_BUILD_JOBS: '2'
+      RAYON_NUM_THREADS: '2'
     steps:
+      - name: Set the evidence path from the runner environment
+        shell: bash
+        run: printf 'EVIDENCE_DIR=%s/qa-2147-c01-mutation\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '21'
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # `mobile:sync` regenerates the Capacitor bridge files the gradle build
-      # needs; assembleDebug is the same target the Android E2E job builds, so a
-      # break here is a break there.
-      - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
-
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
+          ref: 'a4b2e40d7ad95446bb718820e0b3a38fa01d9af0'
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record and verify the exact candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          printf 'workflow_sha=%s\nworkflow_ref=%s\nsource_sha=%s\nsource_tree=%s\ninstall_lifecycle_scripts=enabled\n' "$GITHUB_SHA" "$GITHUB_WORKFLOW_REF" "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" > "$EVIDENCE_DIR/source.txt"
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain)"
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = "$EXPECTED_QA_BRANCH"
+          python3 <<'PYBIND'
+          import hashlib,json,os,pathlib,subprocess
+          git=lambda *args:subprocess.check_output(['git',*args],text=True).strip()
+          source=os.environ['EXPECTED_SOURCE_SHA'];parent=os.environ['EXPECTED_SOURCE_PARENT'];workflow=os.environ['GITHUB_SHA']
+          fix_paths=["src/lib/miden/transaction/index.ts", "src/lib/miden/transaction/transactions.background-matrix.test.ts", "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts", "src/lib/miden/transaction/transactions.guardian.test.ts", "src/lib/miden/transaction/transactions.send-stage-timings.test.ts", "src/lib/miden/transaction/transactions.test.ts"]
+          path_union=["CHANGELOG.md", "src/lib/miden/transaction/effect-checked-signer.test.ts", "src/lib/miden/transaction/index.ts", "src/lib/miden/transaction/proposal-effect-guard.test.ts", "src/lib/miden/transaction/proposal-effect-guard.ts", "src/lib/miden/transaction/transactions.background-matrix.test.ts", "src/lib/miden/transaction/transactions.bridged-earn-offscreen.test.ts", "src/lib/miden/transaction/transactions.guardian.test.ts", "src/lib/miden/transaction/transactions.send-stage-timings.test.ts", "src/lib/miden/transaction/transactions.test.ts"]
+          assert git('rev-parse','HEAD')==source
+          assert git('rev-parse','HEAD^{tree}')==os.environ['EXPECTED_SOURCE_TREE']
+          assert git('show','-s','--format=%P',source)==parent
+          assert git('diff','--name-only',parent,source).splitlines()==sorted(fix_paths)
+          assert git('diff','--name-only',os.environ['ORIGINAL_REVIEW_HEAD'],source).splitlines()==sorted(fix_paths)
+          assert git('diff','--name-only',os.environ['PR_BASE_SHA'],source).splitlines()==path_union
+          assert git('diff','--name-only',source,workflow).splitlines()==['.github/workflows/pr-compile-surfaces.yml']
+          paths=['package.json','yarn.lock','jest.config.ts','jest.setup.js','src/lib/miden/transaction/proposal-effect-guard.ts','src/lib/miden/transaction/effect-checked-signer.ts']
+          blobs={p:git('rev-parse',source+':'+p) for p in paths}
+          assert all(blobs[p]==git('rev-parse',parent+':'+p) for p in paths)
+          hashed=sorted(set(paths+path_union))
+          data={'workflowSha':workflow,'workflowRef':os.environ['GITHUB_WORKFLOW_REF'],'runId':os.environ['GITHUB_RUN_ID'],'runAttempt':os.environ['GITHUB_RUN_ATTEMPT'],'sourceSha':source,'sourceTree':os.environ['EXPECTED_SOURCE_TREE'],'sourceParent':parent,'originalReviewHead':os.environ['ORIGINAL_REVIEW_HEAD'],'prBase':os.environ['PR_BASE_SHA'],'installLifecycleScripts':'enabled','fixPaths':fix_paths,'fullPrPathUnion':path_union,'unchangedBlobs':blobs,'sha256':{p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in hashed}}
+          pathlib.Path(os.environ['EVIDENCE_DIR'],'source-manifest.json').write_text(json.dumps(data,indent=2)+'\n')
+          PYBIND
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
-        uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
+          node-version: 22
+          cache: yarn
+      - name: Install frozen dependencies with normal lifecycle scripts
+        timeout-minutes: 10
+        shell: bash
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
-
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
+          set -euo pipefail
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$EVIDENCE_DIR/install.log"
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Measure every repair hunk and the retained prewrite check
+        timeout-minutes: 24
+        shell: bash
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
-        run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          set -euo pipefail
+          python3 <<'PYSETUP'
+          import base64,hashlib,json,os,pathlib,shlex,subprocess
+          e=pathlib.Path(os.environ['EVIDENCE_DIR']);e.mkdir(parents=True,exist_ok=True)
+          (e/'rev-mutate.sh').write_bytes(base64.b64decode('IyEvYmluL2Jhc2gKIyByZXYtbXV0YXRlLnNoIDxzZXNzaW9uLWRpcj4gPHRlc3QtY29tbWFuZD4KIyAgIFJldmVydHMgZWFjaCBjaGFuZ2VkIGh1bmsgb24gaXRzIG93biwga2VlcGluZyBldmVyeSBvdGhlciBjaGFuZ2UgaW4gdGhlIHRyZWUsIGFuZCBydW5zIHRoZQojICAgdGVzdCBjb21tYW5kLiBBIGh1bmsgd2hvc2UgcmV2ZXJ0IGxlYXZlcyB0aGUgY29tbWFuZCBwYXNzaW5nIGlzIHVucGlubmVkOiBubyB0ZXN0IHByb3ZlcwojICAgdGhhdCBsaW5lLiBBIGh1bmsgd2hvc2UgcmV2ZXJ0IHR1cm5zIHRoZSBjb21tYW5kIHJlZCBpcyBwaW5uZWQsIGFuZCB0aGUgZmlyc3QgZmFpbHVyZSBsaW5lIG9mCiMgICB0aGF0IHJ1biBpcyBwcmludGVkIGJlc2lkZSBpdCwgYmVjYXVzZSAiYSB0ZXN0IG5vdGljZWQiIGlzIG5vdCB3aGF0IGEgY2x1c3RlcidzIFByZWRpY3Rpb24KIyAgIHNheXMgLSBpdCBuYW1lcyBhbiBhc3NlcnRpb24gb3IgYSBtZXNzYWdlLCBhbmQgb25seSB0aGUgY2FsbGVyIGhvbGRzIGl0IHRvIGNvbXBhcmUuCiMgICBFeGl0cyAwIGV2ZXJ5IGh1bmsgcGlubmVkLCAyIHRoZSBzZXNzaW9uIGlzIG5vdCBpbiBhIHBoYXNlIGtub3duIHRvIGJlIHBhbmVsLWZyZWUsCiMgICAzIGFuIHVucGlubmVkIGh1bmssIDQgdGhlIHJ1biBtZWFzdXJlZCBub3RoaW5nIChhIGNvbW1hbmQgdGhhdCBkb2VzIG5vdCBwYXNzIG9uIHRoZSB1bm11dGF0ZWQKIyAgIHRyZWUgb3Igc3RvcHMgcGFzc2luZyBieSB0aGUgZW5kIG9mIHRoZSBydW4sIGEgaHVuayB0aGF0IHdvdWxkIG5vdCBhcHBseSwgYSByZXZlcnQgdGhhdAojICAgY2hhbmdlZCBubyBieXRlLCBhIGNoYW5nZWQgZmlsZSB0aGF0IGlzIGEgc3ltbGluayBvciBoYXMgbm8gdGV4dCBodW5rLCBvciBubyBjaGFuZ2VkIGh1bmspLgojCiMgICA0IG91dHJhbmtzIDM6IGEgcnVuIHRoYXQgY291bGQgbm90IHJldmVydCBvbmUgaHVuayBoYXMgbm90IGVhcm5lZCBhIHZlcmRpY3QgYWJvdXQgdGhlIHJlc3QuCiMgICBBIG1lYXN1cmVtZW50IHRoYXQgZGlkIG5vdCBoYXBwZW4gaXMgdGhlIGZhaWx1cmUgdGhpcyB0b29sIGV4aXN0cyB0byBwcmV2ZW50LCBiZWNhdXNlIGl0CiMgICByZWFkcyBleGFjdGx5IGxpa2UgYSByZWFsIG9uZS4gU286IGV2ZXJ5IHJldmVydCBpcyBwcm92ZWQgYnkgaGFzaCwgYW5kIHRoZSBjb21tYW5kIGlzIHByb3ZlZAojICAgdG8gZGlzY3JpbWluYXRlIEJPVEggYmVmb3JlIHRoZSBmaXJzdCByZXZlcnQgYW5kIGFnYWluIG9uIHRoZSByZXN0b3JlZCB0cmVlIGFmdGVyd2FyZHMuCiMgICBPcmRlcjogYmFzZWxpbmUgcnVuLCBodW5rIGxvb3AgKGVhY2ggaHVuayByZXN0b3JlZCBhbmQgdmVyaWZpZWQpLCBjbG9zaW5nIHJ1bi4KIwojICAgSXQgcmVmdXNlcyB3aGlsZSBhIHBhbmVsIGlzIGxpdmUgYmVjYXVzZSBzZWF0cyByZWFkIHRoZSBsaXZlIHRyZWUsIGFuZCBhIHNjcmlwdCB0aGF0IHJldmVydHMKIyAgIGh1bmtzIGZvciBzZWNvbmRzIGF0IGEgdGltZSBzaG93cyB0aGVtIGEgdHJlZSB0aGF0IGlzIG5laXRoZXIgYmFzZSBub3IgZml4LgojCiMgICBTY29wZTogdW5zdGFnZWQgY2hhbmdlcyB0byB0cmFja2VkLCBub24tc3ltbGluayBmaWxlcyB1bmRlciBSRVZfUk9PVC4gU3RhZ2VkIGFuZCB1bnRyYWNrZWQKIyAgIGZpbGVzIGFyZSBuYW1lZCBvbiBzdGRlcnIgYW5kIG5vdCBtZWFzdXJlZC4gRWFjaCBodW5rIGlzIG1lYXN1cmVkIGFnYWluc3QgdGhlIENPTVBMRVRFIGZpeDoKIyAgIHRoZSBmaWxlIGlzIHJlc3RvcmVkIGZyb20gYSBiYWNrdXAgdGhpcyBydW4gdG9vaywgbmV2ZXIgZnJvbSB0aGUgY29tbWl0LgpzZXQgLXUKUz0kezE6P3VzYWdlOiByZXYtbXV0YXRlLnNoIDxzZXNzaW9uLWRpcj4gPHRlc3QtY29tbWFuZD59CkNNRD0kezI6P3VzYWdlOiByZXYtbXV0YXRlLnNoIDxzZXNzaW9uLWRpcj4gPHRlc3QtY29tbWFuZD59CgpbIC1mICIkUy9zY29wZS5lbnYiIF0gfHwgeyBlY2hvICJyZXYtbXV0YXRlOiBubyBzY29wZS5lbnYgaW4gJFMiID4mMjsgZXhpdCAxOyB9CiMgc2hlbGxjaGVjayBkaXNhYmxlPVNDMTA5MAouICIkUy9zY29wZS5lbnYiClJPT1Q9JHtSRVZfUk9PVDo/cmV2LW11dGF0ZTogc2NvcGUuZW52IGhhcyBubyBSRVZfUk9PVH0KCnBoYXNlPSQocHl0aG9uMyAtICIkUy9zdGF0ZS5qc29uIiA8PCdQWScKaW1wb3J0IGpzb24sIHN5cwp0cnk6CiAgICB3aXRoIG9wZW4oc3lzLmFyZ3ZbMV0pIGFzIGhhbmRsZToKICAgICAgICBwaGFzZSA9IGpzb24ubG9hZChoYW5kbGUpLmdldCgncGhhc2UnKSBvciAndW5rbm93bicKZXhjZXB0IEV4Y2VwdGlvbjoKICAgIHBoYXNlID0gJ3Vua25vd24nCnByaW50KHBoYXNlKQpQWQopIHx8IHBoYXNlPXVua25vd24KIyBBbiBBTExPV0xJU1Q6IGEgc3BlbGxpbmcgdGhpcyBzY3JpcHQgZG9lcyBub3Qga25vdyAoZmFuX291dCwgRkFOLU9VVCwgcGFuZWwsIDUsIGEgcGhhc2UgcmVhZGVyCiMgdGhhdCBkaWVkIGFuZCBsZWZ0IHRoaXMgZW1wdHkpIGlzIG5vdCBldmlkZW5jZSB0aGF0IG5vIHNlYXQgaXMgcmVhZGluZyB0aGUgdHJlZS4KY2FzZSAiJHBoYXNlIiBpbgogIGZpeHx0cmlhZ2V8dmVyaWZ5fGNvbW1pdHxkb25lfHNldHVwfHN0YWNrLXJlYWR5KSA7OwogIGZhbi1vdXR8Y29sbGVjdHxwbGFufHJlcGFpcikKICAgIGVjaG8gInJldi1tdXRhdGU6IHJlZnVzaW5nIHdoaWxlIGEgcGFuZWwgaXMgbGl2ZSAocGhhc2U9JHBoYXNlKTsgc2VhdHMgcmVhZCB0aGUgbGl2ZSB0cmVlIiA+JjIKICAgIGV4aXQgMiA7OwogICopCiAgICBlY2hvICJyZXYtbXV0YXRlOiByZWZ1c2luZzogJyRwaGFzZScgaXMgbm90IGEgcGhhc2Uga25vd24gdG8gYmUgcGFuZWwtZnJlZSwgc28gYSBsaXZlIHBhbmVsIGNhbm5vdCBiZSBydWxlZCBvdXQiID4mMgogICAgZWNobyAicmV2LW11dGF0ZTogcmVjb3JkIHRoZSBwaGFzZSBmaXJzdCwgZS5nLiByZXYtc3RhdGUuc2ggJFMgcGhhc2U9Zml4IiA+JjIKICAgIGV4aXQgMiA7Owplc2FjCgpjZCAiJFJPT1QiIHx8IHsgZWNobyAicmV2LW11dGF0ZTogY2Fubm90IGVudGVyICRST09UIiA+JjI7IGV4aXQgMTsgfQpnaXQgcmV2LXBhcnNlIC0taXMtaW5zaWRlLXdvcmstdHJlZSA+L2Rldi9udWxsIDI+JjEgXAogIHx8IHsgZWNobyAicmV2LW11dGF0ZTogJFJPT1QgaXMgbm90IGEgZ2l0IHdvcmsgdHJlZSIgPiYyOyBleGl0IDE7IH0KWyAteiAiJChnaXQgcmV2LXBhcnNlIC0tc2hvdy1wcmVmaXgpIiBdIFwKICB8fCB7IGVjaG8gInJldi1tdXRhdGU6ICRST09UIGlzIG5vdCB0aGUgcmVwb3NpdG9yeSByb290IiA+JjI7IGV4aXQgMTsgfQoKV09SSz0kKG1rdGVtcCAtZCAiJHtUTVBESVI6LS90bXB9L3Jldi1tdXRhdGUuWFhYWFhYIikgfHwgZXhpdCAxCkJLPSIkV09SSy9iYWNrdXAiOyBDVVI9IiI7IEtFRVBfV09SSz0wCmNsZWFudXAoKSB7CiAgIyBBIG11dGF0ZWQgZmlsZSBtdXN0IG5ldmVyIG91dGxpdmUgdGhpcyBydW4sIGhvd2V2ZXIgaXQgZW5kcywgYW5kIGEgYmFja3VwIHRoaXMgcnVuIGNvdWxkIG5vdAogICMgcHV0IGJhY2sgaXMgdGhlIG9ubHkgY29weSBvZiB0aGF0IHdvcmsgbGVmdDogbmV2ZXIgZGVsZXRlIGl0IG9uIHRoZSB3YXkgb3V0LgogIFsgLXogIiRDVVIiIF0gfHwgWyAhIC1mICIkQksiIF0gfHwgY3AgLXAgLS0gIiRCSyIgIiRDVVIiIDI+L2Rldi9udWxsCiAgWyAiJEtFRVBfV09SSyIgLWVxIDEgXSB8fCBybSAtcmYgIiRXT1JLIgp9CnRyYXAgY2xlYW51cCBFWElUCnRyYXAgJ2V4aXQgMTMwJyBJTlQKdHJhcCAnZXhpdCAxNDMnIFRFUk0KCnN0YXR1cz0wOyB1bm1lYXN1cmVkPTA7IGZpbGVzX3NlZW49MDsgaHVua3Nfc2Vlbj0wOyB1bnBpbm5lZF9zZWVuPTAKdW5tZWFzdXJhYmxlKCkgeyBlY2hvICJyZXYtbXV0YXRlOiBVTk1FQVNVUkVEICQqIiA+JjI7IHVubWVhc3VyZWQ9MTsgfQoKIyBBIGNsdXN0ZXIncyBQcmVkaWN0aW9uIG5hbWVzIGEgdGVzdCwgYW4gYXJtIGFuZCBhbiBhc3NlcnRpb24gb3IgbWVzc2FnZTsgYW4gZXhpdCBzdGF0dXMgY2Fubm90CiMgYmUgY29tcGFyZWQgYWdhaW5zdCBhbnkgb2YgdGhhdC4gU3VyZmFjZSBvbmUgbGluZSBvZiB3aGF0IHRoZSBtdXRhdGVkIHRyZWUgcHJpbnRlZCBzbyB0aGUKIyBjb21wYXJpc29uIGlzIHBvc3NpYmxlIGF0IGFsbC4gVGhpcyBzY3JpcHQgbmV2ZXIgbWFrZXMgaXQ6IGl0IGhhcyBubyBwcmVkaWN0aW9uIHRvIHJlYWQuCmZhaWx1cmVfbGluZSgpIHsKICBsb2NhbCBsaW5lCiAgbGluZT0kKHRyIC1kICdccicgPCAiJDEiIHwgZ3JlcCAtbTEgLUUgLWkgJ2ZhaWx8ZXJyb3J8YXNzZXJ0fGV4cGVjdHxwYW5pY3xub3Qgb2snKQogIFsgLW4gIiRsaW5lIiBdIHx8IGxpbmU9JCh0ciAtZCAnXHInIDwgIiQxIiB8IGdyZXAgLXYgJ15bWzpzcGFjZTpdXSokJyB8IHRhaWwgLTEpCiAgWyAtbiAiJGxpbmUiIF0gfHwgbGluZT0ndGhlIGNvbW1hbmQgZmFpbGVkIGFuZCBwcmludGVkIG5vdGhpbmcnCiAgcHJpbnRmICclLjIwMHMnICIkbGluZSIKfQoKZ2l0IGRpZmYgLS1uYW1lLW9ubHkgLXogPiAiJFdPUksvZmlsZXMiCmdpdCBscy1maWxlcyAtLW90aGVycyAtLWV4Y2x1ZGUtc3RhbmRhcmQgPiAiJFdPUksvdW50cmFja2VkIgpbICEgLXMgIiRXT1JLL3VudHJhY2tlZCIgXSBcCiAgfHwgZWNobyAicmV2LW11dGF0ZTogTk9URSAkKGdyZXAgLWMgLiA8ICIkV09SSy91bnRyYWNrZWQiKSB1bnRyYWNrZWQgZmlsZShzKSBhcmUgb3V0c2lkZSB0aGlzIG1lYXN1cmVtZW50IiA+JjIKZ2l0IGRpZmYgLS1jYWNoZWQgLS1uYW1lLW9ubHkgPiAiJFdPUksvc3RhZ2VkIgpbICEgLXMgIiRXT1JLL3N0YWdlZCIgXSBcCiAgfHwgZWNobyAicmV2LW11dGF0ZTogTk9URSAkKGdyZXAgLWMgLiA8ICIkV09SSy9zdGFnZWQiKSBzdGFnZWQgZmlsZShzKSBhcmUgb3V0c2lkZSB0aGlzIG1lYXN1cmVtZW50IiA+JjIKCiMgUHJvdmUgdGhlIGNvbW1hbmQgRElTQ1JJTUlOQVRFUyBiZWZvcmUgYmVsaWV2aW5nIGFueSB2ZXJkaWN0IGl0IGdpdmVzLiBBIGNvbW1hbmQgdGhhdCBmYWlscyBvbgojIHRoZSB1bm11dGF0ZWQgdHJlZSAtIGEgdHlwbywgYSBtaXNzaW5nIGJpbmFyeSwgYW4gYWxyZWFkeS1yZWQgc3VpdGUsIHRoZSB3cm9uZyBjd2QgLSByZXBvcnRzCiMgZXZlcnkgaHVuayBhcyBwaW5uZWQsIGZvciBhIHJlYXNvbiB0aGF0IGhhcyBub3RoaW5nIHRvIGRvIHdpdGggdGhlIG11dGF0aW9uLgppZiAhICggZXZhbCAiJENNRCIgKSA8L2Rldi9udWxsID4vZGV2L251bGwgMj4mMTsgdGhlbgogIGVjaG8gInJldi1tdXRhdGU6IG1lYXN1cmVkIG5vdGhpbmc6IHRoZSBjb21tYW5kIGRvZXMgbm90IHBhc3Mgb24gdGhlIHVubXV0YXRlZCB0cmVlIiA+JjIKICBlY2hvICJyZXYtbXV0YXRlOiBldmVyeSBodW5rIHdvdWxkIGhhdmUgcmVhZCBhcyBwaW5uZWQgZm9yIGEgcmVhc29uIHRoYXQgaXMgbm90IHRoZSBtdXRhdGlvbiIgPiYyCiAgZXhpdCA0CmZpCgp3aGlsZSBJRlM9IHJlYWQgLXIgLWQgJycgZiA8JjM7IGRvCiAgWyAtbiAiJGYiIF0gfHwgY29udGludWUKICBpZiBbIC1MICIkZiIgXTsgdGhlbgogICAgIyBjcCBhbmQgZ2l0IGhhc2gtb2JqZWN0IGJvdGggZm9sbG93IHRoZSBsaW5rLCBzbyBtZWFzdXJpbmcgaXQgd291bGQgY29ycnVwdCB0aGUgZmlsZSBpdAogICAgIyBwb2ludHMgYXQgYW5kIHRoZW4gdmVyaWZ5IHRoZSByZXN0b3JlIGFnYWluc3QgdGhhdCBzYW1lIGNvcnJ1cHRlZCBmaWxlLgogICAgdW5tZWFzdXJhYmxlICIkZiBpcyBhIHN5bWxpbmsiCiAgICBjb250aW51ZQogIGZpCiAgaWYgWyAhIC1mICIkZiIgXTsgdGhlbgogICAgdW5tZWFzdXJhYmxlICIkZiBpcyBub3QgYSByZWd1bGFyIGZpbGUgaW4gdGhlIHdvcmtpbmcgdHJlZSIKICAgIGNvbnRpbnVlCiAgZmkKICBnaXQgZGlmZiAtLXVuaWZpZWQ9MCAtLSAiJGYiID4gIiRXT1JLL2ZpbGUuZGlmZiIKICBjb3VudD0kKGdyZXAgLWMgJ15AQCcgPCAiJFdPUksvZmlsZS5kaWZmIikKICBpZiBbICIkY291bnQiIC1lcSAwIF07IHRoZW4KICAgIHVubWVhc3VyYWJsZSAiJGYgY2hhbmdlZCB3aXRoIG5vIHRleHQgaHVuayAoYmluYXJ5IG9yIG1vZGUgY2hhbmdlKSIKICAgIGNvbnRpbnVlCiAgZmkKICBmaWxlc19zZWVuPSQoKGZpbGVzX3NlZW4gKyAxKSkKICBjcCAtcCAtLSAiJGYiICIkQksiIHx8IHsgZWNobyAicmV2LW11dGF0ZTogY2Fubm90IGJhY2sgdXAgJGYiID4mMjsgZXhpdCAxOyB9CiAgQ1VSPSRmCiAgZml4aGFzaD0kKGdpdCBoYXNoLW9iamVjdCAtLSAiJGYiKQogIGk9MQogIHdoaWxlIFsgIiRpIiAtbGUgIiRjb3VudCIgXTsgZG8KICAgIGh1bmtzX3NlZW49JCgoaHVua3Nfc2VlbiArIDEpKQogICAgYXdrIC12IHdhbnQ9IiRpIiAnCiAgICAgIC9eQEAvIHsgbisrOyBrZWVwID0gKG4gPT0gd2FudCk7IGlmIChrZWVwKSBwcmludDsgbmV4dCB9CiAgICAgIG4gPT0gMCB7IHByaW50OyBuZXh0IH0KICAgICAga2VlcCB7IHByaW50IH0KICAgICcgPCAiJFdPUksvZmlsZS5kaWZmIiA+ICIkV09SSy9odW5rLmRpZmYiCiAgICBpZiBnaXQgYXBwbHkgLS1yZXZlcnNlIC0tdW5pZGlmZi16ZXJvIC0td2hpdGVzcGFjZT1ub3dhcm4gIiRXT1JLL2h1bmsuZGlmZiIgMj4vZGV2L251bGw7IHRoZW4KICAgICAgaWYgWyAiJChnaXQgaGFzaC1vYmplY3QgLS0gIiRmIikiID0gIiRmaXhoYXNoIiBdOyB0aGVuCiAgICAgICAgdW5tZWFzdXJhYmxlICJodW5rICRpIG9mICRmIGFwcGxpZWQgd2l0aG91dCBjaGFuZ2luZyBhIGJ5dGU7IHRoZSBtdXRhdGlvbiB3YXMgaW5lcnQiCiAgICAgIGVsaWYgKCBldmFsICIkQ01EIiApIDwvZGV2L251bGwgPiAiJFdPUksvaHVuay5vdXQiIDI+JjE7IHRoZW4KICAgICAgICBlY2hvICJyZXYtbXV0YXRlOiBVTlBJTk5FRCAkZiBodW5rICRpIC0gdGhlIGNvbW1hbmQgcGFzc2VzIHdpdGhvdXQgaXQiCiAgICAgICAgdW5waW5uZWRfc2Vlbj0kKCh1bnBpbm5lZF9zZWVuICsgMSkpCiAgICAgICAgc3RhdHVzPTMKICAgICAgZWxzZQogICAgICAgIGVjaG8gInJldi1tdXRhdGU6IFBJTk5FRCAkZiBodW5rICRpIC0gJChmYWlsdXJlX2xpbmUgIiRXT1JLL2h1bmsub3V0IikiCiAgICAgIGZpCiAgICBlbHNlCiAgICAgIHVubWVhc3VyYWJsZSAiaHVuayAkaSBvZiAkZiB3b3VsZCBub3QgYXBwbHkiCiAgICBmaQogICAgaWYgISBjcCAtcCAtLSAiJEJLIiAiJGYiOyB0aGVuCiAgICAgIEtFRVBfV09SSz0xCiAgICAgIGVjaG8gInJldi1tdXRhdGU6IEZBVEFMIGNhbm5vdCByZXN0b3JlICRmOyBpdHMgZml4IGlzIHByZXNlcnZlZCBhdCAkQksiID4mMgogICAgICBleGl0IDEKICAgIGZpCiAgICBpZiBbICIkKGdpdCBoYXNoLW9iamVjdCAtLSAiJGYiKSIgIT0gIiRmaXhoYXNoIiBdOyB0aGVuCiAgICAgIEtFRVBfV09SSz0xCiAgICAgIGVjaG8gInJldi1tdXRhdGU6IEZBVEFMICRmIGRpZmZlcnMgZnJvbSB0aGUgZml4IGFmdGVyIGl0cyByZXN0b3JlOyB0aGUgZml4IGlzIHByZXNlcnZlZCBhdCAkQksiID4mMgogICAgICBleGl0IDEKICAgIGZpCiAgICBpPSQoKGkgKyAxKSkKICBkb25lCiAgQ1VSPSIiCmRvbmUgMzwgIiRXT1JLL2ZpbGVzIgoKIyBUaGUgY2hlY2sgYWJvdmUgd2FzIG9uZSBzYW1wbGUsIGF0IHQwLiBBIGNvbW1hbmQgdGhhdCBwYXNzZWQgb25jZSBhbmQgdGhlbiBzdG9wcGVkIHBhc3NpbmcgZm9yCiMgaXRzIG93biByZWFzb25zIC0gYSBwb2lzb25lZCBjYWNoZSwgYSBsZWZ0b3ZlciBsb2NrLCBhIGZsYWtlLCBhIHRpbWVvdXQsIGEgcG9ydCBzdGlsbCBib3VuZCAtCiMgdHVybmVkIGV2ZXJ5IGxhdGVyIHJldmVydCBpbnRvIGEgZmFsc2UgInBpbm5lZCIsIHNvIGl0IGhhcyB0byBwYXNzIGFnYWluIG5vdyB0aGF0IHRoZSBsb29wIGhhcwojIHB1dCB0aGUgY29tcGxldGUgZml4IGJhY2suCmlmICEgKCBldmFsICIkQ01EIiApIDwvZGV2L251bGwgPi9kZXYvbnVsbCAyPiYxOyB0aGVuCiAgZWNobyAicmV2LW11dGF0ZTogbWVhc3VyZWQgbm90aGluZzogdGhlIGNvbW1hbmQgc3RvcHBlZCBwYXNzaW5nIG9uIHRoZSByZXN0b3JlZCB0cmVlIiA+JjIKICBlY2hvICJyZXYtbXV0YXRlOiBpdCBwYXNzZWQgYmVmb3JlIHRoZSBmaXJzdCByZXZlcnQsIHNvIGV2ZXJ5IHZlcmRpY3QgYWJvdmUgcmVzdHMgb24gYSBjb21tYW5kIHRoYXQgbm8gbG9uZ2VyIHdvcmtzIiA+JjIKICBleGl0IDQKZmkKCmlmIFsgIiRodW5rc19zZWVuIiAtZXEgMCBdOyB0aGVuCiAgZWNobyAicmV2LW11dGF0ZTogbWVhc3VyZWQgbm90aGluZzogbm8gY2hhbmdlZCBodW5rIHVuZGVyICRST09UIiA+JjIKICB1bm1lYXN1cmVkPTEKZmkKZWNobyAicmV2LW11dGF0ZTogcmV2ZXJ0ZWQgJGh1bmtzX3NlZW4gaHVuayhzKSBhY3Jvc3MgJGZpbGVzX3NlZW4gZmlsZShzKTsgdW5waW5uZWQ9JHVucGlubmVkX3NlZW4iClsgIiR1bm1lYXN1cmVkIiAtZXEgMCBdIHx8IGV4aXQgNApleGl0ICIkc3RhdHVzIgo='))
+          (e/'mutation-test-command.py').write_bytes(base64.b64decode('aW1wb3J0IGRhdGV0aW1lLGhhc2hsaWIsanNvbixvcyxwYXRobGliLHN1YnByb2Nlc3Msc3lzCnJvb3Q9cGF0aGxpYi5QYXRoLmN3ZCgpO2U9cGF0aGxpYi5QYXRoKG9zLmVudmlyb25bJ0VWSURFTkNFX0RJUiddKTtydW5zPWUvJ211dGF0aW9uLXJ1bnMnO3J1bnMubWtkaXIoZXhpc3Rfb2s9VHJ1ZSkKY291bnQ9cnVucy8nY291bnQudHh0JztuPWludChjb3VudC5yZWFkX3RleHQoKSkrMSBpZiBjb3VudC5leGlzdHMoKSBlbHNlIDE7Y291bnQud3JpdGVfdGV4dChzdHIobikpCmQ9cnVucy9mJ3tuOjAyZH0nO2QubWtkaXIoKQpmaWxlcz1qc29uLmxvYWRzKChlLydtdXRhdGlvbi1jb25maWcuanNvbicpLnJlYWRfdGV4dCgpKVsndGVzdF9maWxlcyddCmFyZ3Y9Wyd5YXJuJywnamVzdCcsJy0tcnVuVGVzdHNCeVBhdGgnLCpmaWxlcywnLS1tYXhXb3JrZXJzPTInLCctLXdhdGNobWFuPWZhbHNlJywnLS1jb3ZlcmFnZT1mYWxzZScsJy0tanNvbicsJy0tb3V0cHV0RmlsZT0nK3N0cihkLydqZXN0LXJlc3VsdHMuanNvbicpXQpwYXRjaD1zdWJwcm9jZXNzLmNoZWNrX291dHB1dChbJ2dpdCcsJ2RpZmYnLCctLWJpbmFyeSddKTsoZC8nd29ya2luZy5wYXRjaCcpLndyaXRlX2J5dGVzKHBhdGNoKQooZC8nbXV0YXRpb24tdnMtY2FuZGlkYXRlLnBhdGNoJykud3JpdGVfYnl0ZXMoc3VicHJvY2Vzcy5jaGVja19vdXRwdXQoWydnaXQnLCdkaWZmJyxvcy5lbnZpcm9uWydFWFBFQ1RFRF9TT1VSQ0VfU0hBJ10sJy0tYmluYXJ5J10pKQptYW5pZmVzdD17J2ludm9jYXRpb24nOm4sJ3RpbWUnOmRhdGV0aW1lLmRhdGV0aW1lLm5vdyhkYXRldGltZS50aW1lem9uZS51dGMpLmlzb2Zvcm1hdCgpLCdhcmd2Jzphcmd2LCdoZWFkJzpzdWJwcm9jZXNzLmNoZWNrX291dHB1dChbJ2dpdCcsJ3Jldi1wYXJzZScsJ0hFQUQnXSx0ZXh0PVRydWUpLnN0cmlwKCksJ2luZGV4JzpzdWJwcm9jZXNzLmNoZWNrX291dHB1dChbJ2dpdCcsJ3dyaXRlLXRyZWUnXSx0ZXh0PVRydWUpLnN0cmlwKCksJ3BhdGNoX3NoYTI1Nic6aGFzaGxpYi5zaGEyNTYocGF0Y2gpLmhleGRpZ2VzdCgpLCdpbmRleF9zb3VyY2Vfc2hhMjU2JzpoYXNobGliLnNoYTI1Nigocm9vdC8nc3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9pbmRleC50cycpLnJlYWRfYnl0ZXMoKSkuaGV4ZGlnZXN0KCksJ3BhdGhzJzpzdWJwcm9jZXNzLmNoZWNrX291dHB1dChbJ2dpdCcsJ2RpZmYnLCctLW5hbWUtb25seSddLHRleHQ9VHJ1ZSkuc3BsaXRsaW5lcygpfQooZC8nYmVmb3JlLmpzb24nKS53cml0ZV90ZXh0KGpzb24uZHVtcHMobWFuaWZlc3QsaW5kZW50PTIpKydcbicpCndpdGggKGQvJ2plc3QubG9nJykub3BlbigndycpIGFzIGxvZzoKIHRyeTogcj1zdWJwcm9jZXNzLnJ1bihhcmd2LHRleHQ9VHJ1ZSxzdGRvdXQ9bG9nLHN0ZGVycj1zdWJwcm9jZXNzLlNURE9VVCx0aW1lb3V0PTM2MCk7Y29kZT1yLnJldHVybmNvZGUKIGV4Y2VwdCBzdWJwcm9jZXNzLlRpbWVvdXRFeHBpcmVkOmNvZGU9MTI0CihkLydleGl0LnR4dCcpLndyaXRlX3RleHQoc3RyKGNvZGUpKydcbicpCnByaW50KChkLydqZXN0LmxvZycpLnJlYWRfdGV4dCgpLGVuZD0nJykKc3lzLmV4aXQoY29kZSkK'))
+          (e/'mutation-validate.py').write_bytes(base64.b64decode('aW1wb3J0IGpzb24sb3MscGF0aGxpYixyZSxzeXMKRT1wYXRobGliLlBhdGgob3MuZW52aXJvblsnRVZJREVOQ0VfRElSJ10pO2NvbmZpZz1qc29uLmxvYWRzKChFLydtdXRhdGlvbi1jb25maWcuanNvbicpLnJlYWRfdGV4dCgpKTtmb2xkZXJzPXNvcnRlZCgoRS8nbXV0YXRpb24tcnVucycpLmdsb2IoJ1swLTldWzAtOV0nKSkKc3VtbWFyeT17J3NvdXJjZSc6b3MuZW52aXJvblsnRVhQRUNURURfU09VUkNFX1NIQSddLCd0cmVlJzpvcy5lbnZpcm9uWydFWFBFQ1RFRF9TT1VSQ0VfVFJFRSddLCdjYW5vbmljYWxSdW50aW1lU2hhMjU2Jzpjb25maWdbJ2Nhbm9uaWNhbF9zY3JpcHRfc2hhMjU2J10sJ2Nhbm9uaWNhbEV4aXQnOmludCgoRS8nY2Fub25pY2FsLWV4aXQudHh0JykucmVhZF90ZXh0KCkpLCdhbGxIdW5rc1Bpbm5lZCc6RmFsc2UsJ21lYXN1cmVtZW50Q29tcGxldGUnOkZhbHNlLCd2YWxpZGF0ZWRQcm9kdWN0aW9uUHJlZGljdGlvbnMnOkZhbHNlLCdmMDAxJzonT1BFTid9CmRlZiBsb2FkKG4pOgogZD1mb2xkZXJzW24tMV07cmV0dXJuIGpzb24ubG9hZHMoKGQvJ2plc3QtcmVzdWx0cy5qc29uJykucmVhZF90ZXh0KCkpLGludCgoZC8nZXhpdC50eHQnKS5yZWFkX3RleHQoKSkKZGVmIGNsZWFuKHIpOgogYXNzZXJ0IHJbJ251bVRvdGFsVGVzdHMnXT09NzAwIGFuZCByWydudW1QYXNzZWRUZXN0cyddPT03MDAgYW5kIHJbJ251bUZhaWxlZFRlc3RzJ109PTAgYW5kIHJbJ251bVRvdGFsVGVzdFN1aXRlcyddPT03IGFuZCByWydudW1QYXNzZWRUZXN0U3VpdGVzJ109PTcgYW5kIHJbJ251bVJ1bnRpbWVFcnJvclRlc3RTdWl0ZXMnXT09MCBhbmQgclsnbnVtUGVuZGluZ1Rlc3RzJ109PTAgYW5kIHJbJ251bVRvZG9UZXN0cyddPT0wCiBhc3NlcnQgYWxsKGxlbihzWydhc3NlcnRpb25SZXN1bHRzJ10pPjAgYW5kIGFsbChhWydzdGF0dXMnXT09J3Bhc3NlZCcgZm9yIGEgaW4gc1snYXNzZXJ0aW9uUmVzdWx0cyddKSBmb3IgcyBpbiByWyd0ZXN0UmVzdWx0cyddKQpkZWYgZmFpbHVyZXMocik6cmV0dXJuIFthIGZvciBzIGluIHJbJ3Rlc3RSZXN1bHRzJ10gZm9yIGEgaW4gc1snYXNzZXJ0aW9uUmVzdWx0cyddIGlmIGFbJ3N0YXR1cyddPT0nZmFpbGVkJ10KZGVmIGV4cGVjdGVkKG4sdGl0bGVzLG1lc3NhZ2UpOgogcixjb2RlPWxvYWQobik7YXNzZXJ0IGNvZGU9PTEgYW5kIHJbJ251bVRvdGFsVGVzdHMnXT09NzAwIGFuZCByWydudW1Ub3RhbFRlc3RTdWl0ZXMnXT09NyBhbmQgclsnbnVtUnVudGltZUVycm9yVGVzdFN1aXRlcyddPT0wIGFuZCByWydudW1QZW5kaW5nVGVzdHMnXT09MCBhbmQgclsnbnVtVG9kb1Rlc3RzJ109PTAKIGZhaWxlZD1mYWlsdXJlcyhyKTthc3NlcnQgc29ydGVkKGFbJ3RpdGxlJ10gZm9yIGEgaW4gZmFpbGVkKT09c29ydGVkKHRpdGxlcyksW2FbJ3RpdGxlJ10gZm9yIGEgaW4gZmFpbGVkXQogYXNzZXJ0IHJbJ251bUZhaWxlZFRlc3RzJ109PWxlbih0aXRsZXMpIGFuZCByWydudW1QYXNzZWRUZXN0cyddPT03MDAtbGVuKHRpdGxlcykKIGZvciBhIGluIGZhaWxlZDphc3NlcnQgbWVzc2FnZSBpbiAnXG4nLmpvaW4oYVsnZmFpbHVyZU1lc3NhZ2VzJ10pCiByZXR1cm4gW3sndGl0bGUnOmFbJ3RpdGxlJ10sJ21lc3NhZ2VzJzphWydmYWlsdXJlTWVzc2FnZXMnXX0gZm9yIGEgaW4gZmFpbGVkXQp0cnk6CiBjb3VudD1jb25maWdbJ3RvdGFsX2h1bmtzJ107YXNzZXJ0IGxlbihmb2xkZXJzKT09Y291bnQrNCwobGVuKGZvbGRlcnMpLGNvdW50KQogZm9yIG4gaW4gWzEsY291bnQrMixjb3VudCs0XToKICByLGNvZGU9bG9hZChuKTthc3NlcnQgY29kZT09MDtjbGVhbihyKTthc3NlcnQgbm90IChmb2xkZXJzW24tMV0vJ211dGF0aW9uLXZzLWNhbmRpZGF0ZS5wYXRjaCcpLnJlYWRfYnl0ZXMoKQogc3VtbWFyeVsnZWFybHlDaGVja1ByZWRpY3Rpb24nXT1leHBlY3RlZCgyLFsnZWFybi1kZXBvc2l0IHJlZnVzZXMgdG8gc3VibWl0IG9uY2UgdGhlIGNhbGxlciBhYmFuZG9uZWQgdGhlIEVwb2NoIGludGVudCcsJ2Vhcm4tZGVwb3NpdCB3aXRoIG5vIHJlcXVlc3QgYnl0ZXMgaXMgcmVmdXNlZCBiZWZvcmUgaXQgbWludHM6IG5vIHNlbmQtc3R5bGUgZmFsbGJhY2sgZm9yIEVhcm4nXSwnbm90LnRvSGF2ZUJlZW5DYWxsZWQnKQogc3VtbWFyeVsndW5rbm93bkZlZUNhdGNoUHJlZGljdGlvbiddPWV4cGVjdGVkKDMsWydyZWZ1c2VzIGFuIEVhcm4gZGVwb3NpdCBhYmFuZG9uZWQgZHVyaW5nIHVua25vd24gZmVlIGRpc2NvdmVyeSddLCdSZWNlaXZlZCBwcm9taXNlIHJlc29sdmVkIGluc3RlYWQgb2YgcmVqZWN0ZWQnKQogc3VtbWFyeVsncmV0YWluZWRQcmV3cml0ZVByZWRpY3Rpb24nXT1leHBlY3RlZChjb3VudCszLFsncmVmdXNlcyBhbiBFYXJuIGRlcG9zaXQgYWJhbmRvbmVkIGR1cmluZyBrbm93biBmZWUgZGlzY292ZXJ5J10sJ1JlY2VpdmVkIHByb21pc2UgcmVzb2x2ZWQgaW5zdGVhZCBvZiByZWplY3RlZCcpCiBsb2c9KEUvJ2Nhbm9uaWNhbC1tdXRhdGUubG9nJykucmVhZF90ZXh0KCk7cm93cz1bbGluZSBmb3IgbGluZSBpbiBsb2cuc3BsaXRsaW5lcygpIGlmICdyZXYtbXV0YXRlOiBQSU5ORUQgJyBpbiBsaW5lIG9yICdyZXYtbXV0YXRlOiBVTlBJTk5FRCAnIGluIGxpbmVdO2Fzc2VydCBsZW4ocm93cyk9PWNvdW50LGxlbihyb3dzKQogYXNzZXJ0IGFsbCgncmV2LW11dGF0ZTogUElOTkVEIHNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vaW5kZXgudHMgaHVuayAnK3N0cihpKSBpbiBsb2cgZm9yIGkgaW4gWzEsMl0pCiBhc3NlcnQgJ1VOTUVBU1VSRUQnIG5vdCBpbiBsb2cgYW5kICdtZWFzdXJlZCBub3RoaW5nJyBub3QgaW4gbG9nCiBzdW1tYXJ5WydjYW5vbmljYWxIdW5rUm93cyddPXJvd3M7c3VtbWFyeVsnYWxsSHVua3NQaW5uZWQnXT1zdW1tYXJ5WydjYW5vbmljYWxFeGl0J109PTA7YXNzZXJ0IHN1bW1hcnlbJ2Nhbm9uaWNhbEV4aXQnXSBpbiBbMCwzXQogc3VtbWFyeVsnZml4dHVyZUh1bmtzJ109W3snaW52b2NhdGlvbic6biwnZXhpdCc6bG9hZChuKVsxXSwnZmFpbGVkVGl0bGVzJzpbYVsndGl0bGUnXSBmb3IgYSBpbiBmYWlsdXJlcyhsb2FkKG4pWzBdKV0sJ3J1bnRpbWVFcnJvclN1aXRlcyc6bG9hZChuKVswXVsnbnVtUnVudGltZUVycm9yVGVzdFN1aXRlcyddLCd0ZXN0Q291bnQnOmxvYWQobilbMF1bJ251bVRvdGFsVGVzdHMnXX0gZm9yIG4gaW4gcmFuZ2UoNCxjb3VudCsyKV0KIHN1bW1hcnlbJ21lYXN1cmVtZW50Q29tcGxldGUnXT1UcnVlO3N1bW1hcnlbJ3ZhbGlkYXRlZFByb2R1Y3Rpb25QcmVkaWN0aW9ucyddPVRydWUKIGlmIHN1bW1hcnlbJ2Nhbm9uaWNhbEV4aXQnXSE9MDpzeXMuZXhpdChzdW1tYXJ5WydjYW5vbmljYWxFeGl0J10pCmV4Y2VwdCBFeGNlcHRpb24gYXMgZXJyb3I6CiBzdW1tYXJ5WydlcnJvciddPXN0cihlcnJvcik7cmFpc2UKZmluYWxseToKIChFLydtdXRhdGlvbi1zdW1tYXJ5Lmpzb24nKS53cml0ZV90ZXh0KGpzb24uZHVtcHMoc3VtbWFyeSxpbmRlbnQ9MikrJ1xuJyk7cHJpbnQoanNvbi5kdW1wcyhzdW1tYXJ5LGluZGVudD0yKSkK'))
+          (e/'mutation-config.json').write_bytes(base64.b64decode('ewogICJyZWNvcmRlZF9hdCI6ICIyMDI2LTExLTEyVDE5OjI2OjA2LjI5MjQyMyswMDowMCIsCiAgImJhc2VfaGVhZCI6ICIxZmU0OGI0YTJiYWRmNzIyM2UyMmRmYTY1NWM3YjViOTUwZTI5MzJmIiwKICAiYmFzZV90cmVlIjogIjhmY2EzNGM3YTVhNmJiNGE3ZTY4ODE4M2ExZGYxZWM3MmM1YmViYzciLAogICJjYW5kaWRhdGVfdHJlZSI6ICI5YzQyMjFmMGViNThkNWZkZWQzMzVhMDc5MWI3ZWJmM2RmOThkODUxIiwKICAid29ya2luZ19wYXRjaF9zaGEyNTYiOiAiMmFiYmI3ZjJhMGU2YjJkYTVlYmZmY2JmY2RjODMzYWY5MmQzYzE0ZGZmZjk3MjUxMjEwYWVjODdkNmFiOWViNCIsCiAgInBhdGhzIjogWwogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vaW5kZXgudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJhY2tncm91bmQtbWF0cml4LnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJyaWRnZWQtZWFybi1vZmZzY3JlZW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuZ3VhcmRpYW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuc2VuZC1zdGFnZS10aW1pbmdzLnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLnRlc3QudHMiCiAgXSwKICAiZmlsZXMiOiB7CiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9pbmRleC50cyI6IHsKICAgICAgImJsb2IiOiAiZTczNDJjMDNmNzFmODdkMWFkNTRhNjEyYzEwYmIzMTVhYmJhM2UyYiIsCiAgICAgICJzaGEyNTYiOiAiYWVkNjY1NDQ4MTE3Y2E5YWUwODkzYzkzY2IwN2I5OTIzN2NmZDg2MGFhN2FjOWU4ZWY3MTVlYzc1ZTY3NWNkZCIKICAgIH0sCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYmFja2dyb3VuZC1tYXRyaXgudGVzdC50cyI6IHsKICAgICAgImJsb2IiOiAiNjgxYzhlMTczODg5Yjc1ZTc2NjgzNWQxZjA2MGMzZjVlOTNjZTY2MyIsCiAgICAgICJzaGEyNTYiOiAiMDgyOTA0ZmEyZWIwNWY1YjgyMGU1ZmUxOTY1YWMxMTYyYjIwMTlkOGVhOGZhMzBlMDcxY2QxNjhlZGI1ZDJkMSIKICAgIH0sCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYnJpZGdlZC1lYXJuLW9mZnNjcmVlbi50ZXN0LnRzIjogewogICAgICAiYmxvYiI6ICI3YjdmOTdiZTc0YjdkOWVlNmJkMTRlNDQ5OTAwYmQyYTJmM2VjNGNiIiwKICAgICAgInNoYTI1NiI6ICJkMmUzMzIxNTMxZDdlMjdmMDU2YjYzNmJhZGJjMzg0ZjMwNTI1NmM3Y2ZmZDI0NjQwNDMyMGU4ZWUwZjA1NjQ1IgogICAgfSwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5ndWFyZGlhbi50ZXN0LnRzIjogewogICAgICAiYmxvYiI6ICJjNjI3ZGU3ZjZlMGFhN2JkMmY5ZGIyYzcwNGNiZjcyMzIzNDNjYzYwIiwKICAgICAgInNoYTI1NiI6ICJlNTNhZjEwMWM1NTRlNmI5YjJmOTA4YzI3YmI1NWNjY2FjZmFlNmU2MmY4NGRmZjBhMDE5YTc1Mzc2ZDUxZTQ5IgogICAgfSwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5zZW5kLXN0YWdlLXRpbWluZ3MudGVzdC50cyI6IHsKICAgICAgImJsb2IiOiAiY2IwYWEyYmMzZDYxMjAzZDg1YzM5OTFkMGUxMjA2ZWRhY2UzNjcxYyIsCiAgICAgICJzaGEyNTYiOiAiMzhjZjFlMDc4NjFkOGI3MzA2YjRjMTc0ZjZlM2RkNTE0Nzg1MzUyNGExN2NjMDk2Y2U5NWZmZTJmYjFjZmJkMCIKICAgIH0sCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMudGVzdC50cyI6IHsKICAgICAgImJsb2IiOiAiOTJkMjdiZmNlY2M2MzBhMTIxODdkY2Y2OTRkMWUwMTc2Y2MxMjBjMyIsCiAgICAgICJzaGEyNTYiOiAiODFhMWFjMjBmODEzNmI4MmUzYjYzM2QxMDY1OTNjNGEzZWVhYzgxMmFlM2I0NDRmYjgzN2JkZDgxNmVkODZiNCIKICAgIH0KICB9LAogICJzb3VyY2VfZ3VhcmRfc2lnbmVyX3BhY2thZ2VfbG9ja191bmNoYW5nZWQiOiB0cnVlLAogICJwcmVmbGlnaHRfb25seSI6IHRydWUsCiAgImZ1bGxfZm9jdXNlZF9tdXRhdGlvbl9jaSI6ICJwZW5kaW5nIHBhcmVudCBhdXRob3JpemF0aW9uIGFuZCBkaXNwYXRjaCIsCiAgInByb2R1Y2VyX2hhbmRsZSI6IDYxNjE1LAogICJwcm9kdWNlcl9leGl0IjogMCwKICAiY2FuZGlkYXRlX3NoYSI6ICJhNGIyZTQwZDdhZDk1NDQ2YmI3MTg4MjBlMGIzYTM4ZmEwMWQ5YWYwIiwKICAiY2FuZGlkYXRlX3BhcmVudCI6ICIxZmU0OGI0YTJiYWRmNzIyM2UyMmRmYTY1NWM3YjViOTUwZTI5MzJmIiwKICAiY2FuZGlkYXRlX3NpZ25lZCI6IHRydWUsCiAgImV4dGVybmFsX3dvcmt0cmVlIjogIi9Wb2x1bWVzL1gxMCBQcm8vd2FsbGV0aXNzdWVzLTIxNDctYzAxLXZhbGlkYXRpb24tMjAyNjExMTIvd29ya3RyZWUiLAogICJhY3RpdmVfZml4X2hlYWRfdW5jaGFuZ2VkIjogdHJ1ZSwKICAiYWN0aXZlX2ZpeF9pbmRleF91bmNoYW5nZWQiOiB0cnVlLAogICJhY3RpdmVfZml4X3N0YXR1c191bmNoYW5nZWQiOiB0cnVlLAogICJmMDAxX3N0YXRlIjogIk9QRU4iLAogICJwdXJwb3NlIjogImNhbm9uaWNhbCBhbGwtaHVuayBtdXRhdGlvbiBtZWFzdXJlbWVudCBhbmQgcmV0YWluZWQgcHJld3JpdGUgbmVnYXRpdmUsIHJhdyB1bnBpbm5lZCBvdXRjb21lIHByZXNlcnZlZCIsCiAgIm9yaWdpbmFsX3Jldmlld19oZWFkIjogIjY1N2Y0Yjk4Y2IwYWE3NzU2ODY1YzAwMzBlYTExYmM5OWJiN2EwMTYiLAogICJwcl9iYXNlIjogIjk0ZTViYTliMmE0MGRmMmU3MDZhMzIzZTAxNTU1MTA4ODBjYWJhYTAiLAogICJmdWxsX3ByX3BhdGhfdW5pb24iOiBbCiAgICAiQ0hBTkdFTE9HLm1kIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL2VmZmVjdC1jaGVja2VkLXNpZ25lci50ZXN0LnRzIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL2luZGV4LnRzIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3Byb3Bvc2FsLWVmZmVjdC1ndWFyZC50ZXN0LnRzIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3Byb3Bvc2FsLWVmZmVjdC1ndWFyZC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYmFja2dyb3VuZC1tYXRyaXgudGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYnJpZGdlZC1lYXJuLW9mZnNjcmVlbi50ZXN0LnRzIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5ndWFyZGlhbi50ZXN0LnRzIiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5zZW5kLXN0YWdlLXRpbWluZ3MudGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMudGVzdC50cyIKICBdLAogICJ1bmNoYW5nZWRfYmxvYnMiOiB7CiAgICAicGFja2FnZS5qc29uIjogIjc0NTI2MzhhODlkMTY5MzA4YzdkOGJmYjM1MzkyN2VkMTA5ZTI1N2IiLAogICAgInlhcm4ubG9jayI6ICJlZGFiMjkyNTUzZDNhY2E4MGZkMTc0YjZjYWVlYTI4NzY3YzA3OWE0IiwKICAgICJqZXN0LmNvbmZpZy50cyI6ICIzOTFiYWVjMDczMjgzNDA1OWFkYThmNjNkYmU2MTZiNmYwMDc3NjAyIiwKICAgICJqZXN0LnNldHVwLmpzIjogIjdmNzcwODJjMmU4ZDZmYzMwYWZiNDMwMzI1YmUzY2UzMDVjNDNlZjUiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vcHJvcG9zYWwtZWZmZWN0LWd1YXJkLnRzIjogIjQ3ZDlhZTdiY2U0YzIzMWEzMTkyY2JmYTY1ZjIyYWE0MjFlY2VjMjMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vZWZmZWN0LWNoZWNrZWQtc2lnbmVyLnRzIjogImM4YjY4NmE4YTljZGVkYWNhMmE1NzM1NDFiMmIwM2VhZTZhZTVkYjMiCiAgfSwKICAicWFfYnJhbmNoIjogImNpL3FhLTIxNDctYzAxLW11dGF0ZS05YzQyMjFmMC0yMDI2MTExMi12MSIsCiAgInRlc3RfZmlsZXMiOiBbCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMudGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuZ3VhcmRpYW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuc2VuZC1zdGFnZS10aW1pbmdzLnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJhY2tncm91bmQtbWF0cml4LnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJyaWRnZWQtZWFybi1vZmZzY3JlZW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9wcm9wb3NhbC1lZmZlY3QtZ3VhcmQudGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9lZmZlY3QtY2hlY2tlZC1zaWduZXIudGVzdC50cyIKICBdLAogICJxdWFsaXR5X2ZpbGVzIjogWwogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vaW5kZXgudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJhY2tncm91bmQtbWF0cml4LnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLmJyaWRnZWQtZWFybi1vZmZzY3JlZW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuZ3VhcmRpYW4udGVzdC50cyIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuc2VuZC1zdGFnZS10aW1pbmdzLnRlc3QudHMiLAogICAgInNyYy9saWIvbWlkZW4vdHJhbnNhY3Rpb24vdHJhbnNhY3Rpb25zLnRlc3QudHMiCiAgXSwKICAiam9iX25hbWUiOiAiQy0wMSBhbGwtaHVuayBtdXRhdGlvbiBtZWFzdXJlbWVudCIsCiAgInNvdXJjZSI6ICJhNGIyZTQwZDdhZDk1NDQ2YmI3MTg4MjBlMGIzYTM4ZmEwMWQ5YWYwIiwKICAidHJlZSI6ICI5YzQyMjFmMGViNThkNWZkZWQzMzVhMDc5MWI3ZWJmM2RmOThkODUxIiwKICAicWFfd29ya2Zsb3dfb25seV9kZWx0YSI6IFsKICAgICIuZ2l0aHViL3dvcmtmbG93cy9wci1jb21waWxlLXN1cmZhY2VzLnltbCIKICBdLAogICJyZW1vdGVfZmVhdHVyZV9iZWZvcmUiOiAiNjU3ZjRiOThjYjBhYTc3NTY4NjVjMDAzMGVhMTFiYzk5YmI3YTAxNlx0cmVmcy9oZWFkcy9pc3N1ZS8yMTQ3LXJlbWFpbmluZy1lZmZlY3QtZ3VhcmRzIiwKICAiZml4dHVyZV9jb3JyZWN0aW9uX3NoYTI1NiI6ICJhODUxYWYzYTA4ODA4OWE1MmU3NzA0YzFlY2I5OThiYTRlMDlhMzllYjcwYTE3MDBjNzA0YTgxOGE5YjRlYzE4IiwKICAicHJldmlvdXNfY2FuZGlkYXRlX3NoYSI6ICI0MjhkZWE4ODA3ZjJjNDk4N2E4NmY3ZjYzZDhlNDJiMmY5YTRkMjI5IiwKICAicHJldmlvdXNfY2FuZGlkYXRlX3RyZWUiOiAiYzRlNTNkYTIxZGFjYjA0M2EzYjFmYTBkZmNhMDc1NzJhMjRkNDk0YiIsCiAgInByZXZpb3VzX2NpIjogNDMyODg2MzMyNDksCiAgImV4cGVjdGVkX3Rlc3RfY291bnQiOiA3MDAsCiAgImxvY2FsX2xpbnRfZm9ybWF0IjogInNpeCBuYW1lZCBmaWxlcyBwYXNzZWQgdmlhIGNpLWxvY2FsIiwKICAidG90YWxfaHVua3MiOiAyMCwKICAiaHVua19jb3VudHMiOiB7CiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9pbmRleC50cyI6IDIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYmFja2dyb3VuZC1tYXRyaXgudGVzdC50cyI6IDQsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYnJpZGdlZC1lYXJuLW9mZnNjcmVlbi50ZXN0LnRzIjogNiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5ndWFyZGlhbi50ZXN0LnRzIjogNCwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5zZW5kLXN0YWdlLXRpbWluZ3MudGVzdC50cyI6IDIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMudGVzdC50cyI6IDIKICB9LAogICJjYW5vbmljYWxfc2NyaXB0X3NoYTI1NiI6ICIzMmJmMmU5Y2E5YzY3NmRhYzI5MTZmOWJmM2FjYzFjMDQ4ZTVmYTc2MDYwMTc4YTZjYjY1ZmQ2MWVlMDQ1YmZjIiwKICAiY2Fub25pY2FsX3J1bnRpbWVfcGluX3NoYTI1NiI6ICI4YzFlY2UzZjdkY2M0NjA5MGZiYTlkZjUzNGEyNmFlZGZlYTU2ZDM2NWNkN2Y4NDcyYzMxYTRiZGJkNjI3YzkyIiwKICAidmVyaWZpZWRfZ3JlZW5fcnVuIjogNDMyOTAyODYxNTksCiAgInZlcmlmaWVkX2dyZWVuX3dvcmtmbG93IjogIjliMWYwNTM1Mjg2NTIyN2U5M2U0MWQzMTU4MjU2ZWE0MDhhMGI1MDYiLAogICJ2ZXJpZmllZF9ncmVlbl9hcnRpZmFjdCI6IDEzOTc3MTIyMTMyLAogICJ2ZXJpZmllZF9ncmVlbl96aXBfc2hhMjU2IjogIjcwNmI5YjU0NzkyNGU3Nzg3ZTQwYjZmOTM2NDc3YjczZDkyZmE5NmE3YTEyOTdhZDQ5NjQyYjEyMDUwYzU1MmMiCn0K'))
+          (e/'mutation-predictions.json').write_bytes(base64.b64decode('ewogICJjcmVhdGVkX2F0IjogIjIwMjYtMTEtMTJUMTk6Mjc6NTguMjM0NTEzKzAwOjAwIiwKICAic291cmNlX3NoYSI6ICJhNGIyZTQwZDdhZDk1NDQ2YmI3MTg4MjBlMGIzYTM4ZmEwMWQ5YWYwIiwKICAic291cmNlX3RyZWUiOiAiOWM0MjIxZjBlYjU4ZDVmZGVkMzM1YTA3OTFiN2ViZjNkZjk4ZDg1MSIsCiAgImJhc2VsaW5lX3BhcmVudCI6ICIxZmU0OGI0YTJiYWRmNzIyM2UyMmRmYTY1NWM3YjViOTUwZTI5MzJmIiwKICAiY2Fub25pY2FsX21lYXN1cmVtZW50IjogImFsbCB1bnN0YWdlZCBodW5rcyBhY3Jvc3MgdGhlIGV4YWN0IHNpeC1maWxlIHJlcGFpciwgaW5jbHVkaW5nIGV2ZXJ5IGZpeHR1cmUvdGVzdCBodW5rOyBub25lIHN0YWdlZCBhd2F5IiwKICAicHJlZGljdGlvbnMiOiB7CiAgICAiaW5kZXgudHMgaHVuayAxIjogewogICAgICAidGVzdF90aXRsZXMiOiBbCiAgICAgICAgImVhcm4tZGVwb3NpdCByZWZ1c2VzIHRvIHN1Ym1pdCBvbmNlIHRoZSBjYWxsZXIgYWJhbmRvbmVkIHRoZSBFcG9jaCBpbnRlbnQiLAogICAgICAgICJlYXJuLWRlcG9zaXQgd2l0aCBubyByZXF1ZXN0IGJ5dGVzIGlzIHJlZnVzZWQgYmVmb3JlIGl0IG1pbnRzOiBubyBzZW5kLXN0eWxlIGZhbGxiYWNrIGZvciBFYXJuIgogICAgICBdLAogICAgICAiZmlyc3RfYXNzZXJ0aW9uIjogImV4cGVjdChtb2NrR2V0VmVyaWZpY2F0aW9uQmFzZUZlZSkubm90LnRvSGF2ZUJlZW5DYWxsZWQoKSIsCiAgICAgICJyZWFzb24iOiAiY2F0Y2ggc3RpbGwgcmVmdXNlcyB0aGUgaW52YWxpZCByb3csIGJ1dCBmZWUgbG9va3VwIGltcHJvcGVybHkgcnVucyBmaXJzdCIKICAgIH0sCiAgICAiaW5kZXgudHMgaHVuayAyIjogewogICAgICAidGVzdF90aXRsZXMiOiBbCiAgICAgICAgInJlZnVzZXMgYW4gRWFybiBkZXBvc2l0IGFiYW5kb25lZCBkdXJpbmcgdW5rbm93biBmZWUgZGlzY292ZXJ5IgogICAgICBdLAogICAgICAiZmlyc3RfYXNzZXJ0aW9uIjogInJlamVjdHMudG9UaHJvdygvcmVmdXNpbmcgdG8gc3VibWl0IGFuIG9ycGhhbiBjb2xsYXRlcmFsIG5vdGUvKSIsCiAgICAgICJmYWlsdXJlX3RleHQiOiAiUmVjZWl2ZWQgcHJvbWlzZSByZXNvbHZlZCBpbnN0ZWFkIG9mIHJlamVjdGVkIiwKICAgICAgInJlYXNvbiI6ICJ1bmtub3duLWZlZSBjYXRjaCByZXF1ZXVlcyBhZnRlciBhYmFuZG9ubWVudCIKICAgIH0sCiAgICAicmV0YWluZWQgcHJlLXdyaXRlIGNoZWNrIGNvbnRyb2wiOiB7CiAgICAgICJ0ZXN0X3RpdGxlcyI6IFsKICAgICAgICAicmVmdXNlcyBhbiBFYXJuIGRlcG9zaXQgYWJhbmRvbmVkIGR1cmluZyBrbm93biBmZWUgZGlzY292ZXJ5IgogICAgICBdLAogICAgICAiZmlyc3RfYXNzZXJ0aW9uIjogInJlamVjdHMudG9UaHJvdygvcmVmdXNpbmcgdG8gc3VibWl0IGFuIG9ycGhhbiBjb2xsYXRlcmFsIG5vdGUvKSIsCiAgICAgICJmYWlsdXJlX3RleHQiOiAiUmVjZWl2ZWQgcHJvbWlzZSByZXNvbHZlZCBpbnN0ZWFkIG9mIHJlamVjdGVkIiwKICAgICAgInByZWNpc2lvbiI6ICJUaGUgYXBwcm92ZWQgcGxhbiBuYW1lcyB0aGUgbGF0ZXIgbm8tbGVhZi1jYWxsIGFzc2VydGlvbi4gVGhlIGVhcmxpZXIgcmVqZWN0cyBhc3NlcnRpb24gbmVjZXNzYXJpbHkgZmlyZXMgZmlyc3Q7IHRoaXMgaXMgZGVjbGFyZWQgYmVmb3JlIGV4ZWN1dGlvbiwgcHJlc2VydmluZyB0aGUgc2FtZSBrbm93bi1mZWUgYWJhbmRvbm1lbnQgcHJlZGljdGlvbi4iCiAgICB9CiAgfSwKICAiZjAwMV9zdGF0ZSI6ICJPUEVOIiwKICAiZGlzcGF0Y2hfYXV0aG9yaXplZF9vbmx5X2FmdGVyX2dyZWVuX3Byb29mIjogdHJ1ZSwKICAiaHVua19jb3VudHMiOiB7CiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi9pbmRleC50cyI6IDIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYmFja2dyb3VuZC1tYXRyaXgudGVzdC50cyI6IDQsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMuYnJpZGdlZC1lYXJuLW9mZnNjcmVlbi50ZXN0LnRzIjogNiwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5ndWFyZGlhbi50ZXN0LnRzIjogNCwKICAgICJzcmMvbGliL21pZGVuL3RyYW5zYWN0aW9uL3RyYW5zYWN0aW9ucy5zZW5kLXN0YWdlLXRpbWluZ3MudGVzdC50cyI6IDIsCiAgICAic3JjL2xpYi9taWRlbi90cmFuc2FjdGlvbi90cmFuc2FjdGlvbnMudGVzdC50cyI6IDIKICB9LAogICJ0b3RhbF9odW5rcyI6IDIwCn0K'))
+          assert hashlib.sha256((e/'rev-mutate.sh').read_bytes()).hexdigest()=='32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc'
+          session=e/'measurement-session';session.mkdir();(session/'scope.env').write_text('REV_ROOT='+shlex.quote(os.environ['GITHUB_WORKSPACE'])+'\n');(session/'state.json').write_text(json.dumps({'phase':'fix','purpose':'isolated source-bound measurement only; no provider review or receipt'})+'\n')
+          subprocess.run(['git','reset','--mixed',os.environ['EXPECTED_SOURCE_PARENT']],check=True)
+          subprocess.run(['git','diff',os.environ['EXPECTED_SOURCE_SHA'],'--exit-code'],check=True)
+          patch=subprocess.check_output(['git','diff','--binary']);(e/'all-hunk-baseline.patch').write_bytes(patch)
+          assert hashlib.sha256(patch).hexdigest()=='2abbb7f2a0e6b2da5ebffcbfcdc833af92d3c14dfff97251210aec87d6ab9eb4'
+          PYSETUP
+          set +e
+          REVIEW_COUNCIL_HOST=codex bash "$EVIDENCE_DIR/rev-mutate.sh" "$EVIDENCE_DIR/measurement-session" 'python3 "$EVIDENCE_DIR/mutation-test-command.py"' 2>&1 | tee "$EVIDENCE_DIR/canonical-mutate.log"
+          mutation_exit=${PIPESTATUS[0]}
+          printf '%s\n' "$mutation_exit" > "$EVIDENCE_DIR/canonical-exit.txt"
+          set -e
+          test "$mutation_exit" -eq 0 -o "$mutation_exit" -eq 3
+          python3 <<'PYRETAINED'
+          import os,pathlib,subprocess,sys
+          root=pathlib.Path.cwd();e=pathlib.Path(os.environ['EVIDENCE_DIR']);p=root/'src/lib/miden/transaction/index.ts';original=p.read_bytes()
+          needle=b"          if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);\n          await requireBridgeSubmitClaim(transaction);"
+          assert original.count(needle)==1
+          try:
+           p.write_bytes(original.replace(needle,b'          await requireBridgeSubmitClaim(transaction);'))
+           (e/'retained-check-negative.patch').write_bytes(subprocess.check_output(['git','diff',os.environ['EXPECTED_SOURCE_SHA'],'--binary']))
+           r=subprocess.run([sys.executable,str(e/'mutation-test-command.py')]);(e/'retained-check-exit.txt').write_text(str(r.returncode)+'\n')
+           assert r.returncode==1
+          finally:
+           p.write_bytes(original)
+           subprocess.run(['git','diff',os.environ['EXPECTED_SOURCE_SHA'],'--exit-code'],check=True)
+          r=subprocess.run([sys.executable,str(e/'mutation-test-command.py')]);(e/'final-restored-exit.txt').write_text(str(r.returncode)+'\n');assert r.returncode==0
+          PYRETAINED
+      - name: Validate predictions while retaining the canonical result
         if: always()
-        uses: actions/upload-artifact@v4
+        shell: bash
+        run: python3 "$EVIDENCE_DIR/mutation-validate.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: ios-unit-test-results
-          path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+          name: qa-2147-c01-mutation-9c4221f0
+          path: ${{ runner.temp }}/qa-2147-c01-mutation/
+          if-no-files-found: error
+          retention-days: 7
