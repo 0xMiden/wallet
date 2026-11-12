@@ -107,6 +107,9 @@ The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root,
 
 Fix (already in place — keep it): every app vite config (`vite.{mobile,extension,background,desktop}.config.ts`) sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` so only the single root SDK resolves (this also collapses the duplicate WASM `WebClient`), and `package.json` pins `dexie` + a `resolutions` entry to the web-sdk's inlined version. Debug tip: `var DEXIE_VERSION` is in the UMD `dist/dexie.js` (no guard); the guard lives in `import-wrapper.mjs`. To find a stray version, parse a built chunk's `.js.map` for `sourcesContent` containing `DEXIE_VERSION` — the `sources[]` path names the offending package. `grep -r` over node_modules misses it (binary-detected wasm-glue + symlinked file: deps); use `--binary-files=text` and the sourcemap. `build:ext`/`build:bg` don't `rimraf dist/` — wipe `dist/chrome_unpacked` before re-verifying or you'll read stale chunks.
 
+### Security-pinned dependencies
+A bump of `@miden-sdk/miden-sdk`, `@openzeppelin/miden-multisig-client` or `@openzeppelin/guardian-client` re-verifies the signing guard's assumptions before it merges: the summary decode and fee-note split in `app/confirm/decode.ts`, what a `SigningInputs` commits to (the summary the keystore is asked to sign), and the effect-checked signer (`lib/miden/transaction/effect-checked-signer.ts`, `proposal-effect-guard.ts`). A summary or note shape the new version changes can let a transaction that moves more than was approved pass the check (#2147).
+
 ### Tailwind auto-flipping tokens
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
 - the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
