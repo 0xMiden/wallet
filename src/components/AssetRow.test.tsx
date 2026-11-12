@@ -253,6 +253,7 @@ describe('AssetRow', () => {
     expect(screen.queryByTestId('row-price')).not.toBeInTheDocument();
     expect(screen.getByTestId('row-price-status')).toHaveTextContent('unavailable');
   });
+
   it('treats a move under 0.1% either way as flat: a grey pill and a grey line', () => {
     for (const change of [0, -0.02, 0.09]) {
       tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };

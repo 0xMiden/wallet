@@ -1,19 +1,22 @@
-# Issue #2028 - label the spendable token balance
+# Issue #2028 - truthful token detail holdings and quote context
 
 ## Plan
 
-- [x] Confirm the reporter's answer keeps the existing Send and Receive actions and excludes Bridge wording.
-- [x] Trace the token page balance, price and shared History paths; confirm the existing `available` locale key.
-- [x] RED: assert the balance is explicitly labeled Available on the token detail page; it failed because the label was absent (102 passed, 1 failed).
-- [x] GREEN: render the existing localized label above the authoritative balance without changing settlement, price or action behavior.
-- [x] Run the focused page suite and inspect the final diff.
-- [ ] Complete required light/dark UI verification, then publish only after direct review and current-head CI.
+- [x] Read the accepted brief and author clarification. Keep #2027 identity/layout ownership separate and preserve existing Send/Receive and History.
+- [x] Preserve the original candidate `cac4880ccf75001dfa8ec361da883ffa5dce6207` and its tree before integration.
+- [x] Integrate current main `eafabde38be4e07fb71bc6e459b9975974eb6f5d` as signed merge `87f3ad2e87a65c6a8b17c026087f3de7f522254e`.
+- [ ] Add provider provenance at the existing price-feed boundary with focused regression tests.
+- [ ] Reuse matching pending claim/retry cards in the same token-filtered History and keep pending amounts out of Available.
+- [ ] Render loading, stale, unavailable, fixed and fresh quote states; value only a known balance with a fresh trusted quote.
+- [ ] Run focused tests and light static gates through `ci-local`; keep passing CI in the coordinator's combined gate.
+- [ ] Capture current-source compact mobile and extension screenshots in light and dark through the approved visual route.
 
 ## Review
 
-- Focused page suite first exposed an assertion coupled to the number's immediate wrapper; it now checks the Hero value's style ancestor, preserving the original typography contract with the new label wrapper.
-- `TokenDetail.test.tsx`: 103 tests passed through the guarded local runner. A red assertion first failed because the label was absent.
-- Visual verification remains pending; no Wallet preview is currently available in this worktree.
+- The original candidate added the Available label only. Its earlier focused page suite passed 103 tests on that old checkpoint; this does not certify current main or the full issue.
+- Current main is `eafabde38be4e07fb71bc6e459b9975974eb6f5d`. Merge `87f3ad2e87a65c6a8b17c026087f3de7f522254e` has tree `d938448bbbbb238271d6dfb277d7a95edeff54f6`, with candidate and current main as parents.
+- The Available changelog entry remains under `1.17.12 (TBD)`. The #2074 unread-balance guard matches current main at blob `4c2bba530e38563eb97fbb7e1befc49cc06e63c4`.
+- No focused tests, source build, screenshots, PR, or current issue review were run on the integrated checkpoint.
 
 # Follow-up to #1790: describe wallet-file contents accurately
 
@@ -673,8 +676,21 @@ Acceptance plan for the native-tap measurement:
 - [ ] Push once, monitor exact-head checks and screenshots, and resolve failures.
 - [ ] Squash-merge after current-head CI, Council review and mergeability pass.
 
+- [x] Read the issue brief and latest main source.
+- [x] Create an isolated worktree and install dependencies with Node 22.
+- [x] Write and self-review the private spec and implementation plan.
+- [x] Add failing exact-string and caret tests.
+- [x] Implement normalization without Number coercion.
+- [x] Verify token/USD behavior, named suites, TypeScript and named ESLint.
+- [ ] Run repository-wide lint, i18n and prover-pin gates in CI; capture both-theme UI evidence.
+- [ ] Complete Review Council, commit, push and watch exact-head CI.
+- [ ] Merge only after the pre-merge check passes.
 
-### Amount input regression history
+## Review
+
+Before integrating the latest main, the seven named Jest suites passed 257 tests, TypeScript passed, and named ESLint passed. The guarded helper refused the first ESLint command when the Playwright path matched its browser restriction; ESLint for the visual harness remains for the CI route. Prettier and browser acceptance are still pending. The separate 63-test focused run on AssetRow and Binance also passed.
+
+After v1.17.9 published at 10:22 UTC, moved the #2035 amount-normalization note into the next (TBD) section. At 12:32 UTC, merged current main 79b4795 locally as 4640ced. At 13:25 UTC, merged current main a328096 locally as 0222550 after preserving and restoring the release-note and task-file edits. The remote PR remains at be7ad2f; no branch push has happened. Re-ran the integrated-head checks at 06c9945: seven suites passed 257/257, TypeScript, named ESLint, source-only Prettier and the base-to-head diff check passed. The remaining Council, current-head CI and visual screenshot gates are queued.
 
 RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
 
