@@ -69,6 +69,16 @@ it('reconciles an original signed deposit instead of authorizing another EVM dep
   expect(returned).toHaveBeenCalledWith(wallet, previous, expect.any(String), expect.any(String), expect.any(AbortSignal));
   expect(refund).not.toHaveBeenCalled(); expect(prepare).not.toHaveBeenCalled();
 });
+it('reconciles an already recorded actual native receipt without authorizing another claim', async () => {
+  Object.assign(previous!, { forwardReceived: '1001000', forwardEvmTxHash: `0x${'b'.repeat(64)}`,
+    reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0, reverseAuthority: epochReverseAuthorityFixture(),
+    transactions: [{ kind: 'deposit', nonce: 0, hash }], returnNoteId: `0x${'c'.repeat(64)}`,
+    returnMidenTxId: `0x${'d'.repeat(64)}`, reverseReceived: '1000000', paidMidenFees: '14',
+    consumeAuthority: { nonce: '11111111-1111-4111-8111-111111111111', sha256: '1'.repeat(64), canonicalSha256: '2'.repeat(64) } });
+  await run();
+  expect(returned).toHaveBeenCalledWith(wallet, previous, expect.any(String), expect.any(String), expect.any(AbortSignal));
+  expect(refund).not.toHaveBeenCalled(); expect(prepare).not.toHaveBeenCalled();
+});
 it('does not restore a funded actor for a terminal checkpoint', async () => {
   previous!.phase = 'cancelled'; await run();
   expect(restore).not.toHaveBeenCalled(); expect(refund).not.toHaveBeenCalled(); expect(returned).not.toHaveBeenCalled();
