@@ -1388,6 +1388,7 @@
   "customTransactionNotSimulated": "Cüzdan bu işlemi simüle edemediğinden, ne yaptığını gösteremez. Bu işlemi onaylayamazsınız.",
   "rawValue": "Ham değer",
   "opaqueSignatureTitle": "Gizli imza talebi",
+  "opaqueSignatureNotATransaction": "Bu imza, hesabınızdan bir işlemin gerçekleştirilmesine yetki vermez.",
   "opaqueSignatureWarning": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",
   "note": "Note",
   "earnMarketLabel": "Pazar",

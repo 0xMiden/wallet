@@ -6366,6 +6366,10 @@
     "message": "Solicitud para firmar datos sin procesar",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "Esta firma no puede autorizar una transacción desde tu cuenta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

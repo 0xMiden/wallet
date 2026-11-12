@@ -1380,6 +1380,7 @@
   "customTransactionNotSimulated": "Die Wallet konnte diese Transaktion nicht simulieren, daher kann sie nicht anzeigen, was dabei geschieht. Sie können sie nicht genehmigen.",
   "rawValue": "Rohwert",
   "opaqueSignatureTitle": "Anfrage nach einer undurchsichtigen Signatur",
+  "opaqueSignatureNotATransaction": "Diese Signatur kann keine Transaktion von Ihrem Konto autorisieren.",
   "opaqueSignatureWarning": "Diese Website hat Sie aufgefordert, einen Rohwert zu signieren. Die Wallet kann nicht anzeigen, was sie autorisiert. Fahren Sie nur fort, wenn Sie dieser Website voll und ganz vertrauen.",
   "note": "Note",
   "earnMarketLabel": "Markt",

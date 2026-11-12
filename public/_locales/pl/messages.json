@@ -6362,6 +6362,10 @@
     "message": "Prośba o niejawny podpis",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "Ten podpis nie upoważnia do autoryzacji transakcji z Twojego konta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "Ta strona poprosiła Cię o podpisanie surowej wartości. Portfel nie może wyświetlić, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

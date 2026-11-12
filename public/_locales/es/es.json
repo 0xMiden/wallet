@@ -1383,6 +1383,7 @@
   "customTransactionNotSimulated": "El monedero no ha podido simular esta transacción, por lo que no puede mostrar lo que hace. No puedes aprobarla.",
   "rawValue": "Valor sin procesar",
   "opaqueSignatureTitle": "Solicitud para firmar datos sin procesar",
+  "opaqueSignatureNotATransaction": "Esta firma no puede autorizar una transacción desde tu cuenta.",
   "opaqueSignatureWarning": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",
   "note": "Nota",
   "earnMarketLabel": "Mercado",

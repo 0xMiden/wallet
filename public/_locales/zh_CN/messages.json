@@ -6360,6 +6360,10 @@
     "message": "不透明签名请求",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "此签名无法授权从您的账户发起交易。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

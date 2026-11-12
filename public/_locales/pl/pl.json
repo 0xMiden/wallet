@@ -1387,6 +1387,7 @@
   "customTransactionNotSimulated": "Portfel nie mógł zasymulować tej transakcji, więc nie może pokazać, na czym ona polega. Nie można jej zatwierdzić.",
   "rawValue": "Wartość surowa",
   "opaqueSignatureTitle": "Prośba o niejawny podpis",
+  "opaqueSignatureNotATransaction": "Ten podpis nie upoważnia do autoryzacji transakcji z Twojego konta.",
   "opaqueSignatureWarning": "Ta strona poprosiła Cię o podpisanie surowej wartości. Portfel nie może wyświetlić, co autoryzuje. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
   "note": "Note",
   "earnMarketLabel": "Rynek",

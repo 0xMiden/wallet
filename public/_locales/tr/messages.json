@@ -6361,6 +6361,10 @@
     "message": "Gizli imza talebi",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "Bu imza, hesabınızdan bir işlemin gerçekleştirilmesine yetki vermez.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

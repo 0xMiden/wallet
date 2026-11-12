@@ -6364,6 +6364,10 @@
     "message": "Запрос на подписание с сокрытием информации",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "Эта подпись не может авторизовать транзакцию с вашего счёта.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "Этот сайт попросил вас подписать исходное значение. Кошелек не может отобразить, что именно он авторизует. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

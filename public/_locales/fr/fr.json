@@ -1386,6 +1386,7 @@
   "customTransactionNotSimulated": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
   "rawValue": "Valeur brute",
   "opaqueSignatureTitle": "Demande de signature opaque",
+  "opaqueSignatureNotATransaction": "Cette signature ne permet pas d’autoriser une transaction depuis votre compte.",
   "opaqueSignatureWarning": "Ce site vous a demandé de signer une valeur brute. Le portefeuille ne peut pas afficher ce qu'il autorise. Ne continuez que si vous faites entièrement confiance à ce site.",
   "note": "Note",
   "earnMarketLabel": "Marché",
