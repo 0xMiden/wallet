@@ -34,8 +34,8 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
   default: () => mockBaseFee,
-  // The claim floor follows the raw fee, an unknown one read as fee-free: these cases predate the floor refusing it.
-  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? (mockBaseFee ?? 0) : mockFloorFee)
+  // An unset floor passes the raw fee through, so a null raw fee stays null.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume
@@ -55,6 +55,8 @@ describe('useHasUnclaimedNotes', () => {
 
   it('ignores native notes the wallet will auto-consume (#811)', () => {
     mockAutoConsume = true;
+    // Fee-free chain and no amount: the floor is 0, so auto-consume hides the note.
+    mockFloorFee = 0;
     mockUseClaimableNotes.mockReturnValue({
       data: [{ id: 'note-1', faucetId: 'faucet-native', standardPayment: true }]
     });
@@ -62,6 +64,19 @@ describe('useHasUnclaimedNotes', () => {
     const { result } = renderHook(() => useHasUnclaimedNotes());
 
     expect(result.current).toBe(false);
+  });
+
+  it('counts a native note while the claim floor is unknown', () => {
+    mockAutoConsume = true;
+    mockBaseFee = null;
+    mockFloorFee = undefined;
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ id: 'worth', faucetId: 'faucet-native', amount: '1000000', standardPayment: true }]
+    });
+
+    const { result } = renderHook(() => useHasUnclaimedNotes());
+
+    expect(result.current).toBe(true);
   });
 
   it('still counts a native note worth too little for auto-consume to claim', () => {

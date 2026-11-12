@@ -25,8 +25,8 @@ jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
   default: () => mockBaseFee,
-  // The claim floor follows the raw fee, an unknown one read as fee-free: these cases predate the floor refusing it.
-  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? (mockBaseFee ?? 0) : mockFloorFee)
+  // An unset floor passes the raw fee through, so a null raw fee stays null.
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -184,6 +184,7 @@ describe('useManuallyClaimableNotes', () => {
   });
 
   it('filters auto-managed notes out of the data', () => {
+    mockFloorFee = FEE;
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([other, nativeManualSwap]);
     expect(result.current.isFallback).toBe(false);
@@ -191,6 +192,7 @@ describe('useManuallyClaimableNotes', () => {
 
   it('reports whether the list is still the persisted fallback', () => {
     mockIsFallback = true;
+    mockFloorFee = FEE;
     mockClaimableNotes = [nativeCached, otherCached];
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.isFallback).toBe(true);
@@ -202,6 +204,14 @@ describe('useManuallyClaimableNotes', () => {
     mockClaimableNotes = [nativeDust, other];
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([nativeDust, other]);
+  });
+
+  it('keeps a worthwhile native note while the claim floor is unknown', () => {
+    mockBaseFee = null;
+    mockFloorFee = undefined;
+    mockClaimableNotes = [native, other];
+    const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
+    expect(result.current.data).toEqual([native, other]);
   });
 
   it('useManuallyClaimableNotes judges with the claim floor fee', () => {
