@@ -22,7 +22,9 @@ export const sameCommitment = (a: string, b: string): boolean => normalize(a) ==
 async function readSlot(read: () => Promise<{ commitment: string }>): Promise<string | undefined> {
   try {
     return normalize((await read()).commitment);
-  } catch {
+  } catch (error) {
+    // A trap leaves the WASM client unusable; the enclosing lock hold must see it to retire the client.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return undefined;
   }
 }
@@ -32,12 +34,22 @@ export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Pro
   const hotCommitment = await readSlot(() => getSignerDetailsFromAccount(acc, false));
   const coldCommitment = await readSlot(() => getSignerDetailsFromAccount(acc, true));
   const guardian = getGuardianCommitmentFromAccount(acc);
+  const readHandle = <H extends { free(): void }, T>(handle: H, read: (h: H) => T): T => {
+    try {
+      return read(handle);
+    } finally {
+      handle.free();
+    }
+  };
+  const accountId = readHandle(acc.id(), id => id.toString());
+  const nonce = readHandle(acc.nonce(), felt => felt.asInt());
+  const commitment = readHandle(acc.to_commitment(), word => normalize(word.toHex()));
   return {
     bytes,
-    accountIdHex: acc.id().toString(),
-    nonce: acc.nonce().asInt(),
+    accountIdHex: accountId,
+    nonce,
     isNew: acc.isNew(),
-    commitment: normalize(acc.to_commitment().toHex()),
+    commitment,
     hotCommitment,
     coldCommitment,
     guardianCommitment: guardian === undefined ? undefined : normalize(guardian)

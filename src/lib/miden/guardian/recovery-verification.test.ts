@@ -10,12 +10,14 @@ jest.mock('./account', () => ({
 const signer = getSignerDetailsFromAccount as jest.Mock;
 const guardian = getGuardianCommitmentFromAccount as jest.Mock;
 
+const freed = { id: jest.fn(), nonce: jest.fn(), commitment: jest.fn() };
+
 const account = () =>
   ({
-    id: () => ({ toString: () => '0xid' }),
-    nonce: () => ({ asInt: () => 7n }),
+    id: () => ({ toString: () => '0xid', free: freed.id }),
+    nonce: () => ({ asInt: () => 7n, free: freed.nonce }),
     isNew: () => false,
-    to_commitment: () => ({ toHex: () => '0xABCD' })
+    to_commitment: () => ({ toHex: () => '0xABCD', free: freed.commitment })
   }) as never;
 
 describe('recovery verification', () => {
@@ -66,6 +68,21 @@ describe('recovery verification', () => {
         coldCommitment: 'cc',
         guardianCommitment: 'gg'
       });
+    });
+
+    it('frees the account id, nonce and commitment handles it reads', async () => {
+      signer.mockResolvedValue({ commitment: 'aa' });
+      await readServedStateFacts(account(), new Uint8Array());
+      expect(freed.id).toHaveBeenCalledTimes(1);
+      expect(freed.nonce).toHaveBeenCalledTimes(1);
+      expect(freed.commitment).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows a WebAssembly trap from a slot read instead of treating the slot as unreadable', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      signer.mockRejectedValue(trap);
+      await expect(readServedStateFacts(account(), new Uint8Array())).rejects.toBe(trap);
+      await expect(assertRecoverySignerMatches(account(), 'aa')).rejects.toBe(trap);
     });
 
     it('leaves a slot undefined when its reader throws', async () => {

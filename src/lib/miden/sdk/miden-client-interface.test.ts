@@ -2483,10 +2483,10 @@ describe('MidenClientInterface', () => {
       const scripted: Array<number[]> = [[1, 2]];
       const accountNames: Record<number, string> = { 1: 'recovered-a', 2: 'recovered-b', 3: 'recovered-c' };
       const accountFor = (bytes: Uint8Array) => ({
-        id: () => ({ toString: () => accountNames[bytes[0] ?? 0] }),
-        nonce: () => ({ asInt: () => 1n }),
+        id: () => ({ toString: () => accountNames[bytes[0] ?? 0], free: jest.fn() }),
+        nonce: () => ({ asInt: () => 1n, free: jest.fn() }),
         isNew: () => false,
-        to_commitment: () => ({ toHex: () => '0xfeed' })
+        to_commitment: () => ({ toHex: () => '0xfeed', free: jest.fn() })
       });
       const events: string[] = [];
       const signerSlots: Record<number, string> = {};
@@ -2494,10 +2494,11 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
         AuthSecretKey: {
-          ecdsaWithRNG: jest.fn(() => ({
+          // The commitment follows the seed, so every HD index derives its own.
+          ecdsaWithRNG: jest.fn((seed: Uint8Array) => ({
             publicKey: () => ({
               serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
-              toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
+              toCommitment: () => ({ toHex: () => `0xC0${String(seed[0]).padStart(2, '0')}`, free: jest.fn() }),
               free: jest.fn()
             }),
             serialize: () => new Uint8Array([0xcc])
@@ -2540,7 +2541,8 @@ describe('MidenClientInterface', () => {
         getSignerDetailsFromAccount: jest.fn(async (acc: { id: () => { toString: () => string } }) => {
           events.push('verify');
           const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
-          return { commitment: signerSlots[n] ?? 'aabb' };
+          // Accounts 1 and 2 are served at index 0, account 3 at index 1.
+          return { commitment: signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002') };
         }),
         getGuardianCommitmentFromAccount: jest.fn(() => 'beef'),
         insertGuardianAccountMonotonically: adopt
@@ -2561,7 +2563,8 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
-      const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), endpoint);
+      const recover = () =>
+        client.recoverGuardianAccountsBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint);
       return {
         held,
         insert,
@@ -2620,18 +2623,12 @@ describe('MidenClientInterface', () => {
     it('seed recovery verifies every match of every index before adopting any', async () => {
       const { insert, scripted, events, recover } = await setupRecovery();
       scripted.push([3]);
-      let seed = 0;
       const sks: unknown[] = [];
       const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
-      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation(() => {
-        const sk = {
-          publicKey: () => ({
-            serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
-            toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
-            free: jest.fn()
-          }),
-          serialize: () => new Uint8Array([0xcc, seed++])
-        };
+      const ecdsaWithRNG = AuthSecretKey.ecdsaWithRNG as jest.Mock;
+      const derive = ecdsaWithRNG.getMockImplementation()!;
+      ecdsaWithRNG.mockImplementation((seed: Uint8Array) => {
+        const sk = derive(seed);
         sks.push(sk);
         return sk;
       });
@@ -2639,15 +2636,28 @@ describe('MidenClientInterface', () => {
       const recovered = await recover();
 
       expect(recovered.map(r => r.hdIndex)).toEqual([0, 0, 1]);
+      // Every match was verified, and all of it before the first adoption.
+      expect(events.filter(e => e === 'verify').length).toBeGreaterThanOrEqual(3);
       expect(events.indexOf('adopt')).toBeGreaterThan(events.lastIndexOf('verify'));
       expect(events.filter(e => e === 'adopt')).toHaveLength(3);
       const inserted = insert.mock.calls.map(call => (call as unknown[])[1]);
       expect(inserted).toEqual([sks[0], sks[0], sks[1]]);
     });
 
+    it("seed recovery refuses an account at one index that carries another index's recovery key, adopting nothing", async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, scripted, signerSlots, recover } = await setupRecovery();
+      scripted.push([3]);
+      signerSlots[3] = 'c001';
+
+      await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_UNVERIFIED' });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
     it('seed recovery accepts the recovery signer in any case or prefix', async () => {
       const { adopt, recover, signerSlots } = await setupRecovery();
-      signerSlots[1] = '0xAaBb';
+      signerSlots[1] = '0xC001';
 
       await expect(recover()).resolves.toHaveLength(2);
       expect(adopt).toHaveBeenCalledTimes(2);
