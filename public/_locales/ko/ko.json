@@ -1635,6 +1635,8 @@
   "hideToken": "토큰 숨기기",
   "unhideToken": "토큰 숨김 해제",
   "tokenHiddenNotice": "홈에서 숨김. 이는 지갑에 남아 있으며, 해당 전송 내역은 여전히 청구할 수 있습니다.",
+  "hideDustTokens": "더스트 토큰 숨기기",
+  "hideDustTokensDescription": "자산 목록에서 0.001달러 미만의 토큰을 숨깁니다. USDCX는 항상 표시됩니다.",
   "hiddenAssets": "숨겨진 자산",
   "hiddenAssetsCount": "숨겨진 자산($count$)",
   "unhide": "숨김 해제",

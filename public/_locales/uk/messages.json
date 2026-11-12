@@ -7463,6 +7463,14 @@
     "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Приховати токени «dust»",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Приховує токени вартістю менше ніж 0,001 долара зі списку ваших активів. USDCX завжди залишається видимим.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Приховані активи",
     "englishSource": "Hidden assets"

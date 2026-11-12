@@ -7461,6 +7461,14 @@
     "message": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "ダストトークンを非表示にする",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "資産リストから、0.001ドル未満の価値を持つトークンを非表示にします。USDCXは常に表示されたままになります。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "隠された資産",
     "englishSource": "Hidden assets"

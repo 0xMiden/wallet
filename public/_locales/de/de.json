@@ -1626,6 +1626,8 @@
   "hideToken": "Token ausblenden",
   "unhideToken": "Token einblenden",
   "tokenHiddenNotice": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
+  "hideDustTokens": "Dust-Token ausblenden",
+  "hideDustTokensDescription": "Blendet Token im Wert von weniger als 0,001 US-Dollar aus Ihrer Vermögensliste aus. USDCX bleibt immer sichtbar.",
   "hiddenAssets": "Versteckte Vermögenswerte",
   "hiddenAssetsCount": "Versteckte Vermögenswerte ($count$)",
   "unhide": "Einblenden",

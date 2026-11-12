@@ -7461,6 +7461,14 @@
     "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "隱藏微量代幣",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "將價值低於 0.001 美元的代幣從您的資產清單中隱藏。USDCX 始終保持可見。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "隱藏資產",
     "englishSource": "Hidden assets"

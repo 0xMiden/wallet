@@ -7463,6 +7463,14 @@
     "message": "Ukryty w portfelu. Pozostaje w portfelu, a jego przelewy nadal można odebrać.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Ukryj tokeny typu dust",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Ukrywa tokeny o wartości poniżej 0,001 USD z listy aktywów. USDCX pozostaje zawsze widoczny.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Ukryte aktywa",
     "englishSource": "Hidden assets"

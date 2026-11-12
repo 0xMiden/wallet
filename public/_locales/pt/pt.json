@@ -1630,6 +1630,8 @@
   "hideToken": "Ocultar token",
   "unhideToken": "Exibir token",
   "tokenHiddenNotice": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
+  "hideDustTokens": "Ocultar tokens de poeira",
+  "hideDustTokensDescription": "Oculta tokens com valor inferior a US$ 0,001 da sua lista de ativos. O USDCX permanece sempre visível.",
   "hiddenAssets": "Ativos ocultos",
   "hiddenAssetsCount": "Ativos ocultos ($count$)",
   "unhide": "Mostrar",
