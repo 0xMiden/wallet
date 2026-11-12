@@ -2490,6 +2490,11 @@ describe('MidenClientInterface', () => {
       });
       const events: string[] = [];
       const signerSlots: Record<number, string> = {};
+      // The stub accounts all hash to 'feed', so the chain agrees with them unless a test says otherwise.
+      const chainRead = jest.fn(async (_id: string) => {
+        if (held.count > 0) throw new Error('chain read with the WASM lock held');
+        return { kind: 'deployed' as const, commitment: 'feed' };
+      });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
@@ -2548,6 +2553,10 @@ describe('MidenClientInterface', () => {
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
+      jest.doMock('../guardian/recovery-verification', () => ({
+        ...jest.requireActual('../guardian/recovery-verification'),
+        readAccountChainState: chainRead
+      }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
       }));
@@ -2576,7 +2585,8 @@ describe('MidenClientInterface', () => {
         probes: requireProbes(),
         scripted,
         events,
-        signerSlots
+        signerSlots,
+        chainRead
       };
     };
 
@@ -2653,6 +2663,54 @@ describe('MidenClientInterface', () => {
       await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_UNVERIFIED' });
       expect(adopt).not.toHaveBeenCalled();
       expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses a deployed account whose served state differs from the chain, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainRead, recover } = await setupRecovery();
+      chainRead.mockImplementation(async id =>
+        id === 'recovered-b'
+          ? { kind: 'deployed' as const, commitment: 'beef' }
+          : { kind: 'deployed' as const, commitment: 'feed' }
+      );
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryBehindNetwork'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses with the network copy when the chain cannot be read, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainRead, recover } = await setupRecovery();
+      chainRead.mockResolvedValue({ kind: 'unknown' as never });
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE',
+        message: 'guardianRecoveryNetworkUnreachable'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery reads the chain once per account and outside the WASM lock', async () => {
+      const { chainRead, scripted, recover } = await setupRecovery();
+      scripted[0] = [1, 1, 2];
+
+      await recover();
+
+      // Three matches of two accounts: one read each, none under a hold (the mock throws if one is held).
+      expect(chainRead.mock.calls.map(c => c[0])).toEqual(['recovered-a', 'recovered-b']);
+    });
+
+    it('seed recovery adopts a deployed account whose served state is the chain state', async () => {
+      const { adopt, chainRead, recover } = await setupRecovery();
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(chainRead).toHaveBeenCalledTimes(2);
+      expect(adopt).toHaveBeenCalledTimes(2);
     });
 
     it('seed recovery accepts the recovery signer in any case or prefix', async () => {

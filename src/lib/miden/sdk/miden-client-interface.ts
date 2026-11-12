@@ -133,7 +133,11 @@ import { GuardianHistoryDataError } from '../guardian/history-errors';
 import { withGuardianProbe } from '../guardian/native-http';
 import {
   assertRecoverySignerMatches,
+  judgeServedState,
+  readAccountChainState,
   readServedStateFacts,
+  selectAdoptable,
+  type AccountChainState,
   type ServedGuardianState
 } from '../guardian/recovery-verification';
 import {
@@ -1007,8 +1011,23 @@ export class MidenClientInterface {
           consecutiveMisses = 0;
           found.push({ hdIndex, sk: coldSk, coldPublicKey, coldSecretKeyHex, states });
         }
-        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, states } of found) {
-          for (const accountId of await this.adoptServedStates(states, sk)) {
+        // One read per account, outside every WASM hold: a network read must not pin the client.
+        const chain = new Map<string, AccountChainState>();
+        for (const { states } of found) {
+          for (const { accountIdHex } of states) {
+            if (!chain.has(accountIdHex)) chain.set(accountIdHex, await readAccountChainState(accountIdHex));
+          }
+        }
+        refuseIfReplaced();
+        const judged = found.flatMap(match =>
+          match.states.map(state => {
+            const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
+            // A never-deployed account has nothing on the chain to match yet.
+            return { ...match, state, verdict: verdict === 'undeployed' ? ('verified' as const) : verdict };
+          })
+        );
+        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of selectAdoptable(judged)) {
+          for (const accountId of await this.adoptServedStates([state], sk)) {
             recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
           }
         }
