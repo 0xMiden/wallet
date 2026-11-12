@@ -4385,6 +4385,10 @@
     "message": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
   "guardianOtherNetwork": {
     "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."

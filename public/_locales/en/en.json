@@ -969,6 +969,7 @@
   "publicImportMayCreate": "If no public account exists for this phrase yet, importing creates a new one from it.",
   "retryGuardianDetection": "Try detecting again",
   "guardianAccountNotFound": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian.",
+  "guardianRecoveryUnverified": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored.",
   "guardianOtherNetwork": "This guardian runs on another Miden network, so it cannot recover an account here.",
   "useCustomGuardianUrl": "Use a custom Guardian URL",
   "default": "Default",

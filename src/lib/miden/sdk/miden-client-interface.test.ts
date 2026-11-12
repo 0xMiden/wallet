@@ -2472,27 +2472,38 @@ describe('MidenClientInterface', () => {
       const requireHeld = (what: string) => {
         if (held.count === 0) throw new Error(`${what} called with no WASM lock hold`);
       };
-      const insert = jest.fn(async () => requireHeld('keystore.insert'));
-      const adopt = jest.fn(async (_client: unknown, _account: unknown) =>
-        requireHeld('insertGuardianAccountMonotonically')
-      );
+      const insert = jest.fn(async (_id: unknown, _sk: unknown) => requireHeld('keystore.insert'));
+      const adopt = jest.fn(async (_client: unknown, _account: unknown) => {
+        events.push('adopt');
+        requireHeld('insertGuardianAccountMonotonically');
+      });
       const fakeMidenClient = { ...buildFakeMidenClient(), keystore: { insert } };
       let lookups = 0;
       const matchAt = (n: number) => ({ state: { stateJson: { data: Buffer.from([n]).toString('base64') } } });
-      const accounts = [
-        { id: () => ({ toString: () => 'recovered-a' }) },
-        { id: () => ({ toString: () => 'recovered-b' }) }
-      ];
+      const scripted: Array<number[]> = [[1, 2]];
+      const accountNames: Record<number, string> = { 1: 'recovered-a', 2: 'recovered-b', 3: 'recovered-c' };
+      const accountFor = (bytes: Uint8Array) => ({
+        id: () => ({ toString: () => accountNames[bytes[0] ?? 0] }),
+        nonce: () => ({ asInt: () => 1n }),
+        isNew: () => false,
+        to_commitment: () => ({ toHex: () => '0xfeed' })
+      });
+      const events: string[] = [];
+      const signerSlots: Record<number, string> = {};
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
         AuthSecretKey: {
           ecdsaWithRNG: jest.fn(() => ({
-            publicKey: () => ({ serialize: () => new Uint8Array([0, 0xaa, 0xbb]) }),
+            publicKey: () => ({
+              serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
+              toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
+              free: jest.fn()
+            }),
             serialize: () => new Uint8Array([0xcc])
           }))
         },
-        Account: { deserialize: jest.fn(() => accounts.shift()) }
+        Account: { deserialize: jest.fn((bytes: Uint8Array) => accountFor(bytes)) }
       }));
       jest.doMock('./miden-client', () => {
         const { WasmClientPoisonedError } = jest.requireActual('./wasm-client-poison');
@@ -2519,14 +2530,19 @@ describe('MidenClientInterface', () => {
           recoverByKey = jest.fn(async () => {
             lookupCalls.count++;
             if (iface) onLookup?.(iface);
-            return finds && lookups++ === 0 ? [matchAt(1), matchAt(2)] : [];
+            return finds ? (scripted[lookups++] ?? []).map(matchAt) : [];
           });
         },
         EcdsaSigner: class {}
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount: jest.fn(),
-        getSignerDetailsFromAccount: jest.fn(),
+        getSignerDetailsFromAccount: jest.fn(async (acc: { id: () => { toString: () => string } }) => {
+          events.push('verify');
+          const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
+          return { commitment: signerSlots[n] ?? 'aabb' };
+        }),
+        getGuardianCommitmentFromAccount: jest.fn(() => 'beef'),
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
@@ -2546,7 +2562,19 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
       const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), endpoint);
-      return { held, insert, adopt, fakeMidenClient, client, lookupCalls, recover, probes: requireProbes() };
+      return {
+        held,
+        insert,
+        adopt,
+        fakeMidenClient,
+        client,
+        lookupCalls,
+        recover,
+        probes: requireProbes(),
+        scripted,
+        events,
+        signerSlots
+      };
     };
 
     it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
@@ -2559,7 +2587,12 @@ describe('MidenClientInterface', () => {
         { accountId: 'recovered-b', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' }
       ]);
       // One labelled hold per match; the adoption and the insert ran inside it, on this client, with that match.
-      expect(held.labels).toEqual(['recover-guardian-adopt', 'recover-guardian-adopt']);
+      expect(held.labels).toEqual([
+        'recover-guardian-decode',
+        'recover-guardian-decode',
+        'recover-guardian-adopt',
+        'recover-guardian-adopt'
+      ]);
       expect(adopt.mock.calls.map(([c, a]) => [c, (a as any).id().toString()])).toEqual([
         [fakeMidenClient, 'recovered-a'],
         [fakeMidenClient, 'recovered-b']
@@ -2569,6 +2602,55 @@ describe('MidenClientInterface', () => {
       // Not yet bound, so the endpoint stays routed only once an account is adopted from it.
       expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
       expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses an account whose recovery signer is not the key derived at that index, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, recover, signerSlots } = await setupRecovery();
+      signerSlots[2] = 'ffff';
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryUnverified'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery verifies every match of every index before adopting any', async () => {
+      const { insert, scripted, events, recover } = await setupRecovery();
+      scripted.push([3]);
+      let seed = 0;
+      const sks: unknown[] = [];
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation(() => {
+        const sk = {
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
+            toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
+            free: jest.fn()
+          }),
+          serialize: () => new Uint8Array([0xcc, seed++])
+        };
+        sks.push(sk);
+        return sk;
+      });
+
+      const recovered = await recover();
+
+      expect(recovered.map(r => r.hdIndex)).toEqual([0, 0, 1]);
+      expect(events.indexOf('adopt')).toBeGreaterThan(events.lastIndexOf('verify'));
+      expect(events.filter(e => e === 'adopt')).toHaveLength(3);
+      const inserted = insert.mock.calls.map(call => (call as unknown[])[1]);
+      expect(inserted).toEqual([sks[0], sks[0], sks[1]]);
+    });
+
+    it('seed recovery accepts the recovery signer in any case or prefix', async () => {
+      const { adopt, recover, signerSlots } = await setupRecovery();
+      signerSlots[1] = '0xAaBb';
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(adopt).toHaveBeenCalledTimes(2);
     });
 
     it('recoverGuardianAccountsBySeed releases an endpoint with no account for the seed, never registering it', async () => {
@@ -2659,7 +2741,11 @@ describe('MidenClientInterface', () => {
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
         AuthSecretKey: {
           ecdsaWithRNG: jest.fn(() => ({
-            publicKey: () => ({ serialize: () => new Uint8Array([0, 0xaa, 0xbb]) }),
+            publicKey: () => ({
+              serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
+              toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
+              free: jest.fn()
+            }),
             serialize: () => new Uint8Array([0xcc])
           }))
         }
