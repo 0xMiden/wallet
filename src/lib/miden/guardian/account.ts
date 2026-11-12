@@ -383,6 +383,20 @@ export async function fetchGuardianCreateKey(
   }
 }
 
+export const GUARDIAN_ACCOUNT_SEED_DOMAIN = 'miden-wallet/guardian-account-seed/v1';
+
+/**
+ * The builder's account seed, derived one-way from the cold key's seed so the
+ * seed a new account stores never carries key material.
+ */
+export async function deriveGuardianAccountSeed(coldSeed: Uint8Array): Promise<Uint8Array> {
+  const domain = new TextEncoder().encode(GUARDIAN_ACCOUNT_SEED_DOMAIN);
+  const input = new Uint8Array(domain.length + coldSeed.length);
+  input.set(domain);
+  input.set(coldSeed, domain.length);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+}
+
 /**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
@@ -394,8 +408,9 @@ export async function fetchGuardianCreateKey(
  * @param webClient - The Miden WebClient instance.
  * @param createKey - The guardian's key and rate-limit budget, from
  *   `fetchGuardianCreateKey`.
- * @param coldSeed - HD-derived seed for the cold key. Random if absent (only
- *   appropriate for tests / non-recoverable flows).
+ * @param coldSeed - HD-derived seed for the cold key only; the account's own
+ *   seed is derived from it (`deriveGuardianAccountSeed`). Random if absent
+ *   (only appropriate for tests / non-recoverable flows).
  * @param assertLive - The caller's WASM lock hold re-check. Every WASM call
  *   after a parking await runs it first; an evicted flow is abandoned, not
  *   cancelled, so the poison error it throws leaves here unwrapped.
@@ -412,6 +427,10 @@ export async function createGuardianAccount(
   }
 
   try {
+    // The only await before the keys, re-checked at once so an evicted flow mints nothing.
+    const accountSeed = await deriveGuardianAccountSeed(coldSeed);
+    assertLive('before the keys');
+
     // Cold key — HD-derived, lives in SDK keystore, used for cold-routed flows
     // (rotation, recovery). EcdsaSigner gets the cold AuthSecretKey directly so
     // the create-time deploy proposal is signed by cold; the on-chain account
@@ -448,7 +467,7 @@ export async function createGuardianAccount(
         // select. We only ever passed `true`, so behavior is unchanged.
         storageMode: 'private',
         signatureScheme: 'ecdsa',
-        seed: coldSeed,
+        seed: accountSeed,
         procedureThresholds: [
           {
             procedure: 'update_guardian',
