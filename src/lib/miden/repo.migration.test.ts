@@ -57,12 +57,38 @@ describe('transactions upgrades', () => {
       repo = require('./repo');
     });
 
+    const upgradeIndexes: string[] = [];
+    repo!.db.use({
+      stack: 'dbcore',
+      name: 'upgrade-query-indexes',
+      level: 1,
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== 'transactions') return table;
+          return {
+            ...table,
+            query: request => {
+              upgradeIndexes.push(request.query.index.name ?? '');
+              return table.query(request);
+            },
+            openCursor: request => {
+              upgradeIndexes.push(request.query.index.name ?? '');
+              return table.openCursor(request);
+            }
+          };
+        }
+      })
+    });
+
     const written: string[] = [];
     repo!.transactions.hook('updating', (_mods, primKey) => {
       written.push(String(primKey));
     });
 
     await repo!.db.open();
+    expect(upgradeIndexes).toContain('[badgeNetwork+status+type]');
     const rows = await repo!.transactions.toArray();
     const byId = Object.fromEntries(rows.map(r => [r.id, r]));
     const get = (id: string) => {

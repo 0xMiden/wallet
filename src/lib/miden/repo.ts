@@ -16,7 +16,7 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
@@ -61,6 +61,115 @@ const TRANSACTIONS_V3_2_STORE = indexes(
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
+
+// Types a badge is built from, beside the predicate below. The repo test locks this list to the badge module's union.
+export const BADGE_EVIDENCE_ROW_TYPES: readonly ITransactionType[] = ['send', 'swap', 'consume', 'bridged-receive'];
+
+const BADGE_EVIDENCE_ROW_TYPE_SET: ReadonlySet<string> = new Set(BADGE_EVIDENCE_ROW_TYPES);
+
+// The backfill reader's completed-mainnet check. A recovered receipt still counts when it was restored; an ordinary
+// row does not. The recovered arm is mainnet on `recoveredBadgeNetwork`, the ordinary arm on `badgeNetwork`.
+const suppliesBadgeEvidence = (row: {
+  status?: unknown;
+  type?: unknown;
+  recovered?: unknown;
+  recoveredBadgeNetwork?: unknown;
+  badgeNetwork?: unknown;
+  restoredFromBackup?: unknown;
+}): boolean =>
+  row.status === ITransactionStatus.Completed &&
+  typeof row.type === 'string' &&
+  BADGE_EVIDENCE_ROW_TYPE_SET.has(row.type) &&
+  (row.recovered === true
+    ? row.recoveredBadgeNetwork === 'mainnet'
+    : row.badgeNetwork === 'mainnet' && row.restoredFromBackup !== true);
+
+type BadgeChangeSpec = { [keyPath: string]: unknown };
+
+const revisionFor = (revisions: Map<string, string>, key: unknown): string => {
+  const id = String(key);
+  const existing = revisions.get(id);
+  if (existing !== undefined) return existing;
+  const created = crypto.randomUUID();
+  revisions.set(id, created);
+  return created;
+};
+
+// Eligible values gain one new token. Anything else keeps a caller-supplied token and gains nothing when omitted.
+const withEvidenceRevision = (row: ITransaction, revisions: Map<string, string>): ITransaction => {
+  if (!suppliesBadgeEvidence(row)) return row;
+  return { ...row, badgeEvidenceRevision: revisionFor(revisions, row.id) };
+};
+
+const withoutSharedRevision = (spec: BadgeChangeSpec): BadgeChangeSpec => {
+  if (!Object.prototype.hasOwnProperty.call(spec, 'badgeEvidenceRevision')) return spec;
+  const rest: BadgeChangeSpec = {};
+  for (const [key, value] of Object.entries(spec)) {
+    if (key !== 'badgeEvidenceRevision') rest[key] = value;
+  }
+  return rest;
+};
+
+const mergedBadgeRow = (stored: unknown, changes: BadgeChangeSpec) => {
+  if (typeof stored !== 'object' || stored === null) return undefined;
+  const read = (key: string): unknown =>
+    Object.prototype.hasOwnProperty.call(changes, key) ? changes[key] : Reflect.get(stored, key);
+  return {
+    status: read('status'),
+    type: read('type'),
+    recovered: read('recovered'),
+    recoveredBadgeNetwork: read('recoveredBadgeNetwork'),
+    badgeNetwork: read('badgeNetwork'),
+    restoredFromBackup: read('restoredFromBackup')
+  };
+};
+
+const reviseTransactionPut = (
+  coreTable: DBCoreTable,
+  req: Extract<Parameters<DBCoreTable['mutate']>[0], { type: 'put' }>
+): Promise<DBCoreMutateResponse> => {
+  const write = (values: readonly ITransaction[], updates: typeof req.updates) => {
+    const changeSpec = req.changeSpec && withoutSharedRevision(req.changeSpec);
+    return coreTable.mutate({
+      ...req,
+      values,
+      ...(updates && { updates }),
+      ...(changeSpec && { changeSpec })
+    });
+  };
+  const perKey = req.updates;
+  if (!perKey) {
+    const revisions = new Map<string, string>();
+    return write(
+      req.values.map((row: ITransaction) => withEvidenceRevision(row, revisions)),
+      undefined
+    );
+  }
+  // The stored row is read on this mutate's transaction. A shared changeSpec is not this path: modify already
+  // merged it into `values`, and reading again would add a second getMany beside the one modify counts.
+  return coreTable.getMany({ trans: req.trans, keys: perKey.keys }).then(stored => {
+    const revisions = new Map<string, string>();
+    const eligibleIds = new Set<string>();
+    const judgedIds = new Set<string>();
+    const changeSpecs = perKey.changeSpecs.map((changes, index) => {
+      const key = perKey.keys[index];
+      const merged = mergedBadgeRow(stored[index], changes);
+      if (merged === undefined) return changes;
+      const id = String(key);
+      judgedIds.add(id);
+      if (!suppliesBadgeEvidence(merged)) return changes;
+      eligibleIds.add(id);
+      return { ...changes, badgeEvidenceRevision: revisionFor(revisions, key) };
+    });
+    const values = req.values.map((row: ITransaction) => {
+      const id = String(row.id);
+      if (!judgedIds.has(id)) return withEvidenceRevision(row, revisions);
+      if (!eligibleIds.has(id)) return row;
+      return { ...row, badgeEvidenceRevision: revisionFor(revisions, row.id) };
+    });
+    return write(values, { ...perKey, changeSpecs });
+  });
+};
 
 /**
  * Declares every version this app has ever shipped, against whichever Dexie instance it is
@@ -273,6 +382,9 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  // v3.2 - a local revision for rows the badge backfill can read. The v3.1 index selects completed mainnet
+  // rows of those types; a restored ordinary row is in that index and is declined, so its result blob stays put.
+  // Recovered rows have no network stamp on a database that predates this schema, and no index selects them.
   target
     .version(3.2)
     .stores({
@@ -282,9 +394,13 @@ function defineSchema(target: Dexie): void {
     .upgrade(async (tx: Transaction) => {
       await tx.db
         .table<ITransaction, string>(Table.Transactions)
-        .toCollection()
+        .where('[badgeNetwork+status+type]')
+        .anyOf(BADGE_EVIDENCE_ROW_TYPES.map(type => ['mainnet', ITransactionStatus.Completed, type]))
         .modify(row => {
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (!suppliesBadgeEvidence(row)) return false;
           row.badgeEvidenceRevision = crypto.randomUUID();
+          return undefined;
         });
     });
 
@@ -302,54 +418,20 @@ function defineSchema(target: Dexie): void {
         return {
           ...table,
           mutate: req => {
-            let mutation = req;
             if (req.type === 'add') {
               const rows: readonly ITransaction[] = req.values;
               const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
               if (unplaceable !== undefined) {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
-              mutation = {
-                ...req,
-                values: req.values.map((row: ITransaction) => ({
-                  ...row,
-                  badgeEvidenceRevision: crypto.randomUUID()
-                }))
-              };
-            } else if (req.type === 'put') {
               const revisions = new Map<string, string>();
-              const revisionFor = (key: unknown) => {
-                const id = String(key);
-                let revision = revisions.get(id);
-                if (!revision) {
-                  revision = crypto.randomUUID();
-                  revisions.set(id, revision);
-                }
-                return revision;
-              };
-              const values = req.values.map((row: ITransaction) => ({
-                ...row,
-                badgeEvidenceRevision: revisionFor(row.id)
-              }));
-              const updates = req.updates && {
-                ...req.updates,
-                changeSpecs: req.updates.changeSpecs.map((changes, index) => ({
-                  ...changes,
-                  badgeEvidenceRevision: revisionFor(req.updates!.keys[index])
-                }))
-              };
-              const changeSpec = req.changeSpec && {
-                ...req.changeSpec,
-                badgeEvidenceRevision: crypto.randomUUID()
-              };
-              mutation = {
+              return table.mutate({
                 ...req,
-                values,
-                ...(updates && { updates }),
-                ...(changeSpec && { changeSpec })
-              };
+                values: rows.map(row => withEvidenceRevision(row, revisions))
+              });
             }
-            return table.mutate(mutation);
+            if (req.type === 'put') return reviseTransactionPut(table, req);
+            return table.mutate(req);
           }
         };
       }

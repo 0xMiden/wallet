@@ -22,6 +22,7 @@ import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
+import { backfillWalletBadges } from './backfill';
 import { BadgeIssuanceManager } from './BadgeIssuanceManager';
 import { BADGE_STORAGE_KEY, type BadgeId } from './types';
 import { __resetBadgeBackfillScanForTests } from './useBadgeBackfill';
@@ -42,6 +43,10 @@ let mockBalances: Record<string, TokenBalanceData[]> = {};
 const mockBalanceListeners = new Set<
   (state: { balances: typeof mockBalances }, previous: { balances: typeof mockBalances }) => void
 >();
+jest.mock('./backfill', () => {
+  const actual = jest.requireActual<typeof import('./backfill')>('./backfill');
+  return { ...actual, backfillWalletBadges: jest.fn(actual.backfillWalletBadges) };
+});
 jest.mock('lib/store', () => ({
   useWalletStore: {
     getState: () => ({ balances: mockBalances }),
@@ -223,6 +228,16 @@ it('reads badge candidates through the bounded local provenance indexes', async 
 
 it('invalidates the bounded history scan when an existing row gains badge evidence', async () => {
   const toArray = jest.spyOn(Repo.db.Collection.prototype, 'toArray');
+  const scan = jest.mocked(backfillWalletBadges);
+  const finishScan = async () => {
+    await waitFor(() => expect(scan).toHaveBeenCalled());
+    const result = scan.mock.results.at(-1);
+    if (!result || result.type !== 'return') throw new Error('History scan did not return');
+    await act(async () => {
+      await result.value;
+    });
+    scan.mockClear();
+  };
   try {
     await Repo.transactions.add(
       row({
@@ -234,27 +249,21 @@ it('invalidates the bounded history scan when an existing row gains badge eviden
     );
 
     const firstVisit = render(<MyBadges />);
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 25));
-    });
+    await finishScan();
     expect(mockWrite).not.toHaveBeenCalled();
     const firstReadCount = toArray.mock.calls.length;
     expect(firstReadCount).toBeGreaterThan(0);
     firstVisit.unmount();
 
     const unchangedVisit = render(<MyBadges />);
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 25));
-    });
+    await finishScan();
     expect(mockWrite).not.toHaveBeenCalled();
     expect(toArray).toHaveBeenCalledTimes(firstReadCount);
     mockResetListener();
     unchangedVisit.unmount();
 
     const clearedVisit = render(<MyBadges />);
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 25));
-    });
+    await finishScan();
     expect(mockWrite).not.toHaveBeenCalled();
     const clearedReadCount = toArray.mock.calls.length;
     expect(clearedReadCount).toBeGreaterThan(firstReadCount);

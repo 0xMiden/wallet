@@ -10,9 +10,11 @@ import {
 } from 'lib/telemetry/crash-diagnostics';
 
 import { badgesFromHistory } from '../badges/backfill';
+import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
 import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
+  BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
   db,
   exportDb,
@@ -100,8 +102,8 @@ describe('miden repo export/import', () => {
     await importDb(await exportDb());
 
     const [restored] = await transactions.toArray();
-    // Import drops local badge provenance and assigns a fresh local revision.
-    expect(restored).toEqual({ ...original, restoredFromBackup: true, badgeEvidenceRevision: expect.any(String) });
+    // Import drops local badge provenance. This swap names no mainnet network, so it stores no revision.
+    expect(restored).toEqual({ ...original, restoredFromBackup: true });
   });
 
   // A row carries BigInt in more places than the top-level `amount`: `assetTotals`
@@ -525,8 +527,7 @@ describe('miden repo export/import', () => {
 
     const [restored] = await transactions.toArray();
     expect(restored).not.toHaveProperty('recoveredBadgeNetwork');
-    expect(restored!.badgeEvidenceRevision).toEqual(expect.any(String));
-    expect(restored!.badgeEvidenceRevision).not.toBe('backup-token');
+    expect(restored).not.toHaveProperty('badgeEvidenceRevision');
     expect(badgesFromHistory([restored!], ['victim'], ['first-send'])).toEqual([]);
   });
 
@@ -1125,6 +1126,11 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 });
 
 describe('writing a transaction row', () => {
+  it('locks badge evidence row types to the badge reader union', () => {
+    const union = [...new Set(Object.values(BADGE_EVIDENCE_TYPES).flat())].sort();
+    expect([...BADGE_EVIDENCE_ROW_TYPES].sort()).toEqual(union);
+  });
+
   it('upgrades a populated v3 store without losing transaction blobs or spending limits', async () => {
     const name = `badge-index-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const seed = new Dexie(name);
@@ -1152,7 +1158,7 @@ describe('writing a transaction row', () => {
       expect(upgraded.verno).toBe(3.2);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
-      expect(upgradedLegacy?.badgeEvidenceRevision).toEqual(expect.any(String));
+      expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
       expect(
         await upgraded
           .table(Table.Transactions)
@@ -1209,8 +1215,10 @@ describe('writing a transaction row', () => {
         )
         .primaryKeys()
     ).toEqual(['badge-recovered']);
-    expect(await transactions.get('badge-legacy')).toMatchObject(old);
-    expect((await transactions.get('badge-legacy'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(await transactions.get('badge-legacy')).toEqual(old);
+    expect(await transactions.get('badge-testnet')).not.toHaveProperty('badgeEvidenceRevision');
+    expect((await transactions.get('badge-mainnet'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect((await transactions.get('badge-recovered'))?.badgeEvidenceRevision).toEqual(expect.any(String));
   });
 
   it('refreshes row revisions on add, update, and put while retaining the issuer index', async () => {
@@ -1903,11 +1911,8 @@ describe('wallet storage rejection boundaries', () => {
           expect(consumed).toBe(true);
           const consumedRow = await target.table(table).get('consumed-success');
           expect(consumedRow).toMatchObject(row('consumed-success'));
-          expect(Boolean(consumedRow?.badgeEvidenceRevision)).toBe(instrumented && table === Table.Transactions);
+          expect(consumedRow).not.toHaveProperty('badgeEvidenceRevision');
           const rows = await target.table(table).toArray();
-          if (table === Table.Transactions) {
-            for (const entry of rows) delete entry.badgeEvidenceRevision;
-          }
           outcomes.push({
             scalar: scalar.name,
             inner: scalar.inner.name,

@@ -8,6 +8,7 @@
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
+- [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
 
 ## 1.17.11 (2026-11-09)
 
