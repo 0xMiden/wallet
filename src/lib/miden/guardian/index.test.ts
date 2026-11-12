@@ -2945,7 +2945,7 @@ describe('MultisigService', () => {
         const multisig = makeMultisig({ threshold: 1 });
         const initialized = await initRotationService(multisig);
         const service = new MultisigService(
-          multisig,
+          initialized.service.multisig,
           initialized.service.client,
           'https://x',
           new WalletSigner('recovery-pub', recovery, async () => 'sig')
@@ -2976,7 +2976,7 @@ describe('MultisigService', () => {
         const multisig = makeMultisig({ threshold: 1 });
         const initialized = await initRotationService(multisig);
         const service = new MultisigService(
-          multisig,
+          initialized.service.multisig,
           initialized.service.client,
           'https://x',
           new WalletSigner('recovery-pub', recovery, async () => 'sig')
@@ -2995,7 +2995,7 @@ describe('MultisigService', () => {
       it('refuses replacement when the service has no recovery key', async () => {
         const multisig = makeMultisig({ threshold: 1 });
         const initialized = await initRotationService(multisig);
-        const service = new MultisigService(multisig, initialized.service.client, 'https://x');
+        const service = new MultisigService(initialized.service.multisig, initialized.service.client, 'https://x');
         mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: added.slice(2) });
 
         await expect(service.createReplaceHotKeyProposal(initialized.account, newHot)).rejects.toThrow(
