@@ -77,6 +77,12 @@ it('arms one actual account/note/canonical-byte scope with a fresh nonce and no 
   const armed = await armMainnetConsumeAuthorization(page, scope);
   expect(armed).toEqual({ ...scope, nonce: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(data[KEY]).toEqual({ ...armed, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: armed.accountId, nonce: armed.nonce });
+});
+it('never renews original claim authority when only its policy disappeared', async () => {
+  data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
+  await expect(armMainnetConsumeAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
+  expect(data[KEY]).toBeUndefined();
 });
 for (const status of ['armed', 'waiting', 'spent'])
   it(`does not replace ${status} authority and accidentally retry a funded claim`, async () => {

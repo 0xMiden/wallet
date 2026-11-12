@@ -95,6 +95,12 @@ it('arms exactly the existing payer and signed native route with a fresh nonce',
   const actual = await armMainnetSendAuthorization(page, scope);
   expect(actual).toEqual({ ...scope, nonce: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(data[KEY]).toEqual({ ...actual, status: 'armed' });
+  expect(data[`${KEY}_required`]).toEqual({ accountId: actual.accountId, nonce: actual.nonce });
+});
+it('never renews original authority when only its policy disappeared', async () => {
+  data[`${KEY}_required`] = { accountId: handle.accountId, nonce: handle.nonce };
+  await expect(armMainnetSendAuthorization(page, scope)).rejects.toThrow(/unresolved|existing|authorization/i);
+  expect(data[KEY]).toBeUndefined();
 });
 for (const status of ['armed', 'waiting', 'spent'])
   it(`never replaces an existing ${status} send authority`, async () => {

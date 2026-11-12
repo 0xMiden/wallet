@@ -81,6 +81,21 @@ it('preserves ordinary E2E consumes when no mainnet claim gate is armed', async 
   expect(serialize).not.toHaveBeenCalled();
   expect(set).not.toHaveBeenCalled();
 });
+it('fails closed before inspecting bytes when an explicitly armed claim policy disappeared', async () => {
+  data = { [`${KEY}_required`]: { accountId: account, nonce } };
+  await expect(run()).rejects.toThrow(/missing|authorization/i);
+  expect(serialize).not.toHaveBeenCalled();
+  expect(set).not.toHaveBeenCalled();
+});
+it.each([{ accountId: account, nonce: 'foreign' }, { accountId: 'foreign', nonce }])(
+  'rejects a claim policy detached from its original required scope: %j',
+  async required => {
+    data[`${KEY}_required`] = required;
+    const outcome = run().then(() => 'released', () => 'blocked');
+    expect(await Promise.race([outcome, observed.then(() => 'waiting')])).toBe('blocked');
+    expect(serialize).not.toHaveBeenCalled();
+  }
+);
 for (const invalid of [
   null,
   { ...policy(), nonce: '' },
@@ -157,6 +172,7 @@ it('never overwrites a replacement consume authority installed during asynchrono
   expect(data[KEY]).toEqual(replacement);
 });
 it('holds the actual request and publishes ONLY digests until its exact release, then consumes authority once', async () => {
+  data[`${KEY}_required`] = { accountId: account, nonce };
   let finished = false;
   const promise = run().then(() => {
     finished = true;
