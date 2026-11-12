@@ -75,8 +75,6 @@ import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
-import { awaitTestConsumeAuthorization } from './test-consume-authorization';
-import { awaitTestSendAuthorization } from './test-send-authorization';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
@@ -115,6 +113,8 @@ import {
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { awaitTestConsumeAuthorization } from './test-consume-authorization';
+import { awaitTestSendAuthorization } from './test-send-authorization';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';

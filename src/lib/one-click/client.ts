@@ -1,8 +1,8 @@
 import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
-import { expectedOneClickFees } from './fees';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
+import { expectedOneClickFees } from './fees';
 import {
   assertOneClickAssetIdentity,
   isOneClickNativeAssetId,

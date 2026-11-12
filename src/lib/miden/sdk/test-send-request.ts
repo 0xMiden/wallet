@@ -10,6 +10,7 @@ import {
   TransactionRequest,
   TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk/lazy';
+
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 
 export interface TestMainnetSendScope {
