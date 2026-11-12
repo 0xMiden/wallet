@@ -181,6 +181,7 @@ function refundFile(options = {}) {
 test('validates the exact matured original P2IDE collateral bytes before a refund, without fresh authority', () => {
   const input = refundFile();
   assert.equal(inspectEpochRefundNote(input.snapshot, input.bytes, 7200), BigInt(input.snapshot.principal));
+  assert.equal(mainnetConsumeRequestHash(input.bytes), consumeHash(input.bytes));
 });
 for (const [name, options] of [
   ['another collateral sender', { wrongSender: true }], ['another allocator', { selfRecipient: true }],
