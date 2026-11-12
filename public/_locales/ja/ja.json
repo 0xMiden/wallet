@@ -1390,6 +1390,7 @@
   "customTransactionNotSimulated": "このウォレットではこの取引をシミュレートできないため、その動作を表示することはできません。したがって、この取引を承認することはできません。",
   "rawValue": "生データ",
   "opaqueSignatureTitle": "不透明な署名要求",
+  "opaqueSignatureNotATransaction": "この署名では、お客様の口座からの取引を承認することはできません。",
   "opaqueSignatureWarning": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",
   "note": "Note",
   "earnMarketLabel": "市場",

@@ -6364,6 +6364,10 @@
     "message": "不透明簽名請求",
     "englishSource": "Opaque signature request"
   },
+  "opaqueSignatureNotATransaction": {
+    "message": "此簽名無法授權從您的帳戶進行交易。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
   "opaqueSignatureWarning": {
     "message": "此網站要求您簽署一個原始值。錢包無法顯示其授權的內容。請僅在您完全信任此網站的情況下繼續。",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."

@@ -1390,6 +1390,7 @@
   "customTransactionNotSimulated": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it.",
   "rawValue": "Raw value",
   "opaqueSignatureTitle": "Opaque signature request",
+  "opaqueSignatureNotATransaction": "This signature cannot authorize a transaction from your account.",
   "opaqueSignatureWarning": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site.",
   "note": "Note",
   "earnMarketLabel": "Market",
