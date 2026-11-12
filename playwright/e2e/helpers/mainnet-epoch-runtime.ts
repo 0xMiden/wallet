@@ -212,9 +212,13 @@ export async function recoverEpochForward(
 }
 
 export async function persistEpochEvmCheckpoint(
-  _state: MainnetEpochCheckpoint, _path: string, _gatePath: string, _signal: AbortSignal
+  state: MainnetEpochCheckpoint, path: string, gatePath: string, signal: AbortSignal
 ): Promise<void> {
-  throw new Error('Durable per-transaction Epoch upload coordination is not implemented');
+  state.updatedAt = new Date().toISOString();
+  saveMainnetEpochCheckpoint(path, state);
+  const transactions = state.transactions;
+  if (transactions?.length && transactions.at(-1)?.feeWei === undefined)
+    await awaitMainnetLoopAuthorization(path, `${gatePath}.evm-${transactions.length}`, signal);
 }
 
 /** Uses the existing EVM key only after the live UI's exact return authorization has been uploaded. */
@@ -302,7 +306,8 @@ export async function runEpochReverse(
               estimateGas: input => client.estimateGas(input), estimateFeesPerGas: () => client.estimateFeesPerGas(),
               sendRawTransaction: input => client.sendRawTransaction(input),
               waitForTransactionReceipt: input => client.waitForTransactionReceipt(input) },
-            sign: transaction => evm.signTransaction({ ...transaction, type: 'eip1559' }), persist
+            sign: transaction => evm.signTransaction({ ...transaction, type: 'eip1559' }),
+            persist: saved => persistEpochEvmCheckpoint(saved, path, gatePath, activeSignal)
           });
         }
         return await sender.send(transaction, activeSignal);

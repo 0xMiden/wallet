@@ -9,24 +9,31 @@ function validateProvider(provider) {
   if (!['swap', 'epoch', 'near'].includes(provider)) throw new Error('Invalid mainnet loop provider');
 }
 
-export function swapStepAttempted(jobs, leg, provider = 'swap') {
-  validateProvider(provider);
+function stepAttempted(jobs, names) {
   if (!Array.isArray(jobs?.jobs)) throw new Error('Invalid workflow jobs response');
   return jobs.jobs.some(job =>
     (job.steps ?? []).some(
       step =>
-        (step.name === `Run mainnet ${provider} ${leg}` ||
-          (provider === 'near' && step.name === 'Run funded 1Click swap-out and swap-back acceptance')) &&
+        names.includes(step.name) &&
         ['in_progress', 'completed'].includes(step.status) &&
         step.conclusion !== 'skipped'
     )
   );
 }
 
+export function swapStepAttempted(jobs, leg, provider = 'swap') {
+  validateProvider(provider);
+  return stepAttempted(jobs, [`Run mainnet ${provider} ${leg}`,
+    ...(provider === 'near' ? ['Run funded 1Click swap-out and swap-back acceptance'] : [])]);
+}
+
 export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
   validateProvider(provider);
   const prefix = provider === 'near' ? '1click' : provider;
-  const stages = ['final', ...(provider === 'swap' ? [] : ['refund-authorized', 'return-authorized']), 'reverse-authorized', 'forward-authorized'];
+  const signed = provider === 'swap' ? [] : Array.from({ length: provider === 'epoch' ? 3 : 1 },
+    (_, index) => `reverse-signed-${index + 1}`).reverse();
+  const reverseStages = [...(provider === 'swap' ? [] : ['return-authorized', ...signed]), 'reverse-authorized'];
+  const stages = ['final', ...(provider === 'swap' ? [] : ['refund-authorized']), ...reverseStages, 'forward-authorized'];
   if (provider === 'near') stages.push('execute-started', 'preflight');
   for (const run of [...runs].sort((a, b) => b.id - a.id)) {
     if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
@@ -36,6 +43,17 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     const has = stage => artifacts.artifacts.some(artifact => artifact.name === `mainnet-${prefix}-${stage}-${run.id}`);
     if (provider !== 'swap' && !has('final') && has('return-authorized') && has('refund-authorized'))
       throw new Error(`Contradictory mainnet ${provider} return and refund authorization`);
+    const jobs = has('final') ? { jobs: [] } : await getJobs(run.id);
+    if (!has('final')) {
+      if (stepAttempted(jobs, [`Run mainnet ${provider} reverse`]) && !reverseStages.some(has))
+        throw new Error(`Recovery checkpoint missing for attempted mainnet ${provider} reverse; refusing a forward downgrade`);
+      for (const [index, stage] of signed.entries()) {
+        const number = stage.slice('reverse-signed-'.length);
+        if (stepAttempted(jobs, [`Upload mainnet ${provider} signed EVM ${number}`]) &&
+            !['return-authorized', ...signed.slice(0, index + 1)].some(has))
+          throw new Error(`Signed mainnet ${provider} journal missing after upload stage ${number}; refusing an older authority`);
+      }
+    }
     for (const stage of stages) {
       const name = `mainnet-${prefix}-${stage}-${run.id}`;
       const matching = artifacts.artifacts.filter(artifact => artifact.name === name);
@@ -47,7 +65,6 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
         return { runId: run.id, name, bootstrap: false };
       }
     }
-    const jobs = await getJobs(run.id);
     if (swapStepAttempted(jobs, 'forward', provider) || swapStepAttempted(jobs, 'reverse', provider)) {
       throw new Error(
         `Recovery checkpoint missing for potentially funded run ${run.id}; refusing an older complete checkpoint`

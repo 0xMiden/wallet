@@ -57,13 +57,23 @@ jobs:
           try {
             const html = await boundedText(await fetch('https://explorer.mainnet.miden.io', { signal: AbortSignal.timeout(10000) }));
             if (!html.includes(`"GRAPHQL_URL":"${url}"`) || !html.includes('"MIDEN_NETWORK":"mainnet"')) throw new Error('Public explorer configuration changed');
-            const shape = 'name kind enumValues{name} fields{name args{name type{kind name ofType{kind name ofType{kind name}}}} type{kind name ofType{kind name ofType{kind name}}}} inputFields{name type{kind name ofType{kind name ofType{kind name}}}}';
-            const names = ['OrderBy', 'TransactionsSortBy', 'NotesSortBy', 'TransactionConnection', 'TransactionEdge', 'PageInfo', 'Block', 'BlockInput'];
-            const query = `{${names.map(name => `${name}:__type(name:"${name}"){${shape}}`).join(' ')}}`;
-            const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ query }), signal: AbortSignal.timeout(10000) });
-            const json = JSON.parse(await boundedText(response));
-            console.log(JSON.stringify({ url, status: response.status, errors: json.errors?.length ?? 0,
-              types: json.data ?? {} }));
+            async function read(query, variables = {}) {
+              const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(10000) });
+              const json = JSON.parse(await boundedText(response));
+              if (!response.ok || json.errors?.length) throw new Error('Public metadata query refused');
+              return json.data;
+            }
+            const latest = await read('{transactions(first:1,input:{order_by:desc,sort_by:timestamp}){edges{node{transaction_id account_bech block_number}}}}');
+            const sample = latest.transactions.edges[0]?.node;
+            if (!sample) throw new Error('No public sample transaction');
+            const query = `query($id:DigestString!,$account:String!,$height:BigIntNumber!){
+              transaction(input:{transaction_id:$id}){transaction_id account_bech block_number}
+              transactions(first:2,input:{account_bech:$account,block_number:$height,order_by:asc,sort_by:timestamp}){
+                edges{node{transaction_id account_bech block_number}} pageInfo{hasNextPage}}
+              notes(first:100,input:{sender:$account,block_number:$height,order_by:asc,sort_by:timestamp}){
+                edges{node{note_id sender block_number}} pageInfo{hasNextPage}}}`;
+            const metadata = await read(query, { id: sample.transaction_id, account: sample.account_bech, height: sample.block_number });
+            console.log(JSON.stringify({ url, metadata, purpose: 'Public transaction/note ID correlation probe only; not funded loop acceptance' }));
           } catch { console.log(JSON.stringify({ url, status: 'unavailable' })); }
           NODE
