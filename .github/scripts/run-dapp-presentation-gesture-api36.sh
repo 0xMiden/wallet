@@ -66,6 +66,10 @@ done
 adb shell svc power stayon true
 adb shell settings put system screen_off_timeout 2147483647
 adb shell wm dismiss-keyguard
+# Acknowledge the first-use system overlay before the live fixture owns the screen.
+timeout 15s adb shell settings put secure immersive_mode_confirmations confirmed
+timeout 15s adb shell settings get secure immersive_mode_confirmations > "$results_dir/immersive-confirmation.txt"
+grep -qxF confirmed <(tr -d '\r' < "$results_dir/immersive-confirmation.txt")
 adb shell getprop ro.build.fingerprint > "$results_dir/emulator-fingerprint.txt"
 sha256sum android/app/build/outputs/apk/debug/app-debug.apk \
   android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > "$results_dir/apk-sha256.txt"
