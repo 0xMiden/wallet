@@ -5,7 +5,8 @@ import { parseBridgeConfig } from '../../../../src/lib/remote-config/schema';
 import { test } from '../../fixtures/two-wallets';
 import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from '../../helpers/balance-truth';
 import { loadMainnetEpochCheckpoint, saveMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from '../../helpers/mainnet-epoch-checkpoint';
-import { prepareEpochRoundTrip } from '../../helpers/mainnet-epoch-provider';
+import { epochReadOnlyProvider, prepareEpochRoundTrip } from '../../helpers/mainnet-epoch-provider';
+import { recoverEpochForward, recoverEpochReturn, runEpochRefund } from '../../helpers/mainnet-epoch-runtime';
 import { planEpochRoundTrip } from '../../helpers/mainnet-epoch-ui';
 import { remainingMainnetLoopBudget } from '../../helpers/mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
@@ -30,12 +31,40 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     throw new Error('Epoch requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetEpochCheckpoint(STATE_PATH);
   if (mode === 'recover') {
-    if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
-      throw new Error('Pending Epoch authorization requires correlated recovery before any fresh spend');
+    if (!previous || ['complete', 'unspent', 'cancelled'].includes(previous.phase)) {
+      writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
+      return;
+    }
+    if (previous.consumeAuthority || previous.returnMidenTxId)
+      throw new Error('Original native claim authorization has an unresolved outcome; never retry it');
+    const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
+    if (!keyPair) throw new Error('Existing funded Guardian key pair is required for Epoch recovery');
+    await restoreMainnetLoopGuardian(walletB, keyPair);
+    if (await walletB.getAccountAddress() !== previous.account) throw new Error('Epoch recovery Guardian account changed');
+    const signal = AbortSignal.timeout(1_100_000);
+    if (previous.transactions?.length) {
+      await recoverEpochReturn(walletB, previous, STATE_PATH, `${STATE_PATH}.recover`, signal);
+    } else {
+      if (previous.forwardReceived) throw new Error('Original Epoch proceeds require bounded reverse-stage recovery; no fresh deposit is authorized');
+      if (!previous.forwardAuthority || !previous.forwardNoteId)
+        throw new Error('Missing exact original collateral authorization; submission outcome is ambiguous');
+      const provider = epochReadOnlyProvider(previous.allocatorUrl, previous.virtualChainId, previous.evm.account);
+      const status = await provider.sdk.getIntentStatus(provider.config, previous.evm.account, previous.forwardNonce);
+      if (!Array.isArray(status)) throw new Error('Unknown original Epoch settlement status; do not refund or retry');
+      if (status.some(leg => leg.chainId === previous.evm.chainId && ['success', 'completed'].includes(leg.status))) {
+        await recoverEpochForward(walletB, previous, STATE_PATH, signal);
+        throw new Error('Epoch proceeds reconciled; bounded original reverse-stage recovery is required');
+      }
+      if (await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl) < previous.forwardAuthority.reclaimHeight)
+        throw new Error('Original Epoch collateral is still pending before reclaim maturity');
+      await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
+    }
+    writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: true,
+      sourceRunId: previous.sourceRunId })}\n`);
     return;
   }
-  // shortcut: funded stages stay disabled until their correlated receipt and recovery drivers are wired.
-  if (mode !== 'prepare') throw new Error('Epoch funded stage is not yet enabled');
+  // shortcut: fresh funded stages stay disabled until recovery and the all-provider workflow barrier are complete.
+  if (mode !== 'prepare') throw new Error('Epoch fresh funded stage is not yet enabled');
   if (previous && !['complete', 'unspent', 'cancelled'].includes(previous.phase))
     throw new Error('Cannot replace an unresolved Epoch authorization');
   if (previous?.sourceRunId === runId) throw new Error('Epoch authorization already exists for this run');
