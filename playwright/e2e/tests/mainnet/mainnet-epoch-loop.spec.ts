@@ -42,7 +42,9 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
     await restoreMainnetLoopGuardian(walletB, keyPair);
     if (await walletB.getAccountAddress() !== previous.account) throw new Error('Epoch recovery Guardian account changed');
     const signal = AbortSignal.timeout(1_100_000);
-    if (previous.transactions?.length) {
+    if (previous.returnMidenTxId && previous.returnNoteId === previous.forwardNoteId) {
+      await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
+    } else if (previous.transactions?.length) {
       await recoverEpochReturn(walletB, previous, STATE_PATH, `${STATE_PATH}.recover`, signal);
     } else {
       if (previous.forwardReceived) throw new Error('Original Epoch proceeds require bounded reverse-stage recovery; no fresh deposit is authorized');

@@ -442,8 +442,14 @@ export async function runEpochRefund(
   wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, gatePath: string, signal: AbortSignal
 ): Promise<void> {
   if (!state.forwardNoteId || !state.forwardAuthority || state.forwardReceived || state.transactions?.length ||
-      state.consumeAuthority || state.returnMidenTxId ||
       await wallet.getAccountAddress() !== state.account) throw new Error('Epoch refund requires original unresolved collateral only');
+  if (state.returnMidenTxId) {
+    if (!isHash(state.returnMidenTxId) || !state.consumeAuthority || state.returnNoteId !== state.forwardNoteId)
+      throw new Error('Missing original actual collateral refund receipt');
+    await finishEpochRefund(wallet, state, path);
+    return;
+  }
+  if (state.consumeAuthority) throw new Error('Original refund authorization has an unknown outcome; never retry');
   const noteId = state.forwardNoteId;
   const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
   const account = getAddress(state.evm.account);
@@ -497,6 +503,15 @@ export async function runEpochRefund(
         canonicalMainnetLoopFaucet(receipt.feeFaucetId) !== state.native.hex) throw new Error('Missing actual Epoch refund fee receipt');
     state.paidMidenFees = (BigInt(state.paidMidenFees) + BigInt(receipt.feeAmount)).toString();
     state.returnMidenTxId = receipt.transactionId;
+    await finishEpochRefund(wallet, state, path);
+  } catch (error) { state.phase = 'recovery-required'; await persist(); throw error; }
+}
+
+async function finishEpochRefund(wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string): Promise<void> {
+    const account = getAddress(state.evm.account);
+    const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
+    const tokenBalance = () => client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] });
+    const persist = async () => { state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state); };
     await wallet.refreshBalancesLanded(90_000);
     const native = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
     const evmToken = await tokenBalance(); const evmNative = await client.getBalance({ address: account });
@@ -507,5 +522,4 @@ export async function runEpochRefund(
       usdMicros: BigInt(state.native.usdMicros), before: BigInt(state.native.balance), after: native }]).toString();
     if (BigInt(state.realizedCostUsdMicros) > BigInt(state.lossBudgetUsdMicros)) throw new Error('Epoch refund exceeds original loss allowance');
     state.phase = 'cancelled'; await persist();
-  } catch (error) { state.phase = 'recovery-required'; await persist(); throw error; }
 }
