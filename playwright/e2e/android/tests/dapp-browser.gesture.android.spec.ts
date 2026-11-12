@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 
+import type { PresentationMorphEvent } from '@miden/dapp-browser';
 import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
 
@@ -17,6 +18,8 @@ const execFileAsync = promisify(execFile);
 const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const PACKAGE = 'com.miden.wallet';
 const OUTPUT = 'test-results-presentation-gesture';
+const NATIVE_MORPH_PREFIX = '__DAPP_GESTURE_NATIVE_MORPH__';
+const SEGMENT_STEPS = 50;
 let commandId = 0;
 
 interface Point {
@@ -128,6 +131,8 @@ test.describe('API36 managed presentation gestures', () => {
   let driver: DappBrowserDriver;
   let sessionId: string;
   let pid: string;
+  const nativeEvents: Array<{ atMs: number; event: PresentationMorphEvent }> = [];
+  let stopConsole: (() => void) | undefined;
 
   test.beforeAll(async () => {
     await mkdir(OUTPUT, { recursive: true });
@@ -195,11 +200,65 @@ test.describe('API36 managed presentation gestures', () => {
     const session = await driver.foregroundSession();
     if (!session) throw new Error('No live managed fixture session');
     sessionId = session.id;
+    stopConsole = host.onConsoleLog(entry => {
+      if (!entry.text.startsWith(NATIVE_MORPH_PREFIX)) return;
+      try {
+        const event: PresentationMorphEvent = JSON.parse(entry.text.slice(NATIVE_MORPH_PREFIX.length));
+        if (
+          event?.id === sessionId &&
+          typeof event.morphId === 'string' &&
+          event.morphId.startsWith('native-') &&
+          typeof event.managedHostCloseToken === 'string' &&
+          event.managedHostCloseToken.length > 0 &&
+          ['started', 'retargeted', 'settled', 'cancelled'].includes(event.phase) &&
+          ['expanded', 'collapsed'].includes(event.target) &&
+          typeof event.tracking === 'boolean' &&
+          Number.isFinite(event.progress) &&
+          Number.isFinite(event.velocity) &&
+          Number.isSafeInteger(event.visibilitySequence)
+        ) {
+          nativeEvents.push({ atMs: Date.now(), event });
+        }
+      } catch {
+        // Ignore unrelated or malformed console messages, never use them as tracking evidence.
+      }
+    });
+    const observer = await host.evalAsync<{ ok: boolean; error?: string }>(`
+      var done = arguments[arguments.length - 1];
+      var plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.InAppBrowser;
+      if (!plugin || typeof plugin.addListener !== 'function') {
+        done({ ok: false, error: 'Native presentation event listener is unavailable' });
+        return;
+      }
+      plugin.addListener('presentationMorph', function (event) {
+        console.info(${JSON.stringify(NATIVE_MORPH_PREFIX)} + JSON.stringify(event));
+      }).then(function (handle) {
+        window.__gestureNativeObserver = handle;
+        done({ ok: true });
+      }, function (error) { done({ ok: false, error: String(error.message) }); });
+    `);
+    expect(observer.ok, observer.error).toBe(true);
   });
 
   test.afterAll(async () => {
-    const cleanup = await Promise.allSettled([page?.close(), host?.close(), fixture?.stop()]);
-    if (cleanup.some(result => result.status === 'rejected')) throw new Error('Gesture fixture cleanup failed');
+    try {
+      if (host) {
+        const removed = await host.evalAsync<{ ok: boolean; error?: string }>(`
+          var done = arguments[arguments.length - 1];
+          var handle = window.__gestureNativeObserver;
+          if (!handle) { done({ ok: true }); return; }
+          handle.remove().then(function () {
+            delete window.__gestureNativeObserver;
+            done({ ok: true });
+          }, function (error) { done({ ok: false, error: String(error.message) }); });
+        `);
+        expect(removed?.ok, removed?.error).toBe(true);
+      }
+    } finally {
+      stopConsole?.();
+      const cleanup = await Promise.allSettled([page?.close(), host?.close(), fixture?.stop()]);
+      if (cleanup.some(result => result.status === 'rejected')) throw new Error('Gesture fixture cleanup failed');
+    }
   });
 
   for (const family of ['capsule', 'predictive'] as const) {
@@ -239,21 +298,20 @@ test.describe('API36 managed presentation gestures', () => {
         let started = false;
         let injecting = false;
         let finished = false;
-        const gesture = input({ op: 'swipe', points, steps: 150 }, phase => {
+        nativeEvents.length = 0;
+        // WAIT_FOR_FINISH is synchronous per sample; preserve the path with fewer redundant MOVE events.
+        const gesture = input({ op: 'swipe', points, steps: SEGMENT_STEPS }, phase => {
           if (phase === 'started') started = true;
           injecting = phase === 'started';
         }).finally(() => {
           finished = true;
         });
         void gesture.catch(() => undefined);
-        let observedTracking = false;
         const samples = [];
         let nativeResult: BridgeReply | undefined;
         try {
           await expect.poll(() => started, { timeout: 5_000 }).toBe(true);
           for (let index = 0; !finished && injecting && index < 12; index += 1) {
-            const state = await driver.state();
-            observedTracking ||= state.motion?.tracking === true;
             const shot = testInfo.outputPath(`${name}-during-${index}.png`);
             const captureStartMs = Number.parseFloat(await adb('shell', 'cat', '/proc/uptime')) * 1000;
             await wallet.screenshot({ path: shot });
@@ -262,10 +320,22 @@ test.describe('API36 managed presentation gestures', () => {
             if (!finished && injecting) samples.push({ file: shot, pixels, captureStartMs, captureEndMs });
           }
         } finally {
-          nativeResult = await gesture;
-          expect(nativeResult.executed).toBe(bounds.executed + 1);
+          try {
+            nativeResult = await gesture;
+            expect(nativeResult.executed).toBe(bounds.executed + 1);
+          } finally {
+            await writeFile(
+              testInfo.outputPath(`${name}-input-evidence.json`),
+              JSON.stringify({ sourceSha: process.env.GITHUB_SHA, nativeEvents, nativeResult, samples }, null, 2)
+            );
+          }
         }
+        const trackingEvents = nativeEvents.filter(({ event }) => event.target === 'collapsed' && event.tracking);
+        const observedTracking = trackingEvents.some(({ event }) => event.phase === 'retargeted');
         expect(observedTracking, 'real input must enter native interactive tracking').toBe(true);
+        expect(new Set(trackingEvents.map(({ event }) => event.morphId)).size).toBe(1);
+        expect(new Set(trackingEvents.map(({ event }) => event.managedHostCloseToken)).size).toBe(1);
+        expect(new Set(trackingEvents.map(({ event }) => event.visibilitySequence)).size).toBe(1);
         const inputStartedMs = nativeResult?.inputStartedMs;
         const inputEndedMs = nativeResult?.inputEndedMs;
         if (typeof inputStartedMs !== 'number' || typeof inputEndedMs !== 'number') {
@@ -322,7 +392,7 @@ test.describe('API36 managed presentation gestures', () => {
               targetPid: pid,
               sdk: 36,
               points,
-              segmentSteps: 150,
+              segmentSteps: SEGMENT_STEPS,
               observedTracking,
               nativeResult,
               before,
