@@ -160,7 +160,7 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     return { signature: fromBase64(stringField(response, 'signature')) };
   }
 
-  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array }> {
+  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }> {
     const publicKey = this.publicKey;
     if (!publicKey) throw new WalletError('The app is not connected to Bread');
     const response = await this.send({
@@ -171,7 +171,10 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
       kind
     });
     expectType(response, 'SIGN_RESPONSE');
-    return { signature: fromBase64(stringField(response, 'signature')) };
+    const signature = fromBase64(stringField(response, 'signature'));
+    // An older Bread sends no commitment; a present non-string value is malformed.
+    if (response.signedCommitment === undefined) return { signature };
+    return { signature, signedCommitment: fromBase64(stringField(response, 'signedCommitment')) };
   }
 
   /** Bread proves and submits a transaction before it answers, so the outcome came with the answer. */

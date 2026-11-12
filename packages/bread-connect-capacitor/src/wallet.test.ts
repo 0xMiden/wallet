@@ -268,6 +268,29 @@ describe('BreadConnectWallet', () => {
     });
   });
 
+  it('returns the signed commitment beside the signature', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG', signedCommitment: 'AQID' });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).resolves.toStrictEqual({
+      signature: new Uint8Array([4, 5, 6]),
+      signedCommitment: new Uint8Array([1, 2, 3])
+    });
+  });
+
+  it('omits signedCommitment when the wallet sends none', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG' });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).resolves.toStrictEqual({
+      signature: new Uint8Array([4, 5, 6])
+    });
+  });
+
+  it('refuses a signedCommitment that is not a string', async () => {
+    const { request, wallet } = await connected();
+    request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG', signedCommitment: 7 });
+    await expect(wallet.signBytes(new Uint8Array([1]), 'word')).rejects.toThrow('signedCommitment');
+  });
+
   it("signs bytes as Bread's own provider does", async () => {
     const { request, wallet } = await connected();
     request.mockResolvedValueOnce({ type: 'SIGN_RESPONSE', signature: 'BAUG' });

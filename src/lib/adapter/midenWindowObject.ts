@@ -77,13 +77,16 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     return res;
   }
 
-  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array }> {
+  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }> {
     const publicKeyAsHex = bytesToHex(this.publicKey!);
     const messageAsB64 = u8ToB64(data);
 
-    const signatureAsB64 = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
-    const signatureAsU8Array = b64ToU8(signatureAsB64);
-    return { signature: signatureAsU8Array };
+    const res = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
+    const signature = b64ToU8(res.signature);
+    // An older wallet sends no commitment; the key is omitted rather than set to undefined.
+    return res.signedCommitment === undefined
+      ? { signature }
+      : { signature, signedCommitment: b64ToU8(res.signedCommitment) };
   }
 
   async requestLoginKey(): Promise<{ loginKey: Uint8Array }> {
