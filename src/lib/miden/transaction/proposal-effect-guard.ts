@@ -18,8 +18,18 @@ interface Allowance {
   nfts: readonly string[];
 }
 
+const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
+  if (typeof faucetId !== 'string' || faucetId.length === 0 || typeof amount !== 'bigint' || amount < 0n) {
+    throw new Error('the transaction has no valid approved asset and amount');
+  }
+  return { outflow: [{ faucetId, amount }], nfts: [] };
+};
+
 /** The allowance of each checked type. A type with no entry is not checked. */
 const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
+  send: approvedTransfer,
+  swap: approvedTransfer,
+  'earn-deposit': approvedTransfer,
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
