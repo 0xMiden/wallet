@@ -229,8 +229,8 @@ export interface IConsumedAssetTotal {
 /**
  * Execute (dApp custom) only: the asset movement of one dry run of a custom request.
  *
- * Two dry runs of the same request give the same value. This record does not contain the fee, the fee salt, the
- * account commitment or other values that change with the block or the salt.
+ * The network fee is the canonical faucet and amount reported by this dry run. This record does not contain the
+ * fee salt, the account commitment, or any other value that changes with the block or the salt.
  */
 export interface ICustomTransactionEffects {
   /**
@@ -252,6 +252,8 @@ export interface ICustomTransactionEffects {
   recipients: string[];
   inputNotesConsumed: number;
   outputNotesCreated: number;
+  /** The network fee, as the canonical faucet and amount. Absent when the dry run reports none. */
+  fee?: IConsumedAssetTotal;
   storageChanged: boolean;
 }
 

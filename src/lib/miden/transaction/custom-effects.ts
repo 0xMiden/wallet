@@ -11,6 +11,7 @@ import {
 import { dryRunPreparedCustomRequest, type CustomDryRunBytes } from 'lib/miden/sdk/custom-dry-run';
 import { accountRefToSdk, canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+import { hasSpendingLimits } from 'lib/miden/spending-limits/queue';
 import { spendsDigest } from 'lib/miden/spending-limits/types';
 
 import { CustomTransactionEffectsChangedError } from './constants';
@@ -77,6 +78,10 @@ function decodeCustomEffects(dryRun: CustomDryRunResult): DecodedCustomEffects |
   const view = simulatedBytesToView(dryRun);
   const recipients = simulatedOutputRecipients(dryRun);
   if (view === undefined || recipients === undefined) return undefined;
+  const fee =
+    view.fee === undefined
+      ? undefined
+      : { faucetId: canonicalWalletAccountId(view.fee.faucetId), amount: view.fee.amount };
   return {
     view,
     effects: {
@@ -89,6 +94,7 @@ function decodeCustomEffects(dryRun: CustomDryRunResult): DecodedCustomEffects |
       recipients,
       inputNotesConsumed: view.inputNotesConsumed,
       outputNotesCreated: view.outputNotesCreated,
+      ...(fee === undefined ? {} : { fee }),
       storageChanged: view.storageChanged
     }
   };
@@ -147,6 +153,7 @@ const EFFECT_FIELDS = [
   'recipients',
   'inputNotesConsumed',
   'outputNotesCreated',
+  'fee',
   'storageChanged'
 ] as const;
 
@@ -168,6 +175,8 @@ function fieldText(effects: ICustomTransactionEffects, field: EffectField): stri
     case 'inputNotesConsumed':
     case 'outputNotesCreated':
       return effects[field].toString();
+    case 'fee':
+      return effects.fee === undefined ? '' : totalsText([effects.fee]);
     case 'storageChanged':
       return effects.storageChanged ? 'true' : 'false';
     case 'shape':
@@ -191,11 +200,16 @@ export function customEffectsDifference(
  * the admission charged those spends and a spending-limit authorization binds their digest, so the charge is the
  * generation-time value. The approval provenance (`introducedCredit`, `introducedCount`) comes from the approved
  * record, because the approval dry run imported those notes and the wallet cannot identify them again.
+ *
+ * An unattributable generation spend (`undefined`) is not an empty list. When `spendingLimitConfigured` is set it
+ * refuses. The argument defaults to no limit, so a comparison that does not know the policy still matches an
+ * uncharged row, whether the stored charge is unset or an empty list.
  */
 export function assertCustomEffectsApproved(
   approved: IApprovedCustomEffects | undefined,
   dryRun: CustomDryRunResult,
-  spentAssetTotals: readonly IConsumedAssetTotal[] | undefined
+  spentAssetTotals: readonly IConsumedAssetTotal[] | undefined,
+  spendingLimitConfigured = false
 ): void {
   if (approved === undefined) {
     throw new CustomTransactionEffectsChangedError('the row has no approved effects');
@@ -209,6 +223,9 @@ export function assertCustomEffectsApproved(
     throw new CustomTransactionEffectsChangedError(difference);
   }
   const spends = customEffectSpends(decoded.view, decoded.effects.shape, approved);
+  if (spends === undefined && spendingLimitConfigured) {
+    throw new CustomTransactionEffectsChangedError('spentAssetTotals');
+  }
   if (spendsDigest(spends ?? []) !== spendsDigest(spentAssetTotals ?? [])) {
     throw new CustomTransactionEffectsChangedError('spentAssetTotals');
   }
@@ -216,6 +233,8 @@ export function assertCustomEffectsApproved(
 
 /** How the effects check reaches the WASM client: its dry run, and the check that the caller still owns the hold. */
 export interface CustomEffectsCheckAccess {
+  /** The account the prepared request executes for. The effects check reads its spending limit. */
+  accountId: string;
   /** Does the generation-time dry run of the prepared bytes. */
   dryRun: () => Promise<CustomDryRunBytes>;
   /** Throws when the caller's hold is no longer current. `where` names the transition for the log. */
@@ -233,6 +252,7 @@ export function customEffectsCheckAccess(
   hold: WasmLockHold
 ): CustomEffectsCheckAccess {
   return {
+    accountId,
     dryRun: () => dryRunPreparedCustomRequest(client, accountRefToSdk(accountId).toString(), preparedBytes, hold),
     assertHoldCurrent: where => assertWasmHoldCurrent(hold, where)
   };
@@ -243,7 +263,8 @@ export function customEffectsCheckAccess(
  * Refuses with `CustomTransactionEffectsChangedError` on any difference, before the caller proposes anything.
  *
  * The caller holds the WASM client lock (see `customEffectsCheckAccess`). The decode is in the same hold, so a trap in
- * it reaches the lock.
+ * it reaches the lock. The account closed over by that access is the one whose spending limit decides whether an
+ * unattributable generation spend can match an uncharged row.
  */
 export async function verifyPreparedCustomRequest(
   access: CustomEffectsCheckAccess,
@@ -253,5 +274,6 @@ export async function verifyPreparedCustomRequest(
   access.assertHoldCurrent('before the custom request effects check');
   const dryRun = await access.dryRun();
   access.assertHoldCurrent('after the custom request effects dry run');
-  assertCustomEffectsApproved(approved, dryRun, spentAssetTotals);
+  const spendingLimitConfigured = await hasSpendingLimits(access.accountId);
+  assertCustomEffectsApproved(approved, dryRun, spentAssetTotals, spendingLimitConfigured);
 }

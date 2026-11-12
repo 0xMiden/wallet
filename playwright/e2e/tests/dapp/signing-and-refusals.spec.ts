@@ -371,10 +371,10 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         const built = await callDapp(
           dapp,
           'buildCustom',
-          // Only the new note: the approval needs a simulation that succeeds, and the dry run cannot import again a
-          // note A already holds ("import produced no note commitment"), so a request that carries one is refused
-          // before any prompt and never reaches the decline this cell is about.
-          { shape: 'p2id', outputs: [output], carryNoteBytesB64: [fx.proofB64.newA1] },
+          // The held note rides along with the new one. The dry run imports a carried note only when this request
+          // introduced it, so a request that also carries the note A already holds still reaches the decline, and
+          // that held note stays claimable.
+          { shape: 'p2id', outputs: [output], carryNoteBytesB64: [fx.heldBytesB64, fx.proofB64.newA1] },
           ctx.deadline
         );
         const { result } = await answerPrompt(

@@ -1733,6 +1733,30 @@ const authorizationForDappSend = (
   return createSpendingLimitAuthorization(details.assessment, spends);
 };
 
+/** `UnattributableCustomSpendError` in the spending-limit queue. The message is NOT_GRANTED. */
+const UNATTRIBUTABLE_CUSTOM_SPEND_ERROR = 'UnattributableCustomSpendError';
+
+const isUnattributableCustomSpendRefusal = (error: unknown): boolean =>
+  [...causeChain(error)].some(link => link instanceof Error && link.name === UNATTRIBUTABLE_CUSTOM_SPEND_ERROR);
+
+/**
+ * Queues an approved custom request. A refusal from the locked spending-limit recheck, before any
+ * insert, releases the dry run's quarantined notes — the same release a pre-prompt refusal performs.
+ */
+const requestApprovedCustomTransaction = async (
+  importNotes: string[] | undefined,
+  request: () => Promise<string>
+): Promise<string> => {
+  try {
+    return await request();
+  } catch (error) {
+    if (isUnattributableCustomSpendRefusal(error)) {
+      await releaseNoteIds(importedNoteIds(importNotes));
+    }
+    throw error;
+  }
+};
+
 /**
  * Spending-limit state for a dApp CUSTOM request, or a refusal.
  *
@@ -1745,10 +1769,13 @@ const authorizationForDappSend = (
 const customSpendingLimitState = async (
   accountId: string,
   outgoing: IConsumedAssetTotal[] | undefined
-): Promise<{ totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails }> => {
+): Promise<{ totals: IConsumedAssetTotal[] | undefined; details?: SpendingLimitAssessmentDetails }> => {
   if (outgoing === undefined) {
+    // Not a measured empty spend: the summary consumed notes the request did not introduce.
+    // A limit already configured refuses before the prompt. No limit keeps the charge unset so
+    // the insert can recheck a limit added while the prompt was open.
     if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
-    return { totals: [] };
+    return { totals: undefined };
   }
   try {
     const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
@@ -2433,17 +2460,19 @@ const generatePromisifyTransaction = async (
         // The same re-check the send arm performs: the sheet may have sat open while the origin
         // disconnected or the user switched accounts, and a custom request moves value too.
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
-        return await requestCustomTransaction(
-          address,
-          transactionRequest,
-          inputNoteIds,
-          importNotes,
-          delegateFromConfirmation(result),
-          recipientAddress || undefined,
-          customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
-          origin,
-          approvedEffects
+        return await requestApprovedCustomTransaction(customTransaction.importNotes, () =>
+          requestCustomTransaction(
+            address,
+            transactionRequest,
+            inputNoteIds,
+            importNotes,
+            delegateFromConfirmation(result),
+            recipientAddress || undefined,
+            customLimit.totals,
+            authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals ?? []),
+            origin,
+            approvedEffects
+          )
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2495,21 +2524,23 @@ const generatePromisifyTransaction = async (
                 payload as MidenCustomTransaction;
               // See the mobile/desktop arm: same stale-confirmation re-check.
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
-              return await requestCustomTransaction(
-                address,
-                transactionRequest,
-                inputNoteIds,
-                importNotes,
-                confirmReq.delegate,
-                recipientAddress || undefined,
-                customLimit.totals,
-                authorizationForDappSend(
-                  customLimit.details,
-                  confirmReq.spendingLimitAuthenticated,
-                  customLimit.totals
-                ),
-                origin,
-                approvedEffects
+              return await requestApprovedCustomTransaction(customTransaction.importNotes, () =>
+                requestCustomTransaction(
+                  address,
+                  transactionRequest,
+                  inputNoteIds,
+                  importNotes,
+                  confirmReq.delegate,
+                  recipientAddress || undefined,
+                  customLimit.totals,
+                  authorizationForDappSend(
+                    customLimit.details,
+                    confirmReq.spendingLimitAuthenticated,
+                    customLimit.totals ?? []
+                  ),
+                  origin,
+                  approvedEffects
+                )
               );
             });
             // The transaction is queued and will consume these notes —

@@ -1,5 +1,11 @@
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
-import { importedNoteIds, type NoteDecodeOptions, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import {
+  abandonQuarantineAttempt,
+  beginQuarantineAttempt,
+  importedNoteIds,
+  type NoteDecodeOptions,
+  quarantineNoteIds
+} from 'lib/miden/note-quarantine';
 import { dryRunPreparedCustomRequest } from 'lib/miden/sdk/custom-dry-run';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
@@ -137,6 +143,7 @@ async function idsNotAlreadyHeld(
  * as a follow-up.
  */
 export async function simulateCustomTransaction(input: SimulateCustomTxInput): Promise<SimulateCustomTxResult> {
+  const attempt = beginQuarantineAttempt();
   const work: Promise<SimulateCustomTxResult> = (async () => {
     // Captured inside the lock and returned with whichever shape the dry run produced, so the
     // spending-limit policy always receives the provenance verdict alongside the effects.
@@ -176,17 +183,25 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // write, so a trap while decoding the bytes fails the dry run before it writes anything.
         introducedCredit = introducedAssets(input.importNotes, introducedIds);
         introducedCount = introducedIds.length;
-        await quarantineNoteIds(introducedIds);
+        await quarantineNoteIds(introducedIds, attempt);
         // The quarantine write is Dexie, not WASM — but it is still an await,
         // and the watchdog does not pause for it, so the check has to sit
         // between it and the next WASM call rather than before it (same
         // precedent as the sync-manager's quarantine read).
         assertWasmHoldCurrent(hold, 'after the quarantine write');
 
+        // Import a carried note only when its decoded id is one this dry run introduced.
+        // Re-importing a note the wallet already holds fails with "import produced no note
+        // commitment" before any approval prompt. An id whose lookup failed closed is absent
+        // from that set and is not imported. A carried note whose id does not decode was never
+        // classified and is still imported.
+        const introduced = new Set(introducedIds);
         for (const noteB64 of input.importNotes ?? []) {
           // Per-iteration, and the count is dApp-controlled — one guard before
           // the loop only covers the first import.
           assertWasmHoldCurrent(hold, 'before the note import');
+          const [id] = importedNoteIds([noteB64], IN_HOLD);
+          if (id !== undefined && !introduced.has(id)) continue;
           await client.importNoteBytes(b64ToU8(noteB64), hold);
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
@@ -220,15 +235,25 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       // also only ever test this field for presence. The real error keeps its
       // identity on the console via the recovery log.
       if (isPipelineKillLink(e)) {
+        // Settle before returning so an in-flight quarantine write cannot land after the caller releases.
+        await abandonQuarantineAttempt(attempt);
         return { error: 'the simulation was interrupted before it finished' };
       }
       return { error: e?.message ?? String(e) };
     }
   })();
 
+  // The same object the race returns, so a slow dry run that later fails with the same text is not
+  // this timeout. The text itself stays "Simulation timed out".
+  const timedOut: SimulateCustomTxResult = { error: 'Simulation timed out' };
   const timeout: Promise<SimulateCustomTxResult> = new Promise(resolve =>
-    setTimeout(() => resolve({ error: 'Simulation timed out' }), SIMULATION_TIMEOUT_MS)
+    setTimeout(() => resolve(timedOut), SIMULATION_TIMEOUT_MS)
   );
 
-  return Promise.race([work, timeout]);
+  const result = await Promise.race([work, timeout]);
+  // The timeout does not cancel the locked work. Abandon the attempt and let a quarantine write
+  // already in the queue finish before returning, or the lookup still in flight quarantines the
+  // ids again after the caller releases them.
+  if (result === timedOut) await abandonQuarantineAttempt(attempt);
+  return result;
 }

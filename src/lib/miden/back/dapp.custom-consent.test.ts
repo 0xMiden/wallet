@@ -415,6 +415,24 @@ describe('a request that cannot be simulated is refused before any prompt', () =
   });
 });
 
+describe('a terminated simulation remains retryable', () => {
+  it('rethrows the kill and releases the imported note ids before any prompt', async () => {
+    const terminated = new Error('Client terminated');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSimulate.mockRejectedValueOnce(terminated);
+
+    try {
+      await expect(requestTransaction(DAPP_ORIGIN, customRequest(), 'session-1')).rejects.toBe(terminated);
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:noteB64']);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+});
+
 describe('the approved effects are recorded on the queued row', () => {
   it('passes the effects of the approval dry run to the initiator', async () => {
     mockSimulate.mockResolvedValue({

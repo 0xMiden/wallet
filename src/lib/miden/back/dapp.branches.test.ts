@@ -2520,6 +2520,66 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
 
+  const unattributableSummary = () => {
+    mockSimulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sum', introducedCount: 0 });
+    mockSimulatedBytesToView.mockReturnValue({ ...viewMoving([]), inputNotesConsumed: 2 });
+  };
+
+  it('passes an unattributable custom spend through unset when preparation finds no spending limit', async () => {
+    unattributableSummary();
+    // Earlier cases queue a one-shot limit answer they never consume. Reset so this call sees no limit.
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    expect(mockAssessOutgoingSpendingLimitDetails).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+  });
+
+  it('refuses an unattributable custom spend before the prompt when a spending limit is configured', async () => {
+    unattributableSummary();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValueOnce(true);
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
+  it('releases quarantined notes when the locked recheck refuses an unattributable custom spend', async () => {
+    unattributableSummary();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    const refusal = new Error(MidenDAppErrorType.NotGranted);
+    refusal.name = 'UnattributableCustomSpendError';
+    mockRequestCustomTransaction.mockRejectedValue(refusal);
+
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          payload: {
+            address: 'miden-account-1',
+            recipientAddress: 'bob',
+            transactionRequest: 'YmFzZTY0cmVx',
+            importNotes: ['note-a']
+          }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toBeUndefined();
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:note-a']);
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+  });
+
   it('no longer refuses a custom request that moves two capped assets', async () => {
     // A dollar figure sums across every asset a request moves, so two covered assets in one
     // request is one charge and one authorization - not the two-faucet refusal the old per-asset

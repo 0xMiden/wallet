@@ -248,6 +248,7 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
 // The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
 // gives the approved effects, so the row goes on to its proposal.
 const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]): Promise<void> => undefined);
+const mockAssertCustomEffectsApproved = jest.fn((..._args: unknown[]) => undefined);
 // The access stands for the client, the prepared bytes and the hold that the check receives.
 jest.mock('./custom-effects', () => ({
   customEffectsCheckAccess: (_client: unknown, accountId: string, preparedBytes: Uint8Array, hold: unknown) => ({
@@ -255,6 +256,7 @@ jest.mock('./custom-effects', () => ({
     preparedBytes,
     hold
   }),
+  assertCustomEffectsApproved: (...args: unknown[]) => mockAssertCustomEffectsApproved(...args),
   verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
 }));
 
@@ -370,11 +372,13 @@ const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as u
 // The node's verdict on a transaction, which the real `didDirectSwitchLand` reads after a structural
 // commit wait fails. Default: still pending, no verdict.
 const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
+const mockProxyNewTransaction = jest.fn(async (..._a: unknown[]) => makeResult());
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
+    newTransaction: (...a: unknown[]) => mockProxyNewTransaction(...a),
     waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
     getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a),
     getTransactionCommitState: (...a: unknown[]) => mockProxyGetCommitState(...a)
@@ -628,6 +632,8 @@ function arrange(id: string, extra: Record<string, unknown>, result = makeResult
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAssertCustomEffectsApproved.mockReset();
+  mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
   txStore.length = 0;
   mockPlatformIsMobile = false;
   // Reset alongside its siblings. Left `false` by a test that forgot to restore
@@ -2707,9 +2713,11 @@ describe('guardian custom proposals preserve the prepared request through signin
     const { service } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
     const enriched = new Uint8Array([81, 82]);
     mockPrepareCustomRequestBytes.mockResolvedValueOnce(enriched);
+    const proposalSummary = 'proposal-summary';
     service.createCustomProposal.mockImplementationOnce(async () => {
       expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledTimes(1);
-      return { id: 'prop', nonce: 7 };
+      const proposal = { id: 'prop', nonce: 7, txSummary: proposalSummary };
+      return proposal;
     });
 
     await generateTransaction(
@@ -2724,7 +2732,13 @@ describe('guardian custom proposals preserve the prepared request through signin
       approvedEffects,
       spentAssetTotals
     );
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: proposalSummary },
+      spentAssetTotals
+    );
     expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
   });
 
   it('execute: fails the row before any proposal when the generation-time effects are not the approved ones', async () => {
@@ -2740,6 +2754,69 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(stored.error).toBe(CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR);
     expect(service.createCustomProposal).not.toHaveBeenCalled();
     expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+  });
+
+  it('execute: checks a standard-account request against approved effects before submit', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'standard-effects-checked-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const spentAssetTotals = [{ faucetId: 'faucet-a', amount: 5n }];
+    const { row } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
+    mockIsGuardianAccount.mockResolvedValueOnce(false);
+    const prepared = new Uint8Array([91, 92]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(prepared);
+
+    await generateTransaction(
+      buildTx(id, { ...row, approvedEffects, spentAssetTotals }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
+      { accountId: 'guardian-acc', preparedBytes: prepared, hold: expect.anything() },
+      approvedEffects,
+      spentAssetTotals
+    );
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 4)).toEqual([
+      'guardian-acc',
+      prepared,
+      false,
+      signCallback
+    ]);
+    expect(mockVerifyPreparedCustomRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      mockProxyNewTransaction.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('execute: abandons a proposal whose summary differs from the approved effects', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'proposal-effects-changed-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const { service } = arrange(id, { ...executeCase.row, approvedEffects });
+    const mismatch = new Error('approved effects changed');
+    service.createCustomProposal.mockResolvedValueOnce(
+      { id: 'proposal-mismatch', nonce: 19, txSummary: 'proposal-summary' } as never
+    );
+    mockAssertCustomEffectsApproved.mockImplementationOnce(() => {
+      throw mismatch;
+    });
+
+    await generateTransaction(
+      buildTx(id, { ...executeCase.row, approvedEffects }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: 'proposal-summary' },
+      undefined
+    );
+    expect(service.abandonCandidate).toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.status).toBe(ITransactionStatus.Failed);
   });
 
   it('execute: persists auth diagnostics before creating the proposal', async () => {

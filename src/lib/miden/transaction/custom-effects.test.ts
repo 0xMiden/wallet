@@ -7,6 +7,7 @@ import { CustomTransactionEffectsChangedError } from './constants';
 import {
   approveCustomSimulation,
   assertCustomEffectsApproved,
+  customEffectsCheckAccess,
   customEffectsDifference,
   verifyPreparedCustomRequest,
   type CustomEffectsCheckAccess
@@ -55,6 +56,11 @@ jest.mock('lib/miden/spending-limits/identity', () => ({
 jest.mock('lib/miden/sdk/custom-dry-run', () => ({ dryRunPreparedCustomRequest: jest.fn() }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ assertWasmHoldCurrent: jest.fn() }));
 
+const mockHasSpendingLimits = jest.fn(async (..._args: unknown[]) => false);
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
 const view = (overrides: Partial<TestView> = {}): TestView => ({
   outgoing: [{ faucetId: 'faucet-a', amount: 10n }],
   incoming: [],
@@ -91,6 +97,8 @@ const generate = (generatedView: TestView, recipients: string[] = ['0xr1']) => {
 beforeEach(() => {
   mockViews.clear();
   mockRecipients.clear();
+  mockHasSpendingLimits.mockReset();
+  mockHasSpendingLimits.mockResolvedValue(false);
 });
 
 describe('approveCustomSimulation', () => {
@@ -103,7 +111,8 @@ describe('approveCustomSimulation', () => {
           { faucetId: 'FAUCET-A', amount: 5n }
         ],
         incoming: [{ faucetId: 'faucet-c', amount: 7n }],
-        outgoingNfts: [{ faucetId: 'nft-faucet', assetId: '0xaa' }]
+        outgoingNfts: [{ faucetId: 'nft-faucet', assetId: '0xaa' }],
+        fee: { faucetId: 'FAUCET-NATIVE', amount: 3n }
       }),
       ['0xr2', '0xr1'],
       { introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }], introducedCount: 1 }
@@ -122,12 +131,11 @@ describe('approveCustomSimulation', () => {
       recipients: ['0xr2', '0xr1'],
       inputNotesConsumed: 1,
       outputNotesCreated: 1,
+      fee: { faucetId: 'faucet-native', amount: 3n },
       storageChanged: false,
       introducedCredit: [{ faucetId: 'faucet-a', amount: 4n }],
       introducedCount: 1
     });
-    // The fee is not part of the approved effects: it changes with the block and the salt.
-    expect(approval.effects).not.toHaveProperty('fee');
   });
 
   it('charges the net outflow after the credit of the notes the request introduced', () => {
@@ -153,11 +161,27 @@ describe('approveCustomSimulation', () => {
 });
 
 describe('assertCustomEffectsApproved', () => {
-  it('accepts a generation dry run with the approved effects, whatever its fee', () => {
+  it('refuses a generation dry run whose fee differs from the approved effects', () => {
     const approval = approve(view());
     const dryRun = generate(view({ fee: { faucetId: 'faucet-native', amount: 9n } }));
 
-    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).not.toThrow();
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
+      new CustomTransactionEffectsChangedError('fee')
+    );
+  });
+
+  it.each([
+    ['approved fee missing from generation', { faucetId: 'faucet-native', amount: 3n }, undefined],
+    ['generation fee missing from approval', undefined, { faucetId: 'faucet-native', amount: 3n }],
+    ['fee faucet changed', { faucetId: 'faucet-native', amount: 3n }, { faucetId: 'faucet-other', amount: 3n }],
+    ['fee amount changed', { faucetId: 'faucet-native', amount: 3n }, { faucetId: 'faucet-native', amount: 9n }]
+  ])('refuses when %s', (_case, approvedFee, generatedFee) => {
+    const approval = approve(view({ fee: approvedFee }));
+    const dryRun = generate(view({ fee: generatedFee }));
+
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, approval.spends)).toThrow(
+      new CustomTransactionEffectsChangedError('fee')
+    );
   });
 
   it('accepts the same movement in another faucet spelling and another order', () => {
@@ -246,6 +270,34 @@ describe('assertCustomEffectsApproved', () => {
       assertCustomEffectsApproved(approval.effects, dryRun, [{ faucetId: 'faucet-a', amount: 6n }])
     ).not.toThrow();
   });
+
+  it('refuses an unattributable generation spend when a spending limit is configured', () => {
+    const approval = approve(view({ inputNotesConsumed: 2 }), ['0xr1'], { introducedCount: 0 });
+    const dryRun = generate(view({ inputNotesConsumed: 2 }));
+
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true)).toThrow(
+      new CustomTransactionEffectsChangedError('spentAssetTotals')
+    );
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, undefined, true)).toThrow(
+      new CustomTransactionEffectsChangedError('spentAssetTotals')
+    );
+  });
+
+  it('matches an uncharged row when an unattributable generation spend has no spending limit', () => {
+    const approval = approve(view({ inputNotesConsumed: 2 }), ['0xr1'], { introducedCount: 0 });
+    const dryRun = generate(view({ inputNotesConsumed: 2 }));
+
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, undefined)).not.toThrow();
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [])).not.toThrow();
+  });
+
+  it('does not treat a measured empty spend as unattributable when a spending limit is configured', () => {
+    const approval = approve(view({ outgoing: [], inputNotesConsumed: 0 }));
+    const dryRun = generate(view({ outgoing: [], inputNotesConsumed: 0 }));
+
+    expect(approval.spends).toEqual([]);
+    expect(() => assertCustomEffectsApproved(approval.effects, dryRun, [], true)).not.toThrow();
+  });
 });
 
 describe('customEffectsDifference', () => {
@@ -268,6 +320,7 @@ const checkAccess = (
   return {
     checked,
     access: {
+      accountId: 'account-a',
       dryRun: () => dryRun(hold),
       assertHoldCurrent: where => {
         checked.push(where);
@@ -277,6 +330,19 @@ const checkAccess = (
   };
 };
 
+describe('customEffectsCheckAccess', () => {
+  it('preserves the account for the spending-limit recheck', () => {
+    const access = customEffectsCheckAccess(
+      {} as Parameters<typeof customEffectsCheckAccess>[0],
+      'account-a',
+      new Uint8Array(),
+      {} as Parameters<typeof customEffectsCheckAccess>[3]
+    );
+
+    expect(access.accountId).toBe('account-a');
+  });
+});
+
 describe('verifyPreparedCustomRequest', () => {
   const approvedEffects = (): IApprovedCustomEffects => approve(view()).effects;
 
@@ -284,10 +350,32 @@ describe('verifyPreparedCustomRequest', () => {
     const effects = approvedEffects();
     const { access, checked } = checkAccess(async () => generate(view()));
 
-    // The approval summary consumed a note the request did not introduce, so it charged nothing.
+    // No spending limit, so an unattributable generation spend still matches the empty charge.
     await verifyPreparedCustomRequest(access, effects, []);
 
+    expect(mockHasSpendingLimits).toHaveBeenCalledWith('account-a');
     expect(checked).toEqual(['before the custom request effects check', 'after the custom request effects dry run']);
+  });
+
+  it('refuses an unattributable generation spend when the account has a spending limit', async () => {
+    const effects = approvedEffects();
+    const { access } = checkAccess(async () => generate(view()));
+    mockHasSpendingLimits.mockResolvedValue(true);
+
+    await expect(verifyPreparedCustomRequest(access, effects, [])).rejects.toThrow(
+      new CustomTransactionEffectsChangedError('spentAssetTotals')
+    );
+    await expect(verifyPreparedCustomRequest(access, effects, undefined)).rejects.toThrow(
+      new CustomTransactionEffectsChangedError('spentAssetTotals')
+    );
+  });
+
+  it('accepts an unattributable generation spend when no spending limit is configured', async () => {
+    const effects = approvedEffects();
+    const { access } = checkAccess(async () => generate(view()));
+
+    await expect(verifyPreparedCustomRequest(access, effects, undefined)).resolves.toBeUndefined();
+    await expect(verifyPreparedCustomRequest(access, effects, [])).resolves.toBeUndefined();
   });
 
   it('refuses effects that are not the approved ones', async () => {

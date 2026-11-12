@@ -63,6 +63,7 @@ import {
   admitOutgoingTransaction,
   hasSpendingLimits,
   queueOutgoingTransaction,
+  queueUnattributableCustomTransaction,
   resolveOutgoingSpendUsd,
   spendsOf
 } from '../spending-limits/queue';
@@ -135,10 +136,13 @@ export const requestCustomTransaction = async (
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
-  // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
-  // does goes through the same chokepoint as every other outgoing transaction.
+  // A measured empty list is not a spend, so it keeps the plain insert. A list that moves value
+  // goes through the priced chokepoint. An unattributable charge is not that empty list: the insert
+  // rechecks the policy under one write lock and refuses when a limit is present.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
     await queueOutgoingTransaction({ ...transaction, spentAssetTotals }, spentAssetTotals, spendingLimitAuthorization);
+  } else if (spentAssetTotals === undefined) {
+    await queueUnattributableCustomTransaction(transaction, spendingLimitAuthorization);
   } else {
     await Repo.transactions.add(transaction);
   }

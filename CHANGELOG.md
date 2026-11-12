@@ -2,7 +2,7 @@
 
 ## 1.17.12 (TBD)
 
-- [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value.
+- [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
 
 ## 1.17.11 (2026-11-09)
