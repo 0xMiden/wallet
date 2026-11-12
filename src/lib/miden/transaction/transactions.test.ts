@@ -1922,6 +1922,16 @@ describe('transactions utilities', () => {
     });
 
     describe('the in-realm submit crossing (#1081)', () => {
+      const nativeAsset =
+        jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+      beforeEach(() => {
+        jest.spyOn(nativeAsset, 'getVerificationBaseFee').mockResolvedValue(0);
+        jest.spyOn(nativeAsset, 'getVerificationBaseFeeSync').mockReturnValue(0);
+      });
+      afterEach(() => {
+        jest.mocked(nativeAsset.getVerificationBaseFee).mockRestore();
+        jest.mocked(nativeAsset.getVerificationBaseFeeSync).mockRestore();
+      });
       const guardianProvider = {
         getAccounts: async () => [],
         getPublicKeyForCommitment: async () => '',
