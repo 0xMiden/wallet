@@ -50,7 +50,7 @@ it('masked renders no word text and no seed-word test ids', () => {
   expect(screen.getByRole('group', { name: 'recoveryPhraseHidden' })).toBeInTheDocument();
   expect(screen.getByTestId('grid')).toHaveAttribute('data-masked', 'true');
   expect(screen.getByText('12.')).toBeInTheDocument();
-  expect(container.querySelectorAll('[aria-hidden="true"].bg-fill-pressed')).toHaveLength(12);
+  expect(container.querySelectorAll('[aria-hidden="true"] > .bg-fill-pressed')).toHaveLength(12);
 });
 
 describe('SeedRevealToggle', () => {

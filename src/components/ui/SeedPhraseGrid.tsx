@@ -49,7 +49,10 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
           <div key={idx} className="flex min-w-0 items-center gap-2">
             <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
             {masked ? (
-              <span aria-hidden="true" className="h-1.5 flex-1 rounded-full bg-fill-pressed" />
+              // As tall as a word's 20px line, so Show and Hide do not move the grid.
+              <span aria-hidden="true" className="flex h-5 flex-1 items-center">
+                <span className="h-1.5 w-full rounded-full bg-fill-pressed" />
+              </span>
             ) : (
               <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
                 {word}
