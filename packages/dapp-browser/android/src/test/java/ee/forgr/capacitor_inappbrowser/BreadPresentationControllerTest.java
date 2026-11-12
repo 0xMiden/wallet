@@ -1774,7 +1774,8 @@ public class BreadPresentationControllerTest {
 
     private void unsupported(boolean documentStart, boolean listener) {
         open(documentStart, listener, "default");
-        assertTrue(installed.isEmpty());
+        // No Bread transport. The wallet bridge listener needs only the message listener feature.
+        assertEquals(listener ? List.of("listener:" + WebViewDialog.BRIDGE_LISTENER_NAME) : List.of(), installed);
         assertEquals("https://fixture.example/first", shadowOf(webView).getLastLoadedUrl());
         assertNull(shadowOf(webView).getLastEvaluatedJavascript());
         FrameLayout cover = ReflectionHelpers.getField(controller, "cover");
@@ -1812,7 +1813,8 @@ public class BreadPresentationControllerTest {
 
     @Test public void supportedInstallsEveryTransportBeforeFirstNavigation() {
         open(true, true, "default");
-        assertEquals(List.of("listener:breadAuth", "listener:breadPresentation", "script:window.bread={version:1}"), installed);
+        assertEquals(List.of("listener:" + WebViewDialog.BRIDGE_LISTENER_NAME, "listener:breadAuth", "listener:breadPresentation",
+            "script:window.bread={version:1}"), installed);
         assertEquals("https://fixture.example/first", shadowOf(webView).getLastLoadedUrl());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
     }

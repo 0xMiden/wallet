@@ -864,6 +864,10 @@
     "message": "Impossible de vérifier votre solde avec Epoch. Veuillez réessayer.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Impossible de charger votre solde. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "La fonctionnalité « Earn » n’est pas disponible sur ce réseau",
     "englishSource": "Earn is not available on this network"
@@ -1251,6 +1255,32 @@
   "submissionRejectedByNetwork": {
     "message": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
     "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionHeldByGuardian": {
+    "message": "Votre « Guardian » détient toujours cette transaction ; il n’est donc pas encore possible de la relancer.",
+    "englishSource": "Your Guardian is still holding this transaction, so it cannot be retried yet."
+  },
+  "submissionProvenHeldByGuardian": {
+    "message": "Le réseau a confirmé que cette transaction n’a jamais été exécutée ; rien n’a donc été transféré. Votre « Guardian » détient toujours les jetons ; il n’est donc pas encore possible de réessayer.",
+    "englishSource": "The network confirmed this transaction never went through, so nothing moved. Your Guardian is still holding it, so it cannot be retried yet."
+  },
+  "guardianHoldRetryRefused": {
+    "message": "Votre Guardian détient toujours cette transaction. Vous pouvez réessayer après $time$.",
+    "englishSource": "Your Guardian is still holding this transaction. You can retry it after $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianHoldNotice": {
+    "message": "Vous pouvez réessayer dans $time$",
+    "englishSource": "You can retry after $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "submissionUnanswered": {
     "message": "Aucune réponse n’a été reçue suite à cette soumission. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle peut encore aboutir, veuillez donc vérifier avant de réessayer.",
@@ -4697,6 +4727,14 @@
     "message": "Indisponible",
     "englishSource": "Unavailable"
   },
+  "assetPriceUnsupported": {
+    "message": "Non pris en charge",
+    "englishSource": "Unsupported"
+  },
+  "assetValueUnknownScale": {
+    "message": "Échelle inconnue",
+    "englishSource": "Unknown scale"
+  },
   "bridgeFeatureUnavailableTitle": {
     "message": "Temporairement indisponible",
     "englishSource": "Temporarily unavailable"
@@ -5896,6 +5934,10 @@
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositNoTokenBalance": {
+    "message": "Votre portefeuille connecté ne contient aucun jeton présentant un solde positif sur ce réseau.",
+    "englishSource": "Your connected wallet has no tokens with a positive balance on this network."
   },
   "bridgeDepositBalanceTooLow": {
     "message": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",

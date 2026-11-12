@@ -61,7 +61,9 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -76,6 +78,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -113,6 +116,11 @@ public class WebViewDialog extends Dialog {
     private BreadPresentationController presentation;
     private BreadAuthController auth;
     private boolean permanentlyClosed;
+    // Miden patch: the name of the WebMessageListener object for the wallet bridge.
+    static final String BRIDGE_LISTENER_NAME = "__midenWalletBridge";
+    // Miden patch: true when the WebMessageListener carries the wallet bridge.
+    // Then AndroidInterface.postMessage does not forward messages.
+    private volatile boolean bridgeListenerInstalled;
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
@@ -285,6 +293,45 @@ public class WebViewDialog extends Dialog {
         this.capacitorWebView = capacitorWebView;
     }
 
+    // Miden patch: add the origin of the sender frame and the main-frame flag to a
+    // bridge message. The wallet compares this origin with the origin of the session.
+    // A message that is not a JSON object goes in "rawMessage".
+    static String bridgeMessage(String message, String origin) {
+        try {
+            JSONObject body;
+            try {
+                body = new JSONObject(message);
+            } catch (JSONException e) {
+                body = new JSONObject().put("rawMessage", message);
+            }
+            return body.put("frameOrigin", origin).put("mainFrame", true).toString();
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
+    // The JavaScript interface cannot identify its caller's frame; envelope fields are untrusted.
+    static String fallbackBridgeMessage(String envelope) {
+        try {
+            JSONObject parsed = new JSONObject(envelope);
+            Object top = parsed.opt("top");
+            Object origin = parsed.opt("origin");
+            Object message = parsed.opt("message");
+            if (!Boolean.TRUE.equals(top) || !(origin instanceof String) || !(message instanceof String)) return null;
+            String body = (String) message;
+            try {
+                JSONObject forwarded = new JSONObject(body);
+                forwarded.remove("frameOrigin");
+                forwarded.remove("mainFrame");
+                return forwarded.toString();
+            } catch (JSONException e) {
+                return body;
+            }
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
     // Add this class to provide safer JavaScript interface
     private class JavaScriptInterface {
 
@@ -303,7 +350,11 @@ public class WebViewDialog extends Dialog {
                     return;
                 }
 
-                _options.getCallbacks().javascriptCallback(message);
+                // The legacy interface forwards page events without frame identity.
+                if (bridgeListenerInstalled) return;
+                String forwarded = fallbackBridgeMessage(message);
+                if (forwarded == null) return;
+                _options.getCallbacks().javascriptCallback(forwarded);
             } catch (Exception e) {
                 Log.e("InAppBrowser", "Error in postMessage: " + e.getMessage());
             }
@@ -497,6 +548,26 @@ public class WebViewDialog extends Dialog {
         applyInsets();
 
         _webView.addJavascriptInterface(new JavaScriptInterface(), "AndroidInterface");
+        // Miden patch: the wallet bridge uses a WebMessageListener when the WebView has it.
+        // The listener gives the origin of the sender frame and the main-frame flag. The
+        // origin rule is "*" because the rules apply only to documents that load after this
+        // call, and the session can go to other origins. The wallet compares the origin.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(
+                _webView,
+                BRIDGE_LISTENER_NAME,
+                Collections.singleton("*"),
+                (view, message, sourceOrigin, isMainFrame, reply) -> {
+                    if (!isMainFrame || message.getType() != WebMessageCompat.TYPE_STRING) return;
+                    if (managedClosing() || permanentlyClosed) return;
+                    String data = message.getData();
+                    if (data == null || data.isEmpty() || _options == null || _options.getCallbacks() == null) return;
+                    String forwarded = bridgeMessage(data, sourceOrigin.toString());
+                    if (forwarded != null) _options.getCallbacks().javascriptCallback(forwarded);
+                }
+            );
+            bridgeListenerInstalled = true;
+        }
         _webView.addJavascriptInterface(new PreShowScriptInterface(), "PreShowScriptInterface");
         _webView.addJavascriptInterface(new PrintInterface(this._context, _webView), "PrintInterface");
         _webView.getSettings().setJavaScriptEnabled(true);
@@ -1257,7 +1328,16 @@ public class WebViewDialog extends Dialog {
                         postMessage: function(message) {
                           try {
                             var msg = typeof message === 'string' ? message : JSON.stringify(message);
-                            window.AndroidInterface.postMessage(msg);
+                            // Use the native listener when available; fallback envelope fields are untrusted.
+                            if (window.__midenWalletBridge) {
+                              window.__midenWalletBridge.postMessage(msg);
+                              return;
+                            }
+                            window.AndroidInterface.postMessage(JSON.stringify({
+                              origin: window.location.origin,
+                              top: window === window.top,
+                              message: msg
+                            }));
                           } catch(e) {
                             console.error('Error in mobileApp.postMessage:', e);
                           }
@@ -3014,6 +3094,10 @@ public class WebViewDialog extends Dialog {
 
                 // Remove JavaScript interfaces before destroying
                 _webView.removeJavascriptInterface("AndroidInterface");
+                if (bridgeListenerInstalled) {
+                    bridgeListenerInstalled = false;
+                    WebViewCompat.removeWebMessageListener(_webView, BRIDGE_LISTENER_NAME);
+                }
                 _webView.removeJavascriptInterface("PreShowScriptInterface");
                 _webView.removeJavascriptInterface("PrintInterface");
 

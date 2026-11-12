@@ -16,7 +16,7 @@ import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
-import { SendFlowStep } from './types';
+import { SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
@@ -245,6 +245,7 @@ jest.mock('./SelectToken', () => ({
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
       <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
+      <span data-testid="td-chain">{props.destinationChainId}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -300,7 +301,8 @@ jest.mock('./bridge-networks', () => {
     get BRIDGE_NETWORKS() {
       return mockBridgeNetworks;
     },
-    getBridgeNetwork: jest.fn(),
+    getBridgeNetwork: (id: string | undefined) =>
+      [...(mockOfferedNetworks ?? usdcxNetworks), ...mockBridgeNetworks].find(chain => chain.id === id),
     usdcxBridgeNetworks: () => usdcxNetworks,
     defaultUsdcxBridgeNetwork: () => usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
@@ -310,11 +312,32 @@ jest.mock('./bridge-networks', () => {
   };
 });
 
+// Route support is tested with real config reads in send-token-routes.test.ts.
+const mockUnsupportedSendTokens = new Set<string>();
+// Set by a test that needs both bridge routes; unset, the token routes follow the rules below.
+let mockTokenRoutes: { epoch: boolean; agglayer: boolean } | undefined;
+jest.mock('./send-token-routes', () => ({
+  canSendTokenToChain: (_snapshot: object, faucetId: string, chainId?: number) => {
+    if (chainId === undefined) return true;
+    if (mockTokenRoutes) return mockTokenRoutes.epoch || mockTokenRoutes.agglayer;
+    if (mockUnsupportedSendTokens.has(faucetId)) return false;
+    return chainId === 11155111 || chainId === 137 || faucetId === mockUsdcxTokenId;
+  },
+  sendTokenRoutes: (_snapshot: object, faucetId: string, chainId: number) => ({
+    epoch: mockTokenRoutes
+      ? mockTokenRoutes.epoch
+      : (chainId === 11155111 || chainId === 137) && !mockUnsupportedSendTokens.has(faucetId),
+    agglayer: mockTokenRoutes?.agglayer ?? false,
+    usdcx: faucetId === mockUsdcxTokenId && chainId !== 137
+  })
+}));
+
 // USDCx withdrawal is offered only for the token id a test names; unset, every token takes the Epoch route.
 let mockUsdcxTokenId: string | undefined;
 let mockUsdcxWithdrawalNetwork = true;
 jest.mock('lib/usdcx/withdrawal', () => ({
-  isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId,
+  isUsdcxWithdrawalAvailable: (tokenId: string | undefined, chainId?: number) =>
+    !!tokenId && tokenId === mockUsdcxTokenId && chainId !== 137,
   isUsdcxWithdrawalNetwork: () => mockUsdcxWithdrawalNetwork
 }));
 
@@ -449,6 +472,8 @@ beforeEach(() => {
   mockRenderRouteName = undefined;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
+  mockUnsupportedSendTokens.clear();
+  mockTokenRoutes = undefined;
   mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
@@ -1848,6 +1873,24 @@ describe('single sendable token default', () => {
     expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
   });
 
+  it('keeps an automatic token and its amount when only the bridge config changes', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    // A failed read in a new derivation, with the destination unchanged.
+    mockUnsupportedSendTokens.add(native.tokenId);
+    mockSendNetwork = 'testnet';
+    try {
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+      expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+    } finally {
+      mockSendNetwork = 'devnet';
+    }
+  });
+
   it('resets token and amount on an account change and waits for its balances', () => {
     useAllBalancesMock.mockReturnValue({ data: [native] });
     const { rerender } = renderFlow();
@@ -2211,23 +2254,23 @@ describe('fast-route fee', () => {
 // ---------------------------------------------------------------------------
 // USDCx withdrawal: the token decides the route, the destinations and the Epoch quote.
 // ---------------------------------------------------------------------------
+const pickToken = (token: Pick<UIToken, 'id' | 'name' | 'decimals' | 'balance' | 'fiatPrice'>) => {
+  mockSelectedToken = token;
+  act(() => {
+    fireEvent.click(screen.getByTestId('td-select'));
+  });
+};
+
+const pickEvmRecipient = () => {
+  mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
+  act(() => {
+    fireEvent.click(screen.getByTestId('ad-select'));
+  });
+};
+
 describe('USDCx withdrawal wiring', () => {
   const usdcxToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
   const otherToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
-
-  const pickToken = (token: typeof usdcxToken) => {
-    mockSelectedToken = token;
-    act(() => {
-      fireEvent.click(screen.getByTestId('td-select'));
-    });
-  };
-
-  const pickEvmRecipient = () => {
-    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
-    act(() => {
-      fireEvent.click(screen.getByTestId('ad-select'));
-    });
-  };
 
   const offeredNetworks = () => JSON.parse(screen.getByTestId('sr-networks').textContent!);
 
@@ -2679,4 +2722,133 @@ describe('Testnet send while no bridge config document has arrived', () => {
     expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
     expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
   });
+});
+
+it('uses Epoch for USDCx on Polygon and passes Polygon to the asset picker', () => {
+  mockOfferedNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'polygon', name: 'Polygon', chainId: 137 }
+  ];
+  try {
+    mockUsdcxTokenId = 'native-usdcx';
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    pickToken({ id: 'native-usdcx', name: 'USDCx', decimals: 6, balance: 10, fiatPrice: 1 });
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^usdcx$/);
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    rerender(<SendFlow isLoading={false} />);
+    fireEvent.click(screen.getByTestId('sr-network-polygon'));
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+    expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('td-chain')).toHaveTextContent('137');
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true }));
+  } finally {
+    mockOfferedNetworks = undefined;
+  }
+});
+
+it('keeps the asset and its amount when only the bridge config changes', () => {
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+  pickToken(token);
+  mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  rerender(<SendFlow isLoading={false} />);
+  fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+  // A failed read in a new derivation, with the destination unchanged.
+  mockUnsupportedSendTokens.add(token.id);
+  mockSendNetwork = 'testnet';
+  try {
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).not.toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
+it('returns to Epoch once a failed Epoch read recovers', () => {
+  mockCardStack = [{ name: SendFlowStep.Route }];
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
+  expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+  try {
+    // The Epoch read fails in a new derivation: the route moves to AggLayer.
+    mockTokenRoutes = { epoch: false, agglayer: true };
+    mockSendNetwork = 'testnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+    // The read recovers: the automatic move is undone.
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    mockSendNetwork = 'devnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
+it('keeps a confirmed AggLayer route after the Epoch read recovers', () => {
+  const { rerender } = renderFlow();
+  pickEvmRecipient();
+  pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
+  mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  rerender(<SendFlow isLoading={false} />);
+  fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+  mockCardStack = [{ name: SendFlowStep.Route }];
+  try {
+    mockTokenRoutes = { epoch: false, agglayer: true };
+    mockSendNetwork = 'testnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+    // The user confirms the AggLayer route: it is now theirs.
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    mockSendNetwork = 'devnet';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^agglayer$/);
+  } finally {
+    mockSendNetwork = 'devnet';
+  }
+});
+
+it('keeps the asset and its amount when the destination drops out of the offered networks and returns', () => {
+  mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+  try {
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+    pickToken(token);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    // Every read fails: the chain is not offered for a moment.
+    mockOfferedNetworks = [];
+    rerender(<SendFlow isLoading={false} />);
+    // Another token recovers: the same chain is offered again, while this token's own read still fails.
+    mockUnsupportedSendTokens.add(token.id);
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).not.toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  } finally {
+    mockOfferedNetworks = undefined;
+  }
+});
+
+it('clears an unsupported asset and its amount after the destination changes', () => {
+  const { rerender } = renderFlow();
+  const unsupported = { id: 'unlisted-usdt', name: 'USDT', decimals: 6, balance: 10, fiatPrice: 1 };
+  pickToken(unsupported);
+  mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  rerender(<SendFlow isLoading={false} />);
+  fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+  mockUnsupportedSendTokens.add(unsupported.id);
+  pickEvmRecipient();
+  expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
 });

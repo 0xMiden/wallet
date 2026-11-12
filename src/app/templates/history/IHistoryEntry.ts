@@ -70,7 +70,7 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
-  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
+  /** A row whose outcome is unknown rather than confirmed-failed (`readsAsNotConfirmed`). */
   isUnconfirmed?: boolean;
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
   notConfirmedHint?: NotConfirmedHintKey | SubmissionMessageKey;

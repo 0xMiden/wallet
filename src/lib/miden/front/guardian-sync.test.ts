@@ -4113,7 +4113,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       it('skips the adopt when the re-push times out', async () => {
         mockPushSwitchDelta.mockImplementation(() => new Promise<void>(() => {}));
         for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
-        jest.useFakeTimers({ doNotFake: ['Date', 'performance'] });
+        // Not `performance`: the re-push's deadline runs on running time, which reads it.
+        jest.useFakeTimers({ doNotFake: ['Date'] });
         try {
           const lap = syncGuardianAccounts();
           await jest.advanceTimersByTimeAsync(30_000);
