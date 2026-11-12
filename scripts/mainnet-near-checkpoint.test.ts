@@ -49,6 +49,15 @@ it('loads no fabricated state when absent and atomically preserves exact origina
 it('accepts only a fully receipted native round trip with actual EVM/native fees and consume fingerprints', () => {
   const state = complete(); expect(parseMainnetNearCheckpoint(state)).toEqual(state);
 });
+it('records a genuinely receipted provider native refund as cancelled, never as a successful round trip', () => {
+  const state = complete(); state.phase = 'cancelled'; state.paidEvmFees = '0'; state.refunded = '1000000';
+  delete state.forwardEvmTxHash; delete state.forwardReceived; delete state.reverseQuote; delete state.returnAmount;
+  delete state.evmNonceBefore; delete state.returnValuation; delete state.transactions; delete state.reverseReceived;
+  expect(parseMainnetNearCheckpoint(state)).toEqual(state);
+});
+it('retains original zero-spend authority without inventing a funded receipt', () => {
+  const state = fixture(); state.phase = 'unspent'; expect(parseMainnetNearCheckpoint(state)).toEqual(state);
+});
 it('never replaces a corrupt existing checkpoint with a fresh principal or budget', () => {
   const path = join(directory, 'roundtrip.json'); writeFileSync(path, '{bad'); expect(() => loadMainnetNearCheckpoint(path)).toThrow();
 });
