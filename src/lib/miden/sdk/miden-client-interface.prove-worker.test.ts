@@ -317,6 +317,31 @@ describe('send (site 5)', () => {
       expect(harness.submitProven).not.toHaveBeenCalled();
       expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
+    it(`${name} checks the native hold after an async executing-stage write, not before it can expire`, async () => {
+      const harness = buildHarness();
+      const refused = new Error('original native authorization expired during the stage write');
+      let expired = false;
+      const gate = jest.fn(async () => {
+        if (expired) throw refused;
+      });
+      jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+      const { client, withWasmClientLock } = await create(harness);
+      await expect(
+        withWasmClientLock(async () =>
+          client.sendTransaction(sendTx(false), async stage => {
+            if (stage === 'executing') {
+              await Promise.resolve();
+              expired = true;
+            }
+          })
+        )
+      ).rejects.toBe(refused);
+      expect(gate).toHaveBeenCalledTimes(1);
+      expect(harness.executeRequest).not.toHaveBeenCalled();
+      expect(harness.inner.executeTransaction).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
   }
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();
