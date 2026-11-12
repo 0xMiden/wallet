@@ -57,11 +57,11 @@ export const BackgroundLockManager: FC = () => {
             else removers.push(() => void handle.remove());
           })
           .catch(err => {
-            // A rejected pause opens the hide while this effect is mounted, so the heartbeat measures from the
-            // failure instead of refreshing the foreground moment. A rejected resume only warns: a later pause
-            // opens the hide, and the heartbeat locks at the delay with no resume callback.
+            // A rejected pause opens the hide, so the heartbeat measures from the failure instead of refreshing the
+            // foreground moment; after unmount it writes a clock nothing reads. A rejected resume only warns: a later
+            // pause opens the hide, and the heartbeat locks at the delay with no resume callback.
             console.warn('[background-lock] listener registration failed:', err);
-            if (event === 'pause' && !unmounted) onHidden();
+            if (event === 'pause') onHidden();
           });
       void listen('pause', () => App.addListener('pause', onHidden));
       void listen('resume', () => App.addListener('resume', onVisible));

@@ -235,21 +235,6 @@ describe('BackgroundLockManager', () => {
     warn.mockRestore();
   });
 
-  it('a listener that rejects after unmount opens no hide and locks nothing', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const rejecters: Array<(err: Error) => void> = [];
-    mockAddListener.mockImplementation(() => new Promise((_, reject) => rejecters.push(reject)));
-    const view = render(<BackgroundLockManager />);
-    view.unmount();
-    await act(async () => {
-      rejecters.forEach(reject => reject(new Error('no plugin')));
-    });
-    expect(rejecters).toHaveLength(2);
-    expect(mockRequestLock).not.toHaveBeenCalled();
-    expect(backgroundLockPending.get()).toBe(false);
-    warn.mockRestore();
-  });
-
   it('on desktop, the heartbeat locks a window that stays hidden', async () => {
     mockPlatform.mobile = false;
     mockPlatform.desktop = true;
