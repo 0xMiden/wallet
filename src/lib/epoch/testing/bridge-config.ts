@@ -6,10 +6,12 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
-import type { EarnMarket, EpochRoute, EvmUsdc } from 'lib/remote-config/values';
+import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
 export const TEST_ALLOCATOR_URL = 'https://allocator.test';
+/** The Miden account that the test allocator receives collateral notes with (lowercase hex). */
+export const TEST_ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 export const TEST_POSITIONS_URL = 'https://positions.test';
 export const TEST_EVM_CHAIN_ID = 11155111;
 export const TEST_EVM_USDC: EvmUsdc = {
@@ -37,7 +39,7 @@ export const TEST_EARN_VAULTS: readonly EarnVaultConfig[] = [TEST_EARN_VAULT];
 export const TEST_EARN_VAULT_WITH_LOGO: EarnVaultConfig = { ...TEST_EARN_VAULT, logo: 'icons/dummy-lending.svg' };
 /**
  * That vault as the derivation reads it from the testnet host, which has no `/pools` route: the positions fallback
- * names the dummy lender, and the route's USDC read gives its token.
+ * names the dummy lender, and the read of its token (the chain's Epoch USDC) gives the symbol and decimals.
  */
 export const TEST_EARN_VAULT_INFO: EarnVaultInfo = {
   marketUid: TEST_EARN_MARKET.marketUid,
@@ -70,16 +72,32 @@ export const TEST_EVM_NETWORK_ID = 0;
  * re-stub. Install it with
  * `jest.mock('lib/remote-config/values', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigValuesMock())`.
  */
-export function remoteConfigValuesMock() {
+class BridgeConfigUnavailableError extends Error {
+  constructor(readonly value: string) {
+    super(`The bridge config has no usable ${value}.`);
+    this.name = 'BridgeConfigUnavailableError';
+  }
+}
+
+function selectedEpochAllocator(snapshot: BridgeConfigSnapshot) {
+  const allocatorUrl = snapshot.config?.['bridge-providers'].epoch?.allocatorUrl;
+  if (!allocatorUrl) return null;
+  const account = snapshot.derived?.epoch.allocatorAccount;
+  return { allocatorUrl, accountId: account?.state === 'ok' ? account.value.accountId : null };
+}
+
+export function remoteConfigValuesMock(readSnapshot: () => BridgeConfigSnapshot = () => TEST_BRIDGE_CONFIG_SNAPSHOT) {
   return {
-    getEpochAllocatorUrl: jest.fn(() => TEST_ALLOCATOR_URL),
+    getEpochAllocatorUrl: jest.fn(() => {
+      const selected = selectedEpochAllocator(readSnapshot());
+      if (!selected) throw new Error('no allocator');
+      return selected.allocatorUrl;
+    }),
+    BridgeConfigUnavailableError,
+    selectEpochAllocator: jest.fn((snapshot: BridgeConfigSnapshot) => selectedEpochAllocator(snapshot)),
     getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
     getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
-    getEvmUsdc: jest.fn(() => TEST_EVM_USDC),
-    getEvmUsdcAddress: jest.fn(() => TEST_EVM_USDC.address),
-    findEvmUsdc: jest.fn((): EvmUsdc | null => TEST_EVM_USDC),
-    findEpochUsdcAddress: jest.fn((): string | null => TEST_EVM_USDC.address),
-    getEpochRoutes: jest.fn((): EpochRoute[] => [{ chainId: TEST_EVM_CHAIN_ID, usdc: TEST_EVM_USDC.address }]),
+    getSupportedEvmChainIds: jest.fn((): number[] => [TEST_EVM_CHAIN_ID]),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
     getEarnVaults: jest.fn((): readonly EarnVaultConfig[] => TEST_EARN_VAULTS),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
@@ -163,6 +181,7 @@ const TEST_DERIVED: DerivedBridgeConfig = {
   epoch: {
     market: { state: 'ok', value: TEST_EARN_MARKET },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { accountId: TEST_ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
     vaults: { state: 'ok', value: [...TEST_EARN_VAULT_CATALOG] }
   },

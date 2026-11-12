@@ -23,9 +23,9 @@ import { SwapFlow } from './SwapManager';
 // Fixture tokens. Prefixed `mock` so the hoisted jest.mock factories may close
 // over them. Default flow: offer = AAA (index 0), request = BBB (index 1).
 // ---------------------------------------------------------------------------
-const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8, logoSymbol: 'MIDEN' };
-const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8, logoSymbol: 'ETH' };
-const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8, logoSymbol: 'BTC' };
+const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8 };
+const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8 };
+const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8 };
 
 // Mutable module-level state driven per test (all `mock`-prefixed for hoisting).
 let mockRenderedRoutes: Array<{ name: string }>;
@@ -1645,8 +1645,7 @@ describe('SwapFlow / SwapManager', () => {
     it.each([
       { change: 'faucet', token: { ...mockTokenC, faucetId: 'replacement-C' } },
       { change: 'precision', token: { ...mockTokenC, decimals: 0 } },
-      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } },
-      { change: 'logo', token: { ...mockTokenC, logoSymbol: 'ETH' } }
+      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } }
     ])('resets a selected third-token draft after its $change changes', ({ token }) => {
       const { rerender } = renderFlow();
       selectThirdOffer();
@@ -1794,7 +1793,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('resets an idle draft when the default pair changes within stable effective tokens', () => {
-      const nativeToken = { ...mockTokenC, symbol: 'MIDEN', logoSymbol: 'MIDEN' };
+      const nativeToken = { ...mockTokenC, symbol: 'MIDEN' };
       mockGetSwapTokens.mockReturnValue([nativeToken, mockTokenA, mockTokenB]);
       mockDefaultPairOverride = { offer: mockTokenA, request: mockTokenB };
       const { rerender } = renderFlow();
