@@ -1,7 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 import { expect, test } from '../../fixtures/two-wallets';
-import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { fromBaseUnits, pendingNoteTotal, vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from '../../helpers/balance-truth';
 import { waitForSendRow, TxStatus } from '../../helpers/history';
 import { mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
@@ -24,8 +23,9 @@ import {
 } from '../../helpers/mainnet-one-click-plan';
 import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../helpers/mainnet-one-click-prices';
 import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
-import { confirmMainnetOneClickReview, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
-import { isSameOneClickUnderlyingAsset, ONE_CLICK_EVM_CHAIN_IDS, OneClickHttpError, parseOneClickQuoteResponse, requestOneClickQuote } from '../../../../src/lib/one-click/client';
+import { captureMainnetOneClickReviewQuote as actualReviewQuote, connectMainnetOneClickWallet as connectExternalWallet,
+  confirmMainnetOneClickReview, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
+import { isSameOneClickUnderlyingAsset, ONE_CLICK_EVM_CHAIN_IDS, OneClickHttpError, requestOneClickQuote } from '../../../../src/lib/one-click/client';
 import type { OneClickAsset, OneClickMidenAssetConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../../src/lib/one-click/types';
 import { createWalletClient, http, isHash, isHex, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -114,55 +114,6 @@ function quoteLoss(
   if (quote.quote.refundFee !== undefined) fees += tokenValueUsdMicro(BigInt(quote.quote.refundFee), input.decimals, inputPrice, true);
   if (quote.quote.withdrawFee !== undefined) fees += tokenValueUsdMicro(BigInt(quote.quote.withdrawFee), output.decimals, outputPrice, true);
   return (inputValue > outputValue ? inputValue - outputValue : 0n) + fees;
-}
-
-async function connectExternalWallet(wallet: GuardianAwareWalletPage, counterparty: WcCounterparty): Promise<void> {
-  const state = async () => wallet.page.evaluate(() => {
-    const read = window.__TEST_APPKIT_STATE__;
-    if (!read) throw new Error('The mainnet E2E AppKit state hook is unavailable');
-    return read();
-  });
-  await counterparty.start();
-  const connection = counterparty.connectWithRetry(
-    () => wallet.page.evaluate(() => {
-      const read = window.__TEST_APPKIT_CONNECT_URI__;
-      if (!read) throw new Error('The mainnet E2E AppKit URI hook is unavailable');
-      return read();
-    }),
-    async () => (await state()).connected,
-    { attempts: 3, backoffMs: 5_000, sessionTimeoutMs: 45_000 }
-  );
-  await wallet.page.getByTestId('one-click-connect-origin-wallet').click();
-  await connection;
-  const connected = await state();
-  expect(connected.connected).toBe(true);
-  expect(connected.address?.toLowerCase()).toBe(counterparty.address.toLowerCase());
-}
-
-async function actualReviewQuote(
-  wallet: GuardianAwareWalletPage,
-  route: Parameters<typeof selectMainnetOneClickAssets>[1],
-  expected: { originAsset: string; destinationAsset: string; amount: bigint; refundTo: string; recipient: string },
-  selected = false
-): Promise<OneClickQuoteResponse> {
-  const response = wallet.page.waitForResponse(
-    response => {
-      if (!response.url().includes('/v0/quote') || response.request().method() !== 'POST') return false;
-      const body: unknown = response.request().postDataJSON();
-      return typeof body === 'object' && body !== null && !Array.isArray(body) &&
-        Reflect.get(body, 'dry') === false && Reflect.get(body, 'amount') === expected.amount.toString() &&
-        Reflect.get(body, 'originAsset') === expected.originAsset &&
-        Reflect.get(body, 'destinationAsset') === expected.destinationAsset &&
-        Reflect.get(body, 'refundTo') === expected.refundTo && Reflect.get(body, 'recipient') === expected.recipient;
-    },
-    { timeout: 120_000 }
-  );
-  if (!selected) await selectMainnetOneClickAssets(wallet.page, route);
-  await wallet.page.getByTestId('one-click-pay-amount').fill(route.amount);
-  await expect(wallet.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 120_000 });
-  await wallet.page.getByTestId('one-click-review-submit').click();
-  await expect(wallet.page.getByTestId('one-click-review-hero')).toBeVisible();
-  return parseOneClickQuoteResponse(await (await response).json());
 }
 
 test('settles the smallest observed funded 1Click round trip and returns the received balance', async ({ walletB }) => {

@@ -1,8 +1,10 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { privateKeyToAddress } from 'viem/accounts';
+import { expect } from '@playwright/test';
+import { createPublicClient, http, isHash } from 'viem';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
-import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from './balance-truth';
-import { loadMainnetNearCheckpoint, saveMainnetNearCheckpoint } from './mainnet-near-checkpoint';
+import { fromBaseUnits, vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from './balance-truth';
+import { loadMainnetNearCheckpoint, parseMainnetNearCheckpoint, saveMainnetNearCheckpoint, type MainnetNearCheckpoint } from './mainnet-near-checkpoint';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { remainingMainnetLoopBudget } from './mainnet-loop-budget';
@@ -13,7 +15,19 @@ import { readMainnetEvmHolding } from './mainnet-one-click-evm';
 import { createMainnetOneClickOriginFetcher } from './mainnet-one-click-origin';
 import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from './mainnet-one-click-prices';
 import { prepareMainnetNearRoundTrip, selectMainnetNearNativeAsset, type MainnetNearPlanningFacts } from './mainnet-near-plan';
-import { OneClickHttpError, requestOneClickQuote } from '../../../src/lib/one-click/client';
+import { assertOneClickQuoteBinding, fetchOneClickStatus, OneClickHttpError, requestOneClickQuote } from '../../../src/lib/one-click/client';
+import { hashOneClickQuote } from '../../../src/lib/one-click/signature';
+import { assertOneClickFundingDeadline } from '../../../src/lib/one-click/deadline';
+import type { OneClickStatusResponse } from '../../../src/lib/one-click/types';
+import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from './mainnet-send-authorization';
+import { captureMainnetOneClickReviewQuote, confirmMainnetOneClickReview } from './mainnet-one-click-ui';
+import { assertNeverStartedBuilding, plantQueueBlocker, readTransactionRows, readTransactionRowsWithBytes,
+  releaseQueueBlocker, TxStatus, waitForSendRow } from './history';
+import { readMainnetMidenOwnNoteCreator } from './mainnet-miden-indexer';
+import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
+import { inspectMainnetNearForwardReceipt } from './mainnet-near-evm';
+import { getEnvironmentConfig } from '../config/environments';
+import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 
 export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 

@@ -122,7 +122,14 @@ describe('mainnet 1Click checkpoint recovery', () => {
   it('refuses native preparation without exact same-run predecessor costs before restoring or spending', async () => {
     process.env.MAINNET_NEAR_MODE = 'prepare'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
     const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
-    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/same-run predecessor/i);
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/same-run predecessor|mainnet loop cost evidence/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
+  });
+  it('refuses native forward authority from another source run before restoring or confirming a send', async () => {
+    process.env.MAINNET_NEAR_MODE = 'forward'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    mockNativeCheckpoint = { phase: 'forward-authorized', sourceRunId: '99', authorizationRunId: '99' };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/same-run.*forward|forward.*same-run/i);
     expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
   });
   it('blocks an unknown original native claim outcome before restoration, funding or renewed authority', async () => {
