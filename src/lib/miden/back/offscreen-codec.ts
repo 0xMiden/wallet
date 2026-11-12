@@ -35,6 +35,8 @@ export const OFFSCREEN_TARGET = 'offscreen' as const;
  * picking it up (issue #260, slice 5, design §2.3). */
 export const SW_TARGET = 'sw' as const;
 
+export const OFFSCREEN_TEST_AUTHORIZATION_STORAGE = 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE';
+
 /** Message family for a generalized WASM-client method call. Distinct from the
  * existing `OFFSCREEN_PROVE` family, which keeps working unchanged. */
 export const OFFSCREEN_CALL = 'OFFSCREEN_CALL' as const;

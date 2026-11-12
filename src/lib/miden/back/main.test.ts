@@ -225,8 +225,8 @@ const Actions: any = jest.requireMock('lib/miden/back/actions');
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { WalletMessageType } from 'lib/shared/types';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { WalletMessageType } from 'lib/shared/types';
 
 import { start } from './main';
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
@@ -1629,14 +1629,22 @@ describe('bounded E2E offscreen authorization storage', () => {
   const getUrl = Object.getOwnPropertyDescriptor(chrome.runtime, 'getURL');
   beforeEach(() => {
     process.env.MIDEN_E2E_TEST = 'true';
-    Object.defineProperty(chrome.runtime, 'getURL', { configurable: true, value: (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}` });
+    Object.defineProperty(chrome.runtime, 'getURL', {
+      configurable: true,
+      value: (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}`
+    });
   });
   afterEach(() => {
-    if (mode === undefined) delete process.env.MIDEN_E2E_TEST; else process.env.MIDEN_E2E_TEST = mode;
-    if (getUrl) Object.defineProperty(chrome.runtime, 'getURL', getUrl); else Reflect.deleteProperty(chrome.runtime, 'getURL');
+    if (mode === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = mode;
+    if (getUrl) Object.defineProperty(chrome.runtime, 'getURL', getUrl);
+    else Reflect.deleteProperty(chrome.runtime, 'getURL');
   });
-  const invoke = (message: unknown, sender = { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` }, reply = jest.fn()) =>
-    capturedRuntimeListeners[0]?.(message, sender, reply);
+  const invoke = (
+    message: unknown,
+    sender = { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` },
+    reply = jest.fn()
+  ) => capturedRuntimeListeners[0]?.(message, sender, reply);
   const read = { target: 'sw', type: 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE', operation: 'get', keys: [key] };
   it('reads only the public authorization through the owning service worker', async () => {
     const policy = { nonce: 'original', accountId: 'actor', status: 'armed' };
@@ -1651,15 +1659,27 @@ describe('bounded E2E offscreen authorization storage', () => {
     const waiting = { ...policy, status: 'waiting', sha256: 'a'.repeat(64) };
     await getStorageProvider().set({ [key]: policy });
     const reply = jest.fn();
-    expect(invoke({ target: 'sw', type: read.type, operation: 'set', items: { [key]: waiting } }, undefined, reply)).toBe(true);
+    expect(
+      invoke({ target: 'sw', type: read.type, operation: 'set', items: { [key]: waiting } }, undefined, reply)
+    ).toBe(true);
     await flushStorage();
     expect(reply).toHaveBeenCalledWith({ ok: true });
     expect(await getStorageProvider().get([key])).toEqual({ [key]: waiting });
   });
   it.each([
     { ...read, keys: ['mnemonic'] },
-    { target: 'sw', type: read.type, operation: 'set', items: { [key]: { nonce: 'replacement', accountId: 'actor', status: 'waiting' } } },
-    { target: 'sw', type: read.type, operation: 'set', items: { [key]: { nonce: 'original', accountId: 'actor', status: 'released' } } },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'replacement', accountId: 'actor', status: 'waiting' } }
+    },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'original', accountId: 'actor', status: 'released' } }
+    },
     { target: 'sw', type: read.type, operation: 'set', items: { [`${key}_required`]: {} } }
   ])('rejects secret storage access, scope replacement and self-release: %j', async message => {
     const original = { nonce: 'original', accountId: 'actor', status: 'armed' };

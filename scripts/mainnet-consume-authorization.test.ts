@@ -61,7 +61,10 @@ function offscreenStorage() {
   const relay = jest.fn(async (message: unknown) => {
     if (!isRecord(message)) throw new Error('Invalid unit relay message');
     if (message.operation === 'get') return { ok: true, value: await get() };
-    if (message.operation === 'set') { await set(message.items); return { ok: true }; }
+    if (message.operation === 'set') {
+      await set(message.items);
+      return { ok: true };
+    }
     throw new Error('Unsupported unit relay operation');
   });
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { runtime: { sendMessage: relay } } });
@@ -92,18 +95,21 @@ it('preserves ordinary E2E consumes when no mainnet claim gate is armed', async 
   expect(set).not.toHaveBeenCalled();
 });
 it('preserves unarmed E2E consumes in the real offscreen API shape without chrome.storage', async () => {
-  data = {}; const relay = offscreenStorage();
+  data = {};
+  const relay = offscreenStorage();
   await run();
   expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'get' }));
   expect(serialize).not.toHaveBeenCalled();
 });
 it('retains the funded consume hold through the offscreen service-worker storage relay', async () => {
   const relay = offscreenStorage();
-  const promise = run(); await waitForHeld(promise);
+  const promise = run();
+  await waitForHeld(promise);
   const current = data[KEY];
   if (!isRecord(current)) throw new Error('Missing unit held policy');
   data[KEY] = { ...current, status: 'released' };
-  await jest.advanceTimersByTimeAsync(500); await promise;
+  await jest.advanceTimersByTimeAsync(500);
+  await promise;
   expect(data[KEY]).toMatchObject({ nonce, status: 'spent' });
   expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'set' }));
 });

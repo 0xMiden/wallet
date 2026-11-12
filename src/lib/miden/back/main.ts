@@ -28,6 +28,7 @@ import {
   OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
+  OFFSCREEN_TEST_AUTHORIZATION_STORAGE,
   SW_TARGET,
   type OffscreenSignRequest,
   type OffscreenTelemetryEvent
@@ -38,6 +39,7 @@ import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/trans
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
+import { handleTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
@@ -285,6 +287,11 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_TEST_AUTHORIZATION_STORAGE) {
+      if (process.env.MIDEN_E2E_TEST !== 'true' || sender.url !== chrome.runtime.getURL('offscreen.html')) return false;
+      void handleTestAuthorizationStorage(msg).then(sendResponse, () => sendResponse({ ok: false }));
+      return true;
+    }
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;

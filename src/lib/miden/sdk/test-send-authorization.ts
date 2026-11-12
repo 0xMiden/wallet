@@ -1,3 +1,4 @@
+import { getTestAuthorizationStorage, setTestAuthorizationStorage } from './test-authorization-storage';
 import {
   inspectTestMainnetSendRequest,
   inspectTestMainnetSwapRequest,
@@ -20,7 +21,7 @@ export async function awaitTestSendAuthorization(
   kind: 'send' | 'swap' = 'send'
 ): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
-  const stored = await chrome.storage.local.get([KEY, `${KEY}_required`]);
+  const stored = await getTestAuthorizationStorage([KEY, `${KEY}_required`]);
   const policy: unknown = stored[KEY];
   const required: unknown = stored[`${KEY}_required`];
   if (policy === undefined) {
@@ -56,10 +57,20 @@ export async function awaitTestSendAuthorization(
       policy.requestedFaucetId === policy.faucetId ||
       typeof policy.requestedAmount !== 'string' ||
       !/^[1-9]\d{0,18}$/.test(policy.requestedAmount)
-    ) throw new Error('Invalid PSWAP authorization scope');
-    route = { ...common, kind: 'swap', requestedFaucetId: policy.requestedFaucetId, requestedAmount: policy.requestedAmount };
+    )
+      throw new Error('Invalid PSWAP authorization scope');
+    route = {
+      ...common,
+      kind: 'swap',
+      requestedFaucetId: policy.requestedFaucetId,
+      requestedAmount: policy.requestedAmount
+    };
   } else {
-    if (policy.kind !== undefined || typeof policy.recipientId !== 'string' || !/^0x[0-9a-f]{30}$/.test(policy.recipientId))
+    if (
+      policy.kind !== undefined ||
+      typeof policy.recipientId !== 'string' ||
+      !/^0x[0-9a-f]{30}$/.test(policy.recipientId)
+    )
       throw new Error('Invalid native send authorization scope');
     route = { ...common, recipientId: policy.recipientId };
   }
@@ -71,33 +82,34 @@ export async function awaitTestSendAuthorization(
       throw new Error('Native send authorization timed out');
   };
   const bytes = request.serialize();
-  const identity = 'kind' in scope
-    ? inspectTestMainnetSwapRequest(scope, bytes)
-    : { noteId: inspectTestMainnetSendRequest(scope, bytes) };
+  const identity =
+    'kind' in scope
+      ? inspectTestMainnetSwapRequest(scope, bytes)
+      : { noteId: inspectTestMainnetSendRequest(scope, bytes) };
   const sha = await sha256(bytes);
   const canonicalSha256 = await sha256(canonicalRequestBytes(bytes));
   const same = (value: unknown, expected: Record<string, string | number>): boolean =>
     isRecord(value) && Object.entries(expected).every(([key, entry]) => value[key] === entry);
-  if (!same((await chrome.storage.local.get(KEY))[KEY], { ...scope, status: 'armed' }))
+  if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...scope, status: 'armed' }))
     throw new Error('Native send authority changed during request inspection');
   active();
   // Only public route identities and request fingerprints cross storage, never note/request bytes.
   const held = { ...scope, ...identity, sha256: sha, canonicalSha256 };
-  await chrome.storage.local.set({ [KEY]: { ...held, status: 'waiting' } });
+  await setTestAuthorizationStorage({ [KEY]: { ...held, status: 'waiting' } });
   for (let poll = 0; poll < 480; poll++) {
     active();
-    const live: unknown = (await chrome.storage.local.get(KEY))[KEY];
+    const live: unknown = (await getTestAuthorizationStorage(KEY))[KEY];
     if (!same(live, held) || !isRecord(live) || (live.status !== 'waiting' && live.status !== 'released'))
       throw new Error('Native send authority changed during the request hold');
     if (live.status === 'released') {
       if ((await sha256(request.serialize())) !== sha)
         throw new Error('Actual native send bytes changed during upload');
       active();
-      if (!same((await chrome.storage.local.get(KEY))[KEY], { ...held, status: 'released' }))
+      if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...held, status: 'released' }))
         throw new Error('Native send release changed during request verification');
       active();
-      await chrome.storage.local.set({ [KEY]: { ...held, status: 'spent' } });
-      if (!same((await chrome.storage.local.get(KEY))[KEY], { ...held, status: 'spent' }))
+      await setTestAuthorizationStorage({ [KEY]: { ...held, status: 'spent' } });
+      if (!same((await getTestAuthorizationStorage(KEY))[KEY], { ...held, status: 'spent' }))
         throw new Error('Native send spent authority changed before execution');
       active();
       return;

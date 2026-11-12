@@ -72,10 +72,13 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, 'crypto');
 });
 function offscreenStorage() {
-  const relay = jest.fn(async (message: unknown) => {
+  const relay = jest.fn(async (message: unknown): Promise<unknown> => {
     if (!isRecord(message)) throw new Error('Invalid unit relay message');
     if (message.operation === 'get') return { ok: true, value: await get() };
-    if (message.operation === 'set') { await set(message.items); return { ok: true }; }
+    if (message.operation === 'set') {
+      await set(message.items);
+      return { ok: true };
+    }
     throw new Error('Unsupported unit relay operation');
   });
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { runtime: { sendMessage: relay } } });
@@ -106,19 +109,31 @@ it('preserves unarmed legacy E2E sends', async () => {
   expect(set).not.toHaveBeenCalled();
 });
 it('preserves unarmed E2E sends in the real offscreen API shape without chrome.storage', async () => {
-  data = {}; const relay = offscreenStorage();
+  data = {};
+  const relay = offscreenStorage();
   await run();
   expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'get' }));
   expect(serialize).not.toHaveBeenCalled();
 });
 it('retains the funded byte hold through the offscreen service-worker storage relay', async () => {
   const relay = offscreenStorage();
-  const promise = run(); await held(promise);
+  const promise = run();
+  await held(promise);
   patch({ status: 'released' });
-  await jest.advanceTimersByTimeAsync(500); await promise;
+  await jest.advanceTimersByTimeAsync(500);
+  await promise;
   expect(data[KEY]).toMatchObject({ nonce: scope.nonce, status: 'spent' });
   expect(relay).toHaveBeenCalledWith(expect.objectContaining({ target: 'sw', operation: 'set' }));
 });
+it.each([undefined, { ok: false }, { ok: true, value: null }])(
+  'refuses a missing or invalid storage relay response: %j',
+  async response => {
+    const relay = offscreenStorage();
+    relay.mockImplementation(async () => response);
+    await expect(run()).rejects.toThrow(/storage|relay/i);
+    expect(serialize).not.toHaveBeenCalled();
+  }
+);
 it('fails closed before inspecting bytes when an explicitly armed policy disappeared', async () => {
   data = { [`${KEY}_required`]: { accountId: account, nonce: scope.nonce } };
   await expect(run()).rejects.toThrow(/missing|authorization/i);
