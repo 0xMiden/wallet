@@ -327,6 +327,17 @@ const guardianRequestTimeout = () =>
     name: 'GuardianRequestTimeoutError'
   });
 
+// A 0.19 Guardian's refusal of a `/configure` state the chain does not hold yet, as a 0.18.1 client reports a code it
+// does not know (`code` null, the wire string on `rawCode`), wrapped as the registration retry loops throw it.
+const stateNotOnChainRefusal = (message: string) =>
+  new Error(message, {
+    cause: Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), {
+      status: 409,
+      code: null,
+      rawCode: 'state_not_on_chain'
+    })
+  });
+
 describe('zustandProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -1637,6 +1648,38 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(refusedPushes + 1);
     nowSpy.mockRestore();
     perfSpy.mockRestore();
+  });
+
+  // A 0.19 Guardian refuses a state its node does not hold yet and stores nothing, so the push is refused, not spent.
+  it('a cold re-register refused with state_not_on_chain is refused-transiently', async () => {
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+      throw stateNotOnChainRefusal('Failed to register account on the new guardian after switching');
+    });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    const notOnChain = {
+      publicKey: 'acct-not-on-chain',
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold'
+    };
+    storeState.accounts = [notOnChain];
+    const clock = useFakeClocks(5_000_000);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS + 2; i++) {
+      await syncGuardianAccounts();
+      clock.advance(SELF_HEAL_COOLDOWN_MS + 1_000);
+    }
+
+    expect(mockReRegister.mock.calls.length).toBeGreaterThan(SELF_HEAL_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('acct-not-on-chain')).toBe(false);
+
+    clock.restore();
   });
 
   // A rejection before the push start (a watchdog eviction of the read hold, a failed sync, a missing account)
@@ -3159,7 +3202,9 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         // The charge hook. The attempt is spent from INSIDE the switch, right
         // before the POST, rather than by the caller beforehand - see the
         // dedicated charge-timing tests below.
-        expect.any(Function)
+        expect.any(Function),
+        // One chain read before the POST, refunded when the chain does not hold the state.
+        'require'
       );
       // The cached service was built against an operator that had no state; drop it
       // so the next tick builds one against the now-registered account.
@@ -3244,7 +3289,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       endpoint,
       zustandProvider,
       PREFLIGHT_LOCK_OPTIONS,
-      expect.any(Function)
+      expect.any(Function),
+      'require'
     );
 
     clock.restore();
@@ -3605,6 +3651,72 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     clock.restore();
   });
 
+  // Review Focus 3: this device's state is ahead of the chain. The heal asks for one chain read ('require'), which
+  // refuses before any /configure, so no lap spends the budget and the account is never marked unrepairable.
+  it('three missing-registration laps with the state off chain refund, send no /configure and do not mark the account unrepairable', async () => {
+    let posts = 0;
+    // The switch's contract with the state off chain: 'require' refuses as preflight, before the charge hook, and any
+    // other mode posts, which a 0.19 Guardian answers with state_not_on_chain.
+    mockFinalizeDirectGuardianSwitch.mockImplementation(
+      async (
+        _publicKey: string,
+        _endpoint: string,
+        _provider: unknown,
+        _lockOptions: unknown,
+        onBeforeRegister?: () => void,
+        stateOnChain?: string
+      ) => {
+        if (stateOnChain === 'require') {
+          throw new GuardianRegistrationPreflightError('the node does not hold the state this device would register');
+        }
+        onBeforeRegister?.();
+        posts += 1;
+        throw stateNotOnChainRefusal('Failed to register account on the new guardian after direct switch');
+      }
+    );
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 1; i++) {
+      clock.advance(4 * MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 2);
+    expect(posts).toBe(0);
+    expect(isGuardianUnrepairable('unregistered-pk')).toBe(false);
+
+    clock.restore();
+  });
+
+  // The read agreed, then the Guardian's own node had not caught up: it refused before storing anything.
+  it('refunds a push the Guardian refused with state_not_on_chain', async () => {
+    mockFinalizeDirectGuardianSwitch.mockImplementation(
+      async (
+        _publicKey: string,
+        _endpoint: string,
+        _provider: unknown,
+        _lockOptions: unknown,
+        onBeforeRegister?: () => void
+      ) => {
+        onBeforeRegister?.();
+        throw stateNotOnChainRefusal('Failed to register account on the new guardian after direct switch');
+      }
+    );
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 1; i++) {
+      clock.advance(4 * MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 2);
+    expect(isGuardianUnrepairable('unregistered-pk')).toBe(false);
+
+    clock.restore();
+  });
+
   // The budget is keyed by what the push would WRITE, so a second rotation in the
   // same session is not silently skipped by the first one's spent attempts.
   it('re-arms for a rotation to a different endpoint in the same session', async () => {
@@ -3627,7 +3739,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'https://second.guardian.test',
       zustandProvider,
       PREFLIGHT_LOCK_OPTIONS,
-      expect.any(Function)
+      expect.any(Function),
+      'require'
     );
     clock.restore();
   });
@@ -3678,7 +3791,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'https://second.guardian.test',
       zustandProvider,
       PREFLIGHT_LOCK_OPTIONS,
-      expect.any(Function)
+      expect.any(Function),
+      'require'
     );
     clock.restore();
   });
@@ -3812,7 +3926,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         endpoint,
         zustandProvider,
         expect.anything(),
-        expect.any(Function)
+        expect.any(Function),
+        'require'
       );
       expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
     });
@@ -3925,7 +4040,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         endpoint,
         zustandProvider,
         expect.anything(),
-        expect.any(Function)
+        expect.any(Function),
+        'require'
       );
 
       dateSpy.mockRestore();
@@ -4106,7 +4222,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
           endpoint,
           zustandProvider,
           expect.anything(),
-          expect.any(Function)
+          expect.any(Function),
+          'require'
         );
       });
 

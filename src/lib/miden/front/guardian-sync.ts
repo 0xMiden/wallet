@@ -20,7 +20,12 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
-import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+import {
+  guardianRetryAfterSec,
+  isGuardianRateLimited,
+  isGuardianRequestTimeout,
+  isGuardianStateNotOnChain
+} from 'lib/miden/guardian/serialize';
 import type { TransactionCommitState } from 'lib/miden/sdk/miden-client-interface';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -1514,7 +1519,10 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       () => {
         registrationAttempted = true;
         pushAttempt.chargeEarly();
-      }
+      },
+      // One chain read, and a preflight refusal when the node does not hold this device's state: on a device whose
+      // copy is ahead of the chain, every lap would otherwise post a state a 0.19 Guardian refuses.
+      'require'
     );
     noteSyncSuccess(fuseKey);
     pushAttempt.settle('charged');
@@ -1559,6 +1567,16 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       console.warn(
         `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
           `not be read completely enough to authorize the operator (no attempt spent):`,
+        e
+      );
+      return false;
+    }
+    // The operator stored nothing: its node does not hold the state yet, which a later lap can find it does.
+    if (isGuardianStateNotOnChain(e)) {
+      pushAttempt.settle('refunded');
+      console.warn(
+        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the operator's node does not ` +
+          `hold this state (no attempt spent):`,
         e
       );
       return false;
@@ -1995,8 +2013,9 @@ async function attemptColdReRegisterSelfHeal(
       failed = true;
     }
     // The chain guard refused before any `/configure` (#1233): the push never started, so no attempt
-    // is spent, and a later tick retries once this device's copy has caught up with the chain.
-    if (isGuardianReRegisterRefusal(e)) {
+    // is spent, and a later tick retries once this device's copy has caught up with the chain. A 0.19
+    // Guardian whose node lags refuses the same state with `state_not_on_chain` and stores nothing.
+    if (isGuardianReRegisterRefusal(e) || isGuardianStateNotOnChain(e)) {
       console.warn(
         `[Guardian Sync] not re-registering ${account.publicKey}: its local state is not the chain's yet`,
         e

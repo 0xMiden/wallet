@@ -33,6 +33,7 @@ import {
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
 import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
+import { waitForStateOnChain } from './direct-switch';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
@@ -1467,7 +1468,7 @@ export class MultisigService {
     const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
-      const registration = await withWasmClientLock(async (hold): Promise<GuardianRegistration> => {
+      const { registration, stateCommitment } = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
         // and an eviction during it hands the mutex to a successor without
@@ -1485,8 +1486,18 @@ export class MultisigService {
         // The allowlist the new operator installs comes from the same post-switch account as the
         // state, never the cached config, and a short or non-ECDSA read refuses before any POST.
         const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
-        return { accountIdHex: this.accountId, stateBase64: u8ToB64(account.serialize()), signerCommitments };
+        return {
+          registration: { accountIdHex: this.accountId, stateBase64: u8ToB64(account.serialize()), signerCommitments },
+          // The commitment of those bytes, which the node has to hold before a 0.19 Guardian stores them.
+          stateCommitment: account.to_commitment().toHex()
+        };
       });
+
+      // Past the hold, so no WASM lock is held while the node is read. A miss registers anyway: a 0.18 Guardian
+      // accepts the state, and a 0.19 refusal leaves `registerFailed` for the self-heal.
+      if (!(await waitForStateOnChain(this.accountId, stateCommitment))) {
+        console.warn('[Guardian] the node did not show the switched state within its wait; registering anyway');
+      }
 
       registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);

@@ -283,6 +283,11 @@ const mockAbandonCandidateByNonce = jest.fn(async (..._args: unknown[]): Promise
 jest.mock('./legacy-abandon', () => ({
   abandonCandidateByNonce: (...a: unknown[]) => mockAbandonCandidateByNonce(...a)
 }));
+// The chain wait in front of a switch's registration, covered against the node read in direct-switch.test.ts.
+const mockWaitForStateOnChain = jest.fn(async (_accountId: string, _commitmentHex: string) => true);
+jest.mock('./direct-switch', () => ({
+  waitForStateOnChain: (accountId: string, commitmentHex: string) => mockWaitForStateOnChain(accountId, commitmentHex)
+}));
 const { mockProbeVerdicts, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
@@ -477,6 +482,8 @@ describe('MultisigService', () => {
     mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
     guardianConfig.configure.mockReset();
     guardianConfig.configure.mockResolvedValue({ success: true, message: 'ok' });
+    mockWaitForStateOnChain.mockReset();
+    mockWaitForStateOnChain.mockResolvedValue(true);
   });
 
   describe('constructor + getters', () => {
@@ -2552,6 +2559,12 @@ describe('MultisigService', () => {
     // A real `GET /pubkey` commitment is a 32-byte word, and the switch path now
     // refuses anything else before it reaches the transaction script.
     const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+    // The commitment of the post-switch state the finalize serializes.
+    const POST_SWITCH_COMMITMENT = `0x${'5c'.repeat(32)}`;
+    const postSwitchAccount = () => ({
+      serialize: () => new Uint8Array([1]),
+      to_commitment: () => ({ toHex: () => POST_SWITCH_COMMITMENT })
+    });
 
     beforeEach(() => {
       resetMockProbes();
@@ -2703,7 +2716,7 @@ describe('MultisigService', () => {
       return { multisig, service, delta };
     };
     const queueFinalize = () => {
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT });
     };
     const flushPush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -2800,10 +2813,51 @@ describe('MultisigService', () => {
       expect(guardianConfig.configure).toHaveBeenCalledTimes(2);
     });
 
+    // A 0.19 Guardian stores a state past nonce 0 only once the chain holds it.
+    it('finalizeGuardianSwitch waits for the post-switch commitment before its first /configure', async () => {
+      const { service } = await setUpSignedSwitch();
+      queueFinalize();
+      let landed: (onChain: boolean) => void = () => {};
+      const lockHeldDuringWait: boolean[] = [];
+      mockWaitForStateOnChain.mockImplementationOnce(async () => {
+        lockHeldDuringWait.push(currentWasmHold !== null);
+        return new Promise<boolean>(resolve => {
+          landed = resolve;
+        });
+      });
+
+      const finalized = service.finalizeGuardianSwitch('https://new');
+      for (let turn = 0; turn < 50 && !mockWaitForStateOnChain.mock.calls.length; turn++) await flushPush();
+      await flushPush();
+
+      expect(mockWaitForStateOnChain).toHaveBeenCalledWith('acc-id', POST_SWITCH_COMMITMENT);
+      expect(lockHeldDuringWait).toEqual([false]);
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
+
+      landed(true);
+      await finalized;
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledWith(registeredState('base64-bytes'));
+    });
+
+    // Review Focus 2 on the coordinated path: a 0.18 Guardian accepts the state as before.
+    it('finalizeGuardianSwitch registers once when the chain wait runs out', async () => {
+      const { service } = await setUpSignedSwitch();
+      queueFinalize();
+      mockWaitForStateOnChain.mockResolvedValueOnce(false);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await service.finalizeGuardianSwitch('https://new');
+
+      expect(mockWaitForStateOnChain).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await service.finalizeGuardianSwitch('https://new');
@@ -2819,7 +2873,7 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ signerCommitments: ['0xstale', '0xcold'] });
       const oldClient = serviceClient();
       const service = new MultisigService(multisig as never, oldClient as never, 'https://old');
-      const account = { serialize: () => new Uint8Array([1]) };
+      const account = postSwitchAccount();
       mockGetAccount.mockResolvedValueOnce(account);
       const readInHold: boolean[] = [];
       mockAccountInspectorFromAccount.mockImplementation(() => {
@@ -2858,7 +2912,7 @@ describe('MultisigService', () => {
     ])('finalizeGuardianSwitch refuses %s before any /configure', async (_label, read) => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, serviceClient() as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       mockAccountInspectorFromAccount.mockReturnValue(read);
 
       await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow('Refusing to register');
@@ -2879,7 +2933,7 @@ describe('MultisigService', () => {
     ])('finalizeGuardianSwitch refuses %s from the new guardian', async (_label, commitment) => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow('malformed key commitment');
@@ -2943,7 +2997,7 @@ describe('MultisigService', () => {
       guardianConfig.configure.mockRejectedValueOnce(new Error('guardian down'));
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {
@@ -2965,7 +3019,7 @@ describe('MultisigService', () => {
     it('finalizeGuardianSwitch gives up on a new guardian whose /pubkey never answers', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
 
       jest.useFakeTimers();
@@ -2988,7 +3042,7 @@ describe('MultisigService', () => {
       guardianConfig.configure.mockImplementation(() => new Promise(() => {}));
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       jest.useFakeTimers();
@@ -3015,7 +3069,7 @@ describe('MultisigService', () => {
       guardianConfig.configure.mockRejectedValue(alreadyThere);
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).resolves.toBeUndefined();
@@ -3029,7 +3083,7 @@ describe('MultisigService', () => {
       guardianConfig.configure.mockRejectedValue(new Error('guardian down'));
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {

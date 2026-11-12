@@ -12,6 +12,7 @@ import {
   isGuardianPendingConflict,
   isGuardianRateLimited,
   isGuardianRequestTimeout,
+  isGuardianStateNotOnChain,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry,
@@ -131,6 +132,35 @@ describe('isGuardianCommitmentMismatch', () => {
     ['an Error whose message alone names it', new Error('commitment_mismatch'), false]
   ])('%s -> %s', (_label, err, expected) => {
     expect(isGuardianCommitmentMismatch(err)).toBe(expected);
+  });
+});
+
+// A 0.19 Guardian's refusal of a `/configure` state the chain does not hold yet. A 0.18.1 client reads the code as
+// unknown (`code` null) and keeps the wire string on `rawCode`; the registration loops throw it as a cause.
+describe('isGuardianStateNotOnChain', () => {
+  const refusal = { status: 409, code: 'state_not_on_chain', rawCode: 'state_not_on_chain' };
+  const unknownToClient = { status: 409, code: null, rawCode: 'state_not_on_chain' };
+
+  it('isGuardianStateNotOnChain matches code, rawCode and a wrapped cause', () => {
+    expect(isGuardianStateNotOnChain(refusal)).toBe(true);
+    expect(isGuardianStateNotOnChain(unknownToClient)).toBe(true);
+    expect(
+      isGuardianStateNotOnChain(
+        new Error('Failed to register account on the new guardian after switching', {
+          cause: new Error('request failed', { cause: unknownToClient })
+        })
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    ['a pending-delta conflict', { status: 409, code: 'conflict_pending_delta', rawCode: 'conflict_pending_delta' }],
+    ['a commitment mismatch', { status: 400, code: 'commitment_mismatch' }],
+    ['an Error whose message alone names it', new Error('state_not_on_chain')],
+    ['the code as a bare string', 'state_not_on_chain'],
+    ['null', null]
+  ])('does not match %s', (_label, err) => {
+    expect(isGuardianStateNotOnChain(err)).toBe(false);
   });
 });
 

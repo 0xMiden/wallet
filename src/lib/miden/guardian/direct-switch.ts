@@ -41,6 +41,7 @@ import {
 } from '../sdk/miden-client';
 import { isKilledPipeline } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { monotonicNowMs } from '../sync-backoff';
 import { syncBeforeVerdict } from '../sync-lock';
 
 export const HOT_KEY_ROTATED_OUT = 'HotKeyRotatedOutError';
@@ -665,6 +666,31 @@ export const readChainAccountCommitment = async (accountId: string, timeoutMs: n
   }
 };
 
+/** How long a registration of a state past nonce 0 waits for the node to hold it, and how often it asks. */
+export const STATE_ON_CHAIN_WAIT_MS = 60_000;
+export const STATE_ON_CHAIN_POLL_MS = 3_000;
+
+/**
+ * Whether the node holds `commitmentHex` as the account's current commitment within `boundMs`. A Guardian 0.19 stores
+ * a `/configure` state past nonce 0 only when it is the chain's current one, and answers a retryable
+ * `409 state_not_on_chain` otherwise. Each read is `readChainAccountCommitment`'s, so the wait takes no WASM lock: the
+ * caller reads the commitment in the hold that serialized the state and waits after that hold ends.
+ */
+export const waitForStateOnChain = async (
+  accountId: string,
+  commitmentHex: string,
+  boundMs: number = STATE_ON_CHAIN_WAIT_MS
+): Promise<boolean> => {
+  const deadline = monotonicNowMs() + boundMs;
+  for (let remaining = boundMs; remaining > 0; remaining = deadline - monotonicNowMs()) {
+    const onChain = await readChainAccountCommitment(accountId, remaining);
+    if (onChain !== undefined && sameCommitment(onChain, commitmentHex)) return true;
+    const left = deadline - monotonicNowMs();
+    if (left > 0) await delay(Math.min(STATE_ON_CHAIN_POLL_MS, left));
+  }
+  return false;
+};
+
 export const GUARDIAN_SWITCH_DISCARDED = 'GuardianSwitchDiscardedError';
 
 /**
@@ -830,7 +856,15 @@ export const finalizeDirectGuardianSwitch = async (
    * Not called at all when this function throws before the loop below, which is
    * precisely the signal: no call, no request, refund.
    */
-  onBeforeRegister?: () => void
+  onBeforeRegister?: () => void,
+  /**
+   * What to do when the node may not hold the serialized state yet, which a Guardian 0.19 refuses to store.
+   * `'await'`, the completion path's and the landed reconcile's: wait up to `STATE_ON_CHAIN_WAIT_MS`, then post
+   * anyway, which a 0.18 Guardian accepts and whose 0.19 refusal leaves `registerFailed` for the self-heal.
+   * `'require'`, the cadence self-heal's: one read, and a refusal as preflight unless it shows the state, so the
+   * attempt is refunded and a later lap asks again.
+   */
+  stateOnChain: 'await' | 'require' = 'await'
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -840,49 +874,60 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
-    await asPreflight(() =>
-      withWasmClientLock(async hold => {
-        await midenClientProxy.syncState();
-        // Same parking-await rule as `readDirectSwitchCommitState`, and this is
-        // the more dangerous of the two: an eviction during the sync releases the
-        // mutex, and the reads below would then serialize an account handle out
-        // of a client a successor already owns - a blob this function POSTs to
-        // the operator as the account's authoritative state and its new signer
-        // allowlist. The self-heal reaches here from the 3 s loop, so it is a
-        // scheduled exposure, not a once-per-rotation one.
-        assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
-        const account = await midenClientProxy.getAccount(walletAccount.publicKey);
-        // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
-        // Guarding only the sync above covered the first of the two and left the
-        // whole payload derivation - `AccountInspector.fromAccount`,
-        // `account.serialize()`, the guardian-slot read - running on a handle
-        // borrowed from a client an eviction may already have handed to a
-        // successor. That is the same one-guard-per-hold mistake
-        // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
-        // its awaits, and the stakes here are the highest in the change: these
-        // bytes are POSTed to the operator as the account's authoritative state
-        // and its new signer allowlist. Still strictly pre-write, so failing
-        // here costs a refunded attempt and nothing else.
-        assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
-        if (!account) {
-          throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
-        }
-        const detected = AccountInspector.fromAccount(account);
-        return {
-          accountIdHex: account.id().toString(),
-          stateBase64: u8ToB64(account.serialize()),
-          detectedSigners: detected.signerCommitments.length,
-          // Storage's own count, so the completeness check below compares the read
-          // against what the account SAYS it holds rather than against a constant.
-          declaredSigners: detected.numSigners,
-          signerCommitments: detected.signerCommitments,
-          // Read from the SAME account as the bytes below, because the check it
-          // feeds is about those bytes.
-          guardianCommitment: getGuardianCommitmentFromAccount(account)
-        };
-      }, lockOptions)
-    );
+  const {
+    accountIdHex,
+    stateBase64,
+    stateCommitment,
+    firstState,
+    signerCommitments,
+    detectedSigners,
+    declaredSigners,
+    guardianCommitment
+  } = await asPreflight(() =>
+    withWasmClientLock(async hold => {
+      await midenClientProxy.syncState();
+      // Same parking-await rule as `readDirectSwitchCommitState`, and this is
+      // the more dangerous of the two: an eviction during the sync releases the
+      // mutex, and the reads below would then serialize an account handle out
+      // of a client a successor already owns - a blob this function POSTs to
+      // the operator as the account's authoritative state and its new signer
+      // allowlist. The self-heal reaches here from the 3 s loop, so it is a
+      // scheduled exposure, not a once-per-rotation one.
+      assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
+      const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+      // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
+      // Guarding only the sync above covered the first of the two and left the
+      // whole payload derivation - `AccountInspector.fromAccount`,
+      // `account.serialize()`, the guardian-slot read - running on a handle
+      // borrowed from a client an eviction may already have handed to a
+      // successor. That is the same one-guard-per-hold mistake
+      // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
+      // its awaits, and the stakes here are the highest in the change: these
+      // bytes are POSTed to the operator as the account's authoritative state
+      // and its new signer allowlist. Still strictly pre-write, so failing
+      // here costs a refunded attempt and nothing else.
+      assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
+      if (!account) {
+        throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
+      }
+      const detected = AccountInspector.fromAccount(account);
+      return {
+        accountIdHex: account.id().toString(),
+        stateBase64: u8ToB64(account.serialize()),
+        // The commitment of these bytes, which the node has to hold before a 0.19 Guardian stores them.
+        stateCommitment: account.to_commitment().toHex(),
+        firstState: account.nonce().asInt() === 0n,
+        detectedSigners: detected.signerCommitments.length,
+        // Storage's own count, so the completeness check below compares the read
+        // against what the account SAYS it holds rather than against a constant.
+        declaredSigners: detected.numSigners,
+        signerCommitments: detected.signerCommitments,
+        // Read from the SAME account as the bytes below, because the check it
+        // feeds is about those bytes.
+        guardianCommitment: getGuardianCommitmentFromAccount(account)
+      };
+    }, lockOptions)
+  );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
   // SHORTER than the count storage declares is a truncated read — and this
@@ -958,6 +1003,24 @@ export const finalizeDirectGuardianSwitch = async (
         'nothing to check the operator against'
     );
   }
+  // Past the hold, so no WASM lock is held while the node is read. A nonce-0 first state vouches for itself, and a
+  // never-used account is not on chain at all.
+  if (!firstState && stateOnChain === 'require') {
+    const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
+    if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
+      throw new GuardianRegistrationPreflightError(
+        `Not registering on ${newGuardianEndpoint} yet: the node ` +
+          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and a Guardian stores a ` +
+          'state past nonce 0 only once the chain does'
+      );
+    }
+  } else if (!firstState && !(await waitForStateOnChain(accountIdHex, stateCommitment))) {
+    console.warn(
+      `The node did not show account ${accountIdHex}'s switched state within ${STATE_ON_CHAIN_WAIT_MS} ms; ` +
+        `registering on ${newGuardianEndpoint} anyway`
+    );
+  }
+
   // On the tick budget this probe would be 5s, which is right for a caller that
   // repeats every ~3s and wrong here: this fires ONCE, past the on-chain commit,
   // in front of a retry loop that allows the very same operator 30s per attempt.

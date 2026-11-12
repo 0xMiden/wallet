@@ -13,9 +13,13 @@ import {
   isGuardianUnreachableError,
   readChainAccountCommitment,
   readDirectSwitchCommitState,
-  readLastSyncedVerdict
+  readLastSyncedVerdict,
+  STATE_ON_CHAIN_POLL_MS,
+  STATE_ON_CHAIN_WAIT_MS,
+  waitForStateOnChain
 } from './direct-switch';
 import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import type { GuardianAccountProvider } from '../front/guardian-manager';
 
 // ---------------------------------------------------------------------------
 // Mocks. `direct-switch` reaches the WASM SDK, the offscreen proxy, the vault
@@ -282,9 +286,15 @@ const walletAccount = (overrides: Partial<WalletAccount> = {}): WalletAccount =>
     ...overrides
   }) as WalletAccount;
 
+// The commitment of the state `sdkAccount` serializes, and a node proof that reports one.
+const STATE_COMMITMENT = `0x${'5c'.repeat(32)}`;
+const chainProof = (hex: string) => ({ accountCommitment: () => ({ toHex: () => hex }) });
+
 const sdkAccount = {
   id: () => ({ toString: () => '0xacct-id' }),
-  serialize: () => new Uint8Array([1, 2, 3])
+  serialize: () => new Uint8Array([1, 2, 3]),
+  to_commitment: () => ({ toHex: () => STATE_COMMITMENT }),
+  nonce: () => ({ asInt: () => 1n })
 };
 
 beforeEach(() => {
@@ -307,6 +317,9 @@ beforeEach(() => {
     if (evictDuringSync) currentWasmHold = null;
   });
   mockProxyGetAccount.mockResolvedValue(sdkAccount);
+  // The node already holds the serialized state, spelled bare and upper case as a node read may differ from the
+  // account's own.
+  mockGetAccountProof.mockResolvedValue(chainProof(STATE_COMMITMENT.slice(2).toUpperCase()));
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
   }));
@@ -1037,10 +1050,8 @@ describe('readLastSyncedVerdict', () => {
 });
 
 describe('readChainAccountCommitment', () => {
-  const proofWithCommitment = (hex: string) => ({ accountCommitment: () => ({ toHex: () => hex }) });
-
   it("asks the node for the account's proof and returns its commitment hex, holding no WASM lock", async () => {
-    mockGetAccountProof.mockResolvedValue(proofWithCommitment('0xchain'));
+    mockGetAccountProof.mockResolvedValue(chainProof('0xchain'));
 
     await expect(readChainAccountCommitment('acc-1_suffix', 60_000)).resolves.toBe('0xchain');
 
@@ -1089,6 +1100,58 @@ describe('readChainAccountCommitment', () => {
       expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('waitForStateOnChain', () => {
+  const settled = (promise: Promise<boolean>) => {
+    const outcome: { value?: boolean } = {};
+    void promise.then(value => {
+      outcome.value = value;
+    });
+    return outcome;
+  };
+
+  it('waitForStateOnChain returns true once the node reports the commitment and takes no WASM lock', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockGetAccountProof
+        .mockRejectedValueOnce(new Error('node unavailable'))
+        .mockResolvedValueOnce(chainProof(`0x${'0f'.repeat(32)}`))
+        .mockResolvedValueOnce(chainProof(STATE_COMMITMENT.slice(2).toUpperCase()));
+
+      const outcome = settled(waitForStateOnChain('acc-1', STATE_COMMITMENT));
+
+      await jest.advanceTimersByTimeAsync(2 * STATE_ON_CHAIN_POLL_MS - 1);
+      expect(outcome.value).toBeUndefined();
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome.value).toBe(true);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(3);
+      expect(mockWithWasmClientLock).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('waitForStateOnChain returns false at the bound', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetAccountProof.mockResolvedValue(chainProof(`0x${'0f'.repeat(32)}`));
+
+      const outcome = settled(waitForStateOnChain('acc-1', STATE_COMMITMENT));
+
+      await jest.advanceTimersByTimeAsync(STATE_ON_CHAIN_WAIT_MS - 1);
+      expect(outcome.value).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome.value).toBe(false);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(STATE_ON_CHAIN_WAIT_MS / STATE_ON_CHAIN_POLL_MS);
+      expect(mockWithWasmClientLock).not.toHaveBeenCalled();
+    } finally {
       jest.useRealTimers();
     }
   });
@@ -1596,6 +1659,128 @@ describe('finalizeDirectGuardianSwitch', () => {
     ).resolves.toBeUndefined();
     // Returned on the FIRST answer — not retried through the budget.
     expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a state the chain does not hold yet', () => {
+    const typedProvider = (): GuardianAccountProvider => ({
+      getAccounts: async () => [walletAccount()],
+      getPublicKeyForCommitment: async () => '',
+      signWord: async () => '0xsig'
+    });
+    const OTHER_COMMITMENT = `0x${'0f'.repeat(32)}`;
+
+    // Review Focus 2: a 0.18 Guardian accepts the state as before, and a 0.19 refusal is the self-heal's to finish.
+    it("'await' posts once after the bound when the state never lands", async () => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockGetAccountProof.mockResolvedValue(chainProof(OTHER_COMMITMENT));
+        mockGuardianConfigure.mockResolvedValue({ success: true });
+        const onBeforeRegister = jest.fn();
+        const registration = finalizeDirectGuardianSwitch(
+          '0xacct',
+          'https://new.guardian.test',
+          typedProvider(),
+          undefined,
+          onBeforeRegister
+        );
+
+        await jest.advanceTimersByTimeAsync(STATE_ON_CHAIN_WAIT_MS - 1);
+        // The serializing hold ended before the wait, and the wait takes none.
+        expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(currentWasmHold).toBeNull();
+        expect(mockGetAccountProof.mock.calls.length).toBeGreaterThan(1);
+        expect(onBeforeRegister).not.toHaveBeenCalled();
+        expect(mockGuardianConfigure).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(1);
+        await registration;
+        expect(onBeforeRegister).toHaveBeenCalledTimes(1);
+        expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+        expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    it("'await' posts at once when the node already holds the state", async () => {
+      mockGuardianConfigure.mockResolvedValue({ success: true });
+
+      await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', typedProvider());
+
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+    });
+
+    it("'require' refuses as GuardianRegistrationPreflightError before any /configure when one read disagrees", async () => {
+      mockGetAccountProof.mockResolvedValue(chainProof(OTHER_COMMITMENT));
+      const onBeforeRegister = jest.fn();
+
+      const error = await finalizeDirectGuardianSwitch(
+        '0xacct',
+        'https://new.guardian.test',
+        typedProvider(),
+        undefined,
+        onBeforeRegister,
+        'require'
+      ).catch((e: unknown) => e);
+
+      expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+      expect(onBeforeRegister).not.toHaveBeenCalled();
+      expect(mockGuardianConfigure).not.toHaveBeenCalled();
+    });
+
+    // A read that fails is no evidence the chain holds the state, and the self-heal has another lap.
+    it("'require' refuses on a failed read too, and registers after one read that agrees", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGetAccountProof.mockRejectedValueOnce(new Error('node unavailable'));
+      mockGuardianConfigure.mockResolvedValue({ success: true });
+
+      const refused = await finalizeDirectGuardianSwitch(
+        '0xacct',
+        'https://new.guardian.test',
+        typedProvider(),
+        undefined,
+        undefined,
+        'require'
+      ).catch((e: unknown) => e);
+      expect(isGuardianRegistrationPreflightError(refused)).toBe(true);
+      expect(mockGuardianConfigure).not.toHaveBeenCalled();
+
+      await finalizeDirectGuardianSwitch(
+        '0xacct',
+        'https://new.guardian.test',
+        typedProvider(),
+        undefined,
+        undefined,
+        'require'
+      );
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    // A Guardian stores a nonce-0 first state without a chain read, and a never-used account is not on chain.
+    const modes: ('await' | 'require')[] = ['await', 'require'];
+    it.each(modes)('registers a nonce-0 state without reading the node (%s)', async mode => {
+      mockProxyGetAccount.mockResolvedValue({ ...sdkAccount, nonce: () => ({ asInt: () => 0n }) });
+      mockGetAccountProof.mockRejectedValue(new Error('account not found'));
+      mockGuardianConfigure.mockResolvedValue({ success: true });
+
+      await finalizeDirectGuardianSwitch(
+        '0xacct',
+        'https://new.guardian.test',
+        typedProvider(),
+        undefined,
+        undefined,
+        mode
+      );
+
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
