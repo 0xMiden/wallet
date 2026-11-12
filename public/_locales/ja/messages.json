@@ -4160,6 +4160,10 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新しい受取人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

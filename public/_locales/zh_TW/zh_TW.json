@@ -914,6 +914,7 @@
   "invalidMidenAccountId": "Miden 帳號 ID 無效",
   "midenAddressWrongNetwork": "此地址屬於另一個 Miden 網路",
   "cannotSendToSelf": "您無法寄送至您自己的地址",
+  "newRecipient": "新收款人",
   "networkFee": "Network Fee",
   "networkFeeMax": "最高網路手續費",
   "networkFeeEstimateNote": "實際手續費取決於交易內容，通常會比上述金額更低。您將在收據上看到實際支付的金額。",

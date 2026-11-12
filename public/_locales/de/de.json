@@ -913,6 +913,7 @@
   "invalidMidenAccountId": "Ungültige Miden-Konto-ID",
   "midenAddressWrongNetwork": "Diese Adresse gehört zu einem anderen Miden-Netzwerk",
   "cannotSendToSelf": "Du kannst nicht an deine eigene Adresse senden.",
+  "newRecipient": "Neuer Empfänger",
   "networkFee": "Network Fee",
   "networkFeeMax": "Maximale Netzwerkgebühr",
   "networkFeeEstimateNote": "Die genaue Gebühr hängt von der Transaktion ab und ist in der Regel niedriger. Auf dem Beleg sehen Sie, was Sie bezahlt haben.",

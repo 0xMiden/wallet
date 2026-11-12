@@ -4161,6 +4161,10 @@
     "message": "Du kannst nicht an deine eigene Adresse senden.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Neuer Empfänger",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

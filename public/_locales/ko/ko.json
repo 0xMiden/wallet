@@ -914,6 +914,7 @@
   "invalidMidenAccountId": "Miden 계정 ID가 유효하지 않습니다.",
   "midenAddressWrongNetwork": "이 주소는 다른 Miden 네트워크에 속합니다.",
   "cannotSendToSelf": "자신의 주소로 발송할 수 없습니다.",
+  "newRecipient": "새로운 수취인",
   "networkFee": "Network Fee",
   "networkFeeMax": "최대 네트워크 수수료",
   "networkFeeEstimateNote": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",

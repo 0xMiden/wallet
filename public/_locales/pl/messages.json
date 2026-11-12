@@ -4160,6 +4160,10 @@
     "message": "Nie można wysłać przesyłki na swój własny adres",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nowy odbiorca",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

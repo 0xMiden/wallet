@@ -4160,6 +4160,10 @@
     "message": "No puedes enviar fondos a tu propia dirección.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nuevo destinatario",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

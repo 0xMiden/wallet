@@ -914,6 +914,7 @@
   "invalidMidenAccountId": "El ID de cuenta de Miden no es válido",
   "midenAddressWrongNetwork": "Esta dirección pertenece a otra red de Miden",
   "cannotSendToSelf": "No puedes enviar fondos a tu propia dirección.",
+  "newRecipient": "Nuevo destinatario",
   "networkFee": "Network Fee",
   "networkFeeMax": "Tarifa máxima de red",
   "networkFeeEstimateNote": "La comisión exacta depende de la transacción y suele ser inferior. En el recibo podrás ver lo que has pagado.",
