@@ -1,7 +1,6 @@
-import { resolve } from 'node:path';
-
 import tailwind from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
+import { resolve } from 'node:path';
 import { defineConfig, transformWithOxc, type Plugin } from 'vite';
 
 import extension from '../../../vite.extension.config';

@@ -50,7 +50,9 @@ if (capture === 'before') {
     await captureViewport(page, screenshotPath(testInfo, 'history'));
   });
 } else {
-  test('shows Available separately from matching pending activity and identifies a fresh quote', async ({ page }, testInfo) => {
+  test('shows Available separately from matching pending activity and identifies a fresh quote', async ({
+    page
+  }, testInfo) => {
     const { query } = contextFrom(testInfo);
     await page.goto(`/?state=fresh&${query}`);
 

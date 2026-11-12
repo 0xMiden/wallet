@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
 import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
-import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -146,10 +146,70 @@ export const getPlatform = () => (isMobile() ? 'mobile' : isExtension() ? 'exten
 export const platform = { ...actualPlatform, isMobile, isExtension, isCapacitor, getPlatform };
 export default platform;
 
-export * from '../../../src/lib/platform';
-export * from '../../../src/lib/miden-chain/effective-endpoints';
-export * from '../../../src/lib/miden/metadata/overrides';
-export * from '../../../src/lib/token-list/runtime';
+export { hasExtensionRuntime, reloadInPlace, isIOS, isAndroid, isTauri, isDesktop } from '../../../src/lib/platform';
+export type { PlatformType } from '../../../src/lib/platform';
+export {
+  ENDPOINT_OVERRIDE_STORAGE_KEY,
+  getActiveOverride,
+  hasDeveloperNetworkChoice,
+  getEffectiveRpcUrl,
+  getEffectiveRpcEndpoint,
+  getEffectiveProverUrl,
+  getEffectiveNoteTransportUrl,
+  isNoteTransportConfigured,
+  getEffectiveFaucetUrl,
+  getEffectiveFaucetApiUrl,
+  isFaucetConfigured,
+  getEffectiveExplorerUrl,
+  getEffectiveGuardianUrl,
+  getEffectiveAllowNoGuardian,
+  FEE_FAUCET_STORAGE_KEY,
+  setFeeFaucetIdForTest,
+  getEffectiveFeeFaucetId,
+  getEndpointState,
+  adoptEndpointState,
+  sameEndpointState,
+  getEffectiveDefaultGuardianEndpoint,
+  buildDefaultOverrideFor,
+  buildNetworkChoiceOverride,
+  whenEndpointOverridesLoaded,
+  loadEndpointOverrides,
+  applyEndpointOverride,
+  forgetDeveloperNetworkChoice,
+  clearEndpointOverride,
+  isNetworkChoiceOverride,
+  hasCustomEndpointOverride,
+  provenBadgeNetwork,
+  isEndpointOverrideActive
+} from '../../../src/lib/miden-chain/effective-endpoints';
+export type { EndpointOverride, EndpointState } from '../../../src/lib/miden-chain/effective-endpoints';
+export {
+  TOKENS_METADATA_OVERRIDES_STORAGE_KEY,
+  TOKEN_NAME_MAX_LENGTH,
+  TOKEN_SYMBOL_MAX_LENGTH,
+  TOKEN_DECIMALS_MAX,
+  isValidTokenName,
+  isValidTokenSymbol,
+  isValidTokenDecimals,
+  isNativeFaucetId,
+  applyMetadataOverride,
+  overrideFor,
+  applyOverrideFor,
+  parseTokenMetadataOverrides,
+  getTokenMetadataOverrides,
+  writeTokenMetadataOverride
+} from '../../../src/lib/miden/metadata/overrides';
+export type { TokenMetadataOverride, TokenMetadataOverrides } from '../../../src/lib/miden/metadata/overrides';
+export {
+  _resetTokenListForTest,
+  onTokenListUpdated,
+  loadVerifiedFaucetIds,
+  loadTokenLogos,
+  peekVerifiedFaucetIds,
+  peekTokenLogos,
+  loadTokenPriceAssets,
+  loadTokenFaucetsBySymbol
+} from '../../../src/lib/token-list/runtime';
 export { pricesLoaded, quotedPrice } from '../../../src/lib/prices/binance';
 export type { Timeframe, TokenPriceInfo } from '../../../src/lib/prices/binance';
 export { fetchKlineData } from '../../../src/lib/prices/feed';

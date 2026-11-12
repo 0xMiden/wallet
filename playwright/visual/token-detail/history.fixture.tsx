@@ -41,7 +41,11 @@ export default function History({
           {renderPendingItem?.(item)}
         </div>
       ))}
-      {externalLoading && <div data-testid="token-history-loading" role="status">Loading history</div>}
+      {externalLoading && (
+        <div data-testid="token-history-loading" role="status">
+          Loading history
+        </div>
+      )}
     </div>
   );
 }
