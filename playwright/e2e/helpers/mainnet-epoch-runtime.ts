@@ -14,7 +14,7 @@ import { openRouteStep, waitForReviewSubmitEnabled } from './bridge';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 import { saveMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochForwardAuthority } from './mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote } from './mainnet-epoch-request';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, mainnetConsumeRequestHash } from './mainnet-epoch-request';
 import { runGuardedEpochForward } from './mainnet-epoch-ui';
 import { waitForFastQuote } from './epoch-quote';
 import {
@@ -25,6 +25,7 @@ import {
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { readMainnetMidenBlock } from './mainnet-miden-read';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
+import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from './mainnet-consume-authorization';
 import { createEpochEvmSender, reconcileEpochEvmReceipts, type EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
 import { planEpochRoundTrip } from './mainnet-epoch-ui';
 import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
@@ -207,6 +208,7 @@ export async function runEpochReverse(
 ): Promise<void> {
   if (state.phase !== 'forward-settled' || !state.forwardAuthority || state.sourceRunId !== runId ||
       state.authorizationRunId !== runId || state.transactions?.length || state.returnMidenTxId ||
+      state.reverseNonce !== undefined || state.consumeAuthority ||
       await wallet.getAccountAddress() !== state.account)
     throw new Error('Epoch return requires the original same-run, actually settled collateral authority');
   const evm = privateKeyToAccount(key);
@@ -326,6 +328,7 @@ export async function runEpochReverse(
 async function settleEpochReturn(
   wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, blocker: string, gatePath: string, signal: AbortSignal
 ): Promise<void> {
+    if (state.consumeAuthority || state.returnMidenTxId) throw new Error('Original native claim may already have been released; do not retry');
     const account = getAddress(state.evm.account);
     const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
     const tokenBalance = () => client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] });
@@ -344,12 +347,14 @@ async function settleEpochReturn(
     if (!noteId || !isHash(noteId)) throw new Error('Missing exact Epoch return note');
     await wallet.triggerSync(true);
     const file = await exportMakerNote(wallet, noteId, 90_000);
-    const amount = inspectEpochReturnNote(state, noteId, Buffer.from(file, 'hex'));
+    const bytes = Buffer.from(file, 'hex');
+    const amount = inspectEpochReturnNote(state, noteId, bytes);
     const rpc = new RpcClient(new Endpoint(getEnvironmentConfig().rpcUrl));
     const notes = await withRpcTimeout(() => rpc.getNotesById([NoteId.fromHex(noteId ?? '')]), 'Epoch return inclusion', { retries: 0 });
     if (notes.length !== 1 || notes[0]?.noteId.toString() !== noteId) throw new Error('Epoch return note is not recorded on the live chain');
     state.returnNoteId = noteId; await persist();
-    await awaitMainnetLoopAuthorization(path, `${gatePath}.claim`, signal);
+    const consume = await armMainnetConsumeAuthorization(wallet.page, { accountId: state.accountHex,
+      noteId, canonicalSha256: mainnetConsumeRequestHash(bytes) });
     await wallet.navigateTo(ACTIVITY_PENDING_PATH);
     const current = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row => row.noteIds?.includes(noteId ?? ''));
     if (!current.length) await wallet.page.locator(`[data-pending-note-id="${noteId}"]`).getByRole('button', { name: /^Accept$/ }).click();
@@ -365,6 +370,8 @@ async function settleEpochReturn(
       row.accountId && canonicalMainnetLoopFaucet(row.accountId) === state.accountHex && row.status === TxStatus.Queued);
     if (unexpected.length || signal.aborted) throw new Error('Epoch claim queue is unrelated or aborted');
     await releaseQueueBlocker(wallet.page, blocker);
+    await releaseMainnetConsumeAuthorization(wallet.page, consume, { checkpointPath: path, gatePath: `${gatePath}.claim`, signal,
+      persist: async authority => { state.consumeAuthority = authority; await persist(); } });
     const receipt = await waitForTransactionRow(wallet.page, claim.id, row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
       { what: 'the exact Epoch return consume receipt', timeoutMs: 300_000 });
     if (receipt.status !== TxStatus.Completed || !receipt.transactionId || !isHash(receipt.transactionId) ||
@@ -414,6 +421,7 @@ export async function runEpochRefund(
   wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, gatePath: string, signal: AbortSignal
 ): Promise<void> {
   if (!state.forwardNoteId || !state.forwardAuthority || state.forwardReceived || state.transactions?.length ||
+      state.consumeAuthority || state.returnMidenTxId ||
       await wallet.getAccountAddress() !== state.account) throw new Error('Epoch refund requires original unresolved collateral only');
   const noteId = state.forwardNoteId;
   const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
@@ -443,8 +451,8 @@ export async function runEpochRefund(
     if (before !== BigInt(state.native.balance) - amount - BigInt(state.paidMidenFees))
       throw new Error('Epoch refund portfolio differs from its original receipts');
     state.phase = 'recovery-required'; state.returnNoteId = noteId; await persist();
-    await awaitMainnetLoopAuthorization(path, gatePath, signal);
-    inspectEpochRefundNote(state, bytes, await readMainnetMidenBlock(getEnvironmentConfig().rpcUrl));
+    const consume = await armMainnetConsumeAuthorization(wallet.page, { accountId: state.accountHex,
+      noteId, canonicalSha256: mainnetConsumeRequestHash(bytes) });
     await wallet.navigateTo(ACTIVITY_PENDING_PATH);
     await wallet.page.locator(`[data-pending-note-id="${noteId}"]`).getByRole('button', { name: /^Accept$/ }).click();
     let claim: TransactionRowSnapshot | undefined;
@@ -459,6 +467,8 @@ export async function runEpochRefund(
       row.accountId && canonicalMainnetLoopFaucet(row.accountId) === state.accountHex && row.status === TxStatus.Queued);
     if (other.length || signal.aborted) throw new Error('Epoch refund queue is unrelated or aborted');
     await releaseQueueBlocker(wallet.page, blocker);
+    await releaseMainnetConsumeAuthorization(wallet.page, consume, { checkpointPath: path, gatePath, signal,
+      persist: async authority => { state.consumeAuthority = authority; await persist(); } });
     const receipt = await waitForTransactionRow(wallet.page, claim.id, row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
       { what: 'original Epoch collateral refund receipt', timeoutMs: 300_000 });
     if (receipt.status !== TxStatus.Completed || !receipt.transactionId || !isHash(receipt.transactionId) ||
