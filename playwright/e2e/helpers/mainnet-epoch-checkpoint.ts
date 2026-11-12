@@ -144,6 +144,20 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
         tokenValueUsdMicro(BigInt(value.evmFeeBudget), 18, BigInt(value.evm.nativeUsdMicros), true) > BigInt(value.lossBudgetUsdMicros)) {
     throw new Error('Epoch authorization exceeds its balance, fee or loss bounds');
   }
+  if (value.reverseAuthority !== undefined) {
+    const authority = value.reverseAuthority;
+    if (!record(authority) || !onlyKeys(authority, ['arbiter', 'lockTag', 'preparedAt', 'minimumExpiry', 'maximumExpiry']) ||
+        !evmAddress(authority.arbiter) || /^0x0{40}$/i.test(authority.arbiter) ||
+        typeof authority.lockTag !== 'string' || !/^0x[0-9a-f]{24}$/i.test(authority.lockTag) ||
+        !timestamp(authority.preparedAt) || Date.parse(authority.preparedAt) < Date.parse(value.createdAt) ||
+        !positive(authority.minimumExpiry) || !positive(authority.maximumExpiry) ||
+        BigInt(authority.minimumExpiry) < BigInt(Math.floor(Date.parse(authority.preparedAt) / 1000)) ||
+        BigInt(authority.maximumExpiry) < BigInt(authority.minimumExpiry) ||
+        BigInt(authority.maximumExpiry) - BigInt(authority.minimumExpiry) > 300n)
+      throw new Error('Invalid bounded Epoch reverse authority');
+  }
+  if (['reverse-authorized', 'complete'].includes(value.phase) && value.reverseAuthority === undefined)
+    throw new Error('Missing Epoch reverse signer authority');
   for (const key of ['forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash', 'returnNoteId', 'returnMidenTxId']) {
     if (value[key] !== undefined && !hash(value[key])) throw new Error('Invalid Epoch note or transaction identity');
   }

@@ -3,7 +3,7 @@ import type { MainnetEpochCheckpoint } from '../../playwright/e2e/helpers/mainne
 export function epochReverseAuthorityFixture() {
   const minimumExpiry = BigInt(Date.parse('2026-11-11T13:00:00.000Z') / 1000);
   return {
-    arbiter: `0x${'4'.repeat(40)}`, lockTag: `0x${'5'.repeat(24)}`,
+    arbiter: `0x${'4'.repeat(40)}`, lockTag: `0x50${'2'.repeat(22)}`,
     preparedAt: '2026-11-11T12:10:00.000Z',
     minimumExpiry: minimumExpiry.toString(), maximumExpiry: (minimumExpiry + 300n).toString()
   };
