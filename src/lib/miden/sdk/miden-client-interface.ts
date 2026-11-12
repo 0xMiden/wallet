@@ -75,6 +75,7 @@ import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
+import { awaitTestConsumeAuthorization } from './test-consume-authorization';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { buildGcSaleRequest } from './gc-sale-request';
@@ -1931,6 +1932,7 @@ export class MidenClientInterface {
               const request: TransactionRequest = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
               const acctId = resolveAccountId(wasm, accountId);
               recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
+              await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, request);
               return { accountId: acctId, request };
             },
             attempt,
@@ -1952,6 +1954,9 @@ export class MidenClientInterface {
           }
           const request = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
           return request.serialize();
+        });
+        await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, {
+          serialize: () => requestBytes
         });
         try {
           const executed = await this.client.transactions.executeRequest(

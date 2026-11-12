@@ -41,6 +41,7 @@ export async function awaitTestConsumeAuthorization(
       throw new Error('Native consume authorization changed during the request hold');
     if (live.status === 'released') {
       if (await sha256(request.serialize()) !== digest) throw new Error('Native request changed during authorization upload');
+      if (Date.now() < started || Date.now() - started >= 240_000) throw new Error('Native consume authorization timed out');
       await chrome.storage.local.set({ [KEY]: { ...scope, sha256: digest, status: 'spent' } });
       return;
     }
