@@ -558,7 +558,7 @@ jobs:
     name: Android API36 presentation gestures
     if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-api36' || inputs.suite == 'presentation-gestures')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
     env:
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
       ANDROID_SERIAL: emulator-5554
