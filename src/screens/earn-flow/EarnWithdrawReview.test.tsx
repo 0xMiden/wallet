@@ -117,7 +117,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo">{symbol}</span>
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet={faucetId} />
+  )
 }));
 
 const position: EarnPosition = {
@@ -215,13 +217,13 @@ describe('EarnWithdrawReview', () => {
     // is hidden and the banner says it once.
     const banner = screen.getByRole('banner');
     expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
-    expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
     // The hero's figure is the quoted payout, carrying the native token as its compact unit, as on the deposit review.
     const hero = screen.getByRole('region', { name: 'youReceive' });
     expect(hero).toHaveTextContent('≈ 41.82USDCX');
     expect(within(hero).getByText('USDCX', { selector: '.text-title-page' })).toBeInTheDocument();
-    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDCX');
+    // The unit's logo is the quoted destination faucet's, the token the payout arrives as.
+    expect(within(hero).getByTestId('token-logo')).toHaveAttribute('data-faucet', 'faucet');
     expect(screen.getByText('earnWithdrawAll')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /details/ }));
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
@@ -284,6 +286,7 @@ describe('EarnWithdrawReview', () => {
       protocol: 'dummy-lending',
       chainId: 11155111,
       underlyingAddress: position.underlyingAddress,
+      underlyingSymbol: position.asset,
       amount: '42.25',
       review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),
       underlyingDecimals: 6,
@@ -343,6 +346,21 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'earnWithdrawRefreshQuote' }));
     await confirmEnabled();
+  });
+
+  it('keeps the quote when the balance check could not reach Epoch, so Withdraw can retry (#2116)', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('earnPositionsUnavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByTestId('earn-withdraw-review-error')).toHaveTextContent('earnPositionsUnavailable');
+    expect(screen.queryByText('earnWithdrawRefresh')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'earnWithdrawRefreshQuote' })).not.toBeInTheDocument();
+    await confirmEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(2));
   });
 
   it('reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {

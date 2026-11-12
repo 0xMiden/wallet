@@ -8,19 +8,27 @@ import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 import { useClaimableNotes } from './claimable-notes';
 import type { ConsumableNote } from '../types';
 
-type AutoConsumeNoteShape = Pick<ConsumableNote, 'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache'>;
+type AutoConsumeNoteShape = Pick<
+  ConsumableNote,
+  'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache' | 'standardPayment'
+>;
 
 function isNativeNonSwapNote(note: AutoConsumeNoteShape, nativeFaucetId: string | null): boolean {
   return nativeFaucetId !== null && note.faucetId === nativeFaucetId && !note.swapOrder;
 }
 
-/** The batch rule of `selectAutoConsumeBatch`, applied as though every entry were confirmed live. */
+/** The batch rule of `selectAutoConsumeBatch`, applied as though every entry were confirmed live.
+ * Only a standard payment (P2ID or P2IDE) is taken: the consumable list also holds other
+ * traders' public PSWAP orders on a pair tag the account still tracks, and consuming one
+ * fills that order from this account's balance (#2118). A note with no flag is not taken. */
 function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
   notes: readonly T[],
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  const batch = notes.filter(note => isNativeNonSwapNote(note, nativeFaucetId) && !note.isBeingClaimed);
+  const batch = notes.filter(
+    note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
+  );
   return isWorthClaiming(totalClaimableAmount(batch.map(note => note.amount)), verificationBaseFee) ? batch : [];
 }
 
