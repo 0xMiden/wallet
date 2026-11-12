@@ -823,6 +823,10 @@
     "message": "此审核是针对另一种存款代币准备的。请返回并重新输入金额。",
     "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
   },
+  "epochCollateralNoteMismatch": {
+    "message": "抵押品note必须使用已审核的代币、已审核的金额以及已配置的分配器。未发送任何内容。请返回并重试。",
+    "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
   "earnTotalEarnedRewards": {
     "message": "总收益",
     "englishSource": "Total earned"
@@ -855,6 +859,10 @@
   "earnPositionsLoadError": {
     "message": "无法加载您的持仓。请检查网络连接并重试。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnPositionsUnavailable": {
+    "message": "无法通过 Epoch 查询您的余额。请重试。",
+    "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
   "earnUnavailableOnNetwork": {
     "message": "该网络不支持“赚取”功能",
@@ -4019,6 +4027,10 @@
   "insufficientFeeAssetShort": {
     "message": "You need USDCX for the network fee.",
     "englishSource": "You need USDCX for the network fee."
+  },
+  "proposalEffectRefused": {
+    "message": "钱包在签署该交易前已中止了该交易，因为它无法确认该交易仅转移了您批准的金额。资金并未发生转移。",
+    "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
   },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",

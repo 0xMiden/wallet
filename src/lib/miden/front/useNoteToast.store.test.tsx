@@ -10,7 +10,7 @@ import { useNoteToastMonitor } from './useNoteToast';
 // the arguments of a mocked action. The actual native fee ID differs from the shared legacy display mock.
 const NATIVE = 'actual-native';
 
-type NoteFixture = { id: string; faucetId: string; amount: string; isBeingClaimed: boolean };
+type NoteFixture = { id: string; faucetId: string; amount: string; isBeingClaimed: boolean; standardPayment: boolean };
 
 let mockNotes: NoteFixture[] | undefined = [];
 let mockBaseFee: number | null = null;
@@ -60,7 +60,8 @@ const note = (id: string, faucetId: string, amount: string): NoteFixture => ({
   id,
   faucetId,
   amount,
-  isBeingClaimed: false
+  isBeingClaimed: false,
+  standardPayment: true
 });
 
 // Mounts the monitor and lets it seed from `seedNotes`: the address effect re-arms the first-fetch seed after

@@ -50,7 +50,8 @@ const note = (id: string): ConsumableNote => ({
   amount: '1000000',
   senderAddress: 'mtst1sender',
   isBeingClaimed: false,
-  type: NoteTypeEnum.Public
+  type: NoteTypeEnum.Public,
+  standardPayment: true
 });
 const checkable: ISubmitEvidence = {
   attemptId: 'a1',
@@ -294,6 +295,41 @@ describe('what queued a consume row', () => {
     expect(await stamp(await initiateConsumeTransactionFromId(ACCOUNT, 'e', false, true, ORIGIN, 'dapp'))).toBe('dapp');
     const reclaim = await initiateConsumeTransactionFromId(ACCOUNT, 'f', false, true, undefined, 'bridge_reclaim');
     expect(await stamp(reclaim)).toBe('bridge_reclaim');
+  });
+
+  it("refuses a claim-list claim of a note that is not this account's, and writes no row (#2118)", async () => {
+    // Another trader's public PSWAP order on a tracked pair tag, and a note whose script could not be read.
+    const foreign = { ...note('foreign-order'), standardPayment: false };
+    const unflagged = { ...note('unflagged'), standardPayment: undefined };
+    for (const entryPoint of ['claim', 'claim_all', 'auto_consume'] as const) {
+      await expect(
+        queueConsumeNotes(
+          ACCOUNT,
+          [note(`ok-${entryPoint}`), foreign, unflagged],
+          false,
+          true,
+          undefined,
+          null,
+          entryPoint
+        )
+      ).rejects.toMatchObject({ name: 'ForeignNoteClaimRefusedError', noteIds: ['foreign-order', 'unflagged'] });
+    }
+    expect(await Repo.transactions.count()).toBe(0);
+  });
+
+  it("claims this wallet's own swap-order note from the claim list, though it is no standard payment", async () => {
+    const ownTip: ConsumableNote = {
+      ...note('own-tip'),
+      standardPayment: false,
+      swapOrder: { orderId: '7', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+    };
+    expect(await stamp(await initiateConsumeTransaction(ACCOUNT, ownTip, false, true, 'claim'))).toBe('claim');
+  });
+
+  it('leaves a consume from another entry point to its own checks', async () => {
+    const custom = { ...note('custom'), standardPayment: false };
+    const unnamed = await initiateConsumeTransaction(ACCOUNT, custom, false, true);
+    expect(await Repo.transactions.get(unnamed)).toBeDefined();
   });
 
   it('stamps a zero-fill PSWAP reclaim as swap settlement, and a row queued without an entry point with none', async () => {

@@ -32,7 +32,6 @@ type SwapToken = {
   symbol: string;
   faucetId: string;
   decimals: number;
-  logoSymbol: string;
   priceSymbol?: string;
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
@@ -95,24 +94,8 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({
-    symbol,
-    faucetId,
-    fallbackSymbol,
-    size
-  }: {
-    symbol: string;
-    faucetId?: string;
-    fallbackSymbol?: string;
-    size?: string;
-  }) => (
-    <span
-      data-testid="token-logo"
-      data-symbol={symbol}
-      data-faucet-id={faucetId}
-      data-fallback-symbol={fallbackSymbol}
-      data-size={size}
-    />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -142,11 +125,11 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8, logoSymbol: 'MIDEN' };
-const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH', priceSymbol: 'ETH' };
-const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC', priceSymbol: 'BTC' };
-// Drawn with the USDC logo, but the feed has no USDT price: its logo is no price.
-const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8, logoSymbol: 'USDC' };
+const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8 };
+const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, priceSymbol: 'ETH' };
+const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, priceSymbol: 'BTC' };
+// The feed has no USDT price, so the token is unpriced.
+const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8 };
 
 type Balance = {
   tokenId: string;
@@ -211,16 +194,14 @@ describe('SelectSwapTokenDrawer', () => {
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
   });
 
-  it('renders each row with its logo symbol and label', () => {
+  it('renders each row with its faucet logo and label', () => {
     renderDrawer();
 
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
-    expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    // The token's faucet keys the logo, as on Home, at the home asset row's 36px default size.
     expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
-    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 
@@ -357,7 +338,7 @@ describe('SelectSwapTokenDrawer', () => {
     });
   });
 
-  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping its faucet for the logo (#477)', () => {
     const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
     setTokens([IMIDEN, iEth]);
     setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
@@ -366,7 +347,7 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('Test iETH')).toBeInTheDocument();
     expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-faucet-id', REGISTRY_IETH.faucetId);
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {

@@ -3,6 +3,24 @@
 ## 1.17.11 (TBD)
 
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
+## 1.17.12 (TBD)
+
+- [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
+- [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
+- [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
+- [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
+- [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
+- [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+
+## 1.17.11 (2026-11-09)
+
+- [FIX][all] Ignore queued history scroll events after the list element is removed.
+- [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
+- [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
+- [FIX][all] Auto-consume claims only standard payments (P2ID, P2IDE) addressed to the account, never another trader's public swap order on a tracked pair tag, which it tried to fill from the account's balance (#2118).
+- [FIX][all] The claim list and its notifications show only payments to the account and notes of its own swap orders, and a claim of any other note is refused, so another trader's swap order can no longer be claimed by hand (#2118). A dApp consume request also refuses non-standard or unclassified note scripts before approval; custom scripts require a custom transaction request.
+- [FIX][all] Earn withdrawals no longer fail with "The balance or quote changed" when Epoch's positions service is slow: each positions read asks only for the account's own EVM address, one request per lender on the chains of its known markets (the listed vaults and the account's own deposits), and a balance check that cannot reach Epoch says so and keeps the review (#2116). The first withdrawal on a network waits for Epoch's one-time account setup to land on chain, and quotes again (never below the reviewed floor) when the setup outlasts the review (#2117). Earn positions refresh when a deposit or withdrawal settles, retry a failed read with a backoff, and otherwise refresh every 3 minutes instead of every 10 s. Earn no longer ties its markets to the Epoch USDC bridge routes: a listed vault can name any token on a listed EVM chain.
+- [FIX][ci] The native toolbar job finds the Bread toolbar button again on Ubuntu 26.04, which `ubuntu-latest` now selects: its accessibility locator accepts the `button` role name that at-spi2-core 2.53.1 gives in place of `push button`.
 
 ## 1.17.10 (2026-11-01)
 

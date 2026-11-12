@@ -206,7 +206,8 @@ const storedNote = {
   nullifier: 'nf1',
   state: 0,
   assets: [{ faucetId: 'faucet-1', amount: '1000000' }],
-  nonFungibleAssets: []
+  nonFungibleAssets: [],
+  standardPayment: true
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
@@ -243,6 +244,11 @@ jest.mock('../sdk/miden-client', () => ({
     throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
   },
   runWhenClientIdle: () => {}
+}));
+
+jest.mock('lib/miden/helpers', () => ({
+  ...jest.requireActual('lib/miden/helpers'),
+  standardPaymentScriptRoots: () => new Set(['0xp2id', '0xp2ide'])
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -810,6 +816,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
     const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile, NoteScript: sdk.NoteScript, Address: sdk.Address };
     const sdkNote = (id: string) => ({
+      recipient: () => ({ script: () => ({ root: () => ({ toHex: () => '0xp2id' }) }) }),
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
       assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
@@ -830,6 +837,18 @@ describe('requestConsumeTransaction — mobile error branches', () => {
 
     afterEach(() => {
       Object.assign(sdk, originalSdk);
+    });
+
+    it.each(['0xcustom', '0xpswap', '0xsponsorship'])('refuses a carried %s script before approval', async root => {
+      carryRawNote(() => ({
+        ...sdkNote('note-1'),
+        recipient: () => ({ script: () => ({ root: () => ({ toHex: () => root }) }) })
+      }));
+
+      await expect(consumeWithBytes()).rejects.toThrow('Only standard payment notes');
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
     it('imports the bytes into the store before it initiates the consume, in one approval', async () => {
@@ -1206,6 +1225,17 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     mockGetConsumableNoteDtos.mockResolvedValue([]);
   });
 
+  it.each([false, undefined])('refuses a commitment match with standardPayment %s', async standardPayment => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      { notes: [{ ...importedNote, standardPayment }], uncommitted: 0 }
+    ]);
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable(importedNote.noteId));
+
+    await expect(consumeByCommitment()).rejects.toThrow('Only standard payment notes');
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     'consumes bare Note bytes by commitment when decoding after unlock is %s',
     async decodeAfterUnlock => {
@@ -1217,7 +1247,10 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       const note = {
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
-        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        recipient: () => ({
+          digest: () => Word.fromHex(COMMITMENT),
+          script: () => ({ root: () => ({ toHex: () => '0xp2id' }) })
+        }),
         assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
@@ -2001,7 +2034,7 @@ describe('requestSign — input validation', () => {
 
 describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
   // What a dApp is answered with: the wallet's own `nonFungibleAssets` field is stripped from the record.
-  const { nonFungibleAssets: _held, ...answeredNote } = storedNote;
+  const { nonFungibleAssets: _held, standardPayment: _standardPayment, ...answeredNote } = storedNote;
   const importedNote = { ...answeredNote, noteId: 'n9', noteType: NoteType.Private };
   const firstNote = { ...importedNote, noteId: 'n1' };
   const requestList = (notefilterType: NoteFilterTypes, noteIds?: string[]) =>
@@ -2305,6 +2338,25 @@ describe('requestAssets — mobile branches', () => {
 // ── formatConsumeTransactionPreview edge cases ──────────────────
 
 describe('formatConsumeTransactionPreview', () => {
+  it.each([false, undefined])(
+    'refuses a stored note with standardPayment %s before approval',
+    async standardPayment => {
+      mockGetInputNoteDetails.mockResolvedValueOnce([{ ...storedNote, standardPayment }]);
+      const request: MidenDAppConsumeRequest = {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+      };
+
+      await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toThrow(
+        'Only standard payment notes can use a consume request - use a custom transaction request'
+      );
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    }
+  );
+
   it('formats with token metadata decimals', async () => {
     mockGetTokenMetadata.mockResolvedValueOnce({ decimals: 8, symbol: 'BTC' });
     mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-fmt');
