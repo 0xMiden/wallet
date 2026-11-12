@@ -334,7 +334,7 @@ let mockDeserializedCommitment = 'a1b2';
 let mockBuiltAccountIdMarker = 'imported-account-id';
 const defaultDeserializedSecret = () => ({
   sign: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
-  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
+  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])), free: jest.fn() })),
   publicKey: jest.fn(() => ({
     toCommitment: jest.fn(() => ({ toHex: jest.fn(() => `0x${mockDeserializedCommitment}`) }))
   }))

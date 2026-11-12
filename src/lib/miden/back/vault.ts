@@ -38,8 +38,8 @@ import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/pr
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
-import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
+import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
@@ -2459,13 +2459,20 @@ export class Vault {
     const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
 
     const inputs = signBytesInputs(b64ToU8(data), signKind);
-    const commitment = inputs.toCommitment();
     try {
       // signData signs inputs.toCommitment(); the word is returned so a verifier checks exactly what was signed.
-      const signature = wasmSecretKey.signData(inputs);
-      return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
+      const commitment = inputs.toCommitment();
+      try {
+        const signature = wasmSecretKey.signData(inputs);
+        try {
+          return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
+        } finally {
+          signature.free();
+        }
+      } finally {
+        commitment.free();
+      }
     } finally {
-      commitment.free();
       inputs.free();
     }
   }
@@ -2495,14 +2502,17 @@ export class Vault {
     // with the hot key gives the signature and signed word a single-key account returns. The native hot-key plugins
     // sign only 32-byte words.
     const inputs = signBytesInputs(b64ToU8(data), signKind);
-    const commitment = inputs.toCommitment();
     let wordHex: string;
     let signedCommitment: string;
     try {
-      wordHex = commitment.toHex();
-      signedCommitment = u8ToB64(commitment.serialize());
+      const commitment = inputs.toCommitment();
+      try {
+        wordHex = commitment.toHex();
+        signedCommitment = u8ToB64(commitment.serialize());
+      } finally {
+        commitment.free();
+      }
     } finally {
-      commitment.free();
       inputs.free();
     }
     const sigHex = await this.signWord(account.hotPublicKey, wordHex);

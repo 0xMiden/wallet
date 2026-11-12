@@ -126,20 +126,26 @@ const mockSign = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff,
 const mockPublicKey = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff, 0x11, 0x22, 0x33])) }));
 const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   sign: mockSign,
-  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])) })),
+  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
   publicKey: mockPublicKey
 }));
 const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
 // The domain inputs' commitment is the same word on both key paths; the discriminant byte of the request stands in
 // for the variant so each one yields a different word.
-const mockSignBytesInputs = jest.fn((bytes: Uint8Array, _kind: string) => ({
-  toCommitment: () => ({
-    toHex: () => `0x${(bytes[0] ?? 0).toString(16).padStart(2, '0').repeat(32)}`,
-    serialize: () => new Uint8Array(32).fill(bytes[0] ?? 0),
+// A signingInputs request with a non-zero discriminant (Arbitrary 1, Blind 2) is re-wrapped under the domain tag, so
+// it commits to DOMAIN_FILL; discriminant 0 is a TransactionSummary, returned as decoded (its own commitment).
+const DOMAIN_FILL = 0xd0;
+const mockSignBytesInputs = jest.fn((bytes: Uint8Array, kind: string) => {
+  const fill = kind === 'signingInputs' && (bytes[0] ?? 0) !== 0 ? DOMAIN_FILL : (bytes[0] ?? 0);
+  return {
+    toCommitment: () => ({
+      toHex: () => `0x${fill.toString(16).padStart(2, '0').repeat(32)}`,
+      serialize: () => new Uint8Array(32).fill(fill),
+      free: jest.fn()
+    }),
     free: jest.fn()
-  }),
-  free: jest.fn()
-}));
+  };
+});
 jest.mock('lib/miden/sign-bytes/domain', () => ({
   signBytesInputs: (bytes: Uint8Array, kind: string) => mockSignBytesInputs(bytes, kind)
 }));
@@ -238,7 +244,7 @@ beforeEach(() => {
   (isMobile as jest.Mock).mockReturnValue(false);
   mockAuthSecretKeyDeserialize.mockReturnValue({
     sign: mockSign,
-    signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])) })),
+    signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
     publicKey: mockPublicKey
   } as any);
 });
@@ -356,6 +362,7 @@ describe('Vault instance signData - Guardian account', () => {
     const payload = new Uint8Array(32).fill(first);
     const guardian = await seedGuardianVault();
     const hot = await guardian.signData(HOT_COMMITMENT, u8ToB64(payload), kind, GUARDIAN_ADDR);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, kind);
 
     const addr = 'mtst1-plain-parity';
     const commitment = 'cafe'.repeat(16);
@@ -366,16 +373,17 @@ describe('Vault instance signData - Guardian account', () => {
     const vaultKey = (plain as any).vaultKey as CryptoKey;
     await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
     const single = await plain.signData(commitment, u8ToB64(payload), kind, addr);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, kind);
 
     expect(hot.signedCommitment).toBe(single.signedCommitment);
     expect(mockWordFromHex).toHaveBeenCalledWith(`0x${Buffer.from(b64ToU8(single.signedCommitment)).toString('hex')}`);
   });
 
   it.each([
-    ['arbitrary', 0x01],
-    ['summary', 0x00],
-    ['blind', 0x02]
-  ])('signs %s signing inputs with the hot key over their commitment', async (_variant, discriminant) => {
+    ['arbitrary', 0x01, DOMAIN_FILL],
+    ['summary', 0x00, 0x00],
+    ['blind', 0x02, DOMAIN_FILL]
+  ])('signs %s signing inputs with the hot key over their commitment', async (_variant, discriminant, fill) => {
     const vault = await seedGuardianVault();
     const payload = new Uint8Array([discriminant, 0x10, 0x20]);
     mockAuthSecretKeyDeserialize.mockClear();
@@ -383,8 +391,9 @@ describe('Vault instance signData - Guardian account', () => {
     const sig = await vault.signData(HOT_COMMITMENT, u8ToB64(payload), 'signingInputs', GUARDIAN_ADDR);
 
     expect(Array.from(b64ToU8(sig.signature))).toEqual([0x01, 0xaa, 0xbb, 0xcc]);
-    const commitmentHex = `0x${discriminant.toString(16).padStart(2, '0').repeat(32)}`;
-    expect(mockWordFromHex).toHaveBeenCalledWith(commitmentHex);
+    expect(mockSignBytesInputs).toHaveBeenLastCalledWith(payload, 'signingInputs');
+    // Summary: the decoded inputs' own commitment; Arbitrary and Blind: the domain commitment.
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${fill.toString(16).padStart(2, '0').repeat(32)}`);
     // Only the hot ciphertext (0a0b0c) is ever deserialized, never the decoy (dec0de) under the commitment.
     const deserialized = mockAuthSecretKeyDeserialize.mock.calls.map(([bytes]) => Buffer.from(bytes!).toString('hex'));
     expect(deserialized).toEqual(['0a0b0c']);
