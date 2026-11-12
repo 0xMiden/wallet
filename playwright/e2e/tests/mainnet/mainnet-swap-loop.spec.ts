@@ -38,6 +38,7 @@ import {
   cachedSolverRegistry
 } from '../../helpers/mainnet-swap-ui';
 import { readLineage } from '../../helpers/swap';
+import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 
 const STATE_PATH = 'test-results/mainnet-swap-state/roundtrip.json';
 const PRICE_IDS: Record<string, string> = {
@@ -471,8 +472,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
     throw new Error('Missing explicit mainnet swap mode, workflow identity or Guardian key');
   if (process.env.GITHUB_RUN_ATTEMPT !== '1')
     throw new Error('Do not rerun funded workflow jobs; use a new serialized run to reconcile prior state');
-  await walletB.recoverGuardianFromHotKey(key.trim());
-  await walletB.triggerSync(true);
+  await restoreMainnetLoopGuardian(walletB, key);
   await walletB.refreshBalancesLanded(90_000);
   let state = loadMainnetSwapCheckpoint(STATE_PATH);
   const account = await walletB.getAccountAddress();

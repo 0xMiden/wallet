@@ -14,6 +14,7 @@ import { loadMainnetOneClickSetup, mainnetConfigSource } from '../../helpers/mai
 import { readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
 import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../helpers/mainnet-one-click-prices';
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
+import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { getEnvironmentConfig } from '../../config/environments';
 
 const STATE_PATH = 'test-results/mainnet-epoch-state/roundtrip.json';
@@ -44,8 +45,7 @@ test('mainnet Epoch staged round trip', async ({ walletB }) => {
   const rawEvmKey = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
   if (!keyPair || !/^[0-9a-f]{64}$/i.test(rawEvmKey)) throw new Error('Existing funded mainnet account keys are required');
   const evm = privateKeyToAccount(`0x${rawEvmKey}`);
-  await walletB.recoverGuardianFromHotKey(keyPair);
-  await walletB.triggerSync(true);
+  await restoreMainnetLoopGuardian(walletB, keyPair);
   const account = await walletB.getAccountAddress();
   if (predecessor?.account !== account) throw new Error('Epoch and swap must use the same existing Guardian account');
   const response = await fetch(mainnetConfigSource(), { headers: { Accept: 'application/json' } });

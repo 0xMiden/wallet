@@ -6,6 +6,7 @@ import { fromBaseUnits, pendingNoteTotal, vaultBalanceByFaucetId, walletDiscover
 import { waitForSendRow, TxStatus } from '../../helpers/history';
 import { mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
+import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
 import { assertMainnetOneClickMayStart, loadMainnetOneClickCheckpoint, saveMainnetOneClickCheckpoint } from '../../helpers/mainnet-one-click-checkpoint';
 import { assertMainnetEvmFunding, createMainnetOneClickEvmSender, readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
@@ -196,8 +197,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   }
   const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
   if (!keyPair) throw new Error('E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
-  await walletB.recoverGuardianFromHotKey(keyPair.trim());
-  await walletB.triggerSync(true);
+  await restoreMainnetLoopGuardian(walletB, keyPair);
   const setup = await loadMainnetOneClickSetup(fetch, fetch, walletB.extensionId);
   test.skip(!setup, 'mainnet 1Click is unavailable until the live catalog lists a metadata-verified Miden asset');
   if (!setup) return;
