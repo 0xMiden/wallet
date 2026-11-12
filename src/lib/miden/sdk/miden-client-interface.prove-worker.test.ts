@@ -225,6 +225,7 @@ beforeEach(() => {
 afterEach(() => {
   jest.restoreAllMocks();
   jest.dontMock('./test-consume-authorization');
+  jest.dontMock('./test-send-authorization');
   jest.resetModules();
 });
 
@@ -295,6 +296,21 @@ describe('remoteProver transport deadline (#473)', () => {
 });
 
 describe('send (site 5)', () => {
+  const paths: [string, typeof load | typeof loadOffscreenProved][] = [['staged', load], ['offscreen', loadOffscreenProved]];
+  for (const [name, create] of paths) {
+    it(`${name} cannot execute or submit a native send before the exact upload authorization`, async () => {
+      const harness = buildHarness(); const refused = new Error('exact native send authorization refused');
+      const gate = jest.fn(async (_actor: string, request: { serialize(): Uint8Array }) => {
+        expect(Array.from(request.serialize())).toEqual([1]); throw refused;
+      });
+      jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
+      const { client, withWasmClientLock } = await create(harness);
+      await expect(withWasmClientLock(async () => client.sendTransaction(sendTx(false)))).rejects.toBe(refused);
+      expect(gate).toHaveBeenCalledWith('sdk-acct', expect.objectContaining({ serialize: expect.any(Function) }));
+      expect(harness.executeRequest).not.toHaveBeenCalled(); expect(harness.inner.executeTransaction).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled(); expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+  }
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);

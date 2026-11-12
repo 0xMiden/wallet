@@ -68,6 +68,11 @@ it('does not publish a request rejected by actual SDK byte inspection', async ()
   mockInspect.mockImplementation(() => { throw new Error('scope mismatch'); });
   await expect(run()).rejects.toThrow(); expect(set).not.toHaveBeenCalled();
 });
+it('never overwrites a replacement authority installed while request inspection was running', async () => {
+  const replacement = { ...scope, nonce: '22222222-2222-4222-8222-222222222222', status: 'armed' };
+  mockInspect.mockImplementation(() => { data[KEY] = replacement; return noteId; });
+  await expect(run()).rejects.toThrow(); expect(data[KEY]).toEqual(replacement); expect(set).not.toHaveBeenCalled();
+});
 it('blocks a replacement scope while the original request waits for upload', async () => {
   const promise = run(); await held(promise); const rejected = expect(promise).rejects.toThrow();
   patch({ recipientId: account, status: 'released' }); await jest.advanceTimersByTimeAsync(500); await rejected;
