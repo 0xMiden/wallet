@@ -1635,6 +1635,8 @@
   "hideToken": "隐藏令牌",
   "unhideToken": "取消隐藏代币",
   "tokenHiddenNotice": "隐藏于“主钱包”之外。它仍保存在您的钱包中，其转账仍可被领取。",
+  "hideDustTokens": "隐藏微量代币",
+  "hideDustTokensDescription": "将价值低于 0.001 美元的代币从您的资产列表中隐藏。USDCX 始终可见。",
   "hiddenAssets": "隐藏资产",
   "hiddenAssetsCount": "隐藏资产（$count$）",
   "unhide": "取消隐藏",

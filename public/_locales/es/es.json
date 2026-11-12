@@ -1629,6 +1629,8 @@
   "hideToken": "Ocultar token",
   "unhideToken": "Mostrar token",
   "tokenHiddenNotice": "Oculto desde «Inicio». Permanece en tu monedero y sus transferencias aún pueden reclamarse.",
+  "hideDustTokens": "Ocultar tokens de polvo",
+  "hideDustTokensDescription": "Oculta de tu lista de activos los tokens con un valor inferior a 0,001 $. El USDCX siempre permanece visible.",
   "hiddenAssets": "Activos ocultos",
   "hiddenAssetsCount": "Activos ocultos ($count$)",
   "unhide": "Mostrar",

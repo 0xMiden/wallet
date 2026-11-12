@@ -28,6 +28,13 @@ export const DEFAULT_HAPTIC_FEEDBACK = true;
 export const NOMINAL_UNQUOTED_PRICE_STORAGE_KEY = 'nominal_unquoted_price_setting';
 export const DEFAULT_NOMINAL_UNQUOTED_PRICE = 'off';
 
+/**
+ * General Settings' "Hide dust tokens" switch (`lib/settings/dust`). On by default: Home lists no
+ * token whose USD value is below the dust threshold.
+ */
+export const HIDE_DUST_TOKENS_STORAGE_KEY = 'hide_dust_tokens_setting';
+export const DEFAULT_HIDE_DUST_TOKENS = 'on';
+
 export const CARD_COLOR_STORAGE_KEY = 'balance_card_color';
 export type CardColor = 'slate' | 'orange' | 'blue' | 'green' | 'purple';
 export const CARD_COLORS: CardColor[] = ['slate', 'orange', 'blue', 'green', 'purple'];

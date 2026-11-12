@@ -7462,6 +7462,14 @@
     "message": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Toz token'ları gizle",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. USDCX her zaman görünür kalır.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Gizli varlıklar",
     "englishSource": "Hidden assets"

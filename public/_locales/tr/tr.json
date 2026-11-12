@@ -1634,6 +1634,8 @@
   "hideToken": "Token'ı gizle",
   "unhideToken": "Token'ı görünür hale getir",
   "tokenHiddenNotice": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
+  "hideDustTokens": "Toz token'ları gizle",
+  "hideDustTokensDescription": "Varlık listenizden değeri 0,001 $'dan az olan token'ları gizler. USDCX her zaman görünür kalır.",
   "hiddenAssets": "Gizli varlıklar",
   "hiddenAssetsCount": "Gizli varlıklar ($count$)",
   "unhide": "Gizlemeyi kaldır",

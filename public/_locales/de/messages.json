@@ -7470,6 +7470,14 @@
     "message": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Dust-Token ausblenden",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Blendet Token im Wert von weniger als 0,001 US-Dollar aus Ihrer Vermögensliste aus. USDCX bleibt immer sichtbar.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Versteckte Vermögenswerte",
     "englishSource": "Hidden assets"

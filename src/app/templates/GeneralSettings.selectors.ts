@@ -10,5 +10,6 @@ export enum GeneralSettingsSelectors {
   HapticFeedbackToggle = 'General Settings/HapticFeedbackToggle',
   DarkModeToggle = 'General Settings/DarkModeToggle',
   TelemetryToggle = 'General Settings/TelemetryToggle',
+  HideDustToggle = 'General Settings/HideDustToggle',
   ThemeSelector = 'General Settings/ThemeSelector'
 }

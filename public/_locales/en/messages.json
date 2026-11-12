@@ -7461,6 +7461,14 @@
     "message": "Hidden from Home. It stays in your wallet and its transfers can still be claimed.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Hide dust tokens",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Hidden assets",
     "englishSource": "Hidden assets"

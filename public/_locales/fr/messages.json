@@ -7464,6 +7464,14 @@
     "message": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Masquer les jetons « dust »",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. L’USDCX reste toujours visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible."
+  },
   "hiddenAssets": {
     "message": "Actifs cachés",
     "englishSource": "Hidden assets"

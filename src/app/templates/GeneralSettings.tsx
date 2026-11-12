@@ -10,6 +10,7 @@ import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedC
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
+import { setHideDustTokensSetting, useHideDustTokens } from 'lib/settings/dust';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -44,6 +45,11 @@ const GeneralSettings: FC = () => {
   const handleThemeChange = useCallback((next: ThemeSetting) => {
     setThemeSettingState(next);
     setTheme(next);
+  }, []);
+
+  const hideDustEnabled = useHideDustTokens();
+  const handleHideDustChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
+    setHideDustTokensSetting(evt.target.checked);
   }, []);
 
   const delegateEnabled = isDelegateProofEnabled();
@@ -120,6 +126,22 @@ const GeneralSettings: FC = () => {
               title={t('hapticFeedback')}
             />
           )}
+        </ListGroup>
+      </SubPageSection>
+
+      <SubPageSection
+        title={t('assets')}
+        icon={<Icon name={IconName.Coins} fill="currentColor" />}
+        footnote={t('hideDustTokensDescription')}
+      >
+        <ListGroup surface="plain">
+          <SettingToggle
+            checked={hideDustEnabled}
+            onChange={handleHideDustChange}
+            name="hideDustTokensEnabled"
+            testID={GeneralSettingsSelectors.HideDustToggle}
+            title={t('hideDustTokens')}
+          />
         </ListGroup>
       </SubPageSection>
 

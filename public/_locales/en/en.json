@@ -1635,6 +1635,8 @@
   "hideToken": "Hide token",
   "unhideToken": "Unhide token",
   "tokenHiddenNotice": "Hidden from Home. It stays in your wallet and its transfers can still be claimed.",
+  "hideDustTokens": "Hide dust tokens",
+  "hideDustTokensDescription": "Hides tokens worth less than $0.001 from your asset list. USDCX always stays visible.",
   "hiddenAssets": "Hidden assets",
   "hiddenAssetsCount": "Hidden assets ($count$)",
   "unhide": "Unhide",

@@ -1635,6 +1635,8 @@
   "hideToken": "トークンを非表示にする",
   "unhideToken": "トークンの非表示を解除",
   "tokenHiddenNotice": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
+  "hideDustTokens": "ダストトークンを非表示にする",
+  "hideDustTokensDescription": "資産リストから、0.001ドル未満の価値を持つトークンを非表示にします。USDCXは常に表示されたままになります。",
   "hiddenAssets": "隠された資産",
   "hiddenAssetsCount": "隠された資産（$count$）",
   "unhide": "非表示を解除",

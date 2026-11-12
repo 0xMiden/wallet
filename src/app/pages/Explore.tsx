@@ -35,6 +35,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext }
 import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { isDustBalance } from 'lib/miden/front/dust';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
@@ -47,6 +48,7 @@ import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useHideDustTokens } from 'lib/settings/dust';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { isWalletReadyNow, useWalletStore } from 'lib/store';
@@ -95,6 +97,7 @@ const Explore: FC = () => {
   const address = account.publicKey;
 
   const { isHidden, unhide } = useHiddenTokens(address);
+  const hideDust = useHideDustTokens();
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
@@ -249,8 +252,10 @@ const Explore: FC = () => {
     if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
     return fiatValues.get(b)! - fiatValues.get(a)!;
   });
-  // Put hidden tokens in a separate list.
-  const sortedTokens = sorted.filter(token => !isHidden(token.tokenId));
+  // Put hidden tokens in a separate list. A dust token is in neither list while the setting is on.
+  const sortedTokens = sorted.filter(
+    token => !isHidden(token.tokenId) && !(hideDust && isDustBalance(token, tokenPrices, midenFaucetId))
+  );
   const hiddenTokens = sorted.filter(token => isHidden(token.tokenId));
 
   const totalPriceSymbols = allTokenBalances
