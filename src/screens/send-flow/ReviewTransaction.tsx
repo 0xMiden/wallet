@@ -784,7 +784,7 @@ export const ReviewTransaction: React.FC = () => {
         <Hero
           data-testid="review-amount"
           className="mt-3"
-          visual={<TokenLogo symbol={token?.name ?? ''} faucetId={token?.id} size="2xl" />}
+          visual={<TokenLogo faucetId={tokenId} size="2xl" />}
           value={`${amount} ${tokenLabel}`}
           subtitle={
             token?.scaleIsKnown && (

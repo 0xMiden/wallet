@@ -62,19 +62,21 @@ jest.mock('components/ui/IconButton', () => ({
   )
 }));
 
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'NATIVE-USDCX-ID' }));
+
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({
-    symbol,
+    faucetId,
     size,
     badge,
     className
   }: {
-    symbol: string;
+    faucetId: string | undefined;
     size?: string;
     badge?: React.ReactNode;
     className?: string;
   }) => (
-    <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className}>
+    <div data-testid="token-logo" data-faucet-id={faucetId} data-size={size} className={className}>
       {badge}
     </div>
   )
@@ -115,27 +117,27 @@ beforeEach(() => {
 
 describe('EarnAssetMark', () => {
   it('is the token mark with the network badged on its corner, not a wide text pill', () => {
-    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+    render(<EarnAssetMark asset="USDC" network="Ethereum" faucetId="USDCX-ID" />);
 
     const logo = screen.getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'USDC');
+    expect(logo).toHaveAttribute('data-faucet-id', 'USDCX-ID');
     expect(logo).toHaveAttribute('data-size', 'md');
     // The badge is the network's own mark, inside the avatar rather than beside it.
     expect(within(logo).getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
   });
 
   it('keeps the "{asset} on {network}" name the pill used to carry, for assistive tech', () => {
-    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+    render(<EarnAssetMark asset="USDC" network="Ethereum" faucetId={undefined} />);
 
     const label = screen.getByText('earnAssetOnNetwork');
     expect(label).toHaveClass('sr-only');
   });
 
   it('takes the Miden mark only for Miden itself; every earn vault is EVM-side', () => {
-    const { rerender } = render(<EarnAssetMark asset="MIDEN" network="Miden" />);
+    const { rerender } = render(<EarnAssetMark asset="MIDEN" network="Miden" faucetId={undefined} />);
     expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
 
-    rerender(<EarnAssetMark asset="USDC" network="Sepolia" />);
+    rerender(<EarnAssetMark asset="USDC" network="Sepolia" faucetId={undefined} />);
     expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
   });
 });
@@ -207,7 +209,8 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader subject={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Compound$/);
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
+    // Every Earn asset settles in the native USDCx, so its faucet keys the mark whatever the vault's asset.
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'NATIVE-USDCX-ID');
   });
 });
 
@@ -465,9 +468,9 @@ describe('EarnSummaryPanel', () => {
 
 describe('EarnAmountUnit', () => {
   it('renders the token mark and its symbol on the unit type style', () => {
-    render(<EarnAmountUnit symbol="USDC" />);
+    render(<EarnAmountUnit symbol="USDC" faucetId="USDCX-ID" />);
 
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'USDCX-ID');
     expect(screen.getByText('USDC')).toHaveClass('text-entry-unit', 'text-ink');
   });
 });
@@ -480,7 +483,7 @@ it('names Miden USDCx funding without labelling the EVM underlying as USDCx', ()
 
 it('gives the native funding label its matching USDCx logo and Miden mark', () => {
   render(<EarnFlowHeader subject={{ ...VAULT, fundingAsset: 'USDCx' }} />);
-  expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDCx');
+  expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'NATIVE-USDCX-ID');
   expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
 });
 
