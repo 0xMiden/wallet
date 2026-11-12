@@ -4026,6 +4026,10 @@
     "message": "자신의 주소로 발송할 수 없습니다.",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "새로운 수취인",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
