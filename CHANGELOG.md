@@ -2,6 +2,8 @@
 
 ## 1.17.10 (TBD)
 
+- [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use the shared permits (#2080).
+- [FIX][all] Keep a settled Guardian probe selectable when the confirming chain read is unavailable (#2080).
 - [FIX][all] Let Forgot Password retry Guardian detection and use the new result during recovery.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.

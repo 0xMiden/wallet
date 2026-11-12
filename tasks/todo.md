@@ -1,3 +1,18 @@
+# Issue #2080 - keep Guardian probe permits until transport cancellation
+
+## Plan
+
+- [x] Re-read issue #2080, the current uncommitted diff, and Council finding F-001 and its accepted fix plan.
+- [x] Add four-path discovery transport regressions and a native registered-budget regression.
+- [x] Run the new regressions first and record their expected red failures.
+- [x] Pass each attempt signal through the Guardian client's fetch and register a bounded native timeout budget.
+- [x] Verify the green regressions, adjacent Guardian suites, type checking, lint and formatting without changing coverage thresholds.
+- [ ] Preserve the worktree without committing, pushing, or publishing until Council review and current-head gates finish.
+
+## Review
+
+- Implementation tests, type-check, lint and formatting pass locally; Council review and current-head CI remain pending.
+
 # Follow-up to #1790: describe wallet-file contents accurately
 
 ## Plan

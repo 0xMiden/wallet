@@ -29,6 +29,7 @@
 		7BECE3022FA7691500F466A5 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 7BECE3012FA7691500F466A5 /* P256K */; settings = {ATTRIBUTES = (Required, ); }; };
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */; };
+		C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */; };
 		A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */; };
 		B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */; };
 		AABBCCDD0000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */; };
@@ -70,6 +71,7 @@
 		873F0344C8952CB5585102E0 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenshotGuardPlugin.swift; sourceTree = "<group>"; };
+		C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GuardianProbeHttpPlugin.swift; sourceTree = "<group>"; };
 		A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HighRefreshRatePlugin.swift; sourceTree = "<group>"; };
 		B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BreadConnectOpenerPlugin.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */,
+				C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */,
 				B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */,
 				7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */,
@@ -297,6 +300,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */,
+				C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */,
 				B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */,
 				7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */,
