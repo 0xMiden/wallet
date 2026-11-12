@@ -57,9 +57,16 @@ export function inspectEpochForwardQuote(
 }
 
 export function inspectEpochRefundNote(
-  _state: MainnetEpochCheckpoint, _bytes: Uint8Array, _currentBlock: number
+  state: MainnetEpochCheckpoint, bytes: Uint8Array, currentBlock: number
 ): bigint {
-  throw new Error('Epoch collateral refund inspection is not implemented');
+  parseMainnetEpochCheckpoint(state);
+  const authority = state.forwardAuthority;
+  if (!authority || !state.forwardNoteId || !Number.isSafeInteger(currentBlock) || currentBlock < authority.reclaimHeight ||
+      bytes.length < 1 || bytes.length > 1_048_576) throw new Error('Original Epoch collateral is not authorized and mature for refund');
+  const note = NoteFile.deserialize(bytes).note();
+  if (!note || note.id().toString() !== state.forwardNoteId) throw new Error('Epoch refund does not name its original collateral');
+  inspectEpochCollateralNote(state, note, authority);
+  return BigInt(state.principal);
 }
 
 export function inspectEpochReturnNote(
@@ -88,23 +95,10 @@ export function inspectEpochReturnNote(
   return amount;
 }
 
-export function inspectEpochCollateralRequest(
-  state: MainnetEpochCheckpoint,
-  bytes: Uint8Array,
-  review: EpochCollateralReview
-): { noteId: string; reclaimHeight: number } {
-  parseMainnetEpochCheckpoint(state);
-  if (!Number.isSafeInteger(review.currentBlock) || review.currentBlock < 0 ||
-      !Number.isSafeInteger(review.reclaimHeight) || review.reclaimHeight > 0xffff_ffff ||
-      review.reclaimHeight - review.currentBlock < state.minimumRecallBlocks ||
-      review.reclaimHeight - review.currentBlock > state.recallBlocks ||
-      !/^0x[0-9a-f]{64}$/.test(review.bindingHash) || bytes.length > 1_048_576) {
-    throw new Error('Epoch collateral reclaim window or mandate binding is outside authorization');
-  }
-  const request = TransactionRequest.deserialize(bytes);
-  const notes = request.expectedOutputOwnNotes();
-  const note = notes[0];
-  if (notes.length !== 1 || !note || note.metadata().sender().toString() !== state.accountHex ||
+function inspectEpochCollateralNote(
+  state: MainnetEpochCheckpoint, note: Note, review: Pick<EpochCollateralReview, 'reclaimHeight' | 'bindingHash'>
+): void {
+  if (note.metadata().sender().toString() !== state.accountHex ||
       note.metadata().noteType() !== NoteType.Public || note.assets().assets().length !== 1) {
     throw new Error('Epoch collateral must contain one public output from the authorized account');
   }
@@ -145,6 +139,25 @@ export function inspectEpochCollateralRequest(
       actualStorage.length !== expectedStorage.length || actualStorage.some((value, index) => value !== expectedStorage[index])) {
     throw new Error('Epoch collateral recipient, script or reclaim storage is not the canonical P2IDE request');
   }
+}
+
+export function inspectEpochCollateralRequest(
+  state: MainnetEpochCheckpoint,
+  bytes: Uint8Array,
+  review: EpochCollateralReview
+): { noteId: string; reclaimHeight: number } {
+  parseMainnetEpochCheckpoint(state);
+  if (!Number.isSafeInteger(review.currentBlock) || review.currentBlock < 0 ||
+      !Number.isSafeInteger(review.reclaimHeight) || review.reclaimHeight > 0xffff_ffff ||
+      review.reclaimHeight - review.currentBlock < state.minimumRecallBlocks ||
+      review.reclaimHeight - review.currentBlock > state.recallBlocks ||
+      !/^0x[0-9a-f]{64}$/.test(review.bindingHash) || bytes.length > 1_048_576)
+    throw new Error('Epoch collateral reclaim window or mandate binding is outside authorization');
+  const request = TransactionRequest.deserialize(bytes);
+  const notes = request.expectedOutputOwnNotes();
+  const note = notes[0];
+  if (notes.length !== 1 || !note) throw new Error('Epoch collateral must contain exactly one owned output');
+  inspectEpochCollateralNote(state, note, review);
   const noteId = note.id().toString();
   const blocks = request.blockNumbers();
   if (blocks.length > 8 || blocks.some(block => !Number.isSafeInteger(block) || block < 0 || block > review.currentBlock)) {
