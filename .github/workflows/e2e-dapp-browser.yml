@@ -36,6 +36,7 @@ on:
           - presentation-compare
           - presentation-gesture-api36
           - presentation-gesture-ios
+          - presentation-gestures
         default: all
       baseline_sha:
         description: Exact base commit for the Android presentation comparison
@@ -58,7 +59,7 @@ concurrency:
 jobs:
   ios-dapp-browser:
     name: dApp Browser (iOS)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-gesture-ios'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
     runs-on: macos-26-xlarge
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 135 || 60 }}
@@ -224,7 +225,7 @@ jobs:
         run: yarn playwright test --config playwright.ios.dapp.config.ts --retries=2
 
       - name: Verify installed idb HID contract
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-ios'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
         run: |
           mkdir -p test-results-ios/presentation-gesture
           brew list --versions idb-companion > test-results-ios/presentation-gesture/idb-companion-version.txt
@@ -233,7 +234,7 @@ jobs:
           grep -E '^Ran 5 tests in ' test-results-ios/presentation-gesture/idb-hid-selfcheck.log
 
       - name: Run native iOS capsule gesture acceptance
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-ios'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-ios' || inputs.suite == 'presentation-gestures')
         env:
           DAPP_PRESENTATION_GESTURE_IOS: '1'
         run: |
@@ -268,12 +269,12 @@ jobs:
 
   android-dapp-browser:
     name: dApp Browser (Android)
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'presentation-compare'
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
     # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare' && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures') && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
       MIDEN_E2E_TEST: 'true'
@@ -355,7 +356,7 @@ jobs:
           E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Validate exact comparison commits
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_SHA: ${{ inputs.baseline_sha }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -370,7 +371,7 @@ jobs:
           echo "baseline=$BASELINE_SHA candidate=$CANDIDATE_SHA" | tee test-results-android/presentation-comparison-source.txt
 
       - name: Build baseline APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_SHA: ${{ inputs.baseline_sha }}
         run: |
@@ -458,7 +459,7 @@ jobs:
         run: yarn test:e2e:android:build
 
       - name: Save candidate APK for presentation comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/wallet-presentation-after.apk"
           test -s "$RUNNER_TEMP/wallet-presentation-after.apk"
@@ -474,7 +475,7 @@ jobs:
         run: yarn test:e2e:android:dapp:run
 
       - name: Download pinned Perfetto Trace Processor
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/perfetto-linux-amd64.zip"
@@ -486,7 +487,7 @@ jobs:
           "$RUNNER_TEMP/perfetto/trace_processor_shell" --version
 
       - name: Run alternating native-tap FrameTimeline comparison
-        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         env:
           BASELINE_APK: ${{ runner.temp }}/wallet-presentation-before.apk
           CANDIDATE_APK: ${{ runner.temp }}/wallet-presentation-after.apk
@@ -522,7 +523,7 @@ jobs:
           run_variant "${order[1]}"
 
       - name: Analyze before and after FrameTimeline traces
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-compare'
+        if: always() && github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')
         run: |
           node scripts/analyze-native-frame-timeline.mjs \
             "$RUNNER_TEMP/perfetto/trace_processor_shell" \
@@ -555,7 +556,7 @@ jobs:
 
   android-presentation-gesture:
     name: Android API36 presentation gestures
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'presentation-gesture-api36'
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-gesture-api36' || inputs.suite == 'presentation-gestures')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
