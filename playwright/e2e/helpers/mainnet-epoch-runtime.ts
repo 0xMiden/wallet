@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, parseEventLogs, parseUnits, type Hex } from 'viem';
+import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, parseUnits, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 
@@ -26,7 +26,7 @@ import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { readMainnetMidenBlock } from './mainnet-miden-read';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } from './mainnet-consume-authorization';
-import { createEpochEvmSender, reconcileEpochEvmReceipts, type EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
+import { createEpochEvmSender, reconcileEpochEvmReceipts, inspectEpochForwardReceipt, type EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
 import { planEpochRoundTrip } from './mainnet-epoch-ui';
 import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
 import { exportMakerNote } from './swap';
@@ -149,35 +149,7 @@ export async function runEpochForward(
       state.forwardMidenTxId = row.transactionId;
       state.paidMidenFees = row.feeAmount;
       persist();
-      const provider = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, account);
-      let fill: string | undefined;
-      await expect.poll(async () => {
-        const status = await provider.sdk.getIntentStatus(provider.config, account, state.forwardNonce);
-        if (!Array.isArray(status)) throw new Error('Invalid Epoch status response');
-        const hashes = new Set(status.filter(leg => leg.chainId === state.evm.chainId &&
-          ['success', 'completed'].includes(leg.status) && typeof leg.transactionHash === 'string').map(leg => leg.transactionHash));
-        if (hashes.size > 1) throw new Error('Ambiguous Epoch destination receipts');
-        fill = [...hashes][0] ?? undefined;
-        return !!fill;
-      }, { timeout: 300_000, intervals: [5000, 10000, 15000] }).toBe(true);
-      if (!fill || !isHash(fill)) throw new Error('Epoch did not provide an exact destination transaction');
-      const receipt = await client.getTransactionReceipt({ hash: fill });
-      if (receipt.status !== 'success' || receipt.from.toLowerCase() === account.toLowerCase())
-        throw new Error('Epoch destination receipt reverted or was self-filled');
-      const transfers = parseEventLogs({ abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs, strict: true })
-        .filter(log => log.address.toLowerCase() === token.toLowerCase() && log.args.to.toLowerCase() === account.toLowerCase());
-      if (transfers.some(log => log.args.from.toLowerCase() === account.toLowerCase())) throw new Error('Epoch cannot self-fill its payout');
-      const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
-      if (!state.forwardAuthority || received < BigInt(state.forwardAuthority.minimumOutput)) throw new Error('Epoch receipt underfilled the authorized output');
-      await wallet.refreshBalancesLanded(90_000);
-      if (await vaultBalanceByFaucetId(wallet.page, state.native.faucetId) !==
-          BigInt(state.native.balance) - BigInt(state.principal) - BigInt(state.paidMidenFees) ||
-          await tokenBalance() !== BigInt(state.evm.tokenBalance) + received ||
-          await client.getBalance({ address: account }) !== BigInt(state.evm.nativeBalance))
-        throw new Error('Epoch forward portfolio does not equal its exact receipts');
-      state.forwardEvmTxHash = fill;
-      state.forwardReceived = received.toString();
-      state.phase = 'forward-settled'; persist();
+      await recoverEpochForward(wallet, state, path, signal);
     },
     cancelQueued: async () => {
       if (!queued) return false;
@@ -199,6 +171,43 @@ export async function runEpochForward(
     },
     uncertain: async () => { state.phase = 'recovery-required'; persist(); }
   });
+}
+
+/** Reconcile the original completed collateral receipt and provider payout; never enqueue another mint. */
+export async function recoverEpochForward(
+  wallet: GuardianAwareWalletPage, state: MainnetEpochCheckpoint, path: string, signal: AbortSignal
+): Promise<void> {
+  if (!state.forwardAuthority || !state.forwardNoteId || !state.forwardMidenTxId ||
+      state.reverseNonce !== undefined || state.transactions?.length || state.consumeAuthority ||
+      await wallet.getAccountAddress() !== state.account)
+    throw new Error('Epoch forward reconciliation requires its original collateral receipt and no later submission');
+  const account = getAddress(state.evm.account);
+  const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
+  const provider = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, account);
+  let fill: string | undefined;
+  await expect.poll(async () => {
+    if (signal.aborted) throw new Error('Epoch forward reconciliation aborted');
+    const status = await provider.sdk.getIntentStatus(provider.config, account, state.forwardNonce);
+    if (!Array.isArray(status)) throw new Error('Invalid Epoch status response');
+    const hashes = new Set(status.filter(leg => leg.chainId === state.evm.chainId &&
+      ['success', 'completed'].includes(leg.status) && typeof leg.transactionHash === 'string').map(leg => leg.transactionHash));
+    if (hashes.size > 1) throw new Error('Ambiguous Epoch destination receipts');
+    fill = [...hashes][0] ?? undefined;
+    return !!fill;
+  }, { timeout: 300_000, intervals: [5000, 10000, 15000] }).toBe(true);
+  if (!fill || !isHash(fill)) throw new Error('Epoch did not provide an exact destination transaction');
+  const receipt = await client.getTransactionReceipt({ hash: fill });
+  const received = inspectEpochForwardReceipt(state, fill, receipt);
+  await wallet.refreshBalancesLanded(90_000);
+  const tokenBalance = await client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi,
+    functionName: 'balanceOf', args: [account] });
+  if (await vaultBalanceByFaucetId(wallet.page, state.native.faucetId) !==
+      BigInt(state.native.balance) - BigInt(state.principal) - BigInt(state.paidMidenFees) ||
+      tokenBalance !== BigInt(state.evm.tokenBalance) + received ||
+      await client.getBalance({ address: account }) !== BigInt(state.evm.nativeBalance))
+    throw new Error('Epoch forward portfolio does not equal its exact receipts');
+  state.forwardEvmTxHash = fill; state.forwardReceived = received.toString();
+  state.phase = 'forward-settled'; state.updatedAt = new Date().toISOString(); saveMainnetEpochCheckpoint(path, state);
 }
 
 /** Uses the existing EVM key only after the live UI's exact return authorization has been uploaded. */

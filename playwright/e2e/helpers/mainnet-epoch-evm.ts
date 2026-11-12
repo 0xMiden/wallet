@@ -2,17 +2,28 @@ import { BASE_MANDATE_TYPESTRING, EVM_TO_MIDEN_EXTRA_TYPESTRING, getClaimHash, g
 import { COMPACT_ABI } from '@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 import { getAllocatorId, getTokenId } from '@epoch-protocol/epoch-intents-sdk/dist/helpers/chains.js';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isHex, keccak256,
-  parseTransaction, recoverTransactionAddress, toBytes, zeroAddress, zeroHash,
+  parseEventLogs, parseTransaction, recoverTransactionAddress, toBytes, zeroAddress, zeroHash,
   type Address, type Hash, type Hex, type TransactionReceipt, type TransactionSerializedEIP1559 } from 'viem';
 
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint, type EpochEvmTransaction } from './mainnet-epoch-checkpoint';
 
 export function inspectEpochForwardReceipt(
-  _state: MainnetEpochCheckpoint, _expectedHash: Hash,
-  _receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'>
+  state: MainnetEpochCheckpoint, expectedHash: Hash,
+  receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'>
 ): bigint {
-  throw new Error('Epoch forward receipt inspection is not implemented');
+  parseMainnetEpochCheckpoint(state);
+  if (!state.forwardAuthority || receipt.transactionHash.toLowerCase() !== expectedHash.toLowerCase() ||
+      receipt.status !== 'success' || receipt.from.toLowerCase() === state.evm.account.toLowerCase())
+    throw new Error('Epoch destination receipt is uncorrelated, reverted or self-filled');
+  const transfers = parseEventLogs({ abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs, strict: true })
+    .filter(log => log.address.toLowerCase() === state.evm.token.toLowerCase() &&
+      log.args.to.toLowerCase() === state.evm.account.toLowerCase());
+  if (transfers.some(log => log.args.from.toLowerCase() === state.evm.account.toLowerCase()))
+    throw new Error('Epoch cannot self-fill its payout');
+  const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
+  if (received < BigInt(state.forwardAuthority.minimumOutput)) throw new Error('Epoch receipt underfilled the reviewed output');
+  return received;
 }
 
 export interface EpochEvmRecoveryEvidence {
