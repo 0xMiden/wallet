@@ -1,8 +1,11 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from './SeedPhraseGrid';
+import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero, SeedRevealToggle } from './SeedPhraseGrid';
+
+let mockIsMobile = false;
+jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -48,4 +51,34 @@ it('masked renders no word text and no seed-word test ids', () => {
   expect(screen.getByTestId('grid')).toHaveAttribute('data-masked', 'true');
   expect(screen.getByText('12.')).toBeInTheDocument();
   expect(container.querySelectorAll('[aria-hidden="true"].bg-fill-pressed')).toHaveLength(12);
+});
+
+describe('SeedRevealToggle', () => {
+  beforeEach(() => {
+    mockIsMobile = false;
+  });
+
+  it('flips its label and pressed state with `revealed`', () => {
+    const { rerender } = render(<SeedRevealToggle revealed={false} onToggle={jest.fn()} />);
+    const toggle = screen.getByTestId('seed-reveal-toggle');
+    expect(toggle).toHaveTextContent('show');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    rerender(<SeedRevealToggle revealed onToggle={jest.fn()} />);
+    expect(toggle).toHaveTextContent('hide');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('calls onToggle when pressed', () => {
+    const onToggle = jest.fn();
+    render(<SeedRevealToggle revealed={false} onToggle={onToggle} />);
+    fireEvent.click(screen.getByTestId('seed-reveal-toggle'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders nothing on mobile', () => {
+    mockIsMobile = true;
+    const { container } = render(<SeedRevealToggle revealed={false} onToggle={jest.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
 });

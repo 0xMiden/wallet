@@ -107,6 +107,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         </article>
 
         <div className="flex gap-2.5">
+          {/* Not SeedRevealToggle: popup-smoke.spec.ts selects this button by its accessible name. */}
           <Button
             size="sm"
             className="flex-1"

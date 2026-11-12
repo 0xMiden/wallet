@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
@@ -13,7 +12,12 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
@@ -352,17 +356,7 @@ const RevealSeedPhrase: FC = () => {
           <SubPageSection className="gap-3">
             <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
 
-            {!isMobile() && (
-              <Pill
-                className="self-start"
-                icon={<Icon name={mask.revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
-                selected={mask.revealed}
-                onClick={mask.toggle}
-                data-testid="seed-reveal-toggle"
-              >
-                {t(mask.revealed ? 'hide' : 'show')}
-              </Pill>
-            )}
+            <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
             {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill

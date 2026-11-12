@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
+import { isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
 const WORD_COUNT = 12;
@@ -100,5 +102,30 @@ export const SeedPhrasePrivacyHero: React.FC<SeedPhrasePrivacyHeroProps> = ({ cl
       name={t('viewThisInPrivatePlace')}
       subtitle={t('anyoneWithRecoveryPhrase')}
     />
+  );
+};
+
+export interface SeedRevealToggleProps {
+  revealed: boolean;
+  onToggle: () => void;
+  /** Layout only (margins, alignment). */
+  className?: string;
+}
+
+/** Show/Hide for a masked phrase. Mobile shows the words at once, so it draws nothing there. */
+export const SeedRevealToggle: React.FC<SeedRevealToggleProps> = ({ revealed, onToggle, className }) => {
+  const { t } = useTranslation();
+  if (isMobile()) return null;
+
+  return (
+    <Pill
+      className={className}
+      icon={<Icon name={revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
+      selected={revealed}
+      onClick={onToggle}
+      data-testid="seed-reveal-toggle"
+    >
+      {t(revealed ? 'hide' : 'show')}
+    </Pill>
   );
 };

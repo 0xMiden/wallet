@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
@@ -13,7 +12,12 @@ import { CopyLabel } from 'components/ui/CopyLabel';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext } from 'lib/miden/front';
@@ -397,17 +401,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
             <>
               <SeedPhraseGrid words={words} masked={!isMobile() && !mask.revealed} />
 
-              {!isMobile() && (
-                <Pill
-                  className="mt-3 self-start"
-                  icon={<Icon name={mask.revealed ? IconName.EyeOff : IconName.Eye} fill="currentColor" />}
-                  selected={mask.revealed}
-                  onClick={mask.toggle}
-                  data-testid="seed-reveal-toggle"
-                >
-                  {t(mask.revealed ? 'hide' : 'show')}
-                </Pill>
-              )}
+              <SeedRevealToggle className="mt-3 self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
               {!remove && (
                 <Pill
