@@ -21,6 +21,7 @@ import {
   useEarnAssetFaucetId
 } from './components';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) => {
@@ -29,7 +30,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
   const prices = useWalletStore(state => state.tokenPrices);
   const [amount, setAmount] = useState('');
   const [fullBalanceSelected, setFullBalanceSelected] = useState(false);
-  const { positions, isLoading, error, errorDiagnostics, refetch } = useEarnPositions();
+  const { positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const position = positions.find(item => item.id === positionId);
   const { pending } = earnItemLoadState(position, { isLoading, error });
   const validation = position ? withdrawalAmountError(amount, position.withdrawable, position.decimals) : undefined;
@@ -64,12 +65,16 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
           )
         }
       >
-        {!position && !pending ? (
-          <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />
+        {pending ? (
+          <EarnLoading />
+        ) : !position ? (
+          <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
         ) : (
           position && (
             <>
-              {error && <EarnLoadError errorDiagnostics={errorDiagnostics} onRetry={refetch} />}
+              {error && (
+                <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+              )}
               <TokenAmountInput
                 assetId={`${position.chainId}:${position.underlyingAddress}`}
                 symbol={position.asset}

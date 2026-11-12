@@ -690,7 +690,11 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     'queueSighting',
     'preflightSync',
     'queueHidden',
-    'reapStartRelation'
+    'reapStartRelation',
+    'submitApproachHidden',
+    'proofWindow',
+    'submitHidden',
+    'submitLeg'
   ] as const)
     delete snapshot[key];
   if (snapshot.proposalStep === 'proposal_create') Object.assign(snapshot, snapshotProposalCreateDiagnostics(error));
