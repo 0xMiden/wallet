@@ -38,6 +38,7 @@ export interface EpochReverseAuthority {
 export interface MainnetEpochCheckpoint {
   forwardAuthority?: EpochForwardAuthority;
   reverseAuthority?: EpochReverseAuthority;
+  consumeAuthority?: { nonce: string; sha256: string; canonicalSha256: string };
   version: 1;
   network: 'mainnet';
   account: string;
@@ -107,7 +108,7 @@ const ROOT_KEYS = [
   'principal', 'forwardMinimum', 'reverseMinimum', 'lossBudgetUsdMicros', 'feeBudget', 'evmFeeBudget',
   'paidMidenFees', 'paidEvmFees', 'forwardNonce', 'forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash',
   'forwardReceived', 'reverseNonce', 'returnAmount', 'evmNonceBefore', 'reverseAuthority', 'transactions', 'returnNoteId',
-  'returnMidenTxId', 'reverseReceived', 'after', 'realizedCostUsdMicros', 'forwardAuthority'
+  'returnMidenTxId', 'reverseReceived', 'after', 'realizedCostUsdMicros', 'forwardAuthority', 'consumeAuthority'
 ];
 
 function evmSnapshot(value: unknown): value is EpochEvmSnapshot {
@@ -176,6 +177,21 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
         BigInt(authority.maximumExpiry) - BigInt(authority.minimumExpiry) > 300n)
       throw new Error('Invalid bounded Epoch reverse authority');
   }
+  if (value.consumeAuthority !== undefined) {
+    const authority = value.consumeAuthority;
+    if (!record(authority) || !onlyKeys(authority, ['nonce', 'sha256', 'canonicalSha256']) ||
+        typeof authority.nonce !== 'string' || !/^[0-9a-f-]{36}$/.test(authority.nonce) ||
+        typeof authority.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(authority.sha256) ||
+        typeof authority.canonicalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(authority.canonicalSha256) ||
+        !hash(value.returnNoteId)) throw new Error('Invalid exact Epoch consume request authority');
+    if (value.returnNoteId === value.forwardNoteId) {
+      if (!value.forwardAuthority || value.forwardReceived !== undefined ||
+          (Array.isArray(value.transactions) && value.transactions.length))
+        throw new Error('Epoch collateral refund contradicts original forward settlement');
+    } else if (!value.reverseAuthority || !amount(value.reverseNonce)) {
+      throw new Error('Epoch return claim lacks its original reverse authority');
+    }
+  }
   if (['reverse-authorized', 'complete'].includes(value.phase) && value.reverseAuthority === undefined)
     throw new Error('Missing Epoch reverse signer authority');
   for (const key of ['forwardNoteId', 'forwardMidenTxId', 'forwardEvmTxHash', 'returnNoteId', 'returnMidenTxId']) {
@@ -212,7 +228,7 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
     throw new Error('Missing or oversized Epoch reverse authorization');
   }
   if (value.phase === 'complete') {
-    if (!hash(value.returnNoteId) || !hash(value.returnMidenTxId) || !positive(value.reverseReceived) ||
+    if (value.consumeAuthority === undefined || !hash(value.returnNoteId) || !hash(value.returnMidenTxId) || !positive(value.reverseReceived) ||
         BigInt(value.reverseReceived) < BigInt(value.reverseMinimum) || !amount(value.realizedCostUsdMicros) ||
         !record(value.after) || !amount(value.after.native) || !amount(value.after.evmToken) || !amount(value.after.evmNative) ||
         !Array.isArray(value.transactions) || !value.transactions.some(tx => tx.kind === 'deposit') ||
