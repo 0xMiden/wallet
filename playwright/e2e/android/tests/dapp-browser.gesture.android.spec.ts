@@ -115,7 +115,7 @@ test.describe('API36 managed presentation gestures', () => {
     expect(await adb('shell', 'getprop', 'ro.build.version.sdk')).toBe('36');
     expect(await adb('shell', 'settings', 'get', 'secure', 'navigation_mode')).toBe('2');
     for (const key of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) {
-      expect(Number(await adb('shell', 'settings', 'get', 'global', key))).toBeGreaterThan(0);
+      expect(Number(await adb('shell', 'settings', 'get', 'global', key))).toBe(1);
     }
     expect(await adb('shell', 'dumpsys', 'package', PACKAGE)).toMatch(/targetSdk=36\b/);
     pid = await adb('shell', 'pidof', PACKAGE);
