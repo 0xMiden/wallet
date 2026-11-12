@@ -2454,23 +2454,26 @@ export class Vault {
       : undefined;
     if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
 
-    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
-    const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
-
+    // Decoded before the key is loaded, so a refused payload never deserializes it.
     const inputs = signBytesInputs(b64ToU8(data), signKind);
     try {
-      // signData signs inputs.toCommitment(); the word is returned so a verifier checks exactly what was signed.
-      const commitment = inputs.toCommitment();
+      const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
+      const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKey, 'hex')));
       try {
-        const signature = wasmSecretKey.signData(inputs);
+        // signData signs inputs.toCommitment(); the word is returned so a verifier checks exactly what was signed.
+        const commitment = inputs.toCommitment();
         try {
-          return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
+          const signature = wasmSecretKey.signData(inputs);
+          try {
+            return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
+          } finally {
+            signature.free();
+          }
         } finally {
-          signature.free();
+          commitment.free();
         }
       } finally {
-        commitment.free();
+        wasmSecretKey.free();
       }
     } finally {
       inputs.free();

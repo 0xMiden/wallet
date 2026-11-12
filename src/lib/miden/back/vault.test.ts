@@ -337,7 +337,8 @@ const defaultDeserializedSecret = () => ({
   signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])), free: jest.fn() })),
   publicKey: jest.fn(() => ({
     toCommitment: jest.fn(() => ({ toHex: jest.fn(() => `0x${mockDeserializedCommitment}`) }))
-  }))
+  })),
+  free: jest.fn()
 });
 const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => defaultDeserializedSecret());
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
@@ -823,6 +824,43 @@ describe('Vault (instance)', () => {
       expect(key.signData).toHaveBeenCalledTimes(1);
       expect(key.signData.mock.calls[0]![0]).toBe(summary);
       expect(res.signedCommitment).toBe(Buffer.from([1, 2, 3]).toString('base64'));
+    });
+
+    it('signData refuses an undecodable payload before it deserializes the key', async () => {
+      const vault = await seedVault('pw');
+      await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
+      mockSignBytesInputs.mockImplementationOnce(() => {
+        throw new Error('unsupported sign kind');
+      });
+      mockAuthSecretKeyDeserialize.mockClear();
+
+      await expect(vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word')).rejects.toThrow(
+        'unsupported sign kind'
+      );
+      expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
+    });
+
+    it('signData frees the key it deserialized, also when signing throws', async () => {
+      const vault = await seedVault('pw');
+      await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
+      const key = defaultDeserializedSecret();
+      mockSignBytesInputs.mockReturnValueOnce(fakeInputs([5, 6, 7]));
+      mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
+      await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word');
+      expect(key.free).toHaveBeenCalledTimes(1);
+
+      const failing = defaultDeserializedSecret();
+      const refuse = () => {
+        throw new Error('sign failed');
+      };
+      failing.sign.mockImplementation(refuse);
+      failing.signData.mockImplementation(refuse);
+      mockSignBytesInputs.mockReturnValueOnce(fakeInputs([5, 6, 7]));
+      mockAuthSecretKeyDeserialize.mockReturnValueOnce(failing);
+      await expect(vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word')).rejects.toThrow(
+        'sign failed'
+      );
+      expect(failing.free).toHaveBeenCalledTimes(1);
     });
 
     it('signTransaction returns a hex signature', async () => {

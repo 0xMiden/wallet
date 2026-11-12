@@ -127,7 +127,8 @@ const mockPublicKey = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([
 const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   sign: mockSign,
   signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
-  publicKey: mockPublicKey
+  publicKey: mockPublicKey,
+  free: jest.fn()
 }));
 const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
 // The domain inputs' commitment is the same word on both key paths; the discriminant byte of the request stands in
@@ -245,7 +246,8 @@ beforeEach(() => {
   mockAuthSecretKeyDeserialize.mockReturnValue({
     sign: mockSign,
     signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])), free: jest.fn() })),
-    publicKey: mockPublicKey
+    publicKey: mockPublicKey,
+    free: jest.fn()
   } as any);
 });
 
