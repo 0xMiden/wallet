@@ -1133,6 +1133,9 @@ describe('sign payload — signingInputs', () => {
     const assetView = screen.getByTestId('asset-view');
     expect(assetView).toHaveAttribute('data-mode', 'verified');
     expect(assetView).toHaveAttribute('data-account', 'bech32:acc-id');
+    // A summary signature can authorize a transaction, so it never says it cannot.
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
 
     // The view handed to TransactionAssetView is the ground-truth mapping of
     // the executed TransactionSummary (summaryToView), not a re-derivation.
