@@ -1,4 +1,5 @@
-import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { AccountInspector } from '@openzeppelin/miden-multisig-client';
+
 import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 import { RPC_READ_TIMEOUT_MS, createNodeReads } from '../transaction/reconcile-reads';
 import {
@@ -19,9 +20,8 @@ jest.mock('../transaction/reconcile-reads', () => ({
   RPC_READ_TIMEOUT_MS: 15000,
   createNodeReads: jest.fn()
 }));
-jest.mock('./account', () => ({
-  getSignerDetailsFromAccount: jest.fn(),
-  getGuardianCommitmentFromAccount: jest.fn()
+jest.mock('@openzeppelin/miden-multisig-client', () => ({
+  AccountInspector: { getSignerPublicKeyCommitments: jest.fn(), getGuardianPublicKeyCommitment: jest.fn() }
 }));
 jest.mock('./account-recipe', () => ({
   ...jest.requireActual('./account-recipe'),
@@ -43,8 +43,9 @@ jest.mock('../sdk/miden-client', () => ({
   }
 }));
 
-const signer = getSignerDetailsFromAccount as jest.Mock;
-const guardian = getGuardianCommitmentFromAccount as jest.Mock;
+// The slots are read through the inspector itself, so these drive what the recovery reads in production.
+const signers = AccountInspector.getSignerPublicKeyCommitments as jest.Mock;
+const guardian = AccountInspector.getGuardianPublicKeyCommitment as jest.Mock;
 
 const freed = { id: jest.fn(), nonce: jest.fn(), commitment: jest.fn() };
 
@@ -66,22 +67,33 @@ describe('recovery verification', () => {
 
   describe('assertRecoverySignerMatches', () => {
     it('passes an equal recovery slot', async () => {
-      signer.mockResolvedValue({ commitment: 'aabb' });
-      await expect(assertRecoverySignerMatches(account(), '0xAABB')).resolves.toBeUndefined();
-      expect(signer).toHaveBeenCalledWith(expect.anything(), true);
+      const acc = account();
+      signers.mockReturnValue(['hot', 'aabb']);
+      await expect(assertRecoverySignerMatches(acc, '0xAABB')).resolves.toBeUndefined();
+      expect(signers).toHaveBeenCalledWith(acc);
     });
 
     it('refuses a different recovery slot', async () => {
-      signer.mockResolvedValue({ commitment: 'ffff' });
+      signers.mockReturnValue(['hot', 'ffff']);
       await expect(assertRecoverySignerMatches(account(), '0xAABB')).rejects.toMatchObject({
         code: 'GUARDIAN_RECOVERY_UNVERIFIED',
         message: 'guardianRecoveryUnverified'
       });
     });
 
-    it('refuses an unreadable recovery slot', async () => {
-      signer.mockRejectedValue(new Error('No signer commitment found in account storage'));
-      await expect(assertRecoverySignerMatches(account(), '0xAABB')).rejects.toMatchObject({
+    it.each([
+      [
+        'an unreadable',
+        () =>
+          signers.mockImplementation(() => {
+            throw new Error('not a guarded multisig');
+          })
+      ],
+      ['a missing', () => signers.mockReturnValue(['hot'])],
+      ['an all-zero', () => signers.mockReturnValue(['hot', `0x${'0'.repeat(64)}`])]
+    ])('refuses %s recovery slot', async (_name, arrange) => {
+      arrange();
+      await expect(assertRecoverySignerMatches(account(), `0x${'0'.repeat(64)}`)).rejects.toMatchObject({
         code: 'GUARDIAN_RECOVERY_UNVERIFIED'
       });
     });
@@ -89,9 +101,7 @@ describe('recovery verification', () => {
 
   describe('readServedStateFacts', () => {
     it('lower-cases and strips every readable slot', async () => {
-      signer.mockImplementation(async (_acc: unknown, cold: boolean) => ({
-        commitment: cold ? '0xCC' : 'HOT'
-      }));
+      signers.mockReturnValue(['HOT', '0xCC']);
       guardian.mockReturnValue('0xGG');
       const bytes = new Uint8Array([1]);
       await expect(readServedStateFacts(account(), bytes)).resolves.toEqual({
@@ -107,27 +117,49 @@ describe('recovery verification', () => {
     });
 
     it('frees the account id, nonce and commitment handles it reads', async () => {
-      signer.mockResolvedValue({ commitment: 'aa' });
+      signers.mockReturnValue(['aa', 'bb']);
       await readServedStateFacts(account(), new Uint8Array());
       expect(freed.id).toHaveBeenCalledTimes(1);
       expect(freed.nonce).toHaveBeenCalledTimes(1);
       expect(freed.commitment).toHaveBeenCalledTimes(1);
     });
 
-    it('rethrows a WebAssembly trap from a slot read instead of treating the slot as unreadable', async () => {
+    it('rethrows a WebAssembly trap from the signer read instead of treating the slot as unreadable', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
-      signer.mockRejectedValue(trap);
+      signers.mockImplementation(() => {
+        throw trap;
+      });
       await expect(readServedStateFacts(account(), new Uint8Array())).rejects.toBe(trap);
       await expect(assertRecoverySignerMatches(account(), 'aa')).rejects.toBe(trap);
     });
 
-    it('leaves a slot undefined when its reader throws', async () => {
-      signer.mockRejectedValue(new Error('unreadable'));
+    it('rethrows a WebAssembly trap from the guardian read instead of treating the slot as unreadable', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      signers.mockReturnValue(['aa', 'bb']);
+      guardian.mockImplementation(() => {
+        throw trap;
+      });
+      await expect(readServedStateFacts(account(), new Uint8Array())).rejects.toBe(trap);
+    });
+
+    it('leaves a slot undefined when the inspector throws, has no entry, or reads an all-zero word', async () => {
+      signers.mockImplementation(() => {
+        throw new Error('unreadable');
+      });
+      guardian.mockImplementation(() => {
+        throw new Error('missing guardian commitment');
+      });
+      const unreadable = await readServedStateFacts(account(), new Uint8Array());
+      expect(unreadable.hotCommitment).toBeUndefined();
+      expect(unreadable.coldCommitment).toBeUndefined();
+      expect(unreadable.guardianCommitment).toBeUndefined();
+
+      signers.mockReturnValue([`0x${'0'.repeat(64)}`]);
       guardian.mockReturnValue(undefined);
-      const facts = await readServedStateFacts(account(), new Uint8Array());
-      expect(facts.hotCommitment).toBeUndefined();
-      expect(facts.coldCommitment).toBeUndefined();
-      expect(facts.guardianCommitment).toBeUndefined();
+      const empty = await readServedStateFacts(account(), new Uint8Array());
+      expect(empty.hotCommitment).toBeUndefined();
+      expect(empty.coldCommitment).toBeUndefined();
+      expect(empty.guardianCommitment).toBeUndefined();
     });
   });
   describe('judgeServedState', () => {

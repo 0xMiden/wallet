@@ -2496,6 +2496,11 @@ describe('MidenClientInterface', () => {
       });
       const events: string[] = [];
       const signerSlots: Record<number, string> = {};
+      // Accounts 1 and 2 are served at index 0, account 3 at index 1.
+      const coldSlotOf = (acc: { id: () => { toString: () => string } }) => {
+        const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
+        return signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002');
+      };
       // The stub accounts all hash to 'feed', so the chain agrees with them unless a test says otherwise.
       const chainRead = jest.fn(async (_id: string): Promise<AccountChainState> => {
         if (held.count > 0) throw new Error('chain read with the WASM lock held');
@@ -2550,18 +2555,17 @@ describe('MidenClientInterface', () => {
             return finds ? (scripted[lookups++] ?? []).map(matchAt) : [];
           });
         },
-        EcdsaSigner: class {}
+        EcdsaSigner: class {},
+        AccountInspector: {
+          getSignerPublicKeyCommitments: jest.fn((acc: { id: () => { toString: () => string } }) => {
+            events.push('verify');
+            return [SERVED_HOT, coldSlotOf(acc)];
+          }),
+          getGuardianPublicKeyCommitment: jest.fn(() => SERVED_GUARDIAN)
+        }
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount: jest.fn(),
-        getSignerDetailsFromAccount: jest.fn(async (acc: { id: () => { toString: () => string } }, cold = false) => {
-          events.push('verify');
-          if (!cold) return { commitment: SERVED_HOT };
-          const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
-          // Accounts 1 and 2 are served at index 0, account 3 at index 1.
-          return { commitment: signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002') };
-        }),
-        getGuardianCommitmentFromAccount: jest.fn(() => SERVED_GUARDIAN),
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');

@@ -1,4 +1,5 @@
 import type { Account } from '@miden-sdk/miden-sdk/lazy';
+import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 
 import { getMessage } from 'lib/i18n';
 
@@ -7,7 +8,6 @@ import {
   GUARDIAN_RECOVERY_UNVERIFIED,
   GuardianRecoveryVerificationError
 } from '../sdk/guardian-recovery-errors';
-import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
 
 /** One account the Guardian served for a derived key, with the facts later checks compare. Commitments are unprefixed lower-case. */
@@ -26,21 +26,33 @@ const normalize = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
 
 export const sameCommitment = (a: string, b: string): boolean => normalize(a) === normalize(b);
 
-async function readSlot(read: () => Promise<{ commitment: string }>): Promise<string | undefined> {
+/**
+ * Reads a slot straight from the inspector: the shared readers in ./account turn every error into "no signer", a
+ * trap included. A trap leaves the WASM client unusable, so it is rethrown for the enclosing lock hold to retire the
+ * client; any other failure, a missing entry or an all-zero word leaves the slot undefined.
+ */
+function readSlot(read: () => unknown): string | undefined {
+  let raw: unknown;
   try {
-    return normalize((await read()).commitment);
+    raw = read();
   } catch (error) {
-    // A trap leaves the WASM client unusable; the enclosing lock hold must see it to retire the client.
     if (error instanceof WebAssembly.RuntimeError) throw error;
     return undefined;
   }
+  if (typeof raw !== 'string') return undefined;
+  const commitment = normalize(raw);
+  return /^0*$/.test(commitment) ? undefined : commitment;
 }
+
+/** Signers are stored `[hot, cold]`, the order account creation registers them in. */
+const signerSlot = (acc: Account, cold: boolean) =>
+  readSlot(() => AccountInspector.getSignerPublicKeyCommitments(acc)[cold ? 1 : 0]);
 
 /** The caller holds the WASM lock. A slot that cannot be read is left undefined rather than failing the read. */
 export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Promise<ServedGuardianState> {
-  const hotCommitment = await readSlot(() => getSignerDetailsFromAccount(acc, false));
-  const coldCommitment = await readSlot(() => getSignerDetailsFromAccount(acc, true));
-  const guardian = getGuardianCommitmentFromAccount(acc);
+  const hotCommitment = signerSlot(acc, false);
+  const coldCommitment = signerSlot(acc, true);
+  const guardianCommitment = readSlot(() => AccountInspector.getGuardianPublicKeyCommitment(acc));
   const readHandle = <H extends { free(): void }, T>(handle: H, read: (h: H) => T): T => {
     try {
       return read(handle);
@@ -59,13 +71,13 @@ export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Pro
     commitment,
     hotCommitment,
     coldCommitment,
-    guardianCommitment: guardian === undefined ? undefined : normalize(guardian)
+    guardianCommitment
   };
 }
 
 /** Refuses an account whose recovery signer is not the key the phrase derives at this index. */
 export async function assertRecoverySignerMatches(acc: Account, coldCommitment: string): Promise<void> {
-  const served = await readSlot(() => getSignerDetailsFromAccount(acc, true));
+  const served = signerSlot(acc, true);
   if (served !== undefined && sameCommitment(served, coldCommitment)) return;
   throw new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
 }
