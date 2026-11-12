@@ -56,8 +56,10 @@ export const BackgroundLockManager: FC = () => {
             if (unmounted) void handle.remove();
             else removers.push(() => void handle.remove());
           })
-          .catch(() => {
-            // Plugin unavailable outside a native shell; the heartbeat still catches a long absence.
+          .catch(err => {
+            // The heartbeat still locks after a long absence, but a pause or resume that never registers leaves the
+            // clock blind to short ones, so it is worth knowing.
+            console.warn('[background-lock] listener registration failed:', err);
           });
       void listen('pause', onHidden);
       void listen('resume', onVisible);

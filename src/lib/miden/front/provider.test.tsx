@@ -9,7 +9,8 @@ _g.__providerTest = {
   isExtension: false,
   ready: true,
   getMidenClientCalls: 0,
-  backgroundLockRenders: 0
+  backgroundLockRenders: 0,
+  backgroundLockMounted: false
 };
 
 // Read while the provider's imports load, which runs before the state above is assigned.
@@ -21,6 +22,12 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('lib/lock-up/BackgroundLockManager', () => ({
   BackgroundLockManager: () => {
+    React.useEffect(() => {
+      (globalThis as any).__providerTest.backgroundLockMounted = true;
+      return () => {
+        (globalThis as any).__providerTest.backgroundLockMounted = false;
+      };
+    }, []);
     (globalThis as any).__providerTest.backgroundLockRenders++;
     return null;
   }
@@ -140,6 +147,24 @@ describe('MidenProvider', () => {
     );
     await ready.findByText('ready-child');
     expect(_g.__providerTest.backgroundLockRenders).toBeGreaterThan(0);
+  });
+
+  it('unmounts the background lock manager when the wallet stops being ready', async () => {
+    const view = render(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await view.findByText('flip-child');
+    expect(_g.__providerTest.backgroundLockMounted).toBe(true);
+
+    _g.__providerTest.ready = false;
+    view.rerender(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await waitFor(() => expect(_g.__providerTest.backgroundLockMounted).toBe(false));
   });
 
   it('eagerly initializes the Miden client on non-extension', async () => {

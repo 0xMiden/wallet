@@ -51,7 +51,10 @@ beforeEach(() => {
   mockPlatform.mobile = true;
   mockPlatform.desktop = false;
   mockAppCallbacks.clear();
-  mockAddListener.mockClear();
+  mockAddListener.mockReset().mockImplementation((event: string, cb: () => void) => {
+    mockAppCallbacks.set(event, cb);
+    return Promise.resolve({ remove: mockAppRemove });
+  });
   mockAppRemove.mockClear();
   mockRequestLock.mockReset().mockResolvedValue(undefined);
   backgroundLockPending.set(false);
@@ -145,6 +148,30 @@ describe('BackgroundLockManager', () => {
       jest.advanceTimersByTime(BACKGROUND_LOCK_HEARTBEAT_MS);
     });
     expect(mockRequestLock).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('removes each handle when it resolves after the manager unmounted', async () => {
+    const resolvers: Array<(handle: { remove: jest.Mock }) => void> = [];
+    mockAddListener.mockImplementation((event: string, cb: () => void) => {
+      mockAppCallbacks.set(event, cb);
+      return new Promise(resolve => resolvers.push(resolve));
+    });
+    const view = render(<BackgroundLockManager />);
+    view.unmount();
+    const removes = [jest.fn(), jest.fn()];
+    await act(async () => {
+      resolvers.forEach((resolve, i) => resolve({ remove: removes[i] }));
+    });
+    expect(resolvers).toHaveLength(2);
+    removes.forEach(remove => expect(remove).toHaveBeenCalledTimes(1));
+  });
+
+  it('warns when a lifecycle listener cannot register', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockAddListener.mockImplementation(() => Promise.reject(new Error('no plugin')));
+    await mount();
+    expect(warn).toHaveBeenCalledWith('[background-lock] listener registration failed:', expect.any(Error));
     warn.mockRestore();
   });
 
