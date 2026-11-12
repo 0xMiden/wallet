@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { encodeFunctionData, decodeFunctionData, parseTransaction, erc20Abi, getAddress, keccak256, toBytes, zeroAddress, zeroHash } from 'viem';
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, decodeFunctionData, parseTransaction, erc20Abi, getAddress, keccak256, toBytes, zeroAddress, zeroHash } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { COMPACT_ABI } from '@epoch-protocol/epoch-intents-sdk/dist/abis/compact.js';
 import { getTokenId } from '@epoch-protocol/epoch-intents-sdk/dist/helpers/chains.js';
 import { BASE_MANDATE_TYPESTRING, EVM_TO_MIDEN_EXTRA_TYPESTRING, getClaimHash, getCompactTypehash } from '@epoch-protocol/epoch-commons-sdk';
-import { inspectEpochEvmTransaction, createEpochEvmSender, reconcileEpochEvmReceipts } from '../node_modules/.cache/nightly-epoch-evm.mjs';
+import { inspectEpochEvmTransaction, createEpochEvmSender, reconcileEpochEvmReceipts, inspectEpochForwardReceipt } from '../node_modules/.cache/nightly-epoch-evm.mjs';
 import { epochCheckpointFixture, epochReverseAuthorityFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
 
 const hash = `0x${'a'.repeat(64)}`;
@@ -17,6 +17,33 @@ function fixture() {
     reverseAuthority: epochReverseAuthorityFixture()
   };
 }
+function forwardReceiptFixture() {
+  const state = { ...epochCheckpointFixture(), forwardNoteId: hash,
+    forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 } };
+  const payer = `0x${'9'.repeat(40)}`;
+  const log = { address: state.evm.token, transactionHash: hash,
+    topics: encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: payer, to: state.evm.account } }),
+    data: encodeAbiParameters([{ type: 'uint256' }], [1_001_000n]) };
+  return { state, receipt: { transactionHash: hash, from: payer, status: 'success', logs: [log] } };
+}
+test('reconciles the exact provider-correlated ERC20 receipt, without signing or accepting a self-fill', () => {
+  const c = forwardReceiptFixture();
+  assert.equal(inspectEpochForwardReceipt(c.state, hash, c.receipt), 1_001_000n);
+});
+for (const [name, change] of [
+  ['different transaction', c => { c.receipt.transactionHash = `0x${'b'.repeat(64)}`; }],
+  ['reverted transaction', c => { c.receipt.status = 'reverted'; }],
+  ['self-submitted transaction', c => { c.receipt.from = c.state.evm.account; }],
+  ['another token', c => { c.receipt.logs[0].address = `0x${'8'.repeat(40)}`; }],
+  ['another recipient', c => { c.receipt.logs[0].topics = encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: c.receipt.from, to: c.receipt.from } }); }],
+  ['self-funded transfer', c => { c.receipt.logs[0].topics = encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: c.state.evm.account, to: c.state.evm.account } }); }],
+  ['below the stronger reviewed floor', c => { c.receipt.logs[0].data = encodeAbiParameters([{ type: 'uint256' }], [1_000_000n]); }],
+  ['missing reviewed authority', c => { delete c.state.forwardAuthority; }]
+]) test(`blocks forward recovery on ${name}`, () => {
+  const c = forwardReceiptFixture(); change(c);
+  assert.throws(() => inspectEpochForwardReceipt(c.state, hash, c.receipt));
+});
+
 const witnessType = `${BASE_MANDATE_TYPESTRING},${EVM_TO_MIDEN_EXTRA_TYPESTRING}`;
 function compact(state, expiry) {
   return {
