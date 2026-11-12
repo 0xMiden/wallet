@@ -160,7 +160,7 @@ describe('BackgroundLockManager', () => {
     view.unmount();
     const removes = [jest.fn(), jest.fn()];
     await act(async () => {
-      resolvers.forEach((resolve, i) => resolve({ remove: removes[i] }));
+      removes.forEach((remove, i) => resolvers[i]?.({ remove }));
     });
     expect(resolvers).toHaveLength(2);
     removes.forEach(remove => expect(remove).toHaveBeenCalledTimes(1));

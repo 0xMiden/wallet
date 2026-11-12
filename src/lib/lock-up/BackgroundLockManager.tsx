@@ -50,8 +50,8 @@ export const BackgroundLockManager: FC = () => {
     if (mobile) {
       // Only pause and resume: `appStateChange` also fires for a Face ID prompt or Control Center, and the in-app dApp
       // browser leaves the document visible, none of which is time in the background.
-      const listen = (event: 'pause' | 'resume', handler: () => void) =>
-        App.addListener(event, handler)
+      const listen = (register: () => Promise<{ remove: () => Promise<void> }>) =>
+        register()
           .then(handle => {
             if (unmounted) void handle.remove();
             else removers.push(() => void handle.remove());
@@ -61,8 +61,8 @@ export const BackgroundLockManager: FC = () => {
             // running (Android) a missing pause listener leaves the clock blind to absences of any length.
             console.warn('[background-lock] listener registration failed:', err);
           });
-      void listen('pause', onHidden);
-      void listen('resume', onVisible);
+      void listen(() => App.addListener('pause', onHidden));
+      void listen(() => App.addListener('resume', onVisible));
     } else {
       const onVisibility = () => (document.visibilityState === 'hidden' ? onHidden() : onVisible());
       document.addEventListener('visibilitychange', onVisibility);
