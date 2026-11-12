@@ -20,7 +20,7 @@ function planningFixture() {
     symbol: 'USDC', decimals: 6, coingeckoId: 'usd-coin' }, balanceBaseUnits: 3000000n, nativeBalanceWei: 10000000000000000n,
     gasPriceWei: 500000n, gasReserveWei: 1000000000000n, client: { estimateGas: unused, estimateFeesPerGas: unused, getBalance: unused,
       readTokenBalance: unused, waitForTransactionReceipt: unused } };
-  const facts: MainnetNearPlanningFacts = { account: saved.account, accountHex: saved.accountHex, sourceRunId: saved.sourceRunId,
+  const facts: MainnetNearPlanningFacts = { account: saved.account, accountHex: saved.accountHex, evmAccount: saved.evm.account, sourceRunId: saved.sourceRunId,
     pricedAt: saved.pricedAt, native: saved.native, baseFee: 7n, lossBudgetUsdMicros: 1999095n, nativeAsset: asset,
     config: { serviceUrl: saved.serviceUrl, appFees: saved.appFees, feePolicy: saved.feePolicy,
       midenAssets: [{ assetId: asset.assetId, faucetId: native, symbol: 'USDCX', decimals: 6 }] },
