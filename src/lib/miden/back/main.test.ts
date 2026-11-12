@@ -1193,6 +1193,8 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
 
   it('answers an OFFSCREEN_SIGN_REQUEST via handleOffscreenSignRequest → swSignCallback (bytes only)', async () => {
     _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    // The default signer serves only an op this worker runs that signs with it, such as a dry run.
+    const release = proxyMock.__test.allowDefaultSigner('op-x');
     const sendResponse = jest.fn();
     const ret = signListener()(
       {
@@ -1209,6 +1211,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     // Returning true keeps the message port open for the async sendResponse.
     expect(ret).toBe(true);
     await flushMicro();
+    release();
     // The fallback signer was called with HEX-converted pubkey / signing inputs.
     expect(_g.__mainTest.swSignCallback).toHaveBeenCalledWith('0102', '0304');
     // And the signature bytes flowed back base64-encoded.
@@ -1219,6 +1222,29 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
         signatureB64: Buffer.from([0xab, 0xcd]).toString('base64')
       })
     );
+  });
+
+  it('refuses an OFFSCREEN_SIGN_REQUEST for an op this worker is not running', async () => {
+    _g.__mainTest.swSignCallback.mockResolvedValue(new Uint8Array([0xab, 0xcd]));
+    const sendResponse = jest.fn();
+
+    const ret = signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id: 'op-not-running',
+        sign_id: 'sign-z',
+        publicKeyB64: Buffer.from([0x01, 0x02]).toString('base64'),
+        signingInputsB64: Buffer.from([0x03, 0x04]).toString('base64')
+      },
+      ownSender,
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flushMicro();
+
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: false, sign_id: 'sign-z' }));
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
   });
 
   it('routes an OFFSCREEN_OP_STARTED signal to markOpStarted (arms the deadline at execution start) and returns false', () => {
@@ -1608,6 +1634,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     // malformed base64 that b64ToBytes/Buffer will still process but the signer
     // rejects — simplest: make the fallback signer throw a non-classified error.
     _g.__mainTest.swSignCallback.mockRejectedValueOnce(new Error('keystore exploded'));
+    const release = proxyMock.__test.allowDefaultSigner('op-y');
     const sendResponse = jest.fn();
     signListener()(
       {
@@ -1622,6 +1649,8 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
       sendResponse
     );
     await flushMicro();
+    release();
+    expect(_g.__mainTest.swSignCallback).toHaveBeenCalledTimes(1);
     // A thrown signer is classified (internal) and returned as ok:false — the
     // offscreen stub then rejects, failing the write rather than hanging.
     const resp = sendResponse.mock.calls[0][0];

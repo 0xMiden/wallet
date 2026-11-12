@@ -391,10 +391,17 @@ type StageCallback = (stage: ITransactionStage, detail?: StageDetail) => Promise
  * for that write op's mid-execute signing (design §2.7). The write dispatch
  * registers it before sending the OFFSCREEN_CALL and deletes it on settle/kill,
  * so the secret-touching callback is scoped to the op's lifetime. The reverse-IPC
- * handler looks it up (falling back to the caller-supplied default) when the
- * offscreen doc requests a signature.
+ * handler looks it up when the offscreen doc requests a signature.
  */
 const opSignCallbacks = new Map<string, RawSignCallback>();
+
+/**
+ * Ops that may sign with the reverse-IPC handler's default signer: a read that executes a
+ * transaction (the dry run) and so has no callback of its own. Added before dispatch and
+ * removed when the op settles, so a sign request naming any other op, or one of these after
+ * it settled, is refused instead of reaching the vault.
+ */
+const opDefaultSignerOps = new Set<string>();
 
 /**
  * op_id → the classified reason of that op's LAST failed reverse-IPC sign
@@ -707,6 +714,17 @@ function dispatchWithDeadline(method: string, args: unknown[], deadlineMs: numbe
   return dispatchOp(newOpId(), method, args, deadlineMs, false);
 }
 
+/** A read whose op may sign with the reverse-IPC default signer while it runs (see {@link opDefaultSignerOps}). */
+async function dispatchSigningRead(method: string, args: unknown[], deadlineMs: number | null): Promise<string | null> {
+  const op_id = newOpId();
+  opDefaultSignerOps.add(op_id);
+  try {
+    return await dispatchOp(op_id, method, args, deadlineMs, false);
+  } finally {
+    opDefaultSignerOps.delete(op_id);
+  }
+}
+
 // --- Reverse-IPC sign channel (issue #260, slice 5, design §2) --------------
 
 /**
@@ -774,8 +792,10 @@ export function markOpStarted(op_id: string): void {
 /**
  * SW-side reverse-IPC sign handler (design §2.4). The offscreen client's
  * `keystore.sign` stub posts an {@link OffscreenSignRequest}; this signs via the
- * op's registered callback (or `fallbackSignCallback`) — the EXISTING vault
- * signer — and returns raw signature bytes. Only bytes cross; no SDK handle.
+ * op's registered callback, or `defaultSignCallback` (the EXISTING vault signer)
+ * for an op in {@link opDefaultSignerOps}, and returns raw signature bytes. Only
+ * bytes cross; no SDK handle. Any other op is refused before its deadline is
+ * touched: this worker signs only for an op it started and still runs.
  *
  * Deadline pause (§2.5): the op's deadline is cleared on entry and re-armed on
  * exit, so a slow/blocked sign never trips a kill.
@@ -787,12 +807,15 @@ export function markOpStarted(op_id: string): void {
  */
 export async function handleOffscreenSignRequest(
   msg: OffscreenSignRequest,
-  fallbackSignCallback: RawSignCallback
+  defaultSignCallback: RawSignCallback
 ): Promise<OffscreenSignResponse> {
   const { op_id, sign_id } = msg;
+  const cb = opSignCallbacks.get(op_id) ?? (opDefaultSignerOps.has(op_id) ? defaultSignCallback : undefined);
+  if (cb === undefined) {
+    return { ok: false, sign_id, error: `offscreen sign: op ${op_id} is not awaiting a signature`, reason: 'rejected' };
+  }
   pauseDeadline(op_id);
   try {
-    const cb = opSignCallbacks.get(op_id) ?? fallbackSignCallback;
     const publicKeyHex = Buffer.from(b64ToBytes(msg.publicKeyB64)).toString('hex');
     const signingInputsHex = Buffer.from(b64ToBytes(msg.signingInputsB64)).toString('hex');
     try {
@@ -1606,9 +1629,8 @@ export const midenClientProxy = {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return dryRunRequest(await getMidenClient(), accountIdHex, requestBytes, hold);
     }
-    const resultB64 = await this.call('dryRunTransaction', [accountIdHex, requestBytes], {
-      deadlineMs: DRY_RUN_DEADLINE_MS
-    });
+    // A single-key account's dry run signs mid-execute, with no write callback of its own.
+    const resultB64 = await dispatchSigningRead('dryRunTransaction', [accountIdHex, requestBytes], DRY_RUN_DEADLINE_MS);
     if (resultB64 == null) throw new Error('dryRunTransaction: offscreen document returned no result');
     const result: DryRunResult = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
     return result;
@@ -1921,7 +1943,19 @@ export const __test = {
   dispatchCritical: (method: string, args: unknown[], deadlineMs: number | null) => {
     incrementCriticalOp();
     const op_id = newOpId();
-    const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => decrementCriticalOp());
+    // Its sign round-trips go through the default signer, which serves only an op allowed to use it.
+    opDefaultSignerOps.add(op_id);
+    const promise = dispatchOp(op_id, method, args, deadlineMs, true).finally(() => {
+      decrementCriticalOp();
+      opDefaultSignerOps.delete(op_id);
+    });
     return { op_id, promise };
+  },
+  /** Let `op_id` sign with the default signer, as a running dry run may; returns the undo. */
+  allowDefaultSigner: (op_id: string): (() => void) => {
+    opDefaultSignerOps.add(op_id);
+    return () => {
+      opDefaultSignerOps.delete(op_id);
+    };
   }
 };
