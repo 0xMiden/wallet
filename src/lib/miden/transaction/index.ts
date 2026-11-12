@@ -1013,10 +1013,10 @@ type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRe
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own, and
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
- * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
- * other requeue clears the streak (#1223). Only the backpressure arm passes `guardianBusy`, and every other requeue
- * clears it the same way (#312). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which a wake is
- * timed from.
+ * A guardian arm, or the single-key unknown-fee arm, passes the row's `requeueStreak` in `extraValues`, with a
+ * cooldown it has already doubled; every other requeue clears the streak (#1223). Only the backpressure arm passes
+ * `guardianBusy`, and every other requeue clears it the same way (#312). Returns the row's `initiatedAt` and the
+ * `nextEligibleAt` written, which a wake is timed from.
  */
 async function requeueTransactionForRetry(
   txId: string,
@@ -1107,7 +1107,7 @@ async function requeueTransactionForRetry(
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt,
-    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    // Only a backed-off arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
     // Only the backpressure arm passes it, so any other requeue ends the busy state on screen (#312).
     guardianBusy: undefined,
@@ -2125,13 +2125,14 @@ const generateTransactionWithProvider = async (
     });
   } catch (error) {
     // An unknown chain fee stops the check before it reads the summary, so the write fails before its submit. The
-    // Guardian leaf requeues the same failure for the same types (`isGuardianOutage`), and so does this one.
+    // Guardian leaf requeues the same failure for the same types (`isGuardianOutage`), and so does this one, with the
+    // same doubling wait but a cause and streak of its own, since no guardian is involved.
     if (!(error instanceof ProposalFeeUnknownError) || !GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)) {
       throw error;
     }
     const requeueStreak = nextRequeueStreak(
       await Repo.transactions.where({ id: transaction.id }).first(),
-      'guardian-unreachable'
+      'chain-fee-unknown'
     );
     const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
     console.warn(`[transaction] the chain fee is not known yet, requeueing in ${cooldown}s`, error);
@@ -2141,7 +2142,7 @@ const generateTransactionWithProvider = async (
       cooldown,
       signCallback,
       guardianProvider,
-      'guardian_unreachable',
+      'chain_fee_unknown',
       { requeueStreak },
       'syncing'
     );

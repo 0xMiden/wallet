@@ -249,8 +249,8 @@ describe('the loop on a single-key account', () => {
     expect(claim.status).toBe(ITransactionStatus.Queued);
     expect(claim.stage).toBe('syncing');
     expect(claim.nextEligibleAt).toEqual(expect.any(Number));
-    expect(claim.lastDeferral).toBe('guardian_unreachable');
-    expect(claim.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+    expect(claim.lastDeferral).toBe('chain_fee_unknown');
+    expect(claim.requeueStreak).toEqual({ arm: 'chain-fee-unknown', count: 1 });
     expect(claim.proposalEffectRefused).toBeUndefined();
 
     await Repo.transactions.clear();
