@@ -32,13 +32,6 @@
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
-- [DOCS][backend] Define per-entry revisions, sync cursors and salt initialization in the wallet backend architecture proposal.
-- [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
-- [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
-- [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
-- [FIX][all] Preserve the previous and new Guardian endpoints in encrypted history so other devices show the Guardian names on switch receipts.
-- [FIX][all] Refresh synced contacts when the Send contacts drawer opens and show a loading state while keeping saved contacts available.
-- [FEAT][all] List device signers in Settings and revoke another device with password or biometric authentication and the recovery key; show the notice after the Guardian verdict and use encrypted history for its transaction link.
 
 ## 1.17.9 (2026-10-31)
 
