@@ -1,4 +1,4 @@
-import React, { FC, useEffect } from 'react';
+import React, { FC, useLayoutEffect } from 'react';
 
 import { createPortal } from 'react-dom';
 
@@ -18,20 +18,31 @@ export const BackgroundLockCover: FC = () => {
   const { ready } = useMidenContext();
   const covered = pending && ready;
 
-  useEffect(() => {
+  // Layout effect: a modal that is already open is inert in the same frame the cover appears.
+  useLayoutEffect(() => {
     if (!covered) return undefined;
     const inerted: Element[] = [];
-    for (const el of Array.from(document.body.children)) {
-      if (el.id === COVER_ID || el.hasAttribute('inert')) continue;
+    // Never un-inert what was inert before the cover rose.
+    const makeInert = (el: Element) => {
+      if (el.id === COVER_ID || el.hasAttribute('inert')) return;
       el.setAttribute('inert', '');
       inerted.push(el);
-    }
-    return () => inerted.forEach(el => el.removeAttribute('inert'));
+    };
+    Array.from(document.body.children).forEach(makeInert);
+    // A sheet that opens while the lock is still landing (the WASM lock can be held for a long sync) must not be usable.
+    const observer = new MutationObserver(records =>
+      records.forEach(record => record.addedNodes.forEach(node => node instanceof Element && makeInert(node)))
+    );
+    observer.observe(document.body, { childList: true });
+    return () => {
+      observer.disconnect();
+      inerted.forEach(el => el.removeAttribute('inert'));
+    };
   }, [covered]);
 
   if (!covered) return null;
   return createPortal(
-    <div id={COVER_ID} className="fixed inset-0 z-[10000] bg-app-bg">
+    <div id={COVER_ID} className="pointer-events-auto fixed inset-0 z-[10000] bg-app-bg">
       <RootSuspenseFallback data-testid="wallet-locking" />
     </div>,
     document.body

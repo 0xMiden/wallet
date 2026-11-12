@@ -57,8 +57,8 @@ export const BackgroundLockManager: FC = () => {
             else removers.push(() => void handle.remove());
           })
           .catch(err => {
-            // The heartbeat still locks after a long absence, but a pause or resume that never registers leaves the
-            // clock blind to short ones, so it is worth knowing.
+            // The heartbeat catches a long absence only where the OS freezes JS in the background. Where timers keep
+            // running (Android) a missing pause listener leaves the clock blind to absences of any length.
             console.warn('[background-lock] listener registration failed:', err);
           });
       void listen('pause', onHidden);
