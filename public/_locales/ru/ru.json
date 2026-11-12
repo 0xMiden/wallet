@@ -157,6 +157,7 @@
   "earnPositionsRegionLabel": "Позиции",
   "earnPositionsLoadError": "Не удалось загрузить ваши позиции. Проверьте подключение и попробуйте ещё раз.",
   "earnPositionsUnavailable": "Не удалось проверить ваш баланс с помощью Epoch. Попытайтесь ещё раз.",
+  "earnBalanceLoadError": "Не удалось загрузить ваш баланс. Проверьте подключение и попробуйте ещё раз.",
   "earnUnavailableOnNetwork": "Функция «Earn» недоступна в этой сети",
   "earnVaultLoadError": "Не удалось загрузить это хранилище. Проверьте подключение и попробуйте ещё раз.",
   "earnPositionsApy": "$apy$ APY",

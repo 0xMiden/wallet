@@ -864,6 +864,10 @@
     "message": "Не вдалося перевірити ваш баланс за допомогою Epoch. Спробуйте ще раз.",
     "englishSource": "Couldn't check your balance with Epoch. Try again."
   },
+  "earnBalanceLoadError": {
+    "message": "Не вдалося завантажити ваш баланс. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't load your balance. Check your connection and try again."
+  },
   "earnUnavailableOnNetwork": {
     "message": "Функція «Earn» недоступна в цій мережі",
     "englishSource": "Earn is not available on this network"
