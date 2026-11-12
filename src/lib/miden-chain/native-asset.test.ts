@@ -406,6 +406,39 @@ describe('native-asset module', () => {
     expect(getVerificationBaseFeeSync()).toBeNull();
   });
 
+  it('gives the claim floor null when the probe discarded an implausible fee', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 4294967295
+    };
+
+    await expect(getClaimFloorBaseFee()).resolves.toBeNull();
+    expect(getClaimFloorBaseFeeSync()).toBeNull();
+    // The probe latch is untouched: no second header read, still known absent for its other readers.
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    await expect(getClaimFloorBaseFee()).resolves.toBeNull();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(true);
+  });
+
+  it('forgets a chain with no fee accessor when the cache is reset', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
+    await expect(getClaimFloorBaseFee()).resolves.toBe(0);
+
+    await resetNativeAssetCache();
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => {
+        throw new Error('accessor blew up');
+      }
+    };
+
+    expect(getClaimFloorBaseFeeSync()).toBeNull();
+    await expect(getClaimFloorBaseFee()).resolves.toBeNull();
+  });
+
   it('gives the claim floor null while the fee cannot be read', async () => {
     _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
     _g.__nativeAssetTest.rpcHeader = {

@@ -46,6 +46,9 @@ let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
 let feeInflight: Promise<number | null> | null = null;
 let feeProbedScope: string | null = null;
+// The scope whose header has no fee accessor at all. Narrower than `feeProbedScope`, which also latches a discarded
+// implausible fee: only this one lets the claim floor read 0.
+let feeAccessorAbsentScope: string | null = null;
 let feeProbeRetryAfterMs = 0;
 let cachedForScope: string | null = null;
 let cachedOverride: string | undefined;
@@ -102,6 +105,7 @@ function clearIdentityData(): void {
   metaMemCache = null;
   feeMemCache = null;
   feeProbedScope = null;
+  feeAccessorAbsentScope = null;
   feeProbeRetryAfterMs = 0;
   inflight = null;
   metaInflight = null;
@@ -317,8 +321,10 @@ async function discover(): Promise<string> {
   const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
   let baseFee: number | null = null;
   let feeReadThrew = false;
+  let accessorAbsent = false;
   try {
     const read = header.verificationBaseFee?.();
+    accessorAbsent = read === undefined;
     if (typeof read === 'number' && isPlausibleBaseFee(read)) baseFee = read;
     else if (typeof read === 'number')
       console.warn('native-asset verification base fee out of plausible range, ignoring', read);
@@ -331,6 +337,7 @@ async function discover(): Promise<string> {
     feeMemCache = baseFee;
     if (feeReadThrew) feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
     else feeProbedScope = snapshot.scope;
+    if (!feeReadThrew && accessorAbsent) feeAccessorAbsentScope = snapshot.scope;
     emit();
     const adopted = captureNativeAssetSnapshot();
     try {
@@ -386,17 +393,23 @@ export function isVerificationBaseFeeKnownAbsent(): boolean {
   return feeProbedScope === cacheScope() && feeMemCache === null;
 }
 
+function isClaimFloorFeeAbsent(): boolean {
+  invalidateOnEndpointChange();
+  return feeAccessorAbsentScope === cacheScope() && feeMemCache === null;
+}
+
 /**
- * The fee an unattended claim measures against. 0 on a chain whose fee the probe found absent, so nothing is held
- * back, as on a chain that charges nothing; null while unknown, which the floor refuses.
+ * The fee an unattended claim measures against. 0 on a chain whose header has no fee accessor, so nothing is held
+ * back, as on a chain that charges nothing; null while unknown, a discarded implausible fee included, which the floor
+ * refuses.
  */
 export async function getClaimFloorBaseFee(): Promise<number | null> {
   const fee = await getVerificationBaseFee();
-  return fee ?? (isVerificationBaseFeeKnownAbsent() ? 0 : null);
+  return fee ?? (isClaimFloorFeeAbsent() ? 0 : null);
 }
 
 export function getClaimFloorBaseFeeSync(): number | null {
-  return getVerificationBaseFeeSync() ?? (isVerificationBaseFeeKnownAbsent() ? 0 : null);
+  return getVerificationBaseFeeSync() ?? (isClaimFloorFeeAbsent() ? 0 : null);
 }
 
 export async function getVerificationBaseFee(): Promise<number | null> {
