@@ -135,10 +135,9 @@ import {
   assertRecoverySignerMatches,
   assertUndeployedStateFromSeed,
   judgeServedState,
-  readAccountChainState,
+  readAccountChainStates,
   readServedStateFacts,
   selectAdoptable,
-  type AccountChainState,
   type ServedGuardianState,
   type ServedStateVerdict
 } from '../guardian/recovery-verification';
@@ -1016,13 +1015,10 @@ export class MidenClientInterface {
           consecutiveMisses = 0;
           found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
         }
-        // One read per account, outside every WASM hold: a network read must not pin the client.
-        const chain = new Map<string, AccountChainState>();
-        for (const { states } of found) {
-          for (const { accountIdHex } of states) {
-            if (!chain.has(accountIdHex)) chain.set(accountIdHex, await readAccountChainState(accountIdHex));
-          }
-        }
+        // One client for every account, outside every WASM hold: a network read must not pin the client.
+        const chain = await readAccountChainStates(
+          found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
+        );
         refuseIfReplaced();
         const judged: Array<
           Match & { state: ServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }

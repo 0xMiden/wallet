@@ -2468,7 +2468,7 @@ describe('MidenClientInterface', () => {
     const SERVED_GUARDIAN = 'be'.repeat(32);
     const setupRecovery = async (
       onLookup?: (client: MidenClientInterfaceType) => void,
-      { finds = true, network = 'testnet', endpoint = 'https://guardian.example' } = {}
+      { finds = true, network = 'testnet', endpoint = 'https://guardian.example', realChainReads = false } = {}
     ) => {
       const held = { count: 0, labels: [] as string[], revoked: false };
       const lookupCalls = { count: 0 };
@@ -2501,10 +2501,27 @@ describe('MidenClientInterface', () => {
         const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
         return signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002');
       };
+      // With `realChainReads` the real reader runs on this node client; each read waits until the test settles it.
+      const nodeReads = {
+        pending: [] as Array<{ id: string; heldAtStart: number; settle: (read: unknown) => void }>,
+        createNodeReads: jest.fn(async () => ({
+          account: jest.fn(
+            (id: string) =>
+              new Promise(settle => {
+                nodeReads.pending.push({ id, heldAtStart: held.count, settle });
+              })
+          )
+        }))
+      };
       // The stub accounts all hash to 'feed', so the chain agrees with them unless a test says otherwise.
-      const chainRead = jest.fn(async (_id: string): Promise<AccountChainState> => {
+      // One batch for every id: the answer is a map keyed by id, and a decode hold still current throws.
+      const chainStates = jest.fn(
+        async (ids: readonly string[]): Promise<Map<string, AccountChainState>> =>
+          new Map(ids.map(id => [id, { kind: 'deployed', commitment: 'feed' }]))
+      );
+      const chainRead = jest.fn(async (ids: readonly string[]): Promise<Map<string, AccountChainState>> => {
         if (held.count > 0) throw new Error('chain read with the WASM lock held');
-        return { kind: 'deployed', commitment: 'feed' };
+        return chainStates(ids);
       });
       // By default the phrase rebuilds the account served for its cold key: index 0 serves accounts 1 and 2.
       const rebuild = jest.fn(async (recipe: { coldCommitment: string; initSeed: Uint8Array }) => {
@@ -2569,10 +2586,18 @@ describe('MidenClientInterface', () => {
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
-      jest.doMock('../guardian/recovery-verification', () => ({
-        ...jest.requireActual('../guardian/recovery-verification'),
-        readAccountChainState: chainRead
-      }));
+      if (realChainReads) {
+        jest.doMock('../guardian/recovery-verification', () => jest.requireActual('../guardian/recovery-verification'));
+        jest.doMock('../transaction/reconcile-reads', () => ({
+          RPC_READ_TIMEOUT_MS: 15_000,
+          createNodeReads: nodeReads.createNodeReads
+        }));
+      } else {
+        jest.doMock('../guardian/recovery-verification', () => ({
+          ...jest.requireActual('../guardian/recovery-verification'),
+          readAccountChainStates: chainRead
+        }));
+      }
       jest.doMock('../guardian/account-recipe', () => ({
         ...jest.requireActual('../guardian/account-recipe'),
         rebuildGuardianAccount: rebuild
@@ -2607,8 +2632,10 @@ describe('MidenClientInterface', () => {
         events,
         signerSlots,
         chainRead,
+        chainStates,
         fresh,
-        rebuild
+        rebuild,
+        nodeReads
       };
     };
 
@@ -2689,11 +2716,17 @@ describe('MidenClientInterface', () => {
 
     it('seed recovery refuses a deployed account whose served state differs from the chain, adopting nothing', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
-      const { insert, adopt, chainRead, recover } = await setupRecovery();
-      chainRead.mockImplementation(async id =>
-        id === 'recovered-b'
-          ? { kind: 'deployed' as const, commitment: 'beef' }
-          : { kind: 'deployed' as const, commitment: 'feed' }
+      const { insert, adopt, chainStates, recover } = await setupRecovery();
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) =>
+          new Map(
+            ids.map(id => [
+              id,
+              id === 'recovered-b'
+                ? { kind: 'deployed' as const, commitment: 'beef' }
+                : { kind: 'deployed' as const, commitment: 'feed' }
+            ])
+          )
       );
 
       await expect(recover()).rejects.toMatchObject({
@@ -2706,8 +2739,10 @@ describe('MidenClientInterface', () => {
 
     it('seed recovery refuses with the network copy when the chain cannot be read, adopting nothing', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
-      const { insert, adopt, chainRead, recover } = await setupRecovery();
-      chainRead.mockResolvedValue({ kind: 'unknown' });
+      const { insert, adopt, chainStates, recover } = await setupRecovery();
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'unknown' as const }]))
+      );
 
       await expect(recover()).rejects.toMatchObject({
         code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE',
@@ -2723,24 +2758,46 @@ describe('MidenClientInterface', () => {
 
       await recover();
 
-      // Three matches of two accounts: one read each, none under a hold (the mock throws if one is held).
-      expect(chainRead.mock.calls.map(c => c[0])).toEqual(['recovered-a', 'recovered-b']);
+      // Three matches of two accounts: one batch, none under a hold (the mock throws if one is held).
+      expect(chainRead).toHaveBeenCalledTimes(1);
+      expect(chainRead.mock.calls[0][0]).toEqual(['recovered-a', 'recovered-a', 'recovered-b']);
+    });
+
+    it('seed recovery reads every served account on one node client, with the reads in flight together and no hold', async () => {
+      try {
+        const { nodeReads, recover } = await setupRecovery(undefined, { realChainReads: true });
+        const recovering = recover();
+        for (let tick = 0; tick < 50 && nodeReads.pending.length < 2; tick++) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        expect(nodeReads.pending.map(read => read.id).sort()).toEqual(['recovered-a', 'recovered-b']);
+        expect(nodeReads.createNodeReads).toHaveBeenCalledTimes(1);
+        expect(nodeReads.pending.every(read => read.heldAtStart === 0)).toBe(true);
+        for (const read of nodeReads.pending) read.settle({ ok: true, state: { blockNum: 1, commitment: '0xfeed' } });
+        await expect(recovering).resolves.toHaveLength(2);
+      } finally {
+        jest.dontMock('../transaction/reconcile-reads');
+      }
     });
 
     it('seed recovery adopts a deployed account whose served state is the chain state', async () => {
       const { adopt, chainRead, recover } = await setupRecovery();
 
       await expect(recover()).resolves.toHaveLength(2);
-      expect(chainRead).toHaveBeenCalledTimes(2);
+      expect(chainRead).toHaveBeenCalledTimes(1);
+      expect(chainRead.mock.calls[0][0]).toEqual(['recovered-a', 'recovered-b']);
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
     it('seed recovery refuses a never-deployed account that does not rebuild from the recovery phrase, adopting nothing', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
-      const { insert, adopt, chainRead, scripted, fresh, rebuild, recover } = await setupRecovery();
+      const { insert, adopt, chainStates, scripted, fresh, rebuild, recover } = await setupRecovery();
       scripted[0] = [1];
       fresh.add(1);
-      chainRead.mockResolvedValue({ kind: 'absent' });
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
       rebuild.mockResolvedValue({ accountIdHex: 'someone-else', commitment: 'feed' });
 
       await expect(recover()).rejects.toMatchObject({
@@ -2753,10 +2810,12 @@ describe('MidenClientInterface', () => {
     });
 
     it('seed recovery adopts a never-deployed account that rebuilds from the recovery phrase', async () => {
-      const { held, adopt, chainRead, scripted, fresh, rebuild, recover } = await setupRecovery();
+      const { held, adopt, chainStates, scripted, fresh, rebuild, recover } = await setupRecovery();
       scripted[0] = [1];
       fresh.add(1);
-      chainRead.mockResolvedValue({ kind: 'absent' });
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
 
       await expect(recover()).resolves.toEqual([expect.objectContaining({ accountId: 'recovered-a', hdIndex: 0 })]);
       expect(rebuild).toHaveBeenCalledTimes(1);
@@ -2765,11 +2824,13 @@ describe('MidenClientInterface', () => {
     });
 
     it('seed recovery rebuilds with the seed of the index that matched', async () => {
-      const { chainRead, scripted, signerSlots, fresh, rebuild, recover } = await setupRecovery();
+      const { chainStates, scripted, signerSlots, fresh, rebuild, recover } = await setupRecovery();
       scripted.splice(0, 1, [1], [], [3]);
       signerSlots[3] = 'c003';
       fresh.add(1).add(3);
-      chainRead.mockResolvedValue({ kind: 'absent' });
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
       const { deriveGuardianAccountSeed } = await import('../guardian/account-recipe');
 
       await expect(recover()).resolves.toEqual([
@@ -2784,9 +2845,11 @@ describe('MidenClientInterface', () => {
 
     it('seed recovery never rebuilds when the chain cannot be read', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
-      const { adopt, chainRead, fresh, rebuild, recover } = await setupRecovery();
+      const { adopt, chainStates, fresh, rebuild, recover } = await setupRecovery();
       fresh.add(1).add(2);
-      chainRead.mockResolvedValue({ kind: 'unknown' });
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'unknown' as const }]))
+      );
 
       await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE' });
       expect(rebuild).not.toHaveBeenCalled();

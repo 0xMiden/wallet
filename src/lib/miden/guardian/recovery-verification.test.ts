@@ -7,6 +7,7 @@ import {
   assertUndeployedStateFromSeed,
   judgeServedState,
   readAccountChainState,
+  readAccountChainStates,
   readServedStateFacts,
   selectAdoptable,
   type AccountChainState,
@@ -382,6 +383,60 @@ describe('recovery verification', () => {
     it('reports a throw as unknown without rejecting', async () => {
       (createNodeReads as jest.Mock).mockRejectedValue(new Error('no rpc'));
       await expect(readAccountChainState('0xid')).resolves.toEqual({ kind: 'unknown' });
+    });
+  });
+
+  describe('readAccountChainStates', () => {
+    it('reads every id on one client, with both reads in flight together', async () => {
+      const pending: Array<{ id: string; settle: (read: unknown) => void }> = [];
+      const account = jest.fn(
+        (id: string) =>
+          new Promise(settle => {
+            pending.push({ id, settle });
+          })
+      );
+      (createNodeReads as jest.Mock).mockResolvedValue({ account });
+
+      const reading = readAccountChainStates(['0xa', '0xb']);
+      for (let tick = 0; tick < 50 && pending.length < 2; tick++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
+      expect(createNodeReads).toHaveBeenCalledTimes(1);
+      expect(pending.map(read => read.id)).toEqual(['0xa', '0xb']);
+      expect(account).toHaveBeenCalledWith('0xa', undefined, RPC_READ_TIMEOUT_MS);
+      expect(account).toHaveBeenCalledWith('0xb', undefined, RPC_READ_TIMEOUT_MS);
+      for (const read of pending) {
+        read.settle({ ok: true, state: { blockNum: 1, commitment: read.id === '0xa' ? '0xAB' : '0xCD' } });
+      }
+      await expect(reading).resolves.toEqual(
+        new Map<string, AccountChainState>([
+          ['0xa', { kind: 'deployed', commitment: 'ab' }],
+          ['0xb', { kind: 'deployed', commitment: 'cd' }]
+        ])
+      );
+    });
+
+    it('returns an empty map without a client when there are no ids', async () => {
+      await expect(readAccountChainStates([])).resolves.toEqual(new Map());
+      expect(createNodeReads).not.toHaveBeenCalled();
+    });
+
+    it('reads a duplicated id once and maps a failed read to unknown', async () => {
+      const account = jest.fn(async (id: string) => {
+        if (id === '0xb') throw new Error('rpc');
+        return { ok: true, state: { blockNum: 1, commitment: '0xAB' } };
+      });
+      (createNodeReads as jest.Mock).mockResolvedValue({ account });
+
+      await expect(readAccountChainStates(['0xa', '0xb', '0xa'])).resolves.toEqual(
+        new Map<string, AccountChainState>([
+          ['0xa', { kind: 'deployed', commitment: 'ab' }],
+          ['0xb', { kind: 'unknown' }]
+        ])
+      );
+      expect(createNodeReads).toHaveBeenCalledTimes(1);
+      expect(account.mock.calls.map(call => call[0])).toEqual(['0xa', '0xb']);
     });
   });
 });

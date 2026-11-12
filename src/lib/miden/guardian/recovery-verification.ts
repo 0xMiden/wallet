@@ -129,18 +129,46 @@ export async function assertUndeployedStateFromSeed(
 
 export type AccountChainState = { kind: 'deployed'; commitment: string } | { kind: 'absent' } | { kind: 'unknown' };
 
-/** Reads the account's commitment from the network. Takes no WASM lock and never rejects. */
-export async function readAccountChainState(accountIdHex: string): Promise<AccountChainState> {
+/** The chain answer for one account read: a failed read is unknown, and a missing commitment is an absent account. */
+function chainStateOf(read: { ok: true; state: { commitment?: string } } | { ok: false }): AccountChainState {
+  if (!read.ok) return { kind: 'unknown' };
+  return read.state.commitment === undefined
+    ? { kind: 'absent' }
+    : { kind: 'deployed', commitment: normalize(read.state.commitment) };
+}
+
+/**
+ * Reads every distinct account on one node client. Takes no WASM lock and never rejects: a failed client or a
+ * failed read is unknown for that id. An empty list builds no client.
+ */
+export async function readAccountChainStates(accountIds: readonly string[]): Promise<Map<string, AccountChainState>> {
+  const ids = [...new Set(accountIds)];
+  if (ids.length === 0) return new Map();
+  const unknown = () =>
+    new Map<string, AccountChainState>(ids.map(accountIdHex => [accountIdHex, { kind: 'unknown' }]));
   try {
     const { createNodeReads, RPC_READ_TIMEOUT_MS } = await import('../transaction/reconcile-reads');
-    const read = await (await createNodeReads()).account(accountIdHex, undefined, RPC_READ_TIMEOUT_MS);
-    if (!read.ok) return { kind: 'unknown' };
-    return read.state.commitment === undefined
-      ? { kind: 'absent' }
-      : { kind: 'deployed', commitment: normalize(read.state.commitment) };
+    const reads = await createNodeReads();
+    const chain = new Map<string, AccountChainState>();
+    await Promise.all(
+      ids.map(async accountIdHex => {
+        try {
+          chain.set(accountIdHex, chainStateOf(await reads.account(accountIdHex, undefined, RPC_READ_TIMEOUT_MS)));
+        } catch {
+          chain.set(accountIdHex, { kind: 'unknown' });
+        }
+      })
+    );
+    return chain;
   } catch {
-    return { kind: 'unknown' };
+    return unknown();
   }
+}
+
+/** One account, through the batch's single client. Takes no WASM lock and never rejects. */
+export async function readAccountChainState(accountIdHex: string): Promise<AccountChainState> {
+  const chain = await readAccountChainStates([accountIdHex]);
+  return chain.get(accountIdHex) ?? { kind: 'unknown' };
 }
 
 export type ServedStateVerdict = 'verified' | 'undeployed' | 'mismatch' | 'unverified' | 'unknown';
