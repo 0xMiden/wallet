@@ -534,6 +534,83 @@ describe('getMidenClient singleton', () => {
     );
   });
 
+  it("signs through a write's own signer for its hold only, and through the realm signer for every other hold", async () => {
+    await withKeystoreClient(
+      async (
+        { getMidenClient, installRealmKeystore, withHoldSigner, withWasmClientLock, yieldWasmClientLock },
+        create
+      ) => {
+        await getMidenClient();
+        const { signCallback } = create.mock.calls[0]![0];
+        const realm = jest.fn(async () => new Uint8Array([1]));
+        installRealmKeystore({ sign: realm });
+        const perWrite = jest.fn(async () => new Uint8Array([2]));
+        const dryRunInputs = new Uint8Array([5]);
+        // Another hold takes the mutex while the write is yielded, as a dry run can during a delegated prove.
+        const dryRun = () => withWasmClientLock(async () => signCallback(publicKey, dryRunInputs));
+        await withWasmClientLock(hold =>
+          withHoldSigner(hold, perWrite, async () => {
+            await expect(yieldWasmClientLock(dryRun, hold)).resolves.toEqual(new Uint8Array([1]));
+            await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([2]));
+          })
+        );
+        expect(perWrite).toHaveBeenCalledTimes(1);
+        expect(perWrite).toHaveBeenCalledWith('0102', '0304');
+        expect(realm).toHaveBeenCalledTimes(1);
+        expect(realm).toHaveBeenCalledWith(publicKey, dryRunInputs);
+        // The signer ends with its write.
+        await withWasmClientLock(async () => signCallback(publicKey, signingInputs));
+        expect(realm).toHaveBeenCalledTimes(2);
+        expect(perWrite).toHaveBeenCalledTimes(1);
+      }
+    );
+  });
+
+  it("classifies a write's own signer's failure as the realm signer's, and carries a locked one out on the hold", async () => {
+    await withKeystoreClient(
+      async ({ getMidenClient, installRealmKeystore, withHoldSigner, withWasmClientLock }, create) => {
+        await getMidenClient();
+        const { signCallback } = create.mock.calls[0]![0];
+        installRealmKeystore({ sign: async () => new Uint8Array([1]) });
+        const locked = async () => {
+          throw new Error('Wallet is locked');
+        };
+        await expect(
+          withWasmClientLock(hold =>
+            withHoldSigner(hold, locked, async () => {
+              await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({
+                reason: 'locked',
+                message: 'Sign callback failed (locked): Wallet is locked'
+              });
+              throw opaque();
+            })
+          )
+        ).rejects.toMatchObject({ reason: 'locked' });
+      }
+    );
+  });
+
+  it("refuses a replaced client's sign under a hold that has its own signer", async () => {
+    await withKeystoreClient(
+      async (
+        { getMidenClient, installRealmKeystore, resetMidenClient, withHoldSigner, withWasmClientLock },
+        create
+      ) => {
+        installRealmKeystore({ sign: async () => new Uint8Array([1]) });
+        await getMidenClient();
+        const stale = create.mock.calls[0]![0].signCallback;
+        await resetMidenClient();
+        const perWrite = jest.fn(async () => new Uint8Array([2]));
+        await withWasmClientLock(hold =>
+          withHoldSigner(hold, perWrite, async () => {
+            await expect(stale(publicKey, signingInputs)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+          })
+        );
+        expect(perWrite).not.toHaveBeenCalled();
+      }
+    );
+  });
+
   it('isRealmKeystoreInstalled answers by identity: the installed callback, no other, nothing once cleared', async () => {
     await withKeystoreClient(async ({ installRealmKeystore, uninstallRealmKeystore, isRealmKeystoreInstalled }) => {
       const a = jest.fn();

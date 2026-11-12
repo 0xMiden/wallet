@@ -123,7 +123,8 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   getCurrentWasmLockHold: () => null,
-  withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
+  withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn()),
+  withHoldSigner: (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()
 }));
 
 jest.mock('../activity/notes', () => ({
@@ -2073,7 +2074,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
         syncState: mockSyncState,
         newTransaction: mockNewTransaction
       })),
-      withWasmClientLock: jest.fn((cb: () => any) => cb())
+      withWasmClientLock: jest.fn((cb: () => any) => cb()),
+      withHoldSigner: (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()
     }));
     // The #260 proxy (routed by index.ts's syncState preflight) imports
     // getMidenClient via the `lib/...` alias — inside this isolate block the

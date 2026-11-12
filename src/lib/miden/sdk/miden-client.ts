@@ -14,7 +14,7 @@ import {
   WasmClientPoisonedError,
   bumpWasmClientGeneration
 } from './wasm-client-poison';
-import { tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
+import { buildSdkSignCallback, tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -1040,6 +1040,31 @@ function signReasonOf(err: unknown): SignCallbackReason | undefined {
 }
 
 /**
+ * A write's own signer, keyed by the hold it runs under (`withHoldSigner`). Keyed by hold, like the sign reasons
+ * above, so a dry run or any other hold, one that takes the mutex while the write is yielded included, keeps the
+ * realm signer.
+ */
+const holdSigners = new WeakMap<WasmLockHold, SignCallback>();
+
+/**
+ * Run `run` with `signer` answering every sign the SDK asks for while `hold` owns the mutex, in place of the realm
+ * signer and wrapped as it is (`buildSdkSignCallback`). The proxy's inline writes take it, so a write signs through
+ * the signer the transaction loop handed it, as its offscreen path does through its op.
+ */
+export async function withHoldSigner<T>(
+  hold: WasmLockHold,
+  signer: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  run: () => Promise<T>
+): Promise<T> {
+  holdSigners.set(hold, buildSdkSignCallback(signer));
+  try {
+    return await run();
+  } finally {
+    holdSigners.delete(hold);
+  }
+}
+
+/**
  * Options for {@link withWasmClientLock}.
  *
  * `watchdogMs` tightens THIS hold's normal watchdog ceiling below
@@ -1588,8 +1613,9 @@ class MidenClientSingleton {
         // Resolved before anything is recorded: a call this client refuses (a
         // replaced client's late sign, a missing install) must not touch the
         // record of whoever holds the lock now.
-        const sign = installed('sign');
+        assertBuildCurrent('sign');
         const holder = currentHolder;
+        const sign = (holder === null ? undefined : holdSigners.get(holder)) ?? installed('sign');
         if (holder) signReasonByHold.delete(holder);
         try {
           return await sign(publicKey, signingInputs);

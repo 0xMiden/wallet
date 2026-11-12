@@ -8,7 +8,7 @@ Never run coverage locally for this wallet, in any checkout or worktree. This in
 
 ## Project
 
-The wallet only allows creating Guardian accounts. All accounts in the wallet are Guardian (guarded multisig) accounts. Treat this as a product invariant when implementing features or diagnosing reports; do not ask whether a wallet account is a Guardian account or assume a single-signature wallet account.
+Account creation offers only Guardian (guarded multisig) accounts, but a wallet can still hold single-key accounts: seed import offers "Import public account", private-key import creates a single-key `WalletType.OnChain` account, and older wallets may hold single-key accounts. Signing and execution paths must not assume a Guardian account.
 
 Miden Wallet: Chrome/Firefox extension + iOS/Android (Capacitor) + macOS (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). Backend is source of truth; frontend syncs via intercom port messaging.
 

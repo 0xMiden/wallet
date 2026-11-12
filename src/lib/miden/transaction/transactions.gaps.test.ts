@@ -150,7 +150,8 @@ jest.mock('../sdk/miden-client', () => {
       if (hold !== null && gapsHold === hold) return;
       throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
     },
-    withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
+    withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
+    withHoldSigner: async <T>(_hold: object, _signer: unknown, run: () => Promise<T>) => run()
   };
 });
 
@@ -172,8 +173,11 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
-// These proposals carry no summary; the signing-time effect check has its own tests (#2147).
-jest.mock('./proposal-effect-guard', () => ({ assertProposalEffectApproved: async () => {} }));
+// These proposals carry no summary; the signing-time effect checks, Guardian and single-key, have their own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: async () => {},
+  isEffectChecked: () => false
+}));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }

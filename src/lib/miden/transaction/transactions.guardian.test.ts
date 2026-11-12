@@ -457,7 +457,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 const mockDeserializeSummary = jest.fn();
 const mockAssertProposalEffect = jest.fn(async (_transaction: ITransaction, _txSummary: string | undefined) => {});
 jest.mock('./proposal-effect-guard', () => ({
-  assertProposalEffectApproved: (...a: Parameters<typeof mockAssertProposalEffect>) => mockAssertProposalEffect(...a)
+  assertProposalEffectApproved: (...a: Parameters<typeof mockAssertProposalEffect>) => mockAssertProposalEffect(...a),
+  isEffectChecked: () => false
 }));
 
 jest.mock('../sdk/native-prover-mobile', () => ({
