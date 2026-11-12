@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '33e54dfce5b72fbe59b5120c97f8ffd9c74dc3ac'
+          ref: 'ce8d2d7e3c80ecde34ec792556124c70a45a7326'
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -22,7 +22,7 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - name: Run the frozen batch regressions
         env:
-          EXPECTED_SOURCE_SHA: '33e54dfce5b72fbe59b5120c97f8ffd9c74dc3ac'
+          EXPECTED_SOURCE_SHA: 'ce8d2d7e3c80ecde34ec792556124c70a45a7326'
           REGRESSION_PATTERN: 'recovery signer preservation|chooses the newest eligible claim row per note'
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
