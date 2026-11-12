@@ -9,8 +9,10 @@ const MAX_CAUSE_DEPTH = 8;
 // (transaction.api.cx.metamask.io or a tx-sentinel host). When the relay answers with an HTTP 5xx, MetaMask rejects
 // the request with the relay status and body as JSON, for example
 // `Fetch error:{"status":500,"error":"Internal Server Error","statusCode":500}`. The same transaction goes through
-// when the user turns Smart Transactions off. Both fields must be present, so that an RPC failure of a read that this
-// wallet makes (viem writes `Status: 500`) does not match.
+// when the user turns Smart Transactions off. The `Fetch error:` prefix and both fields in the one JSON object after it
+// must be present, so that a 5xx from a read that this wallet makes (viem writes `Status: 500`, and an RPC error can
+// carry its own JSON) does not match.
+const RELAY_FAILURE_BODY = /Fetch error:\s*(\{[^{}]*\})/;
 const RELAY_STATUS = /"status"\s*:\s*5\d\d\b/;
 const RELAY_STATUS_CODE = /"statusCode"\s*:\s*5\d\d\b/;
 
@@ -38,8 +40,8 @@ function findChainNotApproved(err: unknown): NativeSessionChainNotApprovedError 
 
 function isSmartTransactionsRelayFailure(err: unknown): boolean {
   return causes(err).some(cause => {
-    const message = messageOf(cause);
-    return message !== undefined && RELAY_STATUS.test(message) && RELAY_STATUS_CODE.test(message);
+    const body = messageOf(cause)?.match(RELAY_FAILURE_BODY)?.[1];
+    return body !== undefined && RELAY_STATUS.test(body) && RELAY_STATUS_CODE.test(body);
   });
 }
 

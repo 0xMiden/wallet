@@ -27,6 +27,7 @@
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] A bridge deposit or claim that the MetaMask Smart Transactions relay refuses with a server error now tells the user to turn off Smart Transactions and try again, instead of showing the raw `{"status":500,...}` error (#2107).
 
 ## 1.17.11 (2026-11-09)
 
@@ -34,7 +35,6 @@
 - [FIX][all] Ignore queued history scroll events after the list element is removed.
 - [CHANGE][ci] Release E2E updates a mainnet wallet from the previous full release to the version under test and fails if any account or balance does not survive the update (#2086).
 - [CHANGE][all] Classify CCTP quote refusals as a fixed bridge receive diagnostic without provider response details.
-- [FIX][all] A bridge deposit or claim that the MetaMask Smart Transactions relay refuses with a server error now tells the user to turn off Smart Transactions and try again, instead of showing the raw `{"status":500,...}` error (#2107).
 - [FIX][all] Auto-consume claims only standard payments (P2ID, P2IDE) addressed to the account, never another trader's public swap order on a tracked pair tag, which it tried to fill from the account's balance (#2118).
 - [FIX][all] The claim list and its notifications show only payments to the account and notes of its own swap orders, and a claim of any other note is refused, so another trader's swap order can no longer be claimed by hand (#2118). A dApp consume request also refuses non-standard or unclassified note scripts before approval; custom scripts require a custom transaction request.
 - [FIX][all] Earn withdrawals no longer fail with "The balance or quote changed" when Epoch's positions service is slow: each positions read asks only for the account's own EVM address, one request per lender on the chains of its known markets (the listed vaults and the account's own deposits), and a balance check that cannot reach Epoch says so and keeps the review (#2116). The first withdrawal on a network waits for Epoch's one-time account setup to land on chain, and quotes again (never below the reviewed floor) when the setup outlasts the review (#2117). Earn positions refresh when a deposit or withdrawal settles, retry a failed read with a backoff, and otherwise refresh every 3 minutes instead of every 10 s. Earn no longer ties its markets to the Epoch USDC bridge routes: a listed vault can name any token on a listed EVM chain.
