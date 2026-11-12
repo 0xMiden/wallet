@@ -35,6 +35,9 @@ const storeState = {
 
 export const useAppEnv = () => ({ fullPage: false, sidePanel: params.has('sidePanel') || params.has('mobile') });
 export const useAccount = () => ({ publicKey: 'synthetic-account' });
+export const useMidenContext = (): never => {
+  throw new Error('The background price service is outside the TokenDetail visual fixture');
+};
 export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
   isLoading: false

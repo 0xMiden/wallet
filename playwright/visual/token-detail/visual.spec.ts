@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(({ page }, testInfo) => {
+  page.on('pageerror', error => {
+    console.error(`[TokenDetail ${testInfo.project.name}] ${error.name}: ${error.message}`);
+  });
+});
+
 test('captures the real token detail page in compact light and dark layouts', async ({ page, context }, testInfo) => {
   const project = testInfo.project.name;
   const dark = project.endsWith('dark');

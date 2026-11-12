@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { ActivityRow, Card } from 'components/ui';
+import { ActivityRow } from 'components/ui/ActivityRow';
+import { Card } from 'components/ui/Card';
 
 export default function History() {
   const { t } = useTranslation();
