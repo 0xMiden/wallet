@@ -418,7 +418,15 @@ async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Pro
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
-      doSync(req.force).catch(err => console.warn('[SyncManager] Error:', err));
+      if (req.force) {
+        try {
+          await doSync(true);
+        } catch (err) {
+          console.warn('[SyncManager] Error:', err);
+        }
+      } else {
+        doSync(req.force).catch(err => console.warn('[SyncManager] Error:', err));
+      }
       return { type: WalletMessageType.SyncResponse };
     case WalletMessageType.NoteClaimStarted:
       intercom.broadcast({ type: WalletMessageType.NoteClaimStarted, noteId: req.noteId });

@@ -51,6 +51,8 @@ export interface WalletSlice {
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
+  balanceReadFailed: Record<string, boolean>;
+  balanceReadInFlight: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
   /**
    * The display faucet id each account's last landed read built its MIDEN row for. No override
@@ -283,7 +285,10 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
-  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  /**
+   * Drops every address's balances, loading flag, last fetch, balanceReadFailed and balanceReadInFlight,
+   * so each reader waits for a new read.
+   */
   clearBalances: () => void;
 }
 

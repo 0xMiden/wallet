@@ -64,7 +64,13 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+let mockStoreState: {
+  tokenPrices: Record<string, { price: number }>;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
+} = {
+  tokenPrices: {},
+  tokenPricesStatus: 'loading'
+};
 // Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
 // the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -163,13 +169,32 @@ beforeEach(() => {
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
-  mockStoreState = { tokenPrices: {} };
+  mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
 });
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
   mockBridgeSnapshot = undefined;
 });
+
+it.each([undefined, IETH.faucetId])(
+  'shows no $0.00 while the balance read is unresolved and the BTC quote is ready (partnersOf=%s)',
+  partnersOf => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } }, tokenPricesStatus: 'ready' };
+    const unread = { data: [], isLoading: true, isValidating: true, mutate: jest.fn() };
+    mockUseAllBalances.mockReturnValue(unread);
+    const { onSelect } = renderDrawer({ partnersOf });
+
+    const row = tokenButton('IBTC');
+    expect(within(row).queryByText('$0.00')).not.toBeInTheDocument();
+    expect(within(row).getByText('loading')).toBeInTheDocument();
+    expect(within(row).queryByText('0.00 IBTC')).not.toBeInTheDocument();
+    expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(IBTC);
+  }
+);
 
 describe('SelectSwapTokenDrawer', () => {
   it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
@@ -248,6 +273,7 @@ describe('SelectSwapTokenDrawer', () => {
 
       const row = tokenButton('IETH');
       expect(within(row).queryByText('1.25 IETH')).not.toBeInTheDocument();
+      expect(within(row).getByText('assetValueUnknownScale')).toBeInTheDocument();
       // Symbol twice: the row title and the amount line that stands in for the quantity.
       expect(within(row).getAllByText('IETH')).toHaveLength(2);
     });
@@ -334,7 +360,20 @@ describe('SelectSwapTokenDrawer', () => {
       mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
       renderDrawer();
 
-      expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
+      expect(within(tokenButton('IBTC')).getByText('$0.00')).toBeInTheDocument();
+    });
+
+    it('shows loading separately from unavailable and unsupported quotes', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1 }]);
+      const first = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('loading')).toBeInTheDocument();
+      expect(within(tokenButton('IMIDEN')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+      first.unmount();
+
+      mockStoreState = { ...mockStoreState, tokenPricesStatus: 'ready' };
+      const { unmount } = renderDrawer();
+      expect(within(tokenButton('IETH')).getByText('unavailable')).toBeInTheDocument();
+      unmount();
     });
   });
 
@@ -374,7 +413,7 @@ describe('SelectSwapTokenDrawer', () => {
     expect(document.querySelector('[data-slot="check"]')).toBeNull();
   });
 
-  it('draws the rows like the home assets list: unboxed, 72px, divided by a hairline', () => {
+  it('draws the rows like the home assets list: unboxed, a 72px floor, divided by a hairline', () => {
     renderDrawer();
 
     const list = tokenButton('IMIDEN').parentElement!;
@@ -383,7 +422,9 @@ describe('SelectSwapTokenDrawer', () => {
     // Not the boxed list group: no fill card, no 16px radius around the rows.
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(tokenButton('IETH').className).toContain('h-18');
+    const rowClasses = tokenButton('IETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {

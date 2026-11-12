@@ -1,5 +1,6 @@
 import {
   encodeBurnWithdrawal,
+  isUsdcxWithdrawalAvailable,
   isUsdcxWithdrawalNetwork,
   usdcxMinimumBurnShortfall,
   validateUsdcxWithdrawal
@@ -130,4 +131,10 @@ describe('USDCx withdrawal encoding', () => {
       listsMainnet = false;
     }
   });
+});
+
+it('does not offer Circle on Polygon when another chain supports it', () => {
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32)).toBe(true);
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32, 5042002)).toBe(true);
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32, 137)).toBe(false);
 });
