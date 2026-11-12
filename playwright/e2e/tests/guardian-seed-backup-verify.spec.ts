@@ -54,7 +54,7 @@ const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
 
 // Vault password for both instances. Passed explicitly (rather than leaning on
 // the page object's default) because the reveal flow re-authenticates with it.
-const PASSWORD = 'Test1234!';
+const PASSWORD = 'Test1234!Wallet';
 
 const SEED_WORD_COUNT = 12;
 
