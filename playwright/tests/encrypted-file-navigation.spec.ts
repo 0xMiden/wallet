@@ -60,7 +60,11 @@ test.describe('encrypted file export navigation', () => {
         const page = await extensionContext.newPage();
         await page.setViewportSize({ width: surface.width, height: surface.height });
         await page.emulateMedia({ colorScheme: theme });
-        await page.goto(`${origin}/${surface.shell}#/me`);
+        await page.goto(`${origin}/${surface.shell}#/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        const profileTab = page.getByRole('button', { name: 'Profile', exact: true });
+        await profileTab.waitFor({ state: 'visible', timeout: 20_000 });
+        await profileTab.click({ timeout: 10_000 });
+        await expect.poll(() => new URL(page.url()).hash).toBe('#/me');
         await expect(page.getByTestId('profile-settings-menu')).toBeVisible();
         await expect
           .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')))
