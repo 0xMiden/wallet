@@ -543,9 +543,11 @@ const PageRouter: FC = () => {
   // onboarding to finish) and stays off the onboarding and recovery routes.
   const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
   const lockPending = backgroundLockPending.useValue();
+  // The full cover is `BackgroundLockCover` in App. Dropping the pages here unmounts them, which parks the foreground
+  // dApp and hides its native window, which a DOM cover cannot do.
   const layered =
     lockPending && ctx.ready ? (
-      <RootSuspenseFallback data-testid="wallet-locking" />
+      <RootSuspenseFallback data-testid="wallet-pages-parked" />
     ) : !walletOpen ? (
       page
     ) : (

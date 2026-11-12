@@ -106,7 +106,7 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
   default: ({ 'data-testid': testId }: { 'data-testid'?: string }) => (
-    <div data-testid={testId === 'wallet-locking' ? testId : 'root-suspense-fallback'} />
+    <div data-testid={testId === 'wallet-pages-parked' ? testId : 'root-suspense-fallback'} />
   )
 }));
 
@@ -284,17 +284,17 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
 describe('background lock cover', () => {
   afterEach(() => act(() => backgroundLockPending.set(false)));
 
-  it('renders the locking view instead of the wallet while a background lock is pending', () => {
+  it('parks the wallet pages while a background lock is pending', () => {
     act(() => backgroundLockPending.set(true));
     renderAt('/', ready);
-    expect(screen.getByTestId('wallet-locking')).toBeInTheDocument();
+    expect(screen.getByTestId('wallet-pages-parked')).toBeInTheDocument();
     expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
   });
 
   it('does not cover a wallet that is not ready', () => {
     act(() => backgroundLockPending.set(true));
     renderAt('/', { ready: false, locked: false, hydrated: true });
-    expect(screen.queryByTestId('wallet-locking')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wallet-pages-parked')).not.toBeInTheDocument();
   });
 });
 

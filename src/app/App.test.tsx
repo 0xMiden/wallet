@@ -144,7 +144,8 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  MidenProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  MidenProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  useMidenContext: () => ({ ready: true })
 }));
 
 jest.mock('app/a11y/AwaitFonts', () => ({
