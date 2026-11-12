@@ -20,6 +20,9 @@ import { DAppMessage, isRecord } from '@miden-sdk/bread-connect';
 
 import { AppSwitchTransport, BreadConnectError } from './transport.js';
 
+// An older Bread omits standardPayment, so a note without the flag still fits.
+type BreadConsumableNote = InputNoteDetails & { standardPayment?: boolean };
+
 /**
  * The `window.midenWallet` a Capacitor app installs, so the stock Miden wallet adapter talks to Bread through app
  * switches. It builds each request as Bread's in-app browser provider does. An answer is authenticated by its
@@ -126,9 +129,11 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     return { guardianInfo };
   }
 
-  async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
+  async requestConsumableNotes(): Promise<{ consumableNotes: BreadConsumableNote[] }> {
     const response = await this.send({ type: 'CONSUMABLE_NOTES_REQUEST', sourcePublicKey: this.connectedAddress() });
-    return { consumableNotes: listField<InputNoteDetails>(response, 'CONSUMABLE_NOTES_RESPONSE', 'consumableNotes') };
+    return {
+      consumableNotes: listField<BreadConsumableNote>(response, 'CONSUMABLE_NOTES_RESPONSE', 'consumableNotes')
+    };
   }
 
   async importPrivateNote(note: Uint8Array): Promise<{ noteId: string }> {

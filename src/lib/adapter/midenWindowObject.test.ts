@@ -1,12 +1,17 @@
 import {
   AllowedPrivateData,
+  type InputNoteDetails,
   PrivateDataPermission,
   WalletAdapterNetwork,
   WalletError
 } from '@miden-sdk/miden-wallet-adapter-base';
 
 import * as client from 'lib/adapter/client';
-import { MidenDAppMessageType } from 'lib/adapter/types';
+import {
+  MidenDAppMessageType,
+  type DAppConsumableNote,
+  type MidenDAppConsumableNotesResponse
+} from 'lib/adapter/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 
 import { MidenWindowObject } from './midenWindowObject';
@@ -611,5 +616,22 @@ describe('MidenWindowObject', () => {
       expect(obj.address).toBeUndefined();
       expect(obj.permission).toBeUndefined();
     });
+  });
+});
+
+// Checked by `yarn ts`: the response and the provider type each consumable note with standardPayment.
+type KeepsNoteFields<T> = [T] extends [InputNoteDetails] ? true : false;
+type RequiresFlag<T> = [InputNoteDetails] extends [T] ? false : true;
+type ResponseNote = MidenDAppConsumableNotesResponse['consumableNotes'][number];
+type WindowNote = Awaited<ReturnType<MidenWindowObject['requestConsumableNotes']>>['consumableNotes'][number];
+
+describe('consumable note types', () => {
+  it('carry standardPayment on the response and on the provider', () => {
+    const responseKeeps: KeepsNoteFields<ResponseNote> = true;
+    const responseFlag: RequiresFlag<ResponseNote> = true;
+    const windowKeeps: KeepsNoteFields<WindowNote> = true;
+    const windowFlag: RequiresFlag<WindowNote> = true;
+    const aliasFlag: RequiresFlag<DAppConsumableNote> = true;
+    for (const value of [responseKeeps, responseFlag, windowKeeps, windowFlag, aliasFlag]) expect(value).toBe(true);
   });
 });

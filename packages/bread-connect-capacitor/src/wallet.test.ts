@@ -1,6 +1,7 @@
 import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 import {
   AllowedPrivateData,
+  type InputNoteDetails,
   MidenConsumeTransaction,
   MidenSendTransaction,
   PrivateDataPermission,
@@ -458,5 +459,20 @@ describe('BreadConnectWallet', () => {
 
   it('does not create accounts', async () => {
     await expect(setup().wallet.createAccount()).rejects.toBeInstanceOf(WalletError);
+  });
+});
+
+// Checked by `yarn ts`: the notes may carry standardPayment, and a note from an older Bread without it still fits.
+type BreadNote = Awaited<ReturnType<BreadConnectWallet['requestConsumableNotes']>>['consumableNotes'][number];
+type HasStandardPayment<T> = 'standardPayment' extends keyof T ? true : false;
+type OlderNoteFits<T> = [InputNoteDetails] extends [T] ? true : false;
+type FlaggedNoteFits<T> = [InputNoteDetails & { standardPayment: boolean }] extends [T] ? true : false;
+
+describe('consumable note type', () => {
+  it('carries an optional standardPayment', () => {
+    const hasFlag: HasStandardPayment<BreadNote> = true;
+    const olderFits: OlderNoteFits<BreadNote> = true;
+    const flaggedFits: FlaggedNoteFits<BreadNote> = true;
+    for (const value of [hasFlag, olderFits, flaggedFits]) expect(value).toBe(true);
   });
 });

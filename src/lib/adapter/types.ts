@@ -253,7 +253,7 @@ export interface MidenDAppConsumableNotesRequest extends MidenDAppMessageBase {
 
 export interface MidenDAppConsumableNotesResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.ConsumableNotesResponse;
-  consumableNotes: any[];
+  consumableNotes: DAppConsumableNote[];
 }
 
 export interface MidenDAppWaitForTxRequest extends MidenDAppMessageBase {

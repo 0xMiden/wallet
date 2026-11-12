@@ -31,7 +31,7 @@ import {
   signLoginBytes,
   waitForTransaction
 } from 'lib/adapter/client';
-import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
+import { DAppConsumableNote, MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
 import { TransactionOutput } from 'lib/miden/db/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
@@ -120,7 +120,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     return { guardianInfo: res };
   }
 
-  async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
+  async requestConsumableNotes(): Promise<{ consumableNotes: DAppConsumableNote[] }> {
     const res = await requestConsumableNotes(this.address!);
     return { consumableNotes: res };
   }
