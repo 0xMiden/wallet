@@ -13,10 +13,17 @@ export function mainnetConfigSource(): string {
   if (!override) return MAINNET_WALLET_CONFIG_URL;
   const url = new URL(override);
   if (
-    process.env.E2E_NETWORK !== 'mainnet' || override.length > 512 || override.trim() !== override ||
-    url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
-    url.username || url.password || url.search || url.hash
-  ) throw new Error('The mainnet qualification config must be an owned loopback E2E source');
+    process.env.E2E_NETWORK !== 'mainnet' ||
+    override.length > 512 ||
+    override.trim() !== override ||
+    url.protocol !== 'http:' ||
+    !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error('The mainnet qualification config must be an owned loopback E2E source');
   return `${override.replace(/\/+$/, '')}/mainnet.json`;
 }
 

@@ -15,8 +15,7 @@ const CHAINS = [
 
 export function canonicalMainnetLoopFaucet(faucet: string): string {
   const ref = faucet.split('_')[0] ?? '';
-  if (!/^mm1/.test(ref) && !/^0x[0-9a-f]{30}$/i.test(ref))
-    throw new Error('Invalid mainnet faucet identity');
+  if (!/^mm1/.test(ref) && !/^0x[0-9a-f]{30}$/i.test(ref)) throw new Error('Invalid mainnet faucet identity');
   const hex = ref.startsWith('0x') ? ref.toLowerCase() : Address.fromBech32(ref).accountId().toString().toLowerCase();
   if (!/^0x[0-9a-f]{30}$/.test(hex)) throw new Error('Invalid canonical mainnet faucet');
   return hex;
@@ -165,11 +164,15 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('Invalid real 1Click service');
   const configuredPolicy = parseOneClickFeePolicy(previous.feePolicy);
-  const feePolicy = configuredPolicy ?? (
-    url.origin === 'https://1click.chaindefuser.com' && url.pathname.replace(/\/+$/, '') === ''
-      ? { kind: 'partner', platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', minimumPlatformFeeBps: 20 }
-      : undefined
-  );
+  const feePolicy =
+    configuredPolicy ??
+    (url.origin === 'https://1click.chaindefuser.com' && url.pathname.replace(/\/+$/, '') === ''
+      ? {
+          kind: 'partner',
+          platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',
+          minimumPlatformFeeBps: 20
+        }
+      : undefined);
   return {
     ...document,
     features: { ...document.features, nearIntents: true },

@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 
 export async function awaitMainnetLoopAuthorization(
-  checkpointPath: string, gatePath: string, signal: AbortSignal
+  checkpointPath: string,
+  gatePath: string,
+  signal: AbortSignal
 ): Promise<void> {
   const digest = () => {
     const file = statSync(checkpointPath);
-    if (!file.isFile() || file.size < 1 || file.size > 65_536) throw new Error('Invalid mainnet authorization file size');
+    if (!file.isFile() || file.size < 1 || file.size > 65_536)
+      throw new Error('Invalid mainnet authorization file size');
     return createHash('sha256').update(readFileSync(checkpointPath)).digest('hex');
   };
   if (signal.aborted) throw new Error('Mainnet authorization wait aborted');

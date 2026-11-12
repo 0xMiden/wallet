@@ -376,7 +376,9 @@ function oneClick(
   const feePolicy = parseOneClickFeePolicy(config.feePolicy);
   expectedOneClickFees(appFees ?? [], feePolicy);
   return {
-    serviceUrl, midenAssets, evmAssets,
+    serviceUrl,
+    midenAssets,
+    evmAssets,
     ...(appFees === undefined ? {} : { appFees }),
     ...(feePolicy === undefined ? {} : { feePolicy })
   };

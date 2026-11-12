@@ -31,7 +31,12 @@ function wait() {
 it('holds the live browser flow until the exact persisted authorization was uploaded and released', async () => {
   let finished = false;
   const pending = wait();
-  void pending.then(() => { finished = true; }, () => undefined);
+  void pending.then(
+    () => {
+      finished = true;
+    },
+    () => undefined
+  );
   await Promise.resolve();
   expect(finished).toBe(false);
   expect(readFileSync(`${gate}.ready`, 'utf8')).toBe(`${digest()}\n`);
@@ -65,7 +70,8 @@ it('does not create readiness for an already aborted request', async () => {
   expect(existsSync(`${gate}.ready`)).toBe(false);
 });
 it('refuses cancellation while awaiting the upload without permitting signing', async () => {
-  const pending = wait(); controller.abort();
+  const pending = wait();
+  controller.abort();
   await expect(pending).rejects.toThrow(/abort/i);
 });
 it('fails closed if upload acknowledgement never arrives', async () => {

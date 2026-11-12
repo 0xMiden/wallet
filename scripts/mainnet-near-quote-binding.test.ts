@@ -66,9 +66,19 @@ it('accepts only the explicitly pinned documented partner transformation', () =>
 });
 it.each([
   [{ recipient: feeRecipient, fee: 5 }],
-  [{ recipient: feeRecipient, fee: 5 }, { recipient: feeRecipient, fee: 21 }],
-  [{ recipient: feeRecipient, fee: 5 }, { recipient: 'other.near', fee: 20 }],
-  [{ recipient: feeRecipient, fee: 5 }, { recipient: feeRecipient, fee: 20 }, { recipient: feeRecipient, fee: 1 }]
+  [
+    { recipient: feeRecipient, fee: 5 },
+    { recipient: feeRecipient, fee: 21 }
+  ],
+  [
+    { recipient: feeRecipient, fee: 5 },
+    { recipient: 'other.near', fee: 20 }
+  ],
+  [
+    { recipient: feeRecipient, fee: 5 },
+    { recipient: feeRecipient, fee: 20 },
+    { recipient: feeRecipient, fee: 1 }
+  ]
 ])('still rejects an unsigned fee-list alteration under the pinned policy: %j', (...appFees) => {
   const changed = { ...response, quoteRequest: { ...response.quoteRequest, appFees } };
   expect(verifyOneClickQuoteSignature(changed)).toBe(true);

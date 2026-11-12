@@ -148,8 +148,11 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
-  if (typeof args.minimumOutputBaseUnits !== 'bigint' || args.minimumOutputBaseUnits <= 0n ||
-      args.minimumOutputBaseUnits >= (1n << 256n))
+  if (
+    typeof args.minimumOutputBaseUnits !== 'bigint' ||
+    args.minimumOutputBaseUnits <= 0n ||
+    args.minimumOutputBaseUnits >= 1n << 256n
+  )
     throw new Error('Epoch requires a positive reviewed output minimum');
   const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
   const allocator = selectEpochAllocator(getBridgeConfigSnapshot());
@@ -178,12 +181,14 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   let noteError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
   const output = quote.quoteResult.tokenOut;
-  if (typeof output !== 'string' || !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(output) ||
-      (output.includes('.') && (output.split('.')[1]?.length ?? 0) > usdc.decimals))
+  if (
+    typeof output !== 'string' ||
+    !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(output) ||
+    (output.includes('.') && (output.split('.')[1]?.length ?? 0) > usdc.decimals)
+  )
     throw new Error('Epoch returned an invalid output quote');
   const outputBaseUnits = output.includes('.') ? parseUnits(output, usdc.decimals) : BigInt(output);
-  if (outputBaseUnits < args.minimumOutputBaseUnits)
-    throw new Error('Epoch output is below the reviewed minimum');
+  if (outputBaseUnits < args.minimumOutputBaseUnits) throw new Error('Epoch output is below the reviewed minimum');
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
     preFetchedQuote: quote,

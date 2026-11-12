@@ -20,20 +20,35 @@ it('does not treat an unconfirmed forward credit as available reverse principal'
 });
 it('uses settled receipt proceeds without charging already-paid fees a second time', () => {
   const hash = `0x${'a'.repeat(64)}`;
-  const plan = planEpochRoundTrip({ ...epochCheckpointFixture(), phase: 'forward-settled',
-    forwardNoteId: hash, forwardMidenTxId: hash, forwardEvmTxHash: hash, forwardReceived: '1001000', paidMidenFees: '266'
-  }, 1_000_501n);
+  const plan = planEpochRoundTrip(
+    {
+      ...epochCheckpointFixture(),
+      phase: 'forward-settled',
+      forwardNoteId: hash,
+      forwardMidenTxId: hash,
+      forwardEvmTxHash: hash,
+      forwardReceived: '1001000',
+      paidMidenFees: '266'
+    },
+    1_000_501n
+  );
   expect(plan?.worstCaseCostUsdMicros).toBe(12_501n);
 });
 it('reserves gas from the same Miden balance as principal', () => {
   const state = candidate();
-  expect(() => planEpochRoundTrip({ ...state, native: { ...state.native, balance: state.principal } }, 1_000_501n)).toThrow();
+  expect(() =>
+    planEpochRoundTrip({ ...state, native: { ...state.native, balance: state.principal } }, 1_000_501n)
+  ).toThrow();
 });
 it('requires existing EVM gas rather than silently funding the signer', () => {
   const state = candidate();
   expect(() => planEpochRoundTrip({ ...state, evm: { ...state.evm, nativeBalance: '0' } }, 1_000_501n)).toThrow();
 });
 it('does not use a profitable quote to enlarge the shared loss allowance', () => {
-  expect(() => planEpochRoundTrip({ ...candidate(), forwardMinimum: '1020000', reverseMinimum: '1020000',
-    lossBudgetUsdMicros: '2000' }, 1_000_501n)).toThrow();
+  expect(() =>
+    planEpochRoundTrip(
+      { ...candidate(), forwardMinimum: '1020000', reverseMinimum: '1020000', lossBudgetUsdMicros: '2000' },
+      1_000_501n
+    )
+  ).toThrow();
 });

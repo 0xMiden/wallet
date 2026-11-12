@@ -66,7 +66,12 @@ export function planEpochRoundTrip(state: MainnetEpochCheckpoint, returnInput: b
     reverse: {
       inputUsdMicros: tokenValueUsdMicro(returnInput, 6, tokenPrice, true),
       minimumOutputUsdMicros: tokenValueUsdMicro(BigInt(state.reverseMinimum), 6, nativePrice, false),
-      nativeFeeUsdMicros: tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(valuation?.gasUsdMicros ?? state.evm.nativeUsdMicros), true)
+      nativeFeeUsdMicros: tokenValueUsdMicro(
+        BigInt(state.evmFeeBudget),
+        18,
+        BigInt(valuation?.gasUsdMicros ?? state.evm.nativeUsdMicros),
+        true
+      )
     }
   });
   if (plan.worstCaseCostUsdMicros > BigInt(state.lossBudgetUsdMicros)) {

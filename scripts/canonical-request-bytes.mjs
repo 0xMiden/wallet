@@ -9,7 +9,8 @@ const compareBytes = (a, b) => {
 
 /** @param {Uint8Array} serialized */
 export function canonicalRequestBytes(serialized) {
-  if (!(serialized instanceof Uint8Array) || serialized.length > 1_048_576) throw new Error('Invalid serialized request size');
+  if (!(serialized instanceof Uint8Array) || serialized.length > 1_048_576)
+    throw new Error('Invalid serialized request size');
   const bytes = serialized;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const stores = [];
@@ -32,6 +33,7 @@ export function canonicalRequestBytes(serialized) {
     nodes.push(bytes.subarray(store.at + 8 + i * STORE_NODE_BYTES, store.at + 8 + (i + 1) * STORE_NODE_BYTES));
   }
   const result = Uint8Array.from(bytes);
-  for (const [index, node] of nodes.sort(compareBytes).entries()) result.set(node, store.at + 8 + index * STORE_NODE_BYTES);
+  for (const [index, node] of nodes.sort(compareBytes).entries())
+    result.set(node, store.at + 8 + index * STORE_NODE_BYTES);
   return result;
 }

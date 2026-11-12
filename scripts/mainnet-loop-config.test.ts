@@ -52,9 +52,13 @@ describe('nightly-only mainnet NEAR configuration', () => {
   });
   it('preserves explicitly configured provider fees and the real HTTPS service', () => {
     const original = document();
-    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', appFees: [{ recipient: 'configured.near', fee: 20 }] };
-    expect(qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens()))
-      .toMatchObject({ swap: { oneClick } });
+    const oneClick = {
+      serviceUrl: 'https://1click.chaindefuser.com',
+      appFees: [{ recipient: 'configured.near', fee: 20 }]
+    };
+    expect(
+      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
+    ).toMatchObject({ swap: { oneClick } });
   });
   it('enables real NEAR bindings without mutating the public document or unrelated routes', () => {
     const original = document();
@@ -85,18 +89,30 @@ describe('nightly-only mainnet NEAR configuration', () => {
   });
   it('preserves an explicit trusted fee policy instead of learning one from returned fees', () => {
     const original = document();
-    const oneClick = { serviceUrl: 'https://proxy.example', feePolicy: {
-      kind: 'public', platformRecipient: 'pinned.near', minimumPlatformFeeBps: 25
-    } };
-    expect(qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens()))
-      .toMatchObject({ swap: { oneClick } });
+    const oneClick = {
+      serviceUrl: 'https://proxy.example',
+      feePolicy: {
+        kind: 'public',
+        platformRecipient: 'pinned.near',
+        minimumPlatformFeeBps: 25
+      }
+    };
+    expect(
+      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
+    ).toMatchObject({ swap: { oneClick } });
   });
   it('rejects an ambiguous fee policy before serving a nightly snapshot', () => {
     const original = document();
-    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', feePolicy: {
-      ...nightlyFeePolicy, allowExtraFees: true
-    } };
-    expect(() => qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())).toThrow();
+    const oneClick = {
+      serviceUrl: 'https://1click.chaindefuser.com',
+      feePolicy: {
+        ...nightlyFeePolicy,
+        allowExtraFees: true
+      }
+    };
+    expect(() =>
+      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
+    ).toThrow();
   });
   it('requires an unambiguous verified native faucet and exact live asset identity', () => {
     expect(() => qualifyMainnetLoopConfig(document(), catalog(), { tokens: [] })).toThrow();

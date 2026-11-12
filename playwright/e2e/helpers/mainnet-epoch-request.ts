@@ -1,5 +1,12 @@
 import {
-  AccountId, Note, NoteArray, NoteAssets, NoteFile, NoteType, TransactionRequest, TransactionRequestBuilder
+  AccountId,
+  Note,
+  NoteArray,
+  NoteAssets,
+  NoteFile,
+  NoteType,
+  TransactionRequest,
+  TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk';
 
 import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
@@ -24,20 +31,39 @@ export interface EpochCollateralReview {
 }
 
 export function inspectEpochForwardQuote(
-  state: MainnetEpochCheckpoint, payload: unknown, currentBlock: number, observedNonce: string
+  state: MainnetEpochCheckpoint,
+  payload: unknown,
+  currentBlock: number,
+  observedNonce: string
 ): { bindingHash: string; mandateReclaimHeight: number } {
   parseMainnetEpochCheckpoint(state);
-  if (!Number.isSafeInteger(currentBlock) || currentBlock <= 0 || observedNonce !== state.forwardNonce ||
-      !isRecord(payload) || payload.chainId !== String(state.virtualChainId) || payload.isRegisteredOnchain !== false ||
-      payload.sponsorSignature !== '0x' || !isRecord(payload.compact) || !isRecord(payload.compact.mandate))
+  if (
+    !Number.isSafeInteger(currentBlock) ||
+    currentBlock <= 0 ||
+    observedNonce !== state.forwardNonce ||
+    !isRecord(payload) ||
+    payload.chainId !== String(state.virtualChainId) ||
+    payload.isRegisteredOnchain !== false ||
+    payload.sponsorSignature !== '0x' ||
+    !isRecord(payload.compact) ||
+    !isRecord(payload.compact.mandate)
+  )
     throw new Error('Epoch forward quote or latest SDK nonce is outside its authorization');
   const compact = payload.compact;
   const mandate = payload.compact.mandate;
-  if (typeof compact.sponsor !== 'string' || compact.sponsor.toLowerCase() !== state.evm.account.toLowerCase() ||
-      compact.nonce !== state.forwardNonce || compact.amount !== state.principal || compact.token !== `0x${'0'.repeat(40)}` ||
-      typeof mandate.minTokenOut !== 'string' || !/^[1-9]\d{0,77}$/.test(mandate.minTokenOut) ||
-      BigInt(mandate.minTokenOut) >= (1n << 256n) || BigInt(mandate.minTokenOut) < BigInt(state.forwardMinimum) ||
-      typeof mandate.midenReclaimHeight !== 'string' || !/^[1-9]\d{0,9}$/.test(mandate.midenReclaimHeight))
+  if (
+    typeof compact.sponsor !== 'string' ||
+    compact.sponsor.toLowerCase() !== state.evm.account.toLowerCase() ||
+    compact.nonce !== state.forwardNonce ||
+    compact.amount !== state.principal ||
+    compact.token !== `0x${'0'.repeat(40)}` ||
+    typeof mandate.minTokenOut !== 'string' ||
+    !/^[1-9]\d{0,77}$/.test(mandate.minTokenOut) ||
+    BigInt(mandate.minTokenOut) >= 1n << 256n ||
+    BigInt(mandate.minTokenOut) < BigInt(state.forwardMinimum) ||
+    typeof mandate.midenReclaimHeight !== 'string' ||
+    !/^[1-9]\d{0,9}$/.test(mandate.midenReclaimHeight)
+  )
     throw new Error('Epoch forward compact weakens its actor, amount, nonce or output floor');
   const reclaimHeight = Number(mandate.midenReclaimHeight);
   if (reclaimHeight <= currentBlock || reclaimHeight > currentBlock + state.recallBlocks || reclaimHeight > 0xffff_ffff)
@@ -45,57 +71,103 @@ export function inspectEpochForwardQuote(
   const { sdk } = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, state.evm.account);
   const task = sdk.getTaskData({
     taskType: sdk.TaskType.GetTokenOut,
-    intentData: { isNative: false, depositTokenAddress: `0x${'0'.repeat(40)}`, tokenInAmount: state.principal,
-      outputTokenAddress: state.evm.token, minTokenOut: mandate.minTokenOut, destinationChainId: String(state.evm.chainId),
-      protocolHashIdentifier: `0x${'0'.repeat(64)}`, recipient: state.evm.account },
+    intentData: {
+      isNative: false,
+      depositTokenAddress: `0x${'0'.repeat(40)}`,
+      tokenInAmount: state.principal,
+      outputTokenAddress: state.evm.token,
+      minTokenOut: mandate.minTokenOut,
+      destinationChainId: String(state.evm.chainId),
+      protocolHashIdentifier: `0x${'0'.repeat(64)}`,
+      recipient: state.evm.account
+    },
     extraDataTypestring: `uint256 midenReclaimHeight,${sdk.MIDEN_TO_EVM_EXTRA_TYPESTRING}`,
-    extraData: { midenSourceAccount: state.accountHex, midenFaucetId: state.native.hex,
-      midenNoteType: 'P2IDE', midenNoteId: '', midenReclaimHeight: String(reclaimHeight) }
+    extraData: {
+      midenSourceAccount: state.accountHex,
+      midenFaucetId: state.native.hex,
+      midenNoteType: 'P2IDE',
+      midenNoteId: '',
+      midenReclaimHeight: String(reclaimHeight)
+    }
   });
-  if (payload.witnessTypeString !== task.taskTypeString ||
-      Object.keys(mandate).sort().join(',') !== Object.keys(task.intentData).sort().join(','))
+  if (
+    payload.witnessTypeString !== task.taskTypeString ||
+    Object.keys(mandate).sort().join(',') !== Object.keys(task.intentData).sort().join(',')
+  )
     throw new Error('Epoch forward mandate has undeclared fields or a different witness shape');
   for (const [key, expected] of Object.entries(task.intentData)) {
     const actual = mandate[key];
-    if (typeof actual !== 'string' || typeof expected !== 'string' ||
-        (['tokenIn', 'tokenOut', 'recipient'].includes(key) ? actual.toLowerCase() !== expected.toLowerCase() : actual !== expected))
+    if (
+      typeof actual !== 'string' ||
+      typeof expected !== 'string' ||
+      (['tokenIn', 'tokenOut', 'recipient'].includes(key)
+        ? actual.toLowerCase() !== expected.toLowerCase()
+        : actual !== expected)
+    )
       throw new Error('Epoch forward mandate does not bind the authorized route, actors and amounts');
   }
-  return { bindingHash: getSimpleWitnessHash(task.intentData, task.taskTypeString), mandateReclaimHeight: reclaimHeight };
+  return {
+    bindingHash: getSimpleWitnessHash(task.intentData, task.taskTypeString),
+    mandateReclaimHeight: reclaimHeight
+  };
 }
 
-export function inspectEpochRefundNote(
-  state: MainnetEpochCheckpoint, bytes: Uint8Array, currentBlock: number
-): bigint {
+export function inspectEpochRefundNote(state: MainnetEpochCheckpoint, bytes: Uint8Array, currentBlock: number): bigint {
   parseMainnetEpochCheckpoint(state);
   const authority = state.forwardAuthority;
-  if (!authority || !state.forwardNoteId || !Number.isSafeInteger(currentBlock) || currentBlock < authority.reclaimHeight ||
-      bytes.length < 1 || bytes.length > 1_048_576) throw new Error('Original Epoch collateral is not authorized and mature for refund');
+  if (
+    !authority ||
+    !state.forwardNoteId ||
+    !Number.isSafeInteger(currentBlock) ||
+    currentBlock < authority.reclaimHeight ||
+    bytes.length < 1 ||
+    bytes.length > 1_048_576
+  )
+    throw new Error('Original Epoch collateral is not authorized and mature for refund');
   const note = NoteFile.deserialize(bytes).note();
-  if (!note || note.id().toString() !== state.forwardNoteId) throw new Error('Epoch refund does not name its original collateral');
+  if (!note || note.id().toString() !== state.forwardNoteId)
+    throw new Error('Epoch refund does not name its original collateral');
   inspectEpochCollateralNote(state, note, authority);
   return BigInt(state.principal);
 }
 
 export function inspectEpochReturnNote(
-  state: MainnetEpochCheckpoint, expectedNoteId: string, bytes: Uint8Array
+  state: MainnetEpochCheckpoint,
+  expectedNoteId: string,
+  bytes: Uint8Array
 ): bigint {
   parseMainnetEpochCheckpoint(state);
-  return inspectMainnetReturnNote({ noteId: expectedNoteId, accountHex: state.accountHex,
-    faucetHex: state.native.hex, minimumOutput: BigInt(state.reverseMinimum) }, bytes);
+  return inspectMainnetReturnNote(
+    {
+      noteId: expectedNoteId,
+      accountHex: state.accountHex,
+      faucetHex: state.native.hex,
+      minimumOutput: BigInt(state.reverseMinimum)
+    },
+    bytes
+  );
 }
 
 function inspectEpochCollateralNote(
-  state: MainnetEpochCheckpoint, note: Note, review: Pick<EpochCollateralReview, 'reclaimHeight' | 'bindingHash'>
+  state: MainnetEpochCheckpoint,
+  note: Note,
+  review: Pick<EpochCollateralReview, 'reclaimHeight' | 'bindingHash'>
 ): void {
-  if (note.metadata().sender().toString() !== state.accountHex ||
-      note.metadata().noteType() !== NoteType.Public || note.assets().assets().length !== 1) {
+  if (
+    note.metadata().sender().toString() !== state.accountHex ||
+    note.metadata().noteType() !== NoteType.Public ||
+    note.assets().assets().length !== 1
+  ) {
     throw new Error('Epoch collateral must contain one public output from the authorized account');
   }
   const assets = note.assets().fungibleAssets();
   const asset = assets[0];
-  if (assets.length !== 1 || !asset || asset.faucetId().toString() !== state.native.hex ||
-      asset.amount() !== BigInt(state.principal)) {
+  if (
+    assets.length !== 1 ||
+    !asset ||
+    asset.faucetId().toString() !== state.native.hex ||
+    asset.amount() !== BigInt(state.principal)
+  ) {
     throw new Error('Epoch collateral asset or amount differs from its authorization');
   }
   const attachments = note.attachments();
@@ -111,7 +183,7 @@ function inspectEpochCollateralNote(
   let binding = '0x';
   for (const [index, width] of widths.entries()) {
     const value = felts[index];
-    if (value === undefined || value < 0n || value >= (1n << BigInt(width * 8))) {
+    if (value === undefined || value < 0n || value >= 1n << BigInt(width * 8)) {
       throw new Error('Epoch mandate binding contains an out-of-range felt');
     }
     binding += value.toString(16).padStart(width * 2, '0');
@@ -119,14 +191,30 @@ function inspectEpochCollateralNote(
   if (binding !== review.bindingHash) throw new Error('Epoch collateral is not bound to the authorized mandate');
 
   const expectedNote = Note.createP2IDENote(
-    AccountId.fromHex(state.accountHex), AccountId.fromHex(state.midenAllocator), new NoteAssets([asset]),
-    review.reclaimHeight, null, NoteType.Public, attachment
+    AccountId.fromHex(state.accountHex),
+    AccountId.fromHex(state.midenAllocator),
+    new NoteAssets([asset]),
+    review.reclaimHeight,
+    null,
+    NoteType.Public,
+    attachment
   );
-  const actualStorage = note.recipient().storage().items().map(value => value.asInt());
-  const expectedStorage = expectedNote.recipient().storage().items().map(value => value.asInt());
-  if (note.script().root().toHex() !== expectedNote.script().root().toHex() ||
-      note.metadata().tag().asU32() !== expectedNote.metadata().tag().asU32() ||
-      actualStorage.length !== expectedStorage.length || actualStorage.some((value, index) => value !== expectedStorage[index])) {
+  const actualStorage = note
+    .recipient()
+    .storage()
+    .items()
+    .map(value => value.asInt());
+  const expectedStorage = expectedNote
+    .recipient()
+    .storage()
+    .items()
+    .map(value => value.asInt());
+  if (
+    note.script().root().toHex() !== expectedNote.script().root().toHex() ||
+    note.metadata().tag().asU32() !== expectedNote.metadata().tag().asU32() ||
+    actualStorage.length !== expectedStorage.length ||
+    actualStorage.some((value, index) => value !== expectedStorage[index])
+  ) {
     throw new Error('Epoch collateral recipient, script or reclaim storage is not the canonical P2IDE request');
   }
 }
@@ -137,11 +225,16 @@ export function inspectEpochCollateralRequest(
   review: EpochCollateralReview
 ): { noteId: string; reclaimHeight: number } {
   parseMainnetEpochCheckpoint(state);
-  if (!Number.isSafeInteger(review.currentBlock) || review.currentBlock < 0 ||
-      !Number.isSafeInteger(review.reclaimHeight) || review.reclaimHeight > 0xffff_ffff ||
-      review.reclaimHeight - review.currentBlock < state.minimumRecallBlocks ||
-      review.reclaimHeight - review.currentBlock > state.recallBlocks ||
-      !/^0x[0-9a-f]{64}$/.test(review.bindingHash) || bytes.length > 1_048_576)
+  if (
+    !Number.isSafeInteger(review.currentBlock) ||
+    review.currentBlock < 0 ||
+    !Number.isSafeInteger(review.reclaimHeight) ||
+    review.reclaimHeight > 0xffff_ffff ||
+    review.reclaimHeight - review.currentBlock < state.minimumRecallBlocks ||
+    review.reclaimHeight - review.currentBlock > state.recallBlocks ||
+    !/^0x[0-9a-f]{64}$/.test(review.bindingHash) ||
+    bytes.length > 1_048_576
+  )
     throw new Error('Epoch collateral reclaim window or mandate binding is outside authorization');
   const request = TransactionRequest.deserialize(bytes);
   const notes = request.expectedOutputOwnNotes();
@@ -150,7 +243,10 @@ export function inspectEpochCollateralRequest(
   inspectEpochCollateralNote(state, note, review);
   const noteId = note.id().toString();
   const blocks = request.blockNumbers();
-  if (blocks.length > 8 || blocks.some(block => !Number.isSafeInteger(block) || block < 0 || block > review.currentBlock)) {
+  if (
+    blocks.length > 8 ||
+    blocks.some(block => !Number.isSafeInteger(block) || block < 0 || block > review.currentBlock)
+  ) {
     throw new Error('Epoch collateral declares an invalid authentication block');
   }
   const auth = request.authArg();

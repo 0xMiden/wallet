@@ -634,7 +634,10 @@ export async function fetchOneClickStatus(
   const query = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
   const raw = await requestJson(config, `/v0/status?${query.toString()}`, undefined, fetcher);
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], expectedOneClickFees(config.appFees ?? [], config.feePolicy));
+  validateProviderFees(
+    status.quoteResponse.quoteRequest.appFees ?? [],
+    expectedOneClickFees(config.appFees ?? [], config.feePolicy)
+  );
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     status.quoteResponse.quote.depositMemo !== depositMemo ||
@@ -661,12 +664,20 @@ export async function submitOneClickDeposit(
   ) {
     throw new Error('Invalid deposit submission');
   }
-  const raw = await requestJson(config, '/v0/deposit/submit', {
-    method: 'POST',
-    body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
-  }, fetcher);
+  const raw = await requestJson(
+    config,
+    '/v0/deposit/submit',
+    {
+      method: 'POST',
+      body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
+    },
+    fetcher
+  );
   const status = parseStatus(raw);
-  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], expectedOneClickFees(config.appFees ?? [], config.feePolicy));
+  validateProviderFees(
+    status.quoteResponse.quoteRequest.appFees ?? [],
+    expectedOneClickFees(config.appFees ?? [], config.feePolicy)
+  );
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     (expectedQuote && hashOneClickQuote(status.quoteResponse) !== hashOneClickQuote(expectedQuote))

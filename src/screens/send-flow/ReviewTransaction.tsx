@@ -200,14 +200,23 @@ export const ReviewTransaction: React.FC = () => {
   });
 
   const epochMinimumOutput = useMemo(() => {
-    if (epochQuote.loading || epochQuote.error || epochQuote.amount === undefined ||
-        epochQuote.decimals === undefined || !Number.isSafeInteger(epochQuote.decimals) ||
-        epochQuote.decimals < 0 || epochQuote.decimals > 38 ||
-        amountExceedsTokenDecimals(epochQuote.amount, epochQuote.decimals)) return 0n;
+    if (
+      epochQuote.loading ||
+      epochQuote.error ||
+      epochQuote.amount === undefined ||
+      epochQuote.decimals === undefined ||
+      !Number.isSafeInteger(epochQuote.decimals) ||
+      epochQuote.decimals < 0 ||
+      epochQuote.decimals > 38 ||
+      amountExceedsTokenDecimals(epochQuote.amount, epochQuote.decimals)
+    )
+      return 0n;
     try {
       const minimum = parseUnits(epochQuote.amount, epochQuote.decimals);
       return minimum > 0n ? minimum : 0n;
-    } catch { return 0n; }
+    } catch {
+      return 0n;
+    }
   }, [epochQuote.amount, epochQuote.decimals, epochQuote.loading, epochQuote.error]);
   const epochQuoteUnavailable = isBridge && route !== 'agglayer' && route !== 'usdcx' && epochMinimumOutput === 0n;
 

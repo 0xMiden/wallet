@@ -7,7 +7,8 @@ export function mainnetOneClickPriceId(asset: OneClickAsset, verifiedNative: One
       asset.blockchain !== 'miden' ||
       asset.faucetId !== verifiedNative.faucetId ||
       asset.decimals !== verifiedNative.decimals
-    ) throw new Error('Conflicting metadata for the verified native price identity');
+    )
+      throw new Error('Conflicting metadata for the verified native price identity');
     return 'usd-coin';
   }
   if (!asset.coingeckoId || !/^[a-z0-9-]{1,64}$/.test(asset.coingeckoId))
@@ -52,15 +53,24 @@ export async function fetchMainnetOneClickUsdPrices(
   const now = Date.now();
   for (const id of uniqueIds) {
     const entry = data[id];
-    if (!isRecord(entry) || (typeof entry.usd !== 'string' && typeof entry.usd !== 'number') ||
-        (typeof entry.last_updated_at !== 'string' && typeof entry.last_updated_at !== 'number')) {
+    if (
+      !isRecord(entry) ||
+      (typeof entry.usd !== 'string' && typeof entry.usd !== 'number') ||
+      (typeof entry.last_updated_at !== 'string' && typeof entry.last_updated_at !== 'number')
+    ) {
       throw new Error(`CoinGecko did not return a USD price for ${id}`);
     }
     const updatedAtSeconds = Number(entry.last_updated_at);
     const updatedAt = updatedAtSeconds * 1000;
     const price = usdToMicroDollarsCeil(String(entry.usd));
-    if (!Number.isSafeInteger(updatedAtSeconds) || updatedAtSeconds <= 0 || !Number.isSafeInteger(updatedAt) ||
-        now - updatedAt > MAX_PRICE_AGE_MS || updatedAt - now > MAX_FUTURE_SKEW_MS || price <= 0n) {
+    if (
+      !Number.isSafeInteger(updatedAtSeconds) ||
+      updatedAtSeconds <= 0 ||
+      !Number.isSafeInteger(updatedAt) ||
+      now - updatedAt > MAX_PRICE_AGE_MS ||
+      updatedAt - now > MAX_FUTURE_SKEW_MS ||
+      price <= 0n
+    ) {
       throw new Error(`CoinGecko price for ${id} is stale or invalid`);
     }
     newestUpdate = Math.max(newestUpdate, updatedAt);

@@ -9,10 +9,12 @@ import { useEpochQuote } from './useEpochQuote';
 
 let mockHoldDebounce = false;
 let mockDebouncedValue: unknown;
-jest.mock('use-debounce', () => ({ useDebounce: (value: unknown) => {
-  if (!mockHoldDebounce) mockDebouncedValue = value;
-  return [mockDebouncedValue];
-} }));
+jest.mock('use-debounce', () => ({
+  useDebounce: (value: unknown) => {
+    if (!mockHoldDebounce) mockDebouncedValue = value;
+    return [mockDebouncedValue];
+  }
+}));
 jest.mock('lib/epoch', () => ({ quoteEpochSendOutput: jest.fn() }));
 jest.mock('lib/epoch/bridge', () => ({ normalizeMidenIdToHex: (id: string) => id }));
 jest.mock('lib/remote-config/values', () => ({ selectEpochOutputToken: jest.fn(), selectEvmChainId: jest.fn() }));

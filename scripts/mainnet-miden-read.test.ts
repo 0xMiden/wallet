@@ -1,5 +1,9 @@
 /** @jest-environment node */
-import { readMainnetFaucetMetadata, readMainnetMidenBlock, verifyMainnetMidenNoteInclusion } from '../playwright/e2e/helpers/mainnet-miden-read';
+import {
+  readMainnetFaucetMetadata,
+  readMainnetMidenBlock,
+  verifyMainnetMidenNoteInclusion
+} from '../playwright/e2e/helpers/mainnet-miden-read';
 
 const mockHeader = jest.fn();
 const mockDetails = jest.fn();
@@ -13,7 +17,8 @@ const mockPath = jest.fn();
 jest.mock('@miden-sdk/miden-sdk', () => ({
   Endpoint: jest.fn().mockImplementation(url => ({ url })),
   AccountId: { fromHex: (value: string) => value },
-  NoteId: { fromHex: (value: string) => value }, Word: { fromHex: (value: string) => value },
+  NoteId: { fromHex: (value: string) => value },
+  Word: { fromHex: (value: string) => value },
   RpcClient: jest.fn().mockImplementation(endpoint => {
     mockRpc(endpoint);
     return { getBlockHeaderByNumber: mockHeader, getAccountDetails: mockDetails, getNotesById: mockNotes };
@@ -27,15 +32,24 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockHeader.mockResolvedValue({ blockNum: () => 813623, noteRoot: () => nodeRoot });
   mockPath.mockImplementation((index, leaf, root) => index === 5n && leaf === noteId && root === nodeRoot);
-  mockNotes.mockResolvedValue([{ noteId: { toString: () => noteId }, metadata: { sender: () => ({ toString: () => senderHex }) },
-    inclusionProof: { location: () => ({ blockNum: () => 813623, blockNoteTreeIndex: () => 5 }), notePath: () => ({ verify: mockPath }) } }]);
+  mockNotes.mockResolvedValue([
+    {
+      noteId: { toString: () => noteId },
+      metadata: { sender: () => ({ toString: () => senderHex }) },
+      inclusionProof: {
+        location: () => ({ blockNum: () => 813623, blockNoteTreeIndex: () => 5 }),
+        notePath: () => ({ verify: mockPath })
+      }
+    }
+  ]);
   mockDetails.mockResolvedValue({ account: () => ({ storage: () => 'public-faucet-storage' }) });
   mockFaucet.mockReturnValue({ symbol: () => ({ toString: () => 'USDCX' }), decimals: () => 6 });
 });
 
 it('verifies the exact note, sender and inclusion path against the actual canonical node header, never a provider label', async () => {
   await expect(verifyMainnetMidenNoteInclusion(rpcUrl, noteId, 813623, senderHex)).resolves.toBeUndefined();
-  expect(mockHeader).toHaveBeenCalledWith(813623); expect(mockNotes).toHaveBeenCalledWith([noteId]);
+  expect(mockHeader).toHaveBeenCalledWith(813623);
+  expect(mockNotes).toHaveBeenCalledWith([noteId]);
   expect(mockPath).toHaveBeenCalledWith(5n, noteId, nodeRoot);
 });
 it('rejects a note not proven under the actual node header root', async () => {
@@ -80,10 +94,12 @@ it('refuses invalid faucet identities before contacting the RPC', async () => {
   await expect(readMainnetFaucetMetadata('USDCX', rpcUrl)).rejects.toThrow(/faucet/i);
   expect(mockRpc).not.toHaveBeenCalled();
 });
-it.each(['http://rpc.mainnet.miden.io', 'https://user:password@rpc.mainnet.miden.io', 'https://rpc.mainnet.miden.io?key=secret']) (
-  'refuses credential-bearing or non-TLS RPC URLs: %s', async url => {
-    await expect(readMainnetMidenBlock(url)).rejects.toThrow(/RPC/i);
-    await expect(readMainnetFaucetMetadata(faucetId, url)).rejects.toThrow(/RPC/i);
-    expect(mockRpc).not.toHaveBeenCalled();
-  }
-);
+it.each([
+  'http://rpc.mainnet.miden.io',
+  'https://user:password@rpc.mainnet.miden.io',
+  'https://rpc.mainnet.miden.io?key=secret'
+])('refuses credential-bearing or non-TLS RPC URLs: %s', async url => {
+  await expect(readMainnetMidenBlock(url)).rejects.toThrow(/RPC/i);
+  await expect(readMainnetFaucetMetadata(faucetId, url)).rejects.toThrow(/RPC/i);
+  expect(mockRpc).not.toHaveBeenCalled();
+});

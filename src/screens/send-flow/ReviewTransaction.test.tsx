@@ -60,7 +60,14 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string; decimals?: number } = {
+let mockEpochQuote: {
+  amount?: string;
+  loading: boolean;
+  error: null;
+  symbol: string;
+  address?: string;
+  decimals?: number;
+} = {
   amount: undefined,
   loading: false,
   error: null,
@@ -987,19 +994,22 @@ describe('ReviewTransaction — rendering', () => {
   it.each([
     { amount: '4.8', decimals: 6, minimum: 4_800_000n },
     { amount: '1.000000000000000001', decimals: 18, minimum: 1_000_000_000_000_000_001n }
-  ])('passes the reviewed output in exact $decimals-decimal base units to Epoch before signing', async ({ amount, decimals, minimum }) => {
-    mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
-    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
-    mockBalanceData = [VALID_TOKEN];
-    render(<ReviewTransaction />);
-    await flush();
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('send-review-submit'));
-    });
-    await flush();
-    expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
-  });
+  ])(
+    'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
+    async ({ amount, decimals, minimum }) => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
+    }
+  );
 
   it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
     mockDetectedChain = 'ethereum';

@@ -37,19 +37,24 @@ export async function selectMainnetOneClickAssets(page: Page, route: MainnetOneC
   }
 }
 
-export async function connectMainnetOneClickWallet(wallet: GuardianAwareWalletPage, counterparty: WcCounterparty): Promise<void> {
-  const state = async () => wallet.page.evaluate(() => {
-    const read = window.__TEST_APPKIT_STATE__;
-    if (!read) throw new Error('The mainnet E2E AppKit state hook is unavailable');
-    return read();
-  });
+export async function connectMainnetOneClickWallet(
+  wallet: GuardianAwareWalletPage,
+  counterparty: WcCounterparty
+): Promise<void> {
+  const state = async () =>
+    wallet.page.evaluate(() => {
+      const read = window.__TEST_APPKIT_STATE__;
+      if (!read) throw new Error('The mainnet E2E AppKit state hook is unavailable');
+      return read();
+    });
   await counterparty.start();
   const connection = counterparty.connectWithRetry(
-    () => wallet.page.evaluate(() => {
-      const read = window.__TEST_APPKIT_CONNECT_URI__;
-      if (!read) throw new Error('The mainnet E2E AppKit URI hook is unavailable');
-      return read();
-    }),
+    () =>
+      wallet.page.evaluate(() => {
+        const read = window.__TEST_APPKIT_CONNECT_URI__;
+        if (!read) throw new Error('The mainnet E2E AppKit URI hook is unavailable');
+        return read();
+      }),
     async () => (await state()).connected,
     { attempts: 3, backoffMs: 5_000, sessionTimeoutMs: 45_000 }
   );
@@ -61,17 +66,29 @@ export async function connectMainnetOneClickWallet(wallet: GuardianAwareWalletPa
 }
 
 export async function captureMainnetOneClickReviewQuote(
-  wallet: GuardianAwareWalletPage, route: MainnetOneClickRoute,
-  expected: { originAsset: string; destinationAsset: string; amount: bigint; refundTo: string; recipient: string }, selected = false
+  wallet: GuardianAwareWalletPage,
+  route: MainnetOneClickRoute,
+  expected: { originAsset: string; destinationAsset: string; amount: bigint; refundTo: string; recipient: string },
+  selected = false
 ): Promise<OneClickQuoteResponse> {
-  const response = wallet.page.waitForResponse(response => {
-    if (!response.url().includes('/v0/quote') || response.request().method() !== 'POST') return false;
-    const body: unknown = response.request().postDataJSON();
-    return typeof body === 'object' && body !== null && !Array.isArray(body) &&
-      Reflect.get(body, 'dry') === false && Reflect.get(body, 'amount') === expected.amount.toString() &&
-      Reflect.get(body, 'originAsset') === expected.originAsset && Reflect.get(body, 'destinationAsset') === expected.destinationAsset &&
-      Reflect.get(body, 'refundTo') === expected.refundTo && Reflect.get(body, 'recipient') === expected.recipient;
-  }, { timeout: 120_000 });
+  const response = wallet.page.waitForResponse(
+    response => {
+      if (!response.url().includes('/v0/quote') || response.request().method() !== 'POST') return false;
+      const body: unknown = response.request().postDataJSON();
+      return (
+        typeof body === 'object' &&
+        body !== null &&
+        !Array.isArray(body) &&
+        Reflect.get(body, 'dry') === false &&
+        Reflect.get(body, 'amount') === expected.amount.toString() &&
+        Reflect.get(body, 'originAsset') === expected.originAsset &&
+        Reflect.get(body, 'destinationAsset') === expected.destinationAsset &&
+        Reflect.get(body, 'refundTo') === expected.refundTo &&
+        Reflect.get(body, 'recipient') === expected.recipient
+      );
+    },
+    { timeout: 120_000 }
+  );
   if (!selected) await selectMainnetOneClickAssets(wallet.page, route);
   await wallet.page.getByTestId('one-click-pay-amount').fill(route.amount);
   await expect(wallet.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 120_000 });

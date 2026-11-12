@@ -1,5 +1,8 @@
 /** @jest-environment node */
-import { loadMainnetOneClickSetup, MAINNET_WALLET_CONFIG_URL } from '../playwright/e2e/helpers/mainnet-one-click-config';
+import {
+  loadMainnetOneClickSetup,
+  MAINNET_WALLET_CONFIG_URL
+} from '../playwright/e2e/helpers/mainnet-one-click-config';
 import testnet from '../src/lib/remote-config/testing/testnet.json';
 import { readMainnetFaucetMetadata } from '../playwright/e2e/helpers/mainnet-miden-read';
 
@@ -14,10 +17,11 @@ afterEach(() => {
   else process.env.MIDEN_REMOTE_CONFIG_URL = originalUrl;
   jest.clearAllMocks();
 });
-const fetcher = () => jest.fn().mockResolvedValue({
-  ok: true,
-  json: async () => ({ ...testnet, network: 'mainnet', features: { ...testnet.features, nearIntents: false } })
-});
+const fetcher = () =>
+  jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ ...testnet, network: 'mainnet', features: { ...testnet.features, nearIntents: false } })
+  });
 
 it('uses the same loopback snapshot as the E2E build, without enabling the published wallet config', async () => {
   process.env.E2E_NETWORK = 'mainnet';
@@ -32,8 +36,9 @@ it('retains the published source when no qualification override exists', async (
   await loadMainnetOneClickSetup(read);
   expect(read).toHaveBeenCalledWith(MAINNET_WALLET_CONFIG_URL, { headers: { Accept: 'application/json' } });
 });
-it.each(['http://evil.example', 'http://127.0.0.1:8557/?token=x', 'http://user@127.0.0.1:8557']) (
-  'refuses an unowned or credential-bearing qualification source: %s', async url => {
+it.each(['http://evil.example', 'http://127.0.0.1:8557/?token=x', 'http://user@127.0.0.1:8557'])(
+  'refuses an unowned or credential-bearing qualification source: %s',
+  async url => {
     process.env.E2E_NETWORK = 'mainnet';
     process.env.MIDEN_REMOTE_CONFIG_URL = url;
     const read = fetcher();
@@ -48,14 +53,26 @@ it.each([true, false])('uses native Node faucet metadata, refusing unavailable p
   const metadata = jest.mocked(readMainnetFaucetMetadata);
   if (available) metadata.mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
   else metadata.mockRejectedValue(new Error('Public faucet state unavailable'));
-  const read = jest.fn().mockResolvedValue({ ok: true, json: async () => ({
-    ...testnet, network: 'mainnet', features: { ...testnet.features, nearIntents: true },
-    swap: { ...testnet.swap, oneClick: { serviceUrl: 'https://one-click.example',
-      midenAssets: [{ assetId: 'miden:usdcx', faucetId, decimals: 6 }] } }
-  }) });
-  const catalog = jest.fn().mockResolvedValue(new Response(JSON.stringify([
-    { assetId: 'miden:usdcx', blockchain: 'miden', symbol: 'USDCX', decimals: 6 }
-  ])));
+  const read = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      ...testnet,
+      network: 'mainnet',
+      features: { ...testnet.features, nearIntents: true },
+      swap: {
+        ...testnet.swap,
+        oneClick: {
+          serviceUrl: 'https://one-click.example',
+          midenAssets: [{ assetId: 'miden:usdcx', faucetId, decimals: 6 }]
+        }
+      }
+    })
+  });
+  const catalog = jest
+    .fn()
+    .mockResolvedValue(
+      new Response(JSON.stringify([{ assetId: 'miden:usdcx', blockchain: 'miden', symbol: 'USDCX', decimals: 6 }]))
+    );
   const setup = await loadMainnetOneClickSetup(read, catalog);
   expect(metadata).toHaveBeenCalledWith(faucetId, 'https://rpc.mainnet.miden.io');
   if (available) expect(setup?.assets).toEqual([expect.objectContaining({ faucetId, symbol: 'USDCX', decimals: 6 })]);

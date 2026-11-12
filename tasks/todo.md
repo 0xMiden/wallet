@@ -124,6 +124,7 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
 # Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 
 ## ✅ PROVEN (both make-or-break unknowns resolved)
+
 - [x] Real Miden receipt path on iOS (commit 5e8b5b4d5): CLI solver delivers real note ->
       real sync -> real Claim-All consume -> real takeAgglayerBridgeInInfo reconcile ->
       bridged-receive row -> received / "Bridged from EVM". GREEN on the sim.
@@ -137,6 +138,7 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
       of d18d112eb50cbe764f03e51a90210611, and this check has not been re-run on that id.
 
 ## Deposit half — ✅ GREEN on sim (AggLayer/ETH route, full real UI)
+
 PASSED (testnet build + local Anvil, 1.6m): real wallet → real WC pairing → real UI deposit
 (Receive → ETH → amount → Slow → review → Confirm) → REAL bridgeAsset signed by counterparty +
 broadcast to Anvil (asserted: destNet 78, token 0x0, amount, value==amount, stub depositCount=1) →
@@ -147,6 +149,7 @@ MockUsdc balance. Connect step is retry-guarded (relay rate-limit); needed a coo
 Scope decision: full-UI deposit e2e targets the **AggLayer ETH (Slow)** route. It has a
 proven receipt path + a single `bridgeAsset` call (one stub), vs Epoch/USDC which needs
 The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Epoch = follow-up.
+
 - [x] Anvil (chain 11155111) bring-up: `helpers/anvil.ts` (AnvilInstance start/stop); spec beforeAll/afterAll.
 - [x] EVM read override: `config.ts` E2E-gated RPC → `E2E_EVM_RPC_URL` (Anvil); vite.mobile define added.
       Covers BOTH balance reads (`rpcRequest`) and `waitForSepoliaReceipt` (both read getChain().rpcUrl).
@@ -156,33 +159,28 @@ The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Ep
 - [x] data-testids: `receive-cross-chain` (AddressTab), `bridge-token-{ETH,USDC}` (EvmBridgeTokenDrawer).
       (route/amount/review testids already existed.)
 - [x] IosWalletPage nav: openBridgeDeposit / selectBridgeToken / enterBridgeAmount / selectBridgeRouteSlow /
-      confirmBridgeDeposit / latestBridgeReceive (+ __TEST_LATEST_BRIDGE_RECEIVE__ hook — UI doesn't hand
+      confirmBridgeDeposit / latestBridgeReceive (+ **TEST_LATEST_BRIDGE_RECEIVE** hook — UI doesn't hand
       the txId to the DOM).
 - [x] Full spec `bridge-in-deposit.ios.spec.ts`: create wallet -> solver faucet + setAgglayerSender ->
       real WC connect -> Receive/CrossChain/ETH/amount/Slow/review/Confirm -> assert real bridgeAsset
       broadcast (decoded: destNet 78, token 0x0, amount, value==amount, stub depositCount=1) ->
       row 'delivering' (real Anvil receipt) -> solver mints matching note -> Claim-All -> 'received'.
 - [x] Typecheck clean (tsc --noEmit).
-- [~] RUN on sim (testnet). Iterating through real bugs the harness surfaced:
-      1. devnet on protocol 0.16 vs @miden-sdk 0.15.8 → create_wallet registration rejected.
-         Fix: TESTNET (0.15-compatible). [env, not code]
-      2. openBridgeDeposit race: cross-chain tap reads React `connected` before useNativeReown's
-         on-mount getState() refresh lands → opens un-tappable native modal. Fix: /bridge/deposit
-         route fallback (declarative, reactive). [helper]
-      3. Deposit screen defaults to USDC, reads its balance on mount; no USDC contract on Anvil →
-         eth_call "0x" → viem decodeFunctionResult throws → amount screen never renders. Fix:
-         MockUsdc double at BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS (getBalance/balanceOf → 0). [double]
-      4. In `isBridge` mode SelectAmount uses `bridgeSelector` (no testid), NOT the send
-         `tokenSelector` — so send-token-selector never existed on the deposit form (Explore map
-         was wrong). Fix: add send-token-selector to the bridge token button. [app source → rebuild]
-      5. CurrencyInput decimalsLimit=6 → 0.00000005 truncates to 0; smallest ETH is 0.000001 →
-         parseUnits(.,18)=1e12, but faucet max_supply was 1e12. Fix: createFaucet maxSupply param,
-         1e15 for this test; deposit 0.000001 ETH → mint 1e12 note. [harness]
-      Diagnosis was evidence-driven: DEBUG dump showed native connected the whole time + the exact
-      "Cannot decode zero data" error + which screen rendered. Rebuild+run in progress.
-      NOTE: bridge-in harness is HYBRID — local EVM (Anvil + stub + WC counterparty) + REAL Miden
-      testnet (no local Miden node in mobile harness; same as every iOS spec + bridge-OUT). Only the
-      WC relay is non-local (transport, not chain).
+- [~] RUN on sim (testnet). Iterating through real bugs the harness surfaced: 1. devnet on protocol 0.16 vs @miden-sdk 0.15.8 → create_wallet registration rejected.
+  Fix: TESTNET (0.15-compatible). [env, not code] 2. openBridgeDeposit race: cross-chain tap reads React `connected` before useNativeReown's
+  on-mount getState() refresh lands → opens un-tappable native modal. Fix: /bridge/deposit
+  route fallback (declarative, reactive). [helper] 3. Deposit screen defaults to USDC, reads its balance on mount; no USDC contract on Anvil →
+  eth_call "0x" → viem decodeFunctionResult throws → amount screen never renders. Fix:
+  MockUsdc double at BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS (getBalance/balanceOf → 0). [double] 4. In `isBridge` mode SelectAmount uses `bridgeSelector` (no testid), NOT the send
+  `tokenSelector` — so send-token-selector never existed on the deposit form (Explore map
+  was wrong). Fix: add send-token-selector to the bridge token button. [app source → rebuild] 5. CurrencyInput decimalsLimit=6 → 0.00000005 truncates to 0; smallest ETH is 0.000001 →
+  parseUnits(.,18)=1e12, but faucet max_supply was 1e12. Fix: createFaucet maxSupply param,
+  1e15 for this test; deposit 0.000001 ETH → mint 1e12 note. [harness]
+  Diagnosis was evidence-driven: DEBUG dump showed native connected the whole time + the exact
+  "Cannot decode zero data" error + which screen rendered. Rebuild+run in progress.
+  NOTE: bridge-in harness is HYBRID — local EVM (Anvil + stub + WC counterparty) + REAL Miden
+  testnet (no local Miden node in mobile harness; same as every iOS spec + bridge-OUT). Only the
+  WC relay is non-local (transport, not chain).
 - [x] CI gate: `.github/workflows/e2e-bridge-in.yml` — post-merge on main (push + workflow_dispatch),
       macos-26-xlarge, installs Foundry, reuses the tuned sim-boot pattern from e2e-blockchain.yml,
       bakes E2E_EVM_RPC_URL, runs `bridge-in-deposit --retries=2`. Optional WC_COUNTERPARTY_PROJECT_ID
@@ -190,12 +188,14 @@ The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Ep
       f277263fa ci). Both SSH-signed.
 
 ## Epoch/USDC "Fast" route — HERMETIC DOUBLES (user chose the PR-gate path)
+
 Investigation done: Epoch solver is hosted-only + watches REAL Sepolia (can't run vs Anvil), so a
 gateable test must stub the allocator+solver. Reconcile is note-id-only (vs AggLayer sender+amount).
 Wallet flow: quote (/checkIfDepositNeeded → gates Fast route) → executeEVMToMiden (solveIntent:
 approve+depositERC20AndRegister on-chain + createAllocation) → row 'delivering' + registerPendingBridgeIn
 by nonce → poll/consume reconcile matches midenNoteId from getIntentStatus.
 Build plan:
+
 - [x] epoch/client.ts E2E RPC override (SDK reads use chain default RPC, NOT config.ts override) —
       withE2eRpc() on both builders; EVM→Miden uses buildEpochWalletClient (confirmed via sdk.ts). tsc clean.
 - [x] Fake allocator HTTP server (`fake-epoch-allocator.ts`, port 8548): /suggested-nonce, /checkIfDepositNeeded
@@ -218,15 +218,18 @@ Build plan:
       deposit specs serially (workers:1), each with its own Anvil (+ Epoch's fake allocator).
 
 ## Both bridge-in deposit routes GREEN + committed + pushed. AggLayer (ETH/Slow) + Epoch (USDC/Fast).
+
 Branch wiktor/bridge-in-e2e: d8ff8699c/f277263fa (agglayer feat+ci), e686dbe22/5178e8025 (epoch feat+ci).
 CI e2e-bridge-in.yml runs BOTH deposit specs on main. AggLayer re-verified green vs the Epoch build (1.2m).
 
 ## Coverage matrix (2x2): bridge-OUT AggLayer is the ONLY uncovered quadrant
+
 | dir | Epoch/Fast | AggLayer/Slow |
-| IN  | ✅ new hermetic | ✅ new (Anvil stub) |
+| IN | ✅ new hermetic | ✅ new (Anvil stub) |
 | OUT | ✅ existing (real testnet + hosted solver) | ❌ building now |
 
 ## Bridge-OUT AggLayer (Miden->EVM "Slow") e2e — IN PROGRESS
+
 Flow: initiateB2AggBridge builds a B2AGG note (MIDEN_AGGLAYER_FAUCET_ID -> MIDEN_BRIDGE_ID, destNetwork 0 +
 0x addr) -> proved+submitted on Miden as a bridged-send(agglayer) row; the AggLayer infra claims on EVM
 (claimAsset), tracked via the indexer (AGGLAYER_BRIDGE_API). Complications: wallet must HOLD the real
@@ -240,9 +243,10 @@ Approach: assert the real Miden leg; leave the EVM claim uncovered. Chrome test 
 reuses the bridge-out-epoch harness; faster CI).
 Two blockers solved via an E2E override (mirrors setAgglayerSenderForE2E): (1) faucet-id gate, (2) a
 callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabled → 0 balance).
+
 - [x] Wallet-source (E2E-gated): b2agg/constant.ts getAgglayerFaucetId/setAgglayerFaucetForE2E/
       hasAgglayerFaucetOverride; b2agg/index.ts uses them + flips callback flag; SendManager+ReviewTransaction
-      route gate uses getAgglayerFaucetId(); store/index.ts installs __TEST_SET_AGGLAYER_FAUCET__ (front hook).
+      route gate uses getAgglayerFaucetId(); store/index.ts installs **TEST_SET_AGGLAYER_FAUCET** (front hook).
 - [x] Chrome harness: bridge.ts bridgeOutSlow (+ faucet-override set after page load, before route gate;
       toBeEnabled guard on bridge-route-slow) + readBridgedSendRows extended (provider/claimStatus/
       outputNoteIds/transactionId).
@@ -258,12 +262,14 @@ callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabl
       Updated the gate header to document both routes. No new job needed.
 
 ## 🎉 FULL 2x2 MATRIX COVERED
+
 | dir | Epoch/Fast | AggLayer/Slow |
-| IN  | ✅ hermetic (fake allocator + Anvil doubles) | ✅ Anvil bridge stub |
+| IN | ✅ hermetic (fake allocator + Anvil doubles) | ✅ Anvil bridge stub |
 | OUT | ✅ real testnet + hosted solver | ✅ real Miden leg (EVM claim external, uncovered by design) |
 Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-merge on main.
 
 ## Findings to report to the team
+
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to
   DEFAULT_WC_PROJECT_ID in src/lib/walletconnect/config.ts. Fragile: any build not manually
   setting it ships the fallback. Verify the release process sets it.
@@ -350,7 +356,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Regression: 12 real SDK fetch-boundary assertions and 3 sweep assertions failed before their fixes.
 - Deployed transport (0.5.0-rc.2, probed 2026-10-01): a duplicate SendNote is a headers-only
   `grpc-status: 13` with `Failed to store note: ConstraintViolation("Unique constraint violation:
-  UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
+UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
 - Real browser WASM, committed as `playwright/tests/note-relay-outbox.spec.ts` (hermetic, one recorded
   RPC): that duplicate retires the 232-byte outbox entry and the next sync sends nothing; a genuine
   storage failure stays in the outbox and is sent again.
@@ -364,6 +370,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+
 # Faucet funding follow-up after v1.17.1
 
 - [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
@@ -555,6 +562,7 @@ Follow-up regressions keep refunded deposits terminal in Activity while preservi
 2026-10-22 recovery: the initial independent review was incomplete and its evidence remains preserved. The user chose to fix confirmed findings before fresh verification. Config PR #24 completed review with zero findings and all 152 CI checks passed. Wallet preflight passed 175 checks across eight suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now recognizes explicitly enabled 1Click-only routes while preserving place restrictions.
 
 2026-10-22 authorization update: the user explicitly requested deployment of the matching feature-eligibility service after tests and finished-code review. Keep nearIntents false. This authorizes that service deployment only; wallet PR merge/release and the new partner proxy deployment are not authorized.
+
 # NEAR Intents eligibility service deployment
 
 The service must recognize explicitly enabled valid 1Click-only configurations while preserving existing location restrictions and default-off behavior. Prepare a service-only deployment from protected main without a wallet release.
@@ -567,6 +575,7 @@ The service must recognize explicitly enabled valid 1Click-only configurations w
 - [x] Deploy the reviewed service and verify its live revision and backward compatibility, retaining nearIntents false.
 
 Service validation: 145 Node tests passed with zero skips, all five targeted mutations failed at their named assertions, and all 15 required checks passed. PR #1746 merged as 76148bdb5b23cc66913dbe2af386f96eb442a549. Deployment run 39818501102 succeeded, and live health reports ready at that revision. The four configured wallet origins and rejected-origin cases match pre-deployment behavior. The daily query cap remains 10,000, and nearIntents stays false.
+
 # #1752: retain swap fill progress after cancellation
 
 ## Plan

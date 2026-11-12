@@ -5,7 +5,11 @@ import { qualifyMainnetLoopConfig, startMainnetLoopConfigServer } from '../node_
 
 assert.equal(process.env.E2E_NETWORK, 'mainnet', 'Nightly config startup requires mainnet');
 assert.ok(process.env.GITHUB_ENV, 'Nightly config startup requires a workflow environment file');
-assert.match(process.env.GITHUB_RUN_ID ?? '', /^\d{1,20}$/, 'Nightly config startup requires a numeric workflow identity');
+assert.match(
+  process.env.GITHUB_RUN_ID ?? '',
+  /^\d{1,20}$/,
+  'Nightly config startup requires a numeric workflow identity'
+);
 
 async function json(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { Accept: 'application/json' } });
@@ -17,8 +21,10 @@ const document = await json('https://raw.githubusercontent.com/0xMiden/wallet-co
 const service = document?.swap?.oneClick?.serviceUrl ?? 'https://1click.chaindefuser.com';
 assert.equal(typeof service, 'string', 'Invalid public 1Click service');
 const url = new URL(service);
-assert.ok(url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash,
-  'Qualification requires a real public HTTPS provider');
+assert.ok(
+  url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash,
+  'Qualification requires a real public HTTPS provider'
+);
 const [catalog, tokenList] = await Promise.all([
   json(`${service.replace(/\/+$/, '')}/v0/tokens`),
   json('https://raw.githubusercontent.com/0xMiden/token-list/main/mainnet.json')

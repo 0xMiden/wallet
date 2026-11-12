@@ -23,17 +23,21 @@ it.each([
   [41, 21, 21]
 ])('computes the documented partner split and minimum for %s bps', (requested, appShare, platformShare) => {
   expect(expectedOneClickFees([custom(requested)], partner)).toEqual([
-    custom(appShare), custom(platformShare, 'platform.near')
+    custom(appShare),
+    custom(platformShare, 'platform.near')
   ]);
 });
 it('rounds each recipient share before summing the platform share', () => {
   expect(expectedOneClickFees([custom(21), custom(21, 'fees.near')], partner)).toEqual([
-    custom(11), custom(11, 'fees.near'), custom(22, 'platform.near')
+    custom(11),
+    custom(11, 'fees.near'),
+    custom(22, 'platform.near')
   ]);
 });
 it('does not merge distinct configured entries at the platform recipient', () => {
   expect(expectedOneClickFees([custom(20, 'platform.near')], partner)).toEqual([
-    custom(10, 'platform.near'), custom(20, 'platform.near')
+    custom(10, 'platform.near'),
+    custom(20, 'platform.near')
   ]);
 });
 it('supports only an explicitly configured one-basis-point stable-route schedule', () => {

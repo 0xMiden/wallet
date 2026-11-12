@@ -35,11 +35,17 @@ describe('funded nightly swap workflow', () => {
   it('requires all three provider recoveries to finish before any new native or EVM spending', () => {
     const barrier = index('Clear all-provider recovery barrier');
     expect(barrier).toBeGreaterThan(index('Wait for original NEAR recovery'));
-    for (const name of ['Recover prior mainnet swap', 'Wait for original Epoch recovery', 'Wait for original NEAR recovery']) {
-      expect(index(name)).toBeGreaterThan(-1); expect(index(name)).toBeLessThan(barrier);
+    for (const name of [
+      'Recover prior mainnet swap',
+      'Wait for original Epoch recovery',
+      'Wait for original NEAR recovery'
+    ]) {
+      expect(index(name)).toBeGreaterThan(-1);
+      expect(index(name)).toBeLessThan(barrier);
     }
     for (const name of ['Prepare mainnet solver swap', 'Run native mainnet round trip', 'Run USDCx bridge loops']) {
-      expect(index(name)).toBeGreaterThan(barrier); expect(step(name).if).toContain("recovery_cleared == 'true'");
+      expect(index(name)).toBeGreaterThan(barrier);
+      expect(step(name).if).toContain("recovery_cleared == 'true'");
     }
     expect(step('Clear all-provider recovery barrier').run).toContain('mainnet-epoch-recovery.json');
     expect(step('Clear all-provider recovery barrier').run).toContain('mainnet-near-recovery.json');
@@ -48,19 +54,37 @@ describe('funded nightly swap workflow', () => {
     expect(object(jobs['mainnet-agglayer']).if).toContain('!inputs.loops_only');
   });
   it('serializes same-run swap, Epoch, then NEAR before legacy activity changes their portfolio', () => {
-    const order = ['Run mainnet swap reverse', 'Prepare mainnet Epoch loop', 'Wait for mainnet Epoch return',
-      'Prepare mainnet NEAR loop', 'Wait for mainnet NEAR return', 'Run native mainnet round trip'];
+    const order = [
+      'Run mainnet swap reverse',
+      'Prepare mainnet Epoch loop',
+      'Wait for mainnet Epoch return',
+      'Prepare mainnet NEAR loop',
+      'Wait for mainnet NEAR return',
+      'Run native mainnet round trip'
+    ];
     for (const name of order) expect(index(name)).toBeGreaterThan(-1);
     for (let i = 1; i < order.length; i++) expect(index(order[i]!)).toBeGreaterThan(index(order[i - 1]!));
-    for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop']) expect(step(name).if).toContain('!inputs.swaps_only');
+    for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop'])
+      expect(step(name).if).toContain('!inputs.swaps_only');
   });
   it('uses the actual immutable uploader for every SDK, signed EVM and native claim hold', () => {
-    for (const name of ['Upload Epoch native forward authority', 'Upload Epoch reverse authority', 'Upload mainnet epoch signed EVM 1',
-      'Upload mainnet epoch signed EVM 2', 'Upload mainnet epoch signed EVM 3', 'Upload mainnet epoch native return claim',
-      'Upload NEAR native forward authority', 'Upload NEAR reverse authority', 'Upload mainnet near signed EVM 1', 'Upload mainnet near native return claim']) {
-      const entry = step(name); expect(entry.uses).toBe('./.github/actions/mainnet-loop-upload');
+    for (const name of [
+      'Upload Epoch native forward authority',
+      'Upload Epoch reverse authority',
+      'Upload mainnet epoch signed EVM 1',
+      'Upload mainnet epoch signed EVM 2',
+      'Upload mainnet epoch signed EVM 3',
+      'Upload mainnet epoch native return claim',
+      'Upload NEAR native forward authority',
+      'Upload NEAR reverse authority',
+      'Upload mainnet near signed EVM 1',
+      'Upload mainnet near native return claim'
+    ]) {
+      const entry = step(name);
+      expect(entry.uses).toBe('./.github/actions/mainnet-loop-upload');
       const withInputs = object(entry.with);
-      for (const input of ['checkpoint', 'gate', 'artifact-name', 'process-id', 'snapshot-directory']) expect(withInputs[input]).toEqual(expect.any(String));
+      for (const input of ['checkpoint', 'gate', 'artifact-name', 'process-id', 'snapshot-directory'])
+        expect(withInputs[input]).toEqual(expect.any(String));
       expect(withInputs['artifact-name']).toContain('${{ github.run_id }}');
     }
     expect(step('Upload mainnet epoch signed EVM 3').if).toContain("envelope-kind != 'deposit'");
@@ -69,7 +93,9 @@ describe('funded nightly swap workflow', () => {
     expect(object(step('Upload mainnet near native return claim').with).gate).toContain('.claim');
   });
   it('reports the actual snapshot envelope and recovery gate, rather than guessing from a newer live file', () => {
-    const action = object(YAML.parse(readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8')));
+    const action = object(
+      YAML.parse(readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8'))
+    );
     const outputs = object(action.outputs);
     expect(object(outputs['envelope-kind']).value).toBe('${{ steps.snapshot.outputs.envelope_kind }}');
     expect(object(outputs['alternative-gate']).value).toBe('${{ steps.snapshot.outputs.alternative_gate }}');
@@ -87,7 +113,8 @@ describe('funded nightly swap workflow', () => {
         const paths = object(entry.with).path;
         expect(typeof paths).toBe('string');
         for (const path of String(paths).trim().split(/\s+/)) {
-          expect(path).toMatch(/\.(json|md)$/); expect(path).not.toMatch(/profile|trace|note[-.]file|process[-.]log|results\.json/);
+          expect(path).toMatch(/\.(json|md)$/);
+          expect(path).not.toMatch(/profile|trace|note[-.]file|process[-.]log|results\.json/);
         }
       }
     }

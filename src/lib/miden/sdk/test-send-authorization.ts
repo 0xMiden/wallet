@@ -9,19 +9,39 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(hash), value => value.toString(16).padStart(2, '0')).join('');
 }
 
-export async function awaitTestSendAuthorization(accountId: string, request: { serialize(): Uint8Array }): Promise<void> {
+export async function awaitTestSendAuthorization(
+  accountId: string,
+  request: { serialize(): Uint8Array }
+): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
   const policy: unknown = (await chrome.storage.local.get(KEY))[KEY];
   if (policy === undefined) return;
-  if (!isRecord(policy) || policy.status !== 'armed' || typeof policy.nonce !== 'string' || !policy.nonce ||
-      policy.nonce.length > 80 || typeof policy.accountId !== 'string' || typeof policy.recipientId !== 'string' ||
-      typeof policy.faucetId !== 'string' || typeof policy.amount !== 'string' ||
-      ![policy.accountId, policy.recipientId, policy.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
-      !/^[1-9]\d{0,18}$/.test(policy.amount) || typeof policy.expiresAt !== 'number' || !Number.isSafeInteger(policy.expiresAt) ||
-      policy.expiresAt <= Date.now() || policy.expiresAt > Date.now() + 600_000)
+  if (
+    !isRecord(policy) ||
+    policy.status !== 'armed' ||
+    typeof policy.nonce !== 'string' ||
+    !policy.nonce ||
+    policy.nonce.length > 80 ||
+    typeof policy.accountId !== 'string' ||
+    typeof policy.recipientId !== 'string' ||
+    typeof policy.faucetId !== 'string' ||
+    typeof policy.amount !== 'string' ||
+    ![policy.accountId, policy.recipientId, policy.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
+    !/^[1-9]\d{0,18}$/.test(policy.amount) ||
+    typeof policy.expiresAt !== 'number' ||
+    !Number.isSafeInteger(policy.expiresAt) ||
+    policy.expiresAt <= Date.now() ||
+    policy.expiresAt > Date.now() + 600_000
+  )
     throw new Error('Invalid or already used native send authorization');
-  const scope = { nonce: policy.nonce, accountId: policy.accountId, recipientId: policy.recipientId,
-    faucetId: policy.faucetId, amount: policy.amount, expiresAt: policy.expiresAt };
+  const scope = {
+    nonce: policy.nonce,
+    accountId: policy.accountId,
+    recipientId: policy.recipientId,
+    faucetId: policy.faucetId,
+    amount: policy.amount,
+    expiresAt: policy.expiresAt
+  };
   if (accountId !== scope.accountId) throw new Error('Native send SDK payer differs from its authorization');
   const started = Date.now();
   const active = () => {
@@ -46,7 +66,8 @@ export async function awaitTestSendAuthorization(accountId: string, request: { s
     if (!same(live, held) || !isRecord(live) || (live.status !== 'waiting' && live.status !== 'released'))
       throw new Error('Native send authority changed during the request hold');
     if (live.status === 'released') {
-      if (await sha256(request.serialize()) !== sha) throw new Error('Actual native send bytes changed during upload');
+      if ((await sha256(request.serialize())) !== sha)
+        throw new Error('Actual native send bytes changed during upload');
       active();
       if (!same((await chrome.storage.local.get(KEY))[KEY], { ...held, status: 'released' }))
         throw new Error('Native send release changed during request verification');

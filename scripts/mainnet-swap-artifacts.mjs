@@ -14,26 +14,33 @@ function stepAttempted(jobs, names) {
   return jobs.jobs.some(job =>
     (job.steps ?? []).some(
       step =>
-        names.includes(step.name) &&
-        ['in_progress', 'completed'].includes(step.status) &&
-        step.conclusion !== 'skipped'
+        names.includes(step.name) && ['in_progress', 'completed'].includes(step.status) && step.conclusion !== 'skipped'
     )
   );
 }
 
 export function swapStepAttempted(jobs, leg, provider = 'swap') {
   validateProvider(provider);
-  return stepAttempted(jobs, [`Run mainnet ${provider} ${leg}`,
-    ...(provider === 'near' ? ['Run funded 1Click swap-out and swap-back acceptance'] : [])]);
+  return stepAttempted(jobs, [
+    `Run mainnet ${provider} ${leg}`,
+    ...(provider === 'near' ? ['Run funded 1Click swap-out and swap-back acceptance'] : [])
+  ]);
 }
 
 export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline = BASELINE_RUN, provider = 'swap') {
   validateProvider(provider);
   const prefix = provider === 'near' ? '1click' : provider;
-  const signed = provider === 'swap' ? [] : Array.from({ length: provider === 'epoch' ? 3 : 1 },
-    (_, index) => `reverse-signed-${index + 1}`).reverse();
+  const signed =
+    provider === 'swap'
+      ? []
+      : Array.from({ length: provider === 'epoch' ? 3 : 1 }, (_, index) => `reverse-signed-${index + 1}`).reverse();
   const reverseStages = [...(provider === 'swap' ? [] : ['return-authorized', ...signed]), 'reverse-authorized'];
-  const stages = ['final', ...(provider === 'swap' ? [] : ['refund-authorized']), ...reverseStages, 'forward-authorized'];
+  const stages = [
+    'final',
+    ...(provider === 'swap' ? [] : ['refund-authorized']),
+    ...reverseStages,
+    'forward-authorized'
+  ];
   if (provider === 'near') stages.push('execute-started', 'preflight');
   for (const run of [...runs].sort((a, b) => b.id - a.id)) {
     if (!Number.isSafeInteger(run.id)) throw new Error('Invalid workflow run identity');
@@ -46,21 +53,38 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
     const jobs = has('final') ? { jobs: [] } : await getJobs(run.id);
     if (!has('final')) {
       if (provider !== 'swap') {
-        if (stepAttempted(jobs, [`Upload mainnet ${provider} native return claim`, `Authorize original ${provider} return claim`]) && !has('return-authorized'))
+        if (
+          stepAttempted(jobs, [
+            `Upload mainnet ${provider} native return claim`,
+            `Authorize original ${provider} return claim`
+          ]) &&
+          !has('return-authorized')
+        )
           throw new Error(`Original mainnet ${provider} claim checkpoint missing; refusing a pre-claim downgrade`);
         if (stepAttempted(jobs, [`Authorize original ${provider} refund`]) && !has('refund-authorized'))
           throw new Error(`Original mainnet ${provider} refund checkpoint missing; refusing an older authority`);
       }
-      if (provider === 'near' && stepAttempted(jobs, ['Run mainnet near forward']) &&
-          !['forward-authorized', 'refund-authorized', ...reverseStages].some(has))
-        throw new Error('Recovery checkpoint missing for attempted native NEAR forward; refusing a read-only preflight downgrade');
+      if (
+        provider === 'near' &&
+        stepAttempted(jobs, ['Run mainnet near forward']) &&
+        !['forward-authorized', 'refund-authorized', ...reverseStages].some(has)
+      )
+        throw new Error(
+          'Recovery checkpoint missing for attempted native NEAR forward; refusing a read-only preflight downgrade'
+        );
       if (stepAttempted(jobs, [`Run mainnet ${provider} reverse`]) && !reverseStages.some(has))
-        throw new Error(`Recovery checkpoint missing for attempted mainnet ${provider} reverse; refusing a forward downgrade`);
+        throw new Error(
+          `Recovery checkpoint missing for attempted mainnet ${provider} reverse; refusing a forward downgrade`
+        );
       for (const [index, stage] of signed.entries()) {
         const number = stage.slice('reverse-signed-'.length);
-        if (stepAttempted(jobs, [`Upload mainnet ${provider} signed EVM ${number}`]) &&
-            !['return-authorized', ...signed.slice(0, index + 1)].some(has))
-          throw new Error(`Signed mainnet ${provider} journal missing after upload stage ${number}; refusing an older authority`);
+        if (
+          stepAttempted(jobs, [`Upload mainnet ${provider} signed EVM ${number}`]) &&
+          !['return-authorized', ...signed.slice(0, index + 1)].some(has)
+        )
+          throw new Error(
+            `Signed mainnet ${provider} journal missing after upload stage ${number}; refusing an older authority`
+          );
       }
     }
     for (const stage of stages) {
@@ -115,7 +139,10 @@ async function main() {
       const run = await github(`actions/runs/${id}`);
       const current = await github(`actions/runs/${process.env.GITHUB_RUN_ID}`);
       if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
-      output(`${leg}_attempted`, swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg, provider));
+      output(
+        `${leg}_attempted`,
+        swapStepAttempted(await github(`actions/runs/${id}/jobs?per_page=100`), leg, provider)
+      );
     }
     return;
   }

@@ -31,12 +31,23 @@ export function snapshotMainnetLoopAuthorization(checkpoint, gate, directory) {
 
 export function releaseMainnetLoopUpload(input) {
   const artifact = input.artifact;
-  if (!Number.isSafeInteger(input.artifactId) || input.artifactId <= 0 ||
-      !Number.isSafeInteger(input.runId) || input.runId <= 0 || !/^[0-9a-f]{40}$/.test(input.headSha) ||
-      typeof input.artifactName !== 'string' || !input.artifactName ||
-      artifact?.id !== input.artifactId || artifact?.name !== input.artifactName || artifact?.expired !== false ||
-      !Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes <= 0 || artifact.size_in_bytes > 1_048_576 ||
-      artifact.workflow_run?.id !== input.runId || artifact.workflow_run?.head_sha !== input.headSha)
+  if (
+    !Number.isSafeInteger(input.artifactId) ||
+    input.artifactId <= 0 ||
+    !Number.isSafeInteger(input.runId) ||
+    input.runId <= 0 ||
+    !/^[0-9a-f]{40}$/.test(input.headSha) ||
+    typeof input.artifactName !== 'string' ||
+    !input.artifactName ||
+    artifact?.id !== input.artifactId ||
+    artifact?.name !== input.artifactName ||
+    artifact?.expired !== false ||
+    !Number.isSafeInteger(artifact.size_in_bytes) ||
+    artifact.size_in_bytes <= 0 ||
+    artifact.size_in_bytes > 1_048_576 ||
+    artifact.workflow_run?.id !== input.runId ||
+    artifact.workflow_run?.head_sha !== input.headSha
+  )
     throw new Error('Mainnet artifact does not belong to this exact workflow run and source');
   const ready = readyDigest(input.gate);
   for (const path of [input.checkpoint, input.snapshot, input.downloaded]) {
@@ -57,9 +68,17 @@ if (basename(process.argv[1] ?? '') === 'mainnet-loop-upload.mjs') {
     } else if (args[0] === 'release' && args.length === 8) {
       if (!/^[1-9]\d*$/.test(args[6]) || !/^[1-9]\d*$/.test(process.env.GITHUB_RUN_ID ?? ''))
         throw new Error('Invalid workflow artifact identity');
-      releaseMainnetLoopUpload({ checkpoint: args[1], gate: args[2], snapshot: args[3], downloaded: args[4],
-        artifact: JSON.parse(boundedFile(args[5]).toString('utf8')), artifactId: Number(args[6]),
-        artifactName: args[7], runId: Number(process.env.GITHUB_RUN_ID), headSha: process.env.GITHUB_SHA });
+      releaseMainnetLoopUpload({
+        checkpoint: args[1],
+        gate: args[2],
+        snapshot: args[3],
+        downloaded: args[4],
+        artifact: JSON.parse(boundedFile(args[5]).toString('utf8')),
+        artifactId: Number(args[6]),
+        artifactName: args[7],
+        runId: Number(process.env.GITHUB_RUN_ID),
+        headSha: process.env.GITHUB_SHA
+      });
     } else throw new Error('Invalid mainnet upload command');
   } catch {
     console.error('Mainnet loop upload verification failed; request remains blocked.');
