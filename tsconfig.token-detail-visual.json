@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "playwright/visual/token-detail/**/*.ts",
+    "playwright/visual/token-detail/**/*.tsx",
+    "playwright/visual/token-detail/**/*.mts",
+    "playwright.token-detail-visual.config.ts"
+  ]
+}
