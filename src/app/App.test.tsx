@@ -24,6 +24,7 @@ import React from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 
 import { type AppEnvironment, WindowType } from 'app/env';
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { initFeatureEligibility } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
@@ -296,6 +297,8 @@ describe('app/App', () => {
   });
 
   afterEach(() => {
+    // A pending cover marks every other body child inert, so it must not leak into the next test.
+    act(() => backgroundLockPending.set(false));
     jest.clearAllMocks();
   });
 
@@ -323,6 +326,17 @@ describe('app/App', () => {
       }
     }
   );
+
+  it('mounts the background lock cover while a lock is pending', async () => {
+    await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+    expect(document.getElementById('background-lock-cover')).toBeNull();
+
+    act(() => backgroundLockPending.set(true));
+    expect(document.getElementById('background-lock-cover')).not.toBeNull();
+
+    act(() => backgroundLockPending.set(false));
+    expect(document.getElementById('background-lock-cover')).toBeNull();
+  });
 
   describe('extension surface (not mobile, not desktop, not confirm)', () => {
     it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', async () => {
