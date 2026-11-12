@@ -45,6 +45,9 @@ export async function chooseSwapCheckpoint(runs, getArtifacts, getJobs, baseline
       throw new Error(`Contradictory mainnet ${provider} return and refund authorization`);
     const jobs = has('final') ? { jobs: [] } : await getJobs(run.id);
     if (!has('final')) {
+      if (provider === 'near' && stepAttempted(jobs, ['Run mainnet near forward']) &&
+          !['forward-authorized', 'refund-authorized', ...reverseStages].some(has))
+        throw new Error('Recovery checkpoint missing for attempted native NEAR forward; refusing a read-only preflight downgrade');
       if (stepAttempted(jobs, [`Run mainnet ${provider} reverse`]) && !reverseStages.some(has))
         throw new Error(`Recovery checkpoint missing for attempted mainnet ${provider} reverse; refusing a forward downgrade`);
       for (const [index, stage] of signed.entries()) {

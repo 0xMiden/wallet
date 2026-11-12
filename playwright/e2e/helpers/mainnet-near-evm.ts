@@ -1,14 +1,23 @@
-import { encodeFunctionData, erc20Abi, getAddress, isHex, keccak256, parseTransaction, recoverTransactionAddress,
+import { encodeFunctionData, erc20Abi, getAddress, isHash, isHex, keccak256, parseEventLogs, parseTransaction, recoverTransactionAddress,
   type Address, type Hash, type Hex, type TransactionReceipt, type TransactionSerializedEIP1559 } from 'viem';
 import { parseMainnetNearCheckpoint, type MainnetNearCheckpoint } from './mainnet-near-checkpoint';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import type { MainnetOneClickEvmSenderInput } from './mainnet-one-click-evm';
 
 export function inspectMainnetNearForwardReceipt(
-  _state: MainnetNearCheckpoint, _expectedHash: Hash,
-  _receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'>
+  state: MainnetNearCheckpoint, expectedHash: Hash,
+  receipt: Pick<TransactionReceipt, 'transactionHash' | 'status' | 'from' | 'logs'>
 ): bigint {
-  throw new Error('Actual provider-correlated native NEAR forward receipt inspection is not implemented');
+  parseMainnetNearCheckpoint(state);
+  if (!state.forwardQuote || !isHash(expectedHash) || receipt.transactionHash.toLowerCase() !== expectedHash.toLowerCase() ||
+      receipt.status !== 'success' || receipt.from.toLowerCase() === state.evm.account.toLowerCase())
+    throw new Error('Native NEAR forward receipt is uncorrelated, reverted or self-submitted');
+  const transfers = parseEventLogs({ abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs, strict: true })
+    .filter(log => log.address.toLowerCase() === state.evm.token.toLowerCase() && log.args.to.toLowerCase() === state.evm.account.toLowerCase());
+  if (transfers.some(log => log.args.from.toLowerCase() === state.evm.account.toLowerCase())) throw new Error('Native NEAR cannot self-fill its payout');
+  const received = transfers.reduce((sum, log) => sum + log.args.value, 0n);
+  if (received < BigInt(state.forwardQuote.minimumOutput)) throw new Error('Native NEAR payout is below the reviewed output');
+  return received;
 }
 
 export interface MainnetNearEvmEnvelope {
