@@ -951,11 +951,21 @@ export class MultisigService {
 
   /**
    * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
-   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all. `_ticket` is what
-   * that abandon returned; a nonce-only abandon is read by its nonce alone.
+   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all. `ticket` is what
+   * that abandon returned. A 0.18 Guardian names no commitment, so the delta it holds at the nonce supplies one and the
+   * SDK reads that delta's own status, as the 0.18.1 client did; a Guardian with no delta there reads `'unexpected'`.
    */
-  async abandonStatus(nonce: number, _ticket: AbandonTicket): Promise<AbandonStatus> {
-    return this.multisig.abandonStatus(nonce);
+  async abandonStatus(nonce: number, ticket: AbandonTicket): Promise<AbandonStatus> {
+    let commitment = ticket.commitment;
+    if (commitment === undefined) {
+      try {
+        commitment = (await this.registrationGuardian.getDelta(this.accountId, nonce)).newCommitment ?? '';
+      } catch (error) {
+        if (isGuardianDeltaNotFound(error)) return 'unexpected';
+        throw error;
+      }
+    }
+    return this.multisig.abandonStatus(nonce, commitment);
   }
 
   /**
@@ -1635,7 +1645,7 @@ export class MultisigService {
     onBeforeRegister?: (signerCommitments: readonly string[]) => void,
     lockOptions?: WasmClientLockOptions
   ): Promise<void> {
-    const { stateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
+    const { stateBase64, signerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
       // unattended loop whose failure mode is a sync parked on a dead node, i.e.
@@ -1666,14 +1676,13 @@ export class MultisigService {
       // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`)
       // from the SAME freshly-synced on-chain account as the state blob — NOT the cached
       // `multisig.signerCommitments`, which `client.load` set from the guardian's
-      // stored blob and can still be the PRE-rotation [old-hot, cold]. Deriving
-      // it here via `AccountInspector.fromAccount` is byte-identical to that
-      // load-time derivation (same by-key reader), so there is no allowlist-format
-      // drift; it just uses the fresh source. Without this, a re-register after a
-      // hot-key rotation could re-push the old hot key and re-arm the permanent
-      // 401 this method exists to prevent.
-      const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
-      return { stateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
+      // stored blob and can still be the PRE-rotation [old-hot, cold]. Without this, a
+      // re-register after a hot-key rotation could re-push the old hot key and re-arm
+      // the permanent 401 this method exists to prevent. The inspector skips what it
+      // cannot read, so a short or non-ECDSA read refuses here, before any POST: the
+      // cached set is no fallback, since the server refuses a set that is not the chain's.
+      const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
+      return { stateBase64: u8ToB64(account.serialize()), signerCommitments };
       // Bounded and labelled BY THE CALLER, because both callers are on the ~3s
       // guardian cadence: `runSync`'s stage-2 last resort and the cold
       // re-register self-heal. This was the one hold left in the file on the
@@ -1682,22 +1691,14 @@ export class MultisigService {
       // flows had parked. The sibling holds here already make this argument for
       // themselves (`guardian-adopt`, `guardian-sync`).
     }, lockOptions);
-    // Guard against a truncated read: AccountInspector.fromAccount swallows
-    // per-slot storage-read failures (skips the slot, no throw), so a partial
-    // read could yield an empty set. NEVER overwrite a good cached allowlist with
-    // an empty one and push that to the guardian — that would re-arm the very
-    // 401 this method prevents. On an empty derive, keep the cached set (the
-    // guardian-sync 401 self-heal covers any residual staleness).
-    if (freshSignerCommitments.length > 0) {
-      this.multisig.signerCommitments = freshSignerCommitments;
-    }
+    this.multisig.signerCommitments = signerCommitments;
     // The POST is now unavoidable from the caller's point of view: past this line a
     // `/configure` may land even if the retry loop then throws or is torn down.
-    onBeforeRegister?.(freshSignerCommitments);
+    onBeforeRegister?.(signerCommitments);
     await this.registerOnGuardianWithRetry(this.registrationGuardian, {
       accountIdHex: this.accountId,
       stateBase64,
-      signerCommitments: this.multisig.signerCommitments
+      signerCommitments
     });
   }
 }

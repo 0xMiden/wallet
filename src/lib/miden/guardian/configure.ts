@@ -12,13 +12,13 @@ export interface GuardianRegistration {
 }
 
 /**
- * The signer facts `ecdsaCosigners` reads from `AccountInspector.fromAccount`. multisig-client 0.19 reports each
- * signer's scheme (`signers`) and the guardian's (`guardianScheme`, `null` when unread); 0.18.1 reports neither.
+ * The signer facts `ecdsaCosigners` reads from `AccountInspector.fromAccount`: each signer's commitment and scheme, and
+ * the guardian's scheme (`null` when unread).
  */
-export type CosignerRead = Pick<DetectedMultisigConfig, 'numSigners' | 'signerCommitments'> & {
-  signers?: readonly { commitment: string; scheme: string }[];
-  guardianScheme?: string | null;
-};
+export type CosignerRead = Pick<
+  DetectedMultisigConfig,
+  'numSigners' | 'signerCommitments' | 'signers' | 'guardianScheme'
+>;
 
 /**
  * Register an account on `guardian`, which must already carry the signer that authenticates the request. The wallet's
@@ -54,22 +54,15 @@ const sameHex = (a: string, b: string | undefined): boolean => b !== undefined &
  * skips what it cannot parse, and the result becomes the Guardian's authorization policy for the account, so it is
  * refused unless it is complete: as many commitments as storage declares signers, above 0, each with a scheme read
  * for it. Every signer and the guardian must be ECDSA, the only policy `configureGuardianAccount` sends.
- *
- * A read with no scheme fields at all comes from multisig-client 0.18.1, which reads no schemes and whose own
- * registration sent the wallet signer's scheme unread; it is held to completeness alone.
  */
 export function ecdsaCosigners(detected: CosignerRead): string[] {
-  const { numSigners, signerCommitments } = detected;
+  const { numSigners, signerCommitments, signers } = detected;
   if (!(numSigners > 0) || signerCommitments.length !== numSigners) {
     throw new Error(
       `Refusing to register an incomplete signer set: storage declares ${numSigners} signers, ` +
         `read ${signerCommitments.length}`
     );
   }
-  // A 0.18.1 read; this branch goes away when the Guardian clients move to 0.19.
-  if (detected.signers === undefined && detected.guardianScheme === undefined) return [...signerCommitments];
-
-  const signers = detected.signers ?? [];
   if (
     signers.length !== numSigners ||
     signers.some((signer, index) => !sameHex(signer.commitment, signerCommitments[index]))

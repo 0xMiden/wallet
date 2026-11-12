@@ -378,18 +378,16 @@ const serviceClient = () => ({ guardianClient: new GuardianHttpClient('https://x
 // The `/configure` request a registration of `data` sends for this account.
 const registeredState = (data: string) =>
   expect.objectContaining({ accountId: 'acc-id', initialState: { data, accountId: 'acc-id' } });
-// The signer set a loaded service caches; a re-register falls back to it when the fresh read is empty.
+// The signer set a loaded service caches; a re-register replaces it only with a complete fresh read.
 const CACHED_SIGNERS = ['0xhot', '0xcold'];
-// A complete ECDSA read of a [hot, cold] account, as multisig-client 0.19 reports it.
-const ECDSA_READ = {
-  numSigners: 2,
-  signerCommitments: ['0xhot', '0xcold'],
-  signers: [
-    { commitment: '0xhot', scheme: 'ecdsa' },
-    { commitment: '0xcold', scheme: 'ecdsa' }
-  ],
+// A complete ECDSA read of an account with these signers, as multisig-client 0.19 reports it.
+const ecdsaRead = (signerCommitments: string[]) => ({
+  numSigners: signerCommitments.length,
+  signerCommitments,
+  signers: signerCommitments.map(commitment => ({ commitment, scheme: 'ecdsa' })),
   guardianScheme: 'ecdsa'
-};
+});
+const ECDSA_READ = ecdsaRead(['0xhot', '0xcold']);
 
 // A proposal path abandons through the service itself, handing over the proposal id it holds.
 const stubAbandon = (
@@ -1672,13 +1670,51 @@ describe('MultisigService', () => {
       expect(multisig.abandonCandidate).not.toHaveBeenCalled();
     });
 
-    it('abandonStatus forwards the candidate nonce to the Guardian SDK whatever the ticket (#1081)', async () => {
+    it('abandonStatus reads the abandon by the commitment its Guardian named (#1081)', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const getDelta = jest.fn();
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
 
       await expect(service.abandonStatus(7, { commitment: '0xc0ffee', legacy: true })).resolves.toBe('waiting');
 
-      expect(multisig.abandonStatus).toHaveBeenCalledWith(7);
+      expect(multisig.abandonStatus).toHaveBeenCalledWith(7, '0xc0ffee');
+      expect(getDelta).not.toHaveBeenCalled();
+    });
+
+    // A 0.18 Guardian names no commitment, so the delta it holds at the nonce supplies it: the SDK then reads that
+    // delta's own status, as the 0.18.1 client did.
+    it('abandonStatus reads a ticket without a commitment by the delta its Guardian holds at the nonce', async () => {
+      const multisig = makeMultisig();
+      const getDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7, newCommitment: '0xd31a' }));
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe('waiting');
+
+      expect(getDelta).toHaveBeenCalledWith('acc-id', 7);
+      expect(multisig.abandonStatus).toHaveBeenCalledWith(7, '0xd31a');
+    });
+
+    it('abandonStatus reads a Guardian that holds no delta at the nonce as unexpected, as the SDK does', async () => {
+      const multisig = makeMultisig();
+      const getDelta = jest.fn(async () => {
+        throw Object.assign(new Error('Delta not found'), { status: 404, code: 'delta_not_found' });
+      });
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe('unexpected');
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
+    });
+
+    it('abandonStatus rejects with any other failure of the delta read', async () => {
+      const multisig = makeMultisig();
+      const unavailable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+      const getDelta = jest.fn(async () => {
+        throw unavailable;
+      });
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).rejects.toBe(unavailable);
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {
@@ -2022,6 +2058,7 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ syncState, signerCommitments: CACHED_SIGNERS });
       const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
       wasmLockOptionsSeen.length = 0;
 
       try {
@@ -2097,6 +2134,10 @@ describe('MultisigService', () => {
   });
 
   describe('reRegisterCurrentStateOnGuardian', () => {
+    beforeEach(() => {
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
+    });
+
     it('syncs, serializes the current account, and re-registers it on the guardian', async () => {
       const multisig = makeMultisig({ signerCommitments: CACHED_SIGNERS });
       const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
@@ -2115,7 +2156,7 @@ describe('MultisigService', () => {
       const client = serviceClient();
       const service = new MultisigService(multisig as never, client as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
 
       await service.reRegisterCurrentStateOnGuardian();
 
@@ -2199,7 +2240,7 @@ describe('MultisigService', () => {
     it('hands the push-start callback the signer set it derived from the chain-verified account (#1233)', async () => {
       const service = new MultisigService(makeMultisig() as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
       const onPushStart = jest.fn();
 
       await service.reRegisterCurrentStateOnGuardian(onPushStart);
@@ -2283,7 +2324,7 @@ describe('MultisigService', () => {
       const freshAccount = { serialize: () => new Uint8Array([1, 2, 3]) };
       mockGetAccount.mockResolvedValue(freshAccount);
       // The freshly-synced on-chain account resolves to the POST-rotation set.
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
 
       await service.reRegisterCurrentStateOnGuardian();
 
@@ -2344,22 +2385,23 @@ describe('MultisigService', () => {
       expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
-    it('keeps the cached allowlist (does NOT overwrite with empty) when the fresh account reads back no signers', async () => {
-      // A truncated storage read yields an empty set from AccountInspector;
-      // overwriting a good allowlist with [] would re-arm the 401 this prevents.
+    // AccountInspector skips what it cannot read, so a truncated storage read comes back short or empty. The cached set
+    // is no fallback: the server refuses a set that is not the chain's, so the push would only spend an attempt.
+    it.each([
+      ['an empty read', { numSigners: 2, signerCommitments: [], signers: [], guardianScheme: 'ecdsa' }],
+      ['a short read', { ...ECDSA_READ, signerCommitments: ['0xhot'] }]
+    ])('refuses %s before any /configure, keeping the cached allowlist', async (_label, read) => {
       const multisig = makeMultisig({ signerCommitments: ['0xhot', '0xcold'] });
       const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+      mockAccountInspectorFromAccount.mockReturnValue(read);
+      const onPushStart = jest.fn();
 
-      await service.reRegisterCurrentStateOnGuardian();
+      await expect(service.reRegisterCurrentStateOnGuardian(onPushStart)).rejects.toThrow('Refusing to register');
 
-      // cached set preserved, and the state blob is still pushed (best-effort).
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
       expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
-      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
-      expect(guardianConfig.configure).toHaveBeenCalledWith(
-        expect.objectContaining({ auth: { MidenEcdsa: { cosigner_commitments: ['0xhot', '0xcold'] } } })
-      );
     });
 
     it('refuses a local copy that is not the on-chain state, writing nothing (#1233)', async () => {

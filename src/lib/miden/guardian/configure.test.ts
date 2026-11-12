@@ -1,8 +1,9 @@
 /** @jest-environment node */
 
 import { GuardianHttpClient, GuardianHttpError, type Signer } from '@openzeppelin/guardian-client';
+import type { SignerSpec } from '@openzeppelin/miden-multisig-client';
 
-import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
+import { configureGuardianAccount, type CosignerRead, ecdsaCosigners, type GuardianRegistration } from './configure';
 
 // The suite-wide stub has no `configure`, and this test reads the request the real client sends.
 jest.mock('@openzeppelin/guardian-client', () =>
@@ -94,9 +95,9 @@ describe('configureGuardianAccount', () => {
 });
 
 describe('ecdsaCosigners', () => {
-  const hot = { commitment: '0xhot', scheme: 'ecdsa' };
-  const cold = { commitment: '0xcold', scheme: 'ecdsa' };
-  const complete = {
+  const hot: SignerSpec = { commitment: '0xhot', scheme: 'ecdsa' };
+  const cold: SignerSpec = { commitment: '0xcold', scheme: 'ecdsa' };
+  const complete: CosignerRead = {
     numSigners: 2,
     signerCommitments: ['0xhot', '0xcold'],
     signers: [hot, cold],
@@ -112,7 +113,7 @@ describe('ecdsaCosigners', () => {
   });
 
   it('ecdsaCosigners refuses a truncated read, a falcon signer and an unread guardian scheme', () => {
-    const refused = [
+    const refused: CosignerRead[] = [
       { ...complete, signerCommitments: ['0xhot'] },
       { ...complete, numSigners: 3 },
       { ...complete, numSigners: 0, signerCommitments: [], signers: [] },
@@ -121,18 +122,12 @@ describe('ecdsaCosigners', () => {
       { ...complete, signers: [hot, { ...cold, scheme: 'falcon' }] },
       { ...complete, guardianScheme: null },
       { ...complete, guardianScheme: 'falcon' },
-      { numSigners: 2, signerCommitments: ['0xhot', '0xcold'], guardianScheme: 'ecdsa' },
-      { numSigners: 2, signerCommitments: ['0xhot', '0xcold'], signers: [hot, cold] }
+      { ...complete, signers: [] },
+      { ...complete, signers: [cold, hot] }
     ];
 
     for (const detected of refused) {
       expect(() => ecdsaCosigners(detected)).toThrow('Refusing to register');
     }
-  });
-
-  // multisig-client 0.18.1 reads no schemes at all; its own registration sent the wallet signer's scheme unread.
-  it('checks only completeness on a read that carries no schemes', () => {
-    expect(ecdsaCosigners({ numSigners: 2, signerCommitments: ['0xhot', '0xcold'] })).toEqual(['0xhot', '0xcold']);
-    expect(() => ecdsaCosigners({ numSigners: 2, signerCommitments: ['0xhot'] })).toThrow('Refusing to register');
   });
 });
