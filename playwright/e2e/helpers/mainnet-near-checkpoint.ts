@@ -167,7 +167,7 @@ export function parseMainnetNearCheckpoint(value: unknown): MainnetNearCheckpoin
     const floor = state.phase === 'complete' ? state.reverseQuote?.minimumOutput :
       (BigInt(state.principal) - BigInt(state.forwardQuote?.refundFee ?? '0')).toString();
     if (!floor || BigInt(returned ?? '0') < BigInt(floor) || (state.phase === 'complete' &&
-        (state.transactions?.length !== 1 || !state.transactions[0].feeWei)) ||
+        (state.transactions?.length !== 1 || !state.transactions?.[0]?.feeWei)) ||
         (state.phase === 'cancelled' && (state.forwardReceived || state.transactions?.length || state.reverseQuote))) reject();
     const prices = state.returnValuation;
     const cost = realizedMainnetLoopLoss([
