@@ -58,3 +58,31 @@ it('removes its listeners on unmount', () => {
   expect(removeWin).toHaveBeenCalledWith('pagehide', pagehide);
   expect(removeDoc).toHaveBeenCalledWith('visibilitychange', visibility);
 });
+
+it('stays revealed when the document becomes visible', () => {
+  const { result } = renderHook(() => useRevealMask({ remaskOnLeave: true }));
+  act(() => result.current.toggle());
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(result.current.revealed).toBe(true);
+});
+
+it('re-subscribes when remaskOnLeave changes', () => {
+  const { result, rerender } = renderHook(({ remaskOnLeave }) => useRevealMask({ remaskOnLeave }), {
+    initialProps: { remaskOnLeave: false }
+  });
+  rerender({ remaskOnLeave: true });
+  act(() => result.current.toggle());
+  act(() => {
+    window.dispatchEvent(new Event('blur'));
+  });
+  expect(result.current.revealed).toBe(false);
+
+  rerender({ remaskOnLeave: false });
+  act(() => result.current.toggle());
+  act(() => {
+    window.dispatchEvent(new Event('blur'));
+  });
+  expect(result.current.revealed).toBe(true);
+});
