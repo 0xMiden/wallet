@@ -24,6 +24,67 @@ function step(name: string): Record<string, unknown> {
 }
 
 describe('funded nightly swap workflow', () => {
+  it('adds loops_only without redefining swaps_only or enabling public NEAR configuration', () => {
+    const inputs = object(object(object(document.on).workflow_dispatch).inputs);
+    expect(object(inputs.loops_only)).toMatchObject({ type: 'boolean', default: false });
+    expect(object(inputs.swaps_only)).toMatchObject({ type: 'boolean', default: false });
+    expect(step('Start owned provider loop config').run).toContain('scripts/mainnet-loop-config-server.mjs');
+    expect(step('Start owned provider loop config').run).toContain('MIDEN_REMOTE_CONFIG_URL');
+    expect(object(main.env).MAINNET_ONE_CLICK_ENABLED).toBeUndefined();
+  });
+  it('requires all three provider recoveries to finish before any new native or EVM spending', () => {
+    const barrier = index('Clear all-provider recovery barrier');
+    expect(barrier).toBeGreaterThan(index('Wait for original NEAR recovery'));
+    for (const name of ['Recover prior mainnet swap', 'Wait for original Epoch recovery', 'Wait for original NEAR recovery']) {
+      expect(index(name)).toBeGreaterThan(-1); expect(index(name)).toBeLessThan(barrier);
+    }
+    for (const name of ['Prepare mainnet solver swap', 'Run native mainnet round trip', 'Run USDCx bridge loops']) {
+      expect(index(name)).toBeGreaterThan(barrier); expect(step(name).if).toContain("recovery_cleared == 'true'");
+    }
+    expect(step('Clear all-provider recovery barrier').run).toContain('mainnet-epoch-recovery.json');
+    expect(step('Clear all-provider recovery barrier').run).toContain('mainnet-near-recovery.json');
+    expect(object(main.outputs).recovery_cleared).toBe('${{ steps.recovery-barrier.outputs.recovery_cleared }}');
+    expect(object(jobs['mainnet-agglayer']).if).toContain("recovery_cleared == 'true'");
+    expect(object(jobs['mainnet-agglayer']).if).toContain('!inputs.loops_only');
+  });
+  it('serializes same-run swap, Epoch, then NEAR before legacy activity changes their portfolio', () => {
+    const order = ['Run mainnet swap reverse', 'Prepare mainnet Epoch loop', 'Wait for mainnet Epoch return',
+      'Prepare mainnet NEAR loop', 'Wait for mainnet NEAR return', 'Run native mainnet round trip'];
+    for (const name of order) expect(index(name)).toBeGreaterThan(-1);
+    for (let i = 1; i < order.length; i++) expect(index(order[i]!)).toBeGreaterThan(index(order[i - 1]!));
+    for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop']) expect(step(name).if).toContain('!inputs.swaps_only');
+  });
+  it('uses the actual immutable uploader for every SDK, signed EVM and native claim hold', () => {
+    for (const name of ['Upload Epoch native forward authority', 'Upload Epoch reverse authority', 'Upload Epoch signed transfer 1',
+      'Upload Epoch signed transfer 2', 'Upload Epoch signed transfer 3', 'Upload Epoch native return claim',
+      'Upload NEAR native forward authority', 'Upload NEAR reverse authority', 'Upload NEAR signed transfer', 'Upload NEAR native return claim']) {
+      const entry = step(name); expect(entry.uses).toBe('./.github/actions/mainnet-loop-upload');
+      const withInputs = object(entry.with);
+      for (const input of ['checkpoint', 'gate', 'artifact-name', 'process-id', 'snapshot-directory']) expect(withInputs[input]).toEqual(expect.any(String));
+      expect(withInputs['artifact-name']).toContain('${{ github.run_id }}');
+    }
+    expect(object(step('Upload Epoch signed transfer 3').with)['skip-after-deposit']).toBe('true');
+    expect(object(step('Upload NEAR signed transfer').with).gate).toContain('.evm-1');
+    expect(object(step('Upload NEAR native return claim').with).gate).toContain('.claim');
+  });
+  it('waits for the existing provider settlement window without extending the SDK request hold', () => {
+    const action = readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8');
+    expect(action).toContain('deadline=$((SECONDS + 1100))');
+    const hold = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-loop-authorization.ts'), 'utf8');
+    expect(hold).toContain('240_000');
+  });
+  it('never uploads browser folders, private process logs, profiles or raw note files', () => {
+    for (const job of Object.values(jobs).map(object)) {
+      if (!Array.isArray(job.steps)) throw new Error('Missing job steps');
+      for (const entry of job.steps.filter(record).filter(value => value.uses === 'actions/upload-artifact@v4')) {
+        const paths = object(entry.with).path;
+        expect(typeof paths).toBe('string');
+        for (const path of String(paths).trim().split(/\s+/)) {
+          expect(path).toMatch(/\.(json|md)$/); expect(path).not.toMatch(/profile|trace|note[-.]file|process[-.]log|results\.json/);
+        }
+      }
+    }
+  });
   it.each([true, false])('installs xvfb only when missing (installed: %s)', installed => {
     const bin = mkdtempSync(resolve(tmpdir(), 'nightly-xvfb-'));
     try {
@@ -70,9 +131,10 @@ describe('funded nightly swap workflow', () => {
     expect(object(document.concurrency)['cancel-in-progress']).toBe(false);
     expect(object(document.concurrency).group).toBe('e2e-mainnet-nightly');
   });
-  it('keeps bridge work independent of swap failure but away from a recovery-only or swaps-only run', () => {
-    expect(step('Run USDCx bridge loops and read-only 1Click preflight').if).toContain('!cancelled()');
-    expect(step('Run USDCx bridge loops and read-only 1Click preflight').if).toContain('recovery_only');
+  it('keeps bridge work independent of swap failure but away from a recovery-only, loops-only or swaps-only run', () => {
+    expect(step('Run USDCx bridge loops').if).toContain('!cancelled()');
+    expect(step('Run USDCx bridge loops').if).toContain('recovery_only');
+    expect(step('Run USDCx bridge loops').if).toContain('loops_only');
     expect(object(jobs['mainnet-agglayer']).if).toContain('swaps_only');
     expect(object(jobs['mainnet-agglayer']).if).toContain('recovery_only');
   });

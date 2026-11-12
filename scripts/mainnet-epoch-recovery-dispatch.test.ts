@@ -3,7 +3,7 @@ import { epochCheckpointFixture, epochReverseAuthorityFixture } from './helpers/
 
 const hash = `0x${'a'.repeat(64)}`;
 const refund = jest.fn(); const returned = jest.fn(); const forward = jest.fn(); const prepare = jest.fn(); const reverse = jest.fn();
-const restore = jest.fn(); const summary = jest.fn();
+const restore = jest.fn(); const summary = jest.fn(); const save = jest.fn();
 const head = jest.fn();
 const account = jest.fn();
 const wallet = { getAccountAddress: account };
@@ -14,7 +14,7 @@ const test = Object.assign(jest.fn((_name: string, body: typeof callback) => { c
 });
 const environment = new Map<string, string | undefined>();
 const keys = ['E2E_NETWORK', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'MAINNET_EPOCH_MODE',
-  'E2E_MAINNET_GUARDIAN_KEY_PAIR', 'E2E_MAINNET_EVM_KEY'];
+  'E2E_MAINNET_GUARDIAN_KEY_PAIR', 'E2E_MAINNET_EVM_KEY', 'MAINNET_EPOCH_FORWARD_ATTEMPTED'];
 const modules = [
   '../playwright/e2e/fixtures/two-wallets', '../playwright/e2e/helpers/mainnet-epoch-checkpoint',
   '../playwright/e2e/helpers/mainnet-epoch-runtime', '../playwright/e2e/helpers/mainnet-epoch-provider',
@@ -27,14 +27,14 @@ beforeEach(() => {
   for (const key of keys) environment.set(key, process.env[key]);
   Object.assign(process.env, { E2E_NETWORK: 'mainnet', GITHUB_RUN_ID: '999999', GITHUB_RUN_ATTEMPT: '1',
     MAINNET_EPOCH_MODE: 'recover', E2E_MAINNET_GUARDIAN_KEY_PAIR: 'existing-fixture-key' });
-  delete process.env.E2E_MAINNET_EVM_KEY;
+  delete process.env.E2E_MAINNET_EVM_KEY; delete process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED;
   previous = { ...epochCheckpointFixture(), phase: 'recovery-required', forwardNoteId: hash, forwardMidenTxId: hash,
     forwardAuthority: { minimumOutput: '1000001', bindingHash: hash, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
     paidMidenFees: '7' };
   account.mockResolvedValue(previous.account); head.mockResolvedValue(8000);
   refund.mockResolvedValue(undefined); returned.mockResolvedValue(undefined); restore.mockResolvedValue(undefined);
   jest.doMock(modules[0]!, () => ({ test }));
-  jest.doMock(modules[1]!, () => ({ loadMainnetEpochCheckpoint: () => previous, saveMainnetEpochCheckpoint: jest.fn() }));
+  jest.doMock(modules[1]!, () => ({ loadMainnetEpochCheckpoint: () => previous, saveMainnetEpochCheckpoint: save }));
   jest.doMock(modules[2]!, () => ({ runEpochRefund: refund, recoverEpochReturn: returned,
     recoverEpochForward: forward, runEpochForward: jest.fn(), runEpochReverse: reverse }));
   jest.doMock(modules[3]!, () => ({ prepareEpochRoundTrip: prepare,
@@ -54,6 +54,18 @@ const run = () => {
   if (!callback) throw new Error('Epoch staged callback was not registered');
   return callback({ walletB: wallet });
 };
+it('closes only an authoritative never-attempted Epoch preflight without restoring keys or renewing authority', async () => {
+  previous = epochCheckpointFixture(); process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED = 'false';
+  const original = { sourceRunId: previous.sourceRunId, authorizationRunId: previous.authorizationRunId,
+    lossBudgetUsdMicros: previous.lossBudgetUsdMicros, pricedAt: previous.pricedAt };
+  await run();
+  expect(save).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ ...original, phase: 'unspent' }));
+  expect(restore).not.toHaveBeenCalled(); expect(reverse).not.toHaveBeenCalled(); expect(refund).not.toHaveBeenCalled();
+});
+it('keeps a missing original Epoch collateral fingerprint unresolved when the forward stage was attempted', async () => {
+  previous = epochCheckpointFixture(); process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED = 'true';
+  await expect(run()).rejects.toThrow(); expect(save).not.toHaveBeenCalled(); expect(reverse).not.toHaveBeenCalled();
+});
 it('recovers only original matured collateral without asking for an EVM signing key or creating a new plan', async () => {
   const original = JSON.stringify(previous);
   await run();

@@ -168,68 +168,16 @@ describe('mainnet 1Click checkpoint recovery', () => {
     await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/original.*claim.*(unknown|unresolved)|unknown.*claim/i);
     expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
   });
-  it('returns an execution checkpoint to preflight when guardian recovery fails before submission', async () => {
-    const recoveryError = new Error('fixture guardian recovery failed');
-    const walletB = {
-      recoverGuardianFromHotKey: jest.fn().mockRejectedValue(recoveryError),
-      triggerSync: jest.fn()
-    };
-
-    await expect(runRegisteredLoop({ walletB })).rejects.toBe(recoveryError);
-
-    expect(walletB.recoverGuardianFromHotKey).toHaveBeenCalledWith('fixture-payload');
-    expect(walletB.triggerSync).not.toHaveBeenCalled();
-    expect(mockSavedCheckpoints.at(-1)).toMatchObject({
-      phase: 'preflight',
-      sourceRunId: mockRunId,
-      routeId: 'arb:USDC',
-      principalBaseUnits: '1000000'
-    });
-  });
-
-  it('rejects an execution checkpoint from another run without consuming it', async () => {
-    mockCheckpoint = { ...authorizedCheckpoint(), sourceRunId: 'different-fixture-run' };
+  it.each([
+    {}, { sourceRunId: 'different-fixture-run' }, { phase: 'preflight' },
+    { phase: 'forward-submitted', forwardTransactionId: 'fixture-miden-transaction' }
+  ])('keeps legacy v1 execution read-only without restoring, rewriting or pretending it is v2: %j', async patch => {
+    mockCheckpoint = { ...authorizedCheckpoint(), ...patch }; const original = JSON.stringify(mockCheckpoint);
     registerMainnetLoop();
-    const walletB = {
-      recoverGuardianFromHotKey: jest.fn(),
-      triggerSync: jest.fn()
-    };
-
-    await expect(runRegisteredLoop({ walletB })).rejects.toThrow('same-run execution marker is required');
-
-    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled();
-    expect(mockSavedCheckpoints).toHaveLength(0);
-  });
-
-  it('rejects an execution attempt without authorization and leaves the checkpoint unchanged', async () => {
-    mockCheckpoint = { ...authorizedCheckpoint(), phase: 'preflight' };
-    registerMainnetLoop();
-    const walletB = {
-      recoverGuardianFromHotKey: jest.fn(),
-      triggerSync: jest.fn()
-    };
-
-    await expect(runRegisteredLoop({ walletB })).rejects.toThrow('same-run execution marker is required');
-
-    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled();
-    expect(mockSavedCheckpoints).toHaveLength(0);
-  });
-
-  it('keeps a submitted transaction checkpoint unchanged for recovery review', async () => {
-    mockCheckpoint = {
-      ...authorizedCheckpoint(),
-      phase: 'forward-submitted',
-      forwardTransactionId: 'fixture-miden-transaction'
-    };
-    registerMainnetLoop();
-    const walletB = {
-      recoverGuardianFromHotKey: jest.fn(),
-      triggerSync: jest.fn()
-    };
-
-    await expect(runRegisteredLoop({ walletB })).rejects.toThrow('same-run execution marker is required');
-
-    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled();
-    expect(mockSavedCheckpoints).toHaveLength(0);
+    const walletB = { recoverGuardianFromHotKey: jest.fn().mockRejectedValue(new Error('fixture recovery must never run')),
+      triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/legacy.*read.only/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(walletB.triggerSync).not.toHaveBeenCalled();
+    expect(mockSavedCheckpoints).toHaveLength(0); expect(JSON.stringify(mockCheckpoint)).toBe(original);
   });
 });
