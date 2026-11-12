@@ -1,4 +1,9 @@
-import { inspectTestMainnetSendRequest } from './test-send-request';
+import {
+  inspectTestMainnetSendRequest,
+  inspectTestMainnetSwapRequest,
+  type TestMainnetSendScope,
+  type TestMainnetSwapScope
+} from './test-send-request';
 import { canonicalRequestBytes } from '../../../../scripts/canonical-request-bytes.mjs';
 import { isRecord } from '../../update/guards';
 
@@ -11,7 +16,8 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 
 export async function awaitTestSendAuthorization(
   accountId: string,
-  request: { serialize(): Uint8Array }
+  request: { serialize(): Uint8Array },
+  kind: 'send' | 'swap' = 'send'
 ): Promise<void> {
   if (process.env.MIDEN_E2E_TEST !== 'true') return;
   const stored = await chrome.storage.local.get([KEY, `${KEY}_required`]);
@@ -30,10 +36,9 @@ export async function awaitTestSendAuthorization(
     !policy.nonce ||
     policy.nonce.length > 80 ||
     typeof policy.accountId !== 'string' ||
-    typeof policy.recipientId !== 'string' ||
     typeof policy.faucetId !== 'string' ||
     typeof policy.amount !== 'string' ||
-    ![policy.accountId, policy.recipientId, policy.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
+    ![policy.accountId, policy.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
     !/^[1-9]\d{0,18}$/.test(policy.amount) ||
     typeof policy.expiresAt !== 'number' ||
     !Number.isSafeInteger(policy.expiresAt) ||
@@ -41,14 +46,24 @@ export async function awaitTestSendAuthorization(
     policy.expiresAt > Date.now() + 600_000
   )
     throw new Error('Invalid or already used native send authorization');
-  const scope = {
-    nonce: policy.nonce,
-    accountId: policy.accountId,
-    recipientId: policy.recipientId,
-    faucetId: policy.faucetId,
-    amount: policy.amount,
-    expiresAt: policy.expiresAt
-  };
+  const common = { accountId: policy.accountId, faucetId: policy.faucetId, amount: policy.amount };
+  let route: TestMainnetSendScope | TestMainnetSwapScope;
+  if (kind === 'swap') {
+    if (
+      policy.kind !== 'swap' ||
+      typeof policy.requestedFaucetId !== 'string' ||
+      !/^0x[0-9a-f]{30}$/.test(policy.requestedFaucetId) ||
+      policy.requestedFaucetId === policy.faucetId ||
+      typeof policy.requestedAmount !== 'string' ||
+      !/^[1-9]\d{0,18}$/.test(policy.requestedAmount)
+    ) throw new Error('Invalid PSWAP authorization scope');
+    route = { ...common, kind: 'swap', requestedFaucetId: policy.requestedFaucetId, requestedAmount: policy.requestedAmount };
+  } else {
+    if (policy.kind !== undefined || typeof policy.recipientId !== 'string' || !/^0x[0-9a-f]{30}$/.test(policy.recipientId))
+      throw new Error('Invalid native send authorization scope');
+    route = { ...common, recipientId: policy.recipientId };
+  }
+  const scope = { ...route, nonce: policy.nonce, expiresAt: policy.expiresAt };
   if (accountId !== scope.accountId) throw new Error('Native send SDK payer differs from its authorization');
   const started = Date.now();
   const active = () => {
@@ -56,7 +71,9 @@ export async function awaitTestSendAuthorization(
       throw new Error('Native send authorization timed out');
   };
   const bytes = request.serialize();
-  const noteId = inspectTestMainnetSendRequest(scope, bytes);
+  const identity = 'kind' in scope
+    ? inspectTestMainnetSwapRequest(scope, bytes)
+    : { noteId: inspectTestMainnetSendRequest(scope, bytes) };
   const sha = await sha256(bytes);
   const canonicalSha256 = await sha256(canonicalRequestBytes(bytes));
   const same = (value: unknown, expected: Record<string, string | number>): boolean =>
@@ -65,7 +82,7 @@ export async function awaitTestSendAuthorization(
     throw new Error('Native send authority changed during request inspection');
   active();
   // Only public route identities and request fingerprints cross storage, never note/request bytes.
-  const held = { ...scope, noteId, sha256: sha, canonicalSha256 };
+  const held = { ...scope, ...identity, sha256: sha, canonicalSha256 };
   await chrome.storage.local.set({ [KEY]: { ...held, status: 'waiting' } });
   for (let poll = 0; poll < 480; poll++) {
     active();

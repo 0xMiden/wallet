@@ -2056,6 +2056,8 @@ export class MidenClientInterface {
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
         // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
         // delegated prove that fails falls back to a local attempt with a freshly built request.
+        await onStage?.('executing');
+        await awaitTestSendAuthorization(canonicalId, request, 'swap');
         const executed = await this.client.transactions.executeRequest(canonicalId, request);
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
         return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
