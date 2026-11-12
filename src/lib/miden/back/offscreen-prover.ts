@@ -12,15 +12,16 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { OFFSCREEN_URL } from './offscreen-codec';
 import { isInOffscreenDocument } from './offscreen-realm';
 
 // Re-exported so every existing importer of `isInOffscreenDocument` from here —
 // and every test that mocks this module wholesale — is unchanged by the split.
 // Modules that need ONLY the realm check should import `./offscreen-realm`
-// directly; see that file for why the two are separate.
-export { isInOffscreenDocument };
-
-export const OFFSCREEN_URL = 'offscreen.html';
+// directly; see that file for why the two are separate. `OFFSCREEN_URL` lives in
+// the codec for the same reason: the service worker's sender check reads it, and a
+// partial mock of this module must not turn it into `undefined`.
+export { isInOffscreenDocument, OFFSCREEN_URL };
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
 // "Only a single offscreen document may be created" if create races with

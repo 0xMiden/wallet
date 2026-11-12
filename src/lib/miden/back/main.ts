@@ -29,11 +29,11 @@ import {
   OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
+  OFFSCREEN_URL,
   SW_TARGET,
   type OffscreenSignRequest,
   type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
-import { OFFSCREEN_URL } from 'lib/miden/back/offscreen-prover';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
