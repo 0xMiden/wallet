@@ -1,7 +1,6 @@
 import type { Account } from '@miden-sdk/miden-sdk/lazy';
 import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 
-import { getMessage } from 'lib/i18n';
 import { sameCommitment } from 'lib/secure-hot-key/commitment';
 
 import { deriveGuardianAccountSeed, rebuildGuardianAccount } from './account-recipe';
@@ -74,11 +73,20 @@ export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Pro
   };
 }
 
+/** The refusal onboarding shows. i18n loads only here: importing it runs platform setup, as elsewhere on this path. */
+async function refusal(
+  code: GuardianRecoveryVerificationError['code'],
+  key: string
+): Promise<GuardianRecoveryVerificationError> {
+  const { getMessage } = await import('lib/i18n');
+  return new GuardianRecoveryVerificationError(code, getMessage(key));
+}
+
 /** Refuses an account whose recovery signer is not the key the phrase derives at this index. */
 export async function assertRecoverySignerMatches(acc: Account, coldCommitment: string): Promise<void> {
   const served = signerSlot(acc, true);
   if (served !== undefined && sameCommitment(served, coldCommitment)) return;
-  throw new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
+  throw await refusal(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryUnverified');
 }
 
 /**
@@ -93,18 +101,17 @@ export async function assertUndeployedStateFromSeed(
   coldSeed: Uint8Array,
   coldCommitment: string
 ): Promise<void> {
-  const unverified = () =>
-    new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
+  const unverified = () => refusal(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryUnverified');
   const orUnverified = async <T>(work: Promise<T>): Promise<T> => {
     try {
       return await work;
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;
-      throw unverified();
+      throw await unverified();
     }
   };
   const { hotCommitment, guardianCommitment } = state;
-  if (hotCommitment === undefined || guardianCommitment === undefined) throw unverified();
+  if (hotCommitment === undefined || guardianCommitment === undefined) throw await unverified();
   const [{ assertWasmHoldCurrent, withWasmClientLock }, accountSeed] = await Promise.all([
     import('../sdk/miden-client'),
     orUnverified(deriveGuardianAccountSeed(coldSeed, hotCommitment, guardianCommitment))
@@ -124,7 +131,7 @@ export async function assertUndeployedStateFromSeed(
     },
     { label: 'recover-guardian-rebuild' }
   );
-  if (!rebuilt) throw unverified();
+  if (!rebuilt) throw await unverified();
 }
 
 export type AccountChainState = { kind: 'deployed'; commitment: string } | { kind: 'absent' } | { kind: 'unknown' };
@@ -184,23 +191,20 @@ export function judgeServedState(
 }
 
 /** The entries safe to restore, or the refusal that explains why none of them are. */
-export function selectAdoptable<
+export async function selectAdoptable<
   T extends { state: ServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
->(judged: readonly T[]): T[] {
-  const refuse = (code: GuardianRecoveryVerificationError['code'], key: string): never => {
-    throw new GuardianRecoveryVerificationError(code, getMessage(key));
-  };
+>(judged: readonly T[]): Promise<T[]> {
   if (judged.some(entry => entry.verdict === 'unverified')) {
-    refuse(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryUnverified');
+    throw await refusal(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryUnverified');
   }
   const verifiedIds = new Set(judged.filter(e => e.verdict === 'verified').map(e => e.state.accountIdHex));
   const unmatched = judged.filter(e => !verifiedIds.has(e.state.accountIdHex));
   const hasAllMismatch = unmatched.some(e =>
     judged.filter(o => o.state.accountIdHex === e.state.accountIdHex).every(o => o.verdict === 'mismatch')
   );
-  if (hasAllMismatch) refuse(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryBehindNetwork');
+  if (hasAllMismatch) throw await refusal(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryBehindNetwork');
   if (unmatched.some(e => e.verdict === 'unknown')) {
-    refuse(GUARDIAN_RECOVERY_NETWORK_UNREACHABLE, 'guardianRecoveryNetworkUnreachable');
+    throw await refusal(GUARDIAN_RECOVERY_NETWORK_UNREACHABLE, 'guardianRecoveryNetworkUnreachable');
   }
   return judged.filter(e => verifiedIds.has(e.state.accountIdHex) && e.verdict === 'verified');
 }

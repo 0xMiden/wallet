@@ -202,21 +202,21 @@ describe('recovery verification', () => {
       tag
     });
 
-    it('drops a stale copy when the same account has a copy equal to the chain', () => {
+    it('drops a stale copy when the same account has a copy equal to the chain', async () => {
       const a = entry('0xa', 'verified', 'a1');
       const stale = entry('0xa', 'mismatch', 'a2');
       const b = entry('0xb', 'verified', 'b1');
-      expect(selectAdoptable([a, stale, b])).toEqual([a, b]);
+      await expect(selectAdoptable([a, stale, b])).resolves.toEqual([a, b]);
     });
 
-    it('refuses with the behind-network copy when an account has only copies that differ from the chain', () => {
-      expect(() => selectAdoptable([entry('0xa', 'verified'), entry('0xb', 'mismatch')])).toThrow(
+    it('refuses with the behind-network copy when an account has only copies that differ from the chain', async () => {
+      await expect(selectAdoptable([entry('0xa', 'verified'), entry('0xb', 'mismatch')])).rejects.toThrow(
         expect.objectContaining({ code: 'GUARDIAN_RECOVERY_UNVERIFIED', message: 'guardianRecoveryBehindNetwork' })
       );
     });
 
-    it('refuses with the network copy when an account could not be read', () => {
-      expect(() => selectAdoptable([entry('0xa', 'verified'), entry('0xb', 'unknown')])).toThrow(
+    it('refuses with the network copy when an account could not be read', async () => {
+      await expect(selectAdoptable([entry('0xa', 'verified'), entry('0xb', 'unknown')])).rejects.toThrow(
         expect.objectContaining({
           code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE',
           message: 'guardianRecoveryNetworkUnreachable'
@@ -224,8 +224,8 @@ describe('recovery verification', () => {
       );
     });
 
-    it('refuses when any copy reports transactions the chain has never seen, even beside a verified account', () => {
-      expect(() => selectAdoptable([entry('0xa', 'verified'), entry('0xa', 'unverified')])).toThrow(
+    it('refuses when any copy reports transactions the chain has never seen, even beside a verified account', async () => {
+      await expect(selectAdoptable([entry('0xa', 'verified'), entry('0xa', 'unverified')])).rejects.toThrow(
         expect.objectContaining({ code: 'GUARDIAN_RECOVERY_UNVERIFIED', message: 'guardianRecoveryUnverified' })
       );
     });

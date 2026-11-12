@@ -1033,7 +1033,7 @@ export class MidenClientInterface {
             judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
           }
         }
-        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of selectAdoptable(judged)) {
+        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of await selectAdoptable(judged)) {
           for (const accountId of await this.adoptServedStates([state], sk)) {
             recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
           }
