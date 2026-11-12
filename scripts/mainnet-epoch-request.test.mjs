@@ -8,7 +8,7 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { epochReadOnlyProvider } from '../node_modules/.cache/nightly-epoch-provider.mjs';
 
 import { epochCheckpointFixture } from '../node_modules/.cache/nightly-epoch-fixture.mjs';
-import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, assertMainnetConsumeRequestHash } from '../node_modules/.cache/nightly-epoch-request.mjs';
+import { inspectEpochCollateralRequest, inspectEpochForwardQuote, inspectEpochReturnNote, inspectEpochRefundNote, assertMainnetConsumeRequestHash, mainnetConsumeRequestHash } from '../node_modules/.cache/nightly-epoch-request.mjs';
 
 const sdk = getWrappedSdk();
 const actor = 'mm1aqtc4ltp5usswqfx7s22ks3qg5g4kyr5_qr7qqq9wr6w';
@@ -95,6 +95,7 @@ function consumeHash(bytes, change = builder => builder) {
 }
 for (const privacy of [false, true]) test(`matches the actual canonical single-note consume request for ${privacy ? 'private' : 'public'} transport`, () => {
   const input = returnFile({ private: privacy });
+  assert.equal(mainnetConsumeRequestHash(input.bytes), consumeHash(input.bytes));
   assert.doesNotThrow(() => assertMainnetConsumeRequestHash(input.bytes, consumeHash(input.bytes)));
 });
 for (const [name, change] of [

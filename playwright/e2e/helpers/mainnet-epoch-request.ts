@@ -10,14 +10,18 @@ import { isRecord } from '../../../src/lib/update/guards';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
 import { parseMainnetEpochCheckpoint, type MainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 
-export function assertMainnetConsumeRequestHash(noteFile: Uint8Array, canonicalSha256: string): void {
-  if (noteFile.length < 1 || noteFile.length > 1_048_576 || !/^[0-9a-f]{64}$/.test(canonicalSha256))
-    throw new Error('Invalid mainnet consume note or request digest');
+export function mainnetConsumeRequestHash(noteFile: Uint8Array): string {
+  if (noteFile.length < 1 || noteFile.length > 1_048_576)
+    throw new Error('Invalid mainnet consume note size');
   const note = NoteFile.deserialize(noteFile).note();
   if (!note) throw new Error('Missing full note for exact mainnet consume inspection');
   const expected = new TransactionRequestBuilder().withInputNotes(new NoteAndArgsArray([new NoteAndArgs(note, null)]))
     .withExpirationDelta(600).build();
-  if (createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex') !== canonicalSha256)
+  return createHash('sha256').update(canonicalRequestBytes(expected.serialize())).digest('hex');
+}
+
+export function assertMainnetConsumeRequestHash(noteFile: Uint8Array, canonicalSha256: string): void {
+  if (!/^[0-9a-f]{64}$/.test(canonicalSha256) || mainnetConsumeRequestHash(noteFile) !== canonicalSha256)
     throw new Error('Actual native consume request differs from the exact single-note builder');
 }
 

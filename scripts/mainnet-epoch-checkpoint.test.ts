@@ -51,6 +51,36 @@ it('requires settlement to meet the actual stronger reviewed floor, not only the
     forwardAuthority: forwardAuthority() })).toThrow();
 });
 
+const consumeAuthority = () => ({ nonce: '11111111-1111-4111-8111-111111111111',
+  sha256: '1'.repeat(64), canonicalSha256: '2'.repeat(64) });
+function claimCheckpoint(kind: 'return' | 'refund' = 'return') {
+  return { ...settled(), phase: 'recovery-required', forwardAuthority: forwardAuthority(),
+    forwardReceived: kind === 'return' ? settled().forwardReceived : undefined,
+    reverseNonce: kind === 'return' ? '10' : undefined,
+    reverseAuthority: kind === 'return' ? epochReverseAuthorityFixture() : undefined,
+    returnNoteId: kind === 'return' ? `0x${'b'.repeat(64)}` : hash,
+    consumeAuthority: consumeAuthority() };
+}
+it.each(['return', 'refund'] as const)('persists only actual %s request fingerprints without replacing the original monetary authority', kind => {
+  const checkpoint = claimCheckpoint(kind);
+  expect(parseMainnetEpochCheckpoint(checkpoint)).toEqual(checkpoint);
+  expect(checkpoint.authorizationRunId).toBe(fixture().authorizationRunId);
+  expect(checkpoint.lossBudgetUsdMicros).toBe(fixture().lossBudgetUsdMicros);
+});
+it.each([
+  { kind: 'other' }, { noteId: `0x${'b'.repeat(64)}` }, { nonce: '' }, { sha256: 'wrong' },
+  { canonicalSha256: 'wrong' }, { rawRequest: [1, 2, 3] }, { noteFile: 'must-not-be-persisted' }
+])('refuses widened, unrelated or private consume authority: %j', changed => {
+  expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint(),
+    consumeAuthority: { ...consumeAuthority(), ...changed } })).toThrow();
+});
+it('does not authorize a native return without the original reverse authority', () => {
+  expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint(), reverseAuthority: undefined })).toThrow();
+});
+it('does not authorize collateral refund after forward proceeds were recorded', () => {
+  expect(() => parseMainnetEpochCheckpoint({ ...claimCheckpoint('refund'), forwardReceived: '1001000' })).toThrow();
+});
+
 it('pins a bounded exact reverse compact authority before EVM signing', () => {
   const reverse = {
     ...settled(), phase: 'reverse-authorized', reverseNonce: '10', returnAmount: '1000501',
@@ -134,11 +164,13 @@ it('requires correlated round-trip evidence and an exact unique-portfolio cost',
     ...settled(), phase: 'complete', reverseNonce: '10', returnAmount: '1000501', evmNonceBefore: 0,
     reverseAuthority: epochReverseAuthorityFixture(),
     transactions: [{ kind: 'deposit', nonce: 0, hash, feeWei: '200' }], paidEvmFees: '200', paidMidenFees: '14',
-    returnNoteId: hash, returnMidenTxId: hash, reverseReceived: '1000000',
+    returnNoteId: `0x${'b'.repeat(64)}`, returnMidenTxId: hash, reverseReceived: '1000000',
+    consumeAuthority: consumeAuthority(),
     after: { native: '19989986', evmToken: '3000499', evmNative: '9999999999999800' },
     realizedCostUsdMicros: '9516'
   };
   expect(parseMainnetEpochCheckpoint(complete)).toEqual(complete);
+  expect(() => parseMainnetEpochCheckpoint({ ...complete, consumeAuthority: undefined })).toThrow();
   expect(() => parseMainnetEpochCheckpoint({ ...complete, realizedCostUsdMicros: '9517' })).toThrow();
 });
 it('matches the exact authorized actor, route, nonce and amount rather than an unrelated intent', () => {
