@@ -51,7 +51,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   // here would make every eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
-    throw new Error(`operation abandoned ${where}`);
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
   },
   withWasmClientLock: jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
     const hold = { mock: 'wasm-lock-hold' };
@@ -395,15 +396,22 @@ describe('simulateCustomTransaction', () => {
   describe('abandons the dry run at the next transition after a lock eviction', () => {
     const input = { address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA', 'noteB'] };
 
+    const expectHoldLoss = async (simulation: Promise<unknown>, where: string) => {
+      const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+      await expect(simulation).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      await expect(simulation).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: `operation abandoned ${where}` })
+      });
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(mockBeginQuarantineAttempt.mock.results[0].value);
+    };
+
     it('during the client build: nothing WASM runs at all', async () => {
       getMidenClient.mockImplementationOnce(async () => {
         revokeWasmHold();
         return { client: fakeClient, importNoteBytes, syncState, getInputNote };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the client build' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the client build');
       expect(getInputNote).not.toHaveBeenCalled();
       expect(quarantineNoteIds).not.toHaveBeenCalled();
       expect(importNoteBytes).not.toHaveBeenCalled();
@@ -417,9 +425,7 @@ describe('simulateCustomTransaction', () => {
         return null;
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the provenance lookup' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the provenance lookup');
       expect(getInputNote).toHaveBeenCalledTimes(1);
       expect(quarantineNoteIds).not.toHaveBeenCalled();
       expect(importNoteBytes).not.toHaveBeenCalled();
@@ -430,9 +436,7 @@ describe('simulateCustomTransaction', () => {
         revokeWasmHold();
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the quarantine write' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the quarantine write');
       expect(importNoteBytes).not.toHaveBeenCalled();
       expect(syncState).not.toHaveBeenCalled();
     });
@@ -443,9 +447,7 @@ describe('simulateCustomTransaction', () => {
         return 'noteid';
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the note import' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the note import');
       expect(importNoteBytes).toHaveBeenCalledTimes(1);
       expect(syncState).not.toHaveBeenCalled();
     });
@@ -456,9 +458,7 @@ describe('simulateCustomTransaction', () => {
         return undefined;
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned after the sync' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'after the sync');
       expect(accountRefToSdk).not.toHaveBeenCalled();
       expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
@@ -470,9 +470,7 @@ describe('simulateCustomTransaction', () => {
         return { serialize };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the summary serialize' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the summary serialize');
       // `summary.serialize()` reads through the evicted client's RefCell, which
       // is the double borrow the guard exists to prevent.
       expect(serialize).not.toHaveBeenCalled();
@@ -484,9 +482,7 @@ describe('simulateCustomTransaction', () => {
         throw Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' });
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the local execution fallback' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the local execution fallback');
       expect(executeRequest).not.toHaveBeenCalled();
     });
 
@@ -500,9 +496,7 @@ describe('simulateCustomTransaction', () => {
         return { result: { serialize } };
       });
 
-      const res = await simulateCustomTransaction(input);
-
-      expect(res).toEqual({ error: 'operation abandoned before the result serialize' });
+      await expectHoldLoss(simulateCustomTransaction(input), 'before the result serialize');
       expect(serialize).not.toHaveBeenCalled();
     });
   });
@@ -573,6 +567,48 @@ describe('simulateCustomTransaction', () => {
 });
 
 describe('an abandoned dry run', () => {
+  it('waits for quarantine abandonment before rethrowing a kill', async () => {
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    const eviction = new WasmClientPoisonedError('watchdog');
+    const attempt = { abandoned: false };
+    mockBeginQuarantineAttempt.mockReturnValueOnce(attempt);
+    let releaseAbandon!: () => void;
+    let signalAbandon!: () => void;
+    const abandonStarted = new Promise<void>(resolve => {
+      signalAbandon = resolve;
+    });
+    const abandonFinished = new Promise<void>(resolve => {
+      releaseAbandon = resolve;
+    });
+    mockAbandonQuarantineAttempt.mockImplementationOnce(async current => {
+      current.abandoned = true;
+      signalAbandon();
+      await abandonFinished;
+    });
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(eviction);
+    const simulation = simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    let settled = false;
+    const settledSimulation = simulation.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    try {
+      await Promise.race([abandonStarted, settledSimulation]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockAbandonQuarantineAttempt).toHaveBeenCalledWith(attempt);
+      expect(settled).toBe(false);
+    } finally {
+      releaseAbandon();
+    }
+    await expect(simulation).rejects.toBe(eviction);
+  });
+
   it('rethrows a lock eviction so the request can retry', async () => {
     const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
     const eviction = new WasmClientPoisonedError('watchdog');
