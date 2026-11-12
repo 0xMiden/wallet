@@ -2,6 +2,7 @@
 
 ## 1.17.12 (TBD)
 
+- [CHANGE][ci] Limit coverage shards to two workers, recycle them above 768 MB when idle, and use an 8 GiB Node heap without changing the 95% gate.
 - [FIX][all] Remove the standalone Settings page. Settings links and back fallbacks return to Profile, and encrypted wallet file back navigation no longer creates a history loop. The UI benchmark measures the settings list in Profile.
 - [FIX][all] Recover a Guardian transaction whose proof went stale before its submit, keep a refused transaction in review until the chain rules, and show the Guardian hold before Retry in local time with a countdown.
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).

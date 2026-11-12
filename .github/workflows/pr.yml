@@ -404,6 +404,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set -euo pipefail
           node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
@@ -416,7 +417,7 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          yarn test:coverage --shard="$SHARD/$SHARDS" --maxWorkers=2 --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
       # A missing count only makes the gate's record step skip the badge artifact.
