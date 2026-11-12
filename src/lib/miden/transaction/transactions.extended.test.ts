@@ -1368,7 +1368,14 @@ describe('initiateConsumeTransactionFromId', () => {
       assets: [{ faucetId: 'token-faucet', amount: '7' }]
     });
     try {
-      const id = await initiateConsumeTransactionFromId('acc-1', 'from-id-token', false, true);
+      const id = await initiateConsumeTransactionFromId(
+        'acc-1',
+        'from-id-token',
+        false,
+        true,
+        undefined,
+        'bridge_reclaim'
+      );
       const stored = txStore.find(row => row.id === id);
       expect(stored).toMatchObject({
         faucetId: '',
@@ -1383,6 +1390,7 @@ describe('initiateConsumeTransactionFromId', () => {
         amount: '9',
         senderAddress: 'sender',
         isBeingClaimed: false,
+        standardPayment: true,
         type: NoteTypeEnum.Public,
         carriesMoreAssets: false
       };
@@ -1421,19 +1429,30 @@ describe('initiateConsumeTransactionFromId', () => {
 
     try {
       summary.mockResolvedValue(tokenSummary);
-      await expect(initiateConsumeTransactionFromId(ACCOUNT, 'token', false, true)).rejects.toMatchObject({
+      await expect(
+        initiateConsumeTransactionFromId(ACCOUNT, 'token', false, true, undefined, 'bridge_reclaim')
+      ).rejects.toMatchObject({
         name: 'ClaimFeeRefusedError'
       });
       expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
 
       summary.mockResolvedValue(emptySummary);
-      await expect(initiateConsumeTransactionFromId(ACCOUNT, 'empty', false, true)).rejects.toMatchObject({
+      await expect(
+        initiateConsumeTransactionFromId(ACCOUNT, 'empty', false, true, undefined, 'bridge_reclaim')
+      ).rejects.toMatchObject({
         name: 'ClaimFeeRefusedError'
       });
       expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
 
       summary.mockResolvedValue(nativeSummary);
-      const nativeClaimId = await initiateConsumeTransactionFromId(ACCOUNT, 'native', false, true);
+      const nativeClaimId = await initiateConsumeTransactionFromId(
+        ACCOUNT,
+        'native',
+        false,
+        true,
+        undefined,
+        'bridge_reclaim'
+      );
       expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({ faucetId: '', amount: undefined });
       expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({
         secondaryAccountId: '',
@@ -1449,7 +1468,7 @@ describe('initiateConsumeTransactionFromId', () => {
         // Each case starts without a possibly funding claim ahead.
         txStore.length = 0;
         summary.mockResolvedValue(dto);
-        const id = await initiateConsumeTransactionFromId(ACCOUNT, noteId, false, true);
+        const id = await initiateConsumeTransactionFromId(ACCOUNT, noteId, false, true, undefined, 'bridge_reclaim');
         expect(txStore).toHaveLength(1);
         expect(txStore.find(tx => tx.id === id)).toMatchObject({
           faucetId: '',
@@ -1473,7 +1492,9 @@ describe('initiateConsumeTransactionFromId', () => {
       getInputNote: jest.fn(async () => null)
     });
     const { initiateConsumeTransactionFromId } = require('./index');
-    await expect(initiateConsumeTransactionFromId('acc-1', 'note-missing')).rejects.toThrow(/not found/);
+    await expect(
+      initiateConsumeTransactionFromId('acc-1', 'note-missing', undefined, undefined, undefined, 'bridge_reclaim')
+    ).rejects.toThrow(/not found/);
     sdk.getMidenClient = orig;
   });
 
@@ -1489,7 +1510,14 @@ describe('initiateConsumeTransactionFromId', () => {
       }))
     });
     const { initiateConsumeTransactionFromId } = require('./index');
-    const id = await initiateConsumeTransactionFromId('acc-1', 'note-exists');
+    const id = await initiateConsumeTransactionFromId(
+      'acc-1',
+      'note-exists',
+      undefined,
+      undefined,
+      undefined,
+      'bridge_reclaim'
+    );
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;
   });
@@ -1540,7 +1568,9 @@ describe('initiateConsumeTransactionFromId manual-retry gate', () => {
     seedFailedConsume();
     const { initiateConsumeTransactionFromId } = require('./index');
 
-    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false, true));
+    const id = await withResolvableNote(() =>
+      initiateConsumeTransactionFromId('acc-1', 'note-approved', false, true, undefined, 'bridge_reclaim')
+    );
 
     expect(id).not.toBe('failed-consume-1');
     const queued = txStore.find(row => row.id === id);
@@ -1552,7 +1582,9 @@ describe('initiateConsumeTransactionFromId manual-retry gate', () => {
     seedFailedConsume();
     const { initiateConsumeTransactionFromId } = require('./index');
 
-    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false));
+    const id = await withResolvableNote(() =>
+      initiateConsumeTransactionFromId('acc-1', 'note-approved', false, undefined, undefined, 'bridge_reclaim')
+    );
 
     expect(id).toBe('failed-consume-1');
     expect(txStore).toHaveLength(1);
@@ -1566,6 +1598,7 @@ describe('initiateConsumeTransaction reuse path', () => {
     amount: '1',
     senderAddress: 'sender',
     isBeingClaimed: false,
+    standardPayment: true,
     type: NoteTypeEnum.Public,
     ...overrides
   });
@@ -2269,6 +2302,7 @@ describe('consume queue fee probe', () => {
     amount: '7',
     senderAddress: 'sender',
     isBeingClaimed: false,
+    standardPayment: true,
     type: NoteTypeEnum.Public,
     carriesMoreAssets: false
   };
