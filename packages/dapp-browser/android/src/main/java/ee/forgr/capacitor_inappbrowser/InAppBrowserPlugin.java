@@ -1444,19 +1444,25 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         this.getActivity().runOnUiThread(() -> {
             boolean accepted = false;
+            boolean wasShowing = dialog.isShowing();
             try {
                 String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
                 boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
                     && java.util.Objects.equals(lifetime, call.getString("managedHostCloseToken"))
                     && (lifetime == null || call.getInt("visibilitySequence") != null);
                 if (current) {
-                    boolean shown = dialog.isShowing();
                     accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
                         call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
-                    if (shown != dialog.isShowing() && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
                 }
             } catch (Exception e) {
                 Log.e("InAppBrowser", "morph failed: " + e.getMessage());
+            }
+            if (navbarManager != null && (accepted || wasShowing != dialog.isShowing())) {
+                try {
+                    navbarManager.notifyDialogVisibilityChanged(dialog);
+                } catch (Exception e) {
+                    Log.e("InAppBrowser", "morph navbar update failed: " + e.getMessage());
+                }
             }
             call.resolve(new JSObject().put("accepted", accepted));
         });
@@ -1477,8 +1483,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     public void prepareMorph(PluginCall call) {
         Integer requested = call.getInt("durationMs");
         long duration = requested == null ? BreadFrameBoost.DURATION_MS : Math.max(0, Math.min(2000, requested));
+        String id = call.getString("id");
         this.getActivity().runOnUiThread(() -> {
             BreadFrameBoost.hold(getBridge() == null ? null : getBridge().getWebView(), duration);
+            WebViewDialog target = id == null ? null : WebViewRegistry.getShared().get(id);
+            if (target != null) target.prepareMorph(duration);
             call.resolve();
         });
     }

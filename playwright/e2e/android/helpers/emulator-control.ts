@@ -246,6 +246,12 @@ export class EmulatorControl {
     });
   }
 
+  async reboot(serial: string): Promise<void> {
+    await adb(['-s', serial, 'reboot']);
+    await adb(['-s', serial, 'wait-for-device'], BOOT_TIMEOUT_MS);
+    await this.ensureBooted(serial);
+  }
+
   async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);
@@ -371,6 +377,20 @@ export class EmulatorControl {
       }
       await sleep(TASK_REMOVAL_POLL_MS);
     }
+  }
+
+  /** Leave the app the way an app switch does: its process stays alive behind the launcher. */
+  async pressHome(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_HOME']);
+  }
+
+  /** Turn the screen off. KEYCODE_SLEEP and KEYCODE_WAKEUP say which state they want; KEYCODE_POWER only toggles. */
+  async sleepScreen(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP']);
+  }
+
+  async wakeScreen(serial: string): Promise<void> {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
   }
 
   /**

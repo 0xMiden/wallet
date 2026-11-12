@@ -18,12 +18,27 @@ export const QUEUE_HIDDEN_BUCKETS = [
   'unavailable'
 ] as const;
 export type QueueHiddenBucket = (typeof QUEUE_HIDDEN_BUCKETS)[number];
+export const PROOF_WINDOW_BUCKETS = ['under_30_blocks', '30_to_180_blocks', 'over_180_blocks', 'unavailable'] as const;
+export type ProofWindowBucket = (typeof PROOF_WINDOW_BUCKETS)[number];
+export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
+export type SubmitHiddenAnswer = (typeof SUBMIT_HIDDEN_ANSWERS)[number];
+export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', 'unavailable'] = [
+  'under_9s',
+  '9_to_11s',
+  'over_11s',
+  'unavailable'
+];
+export type SubmitLegBucket = (typeof SUBMIT_LEG_BUCKETS)[number];
 export interface TerminalReportDiagnostics {
   queueAdmissionObservation?: QueueAdmissionObservation;
   queueSighting?: QueueSighting;
   preflightSync?: PreflightSyncReport;
   queueHidden?: QueueHiddenBucket;
   reapStartRelation?: ReapStartRelation;
+  submitApproachHidden?: QueueHiddenBucket;
+  proofWindow?: ProofWindowBucket;
+  submitHidden?: SubmitHiddenAnswer;
+  submitLeg?: SubmitLegBucket;
 }
 const listed = <T extends string>(value: unknown, allowed: readonly T[]): T | undefined =>
   allowed.find(item => item === value);
@@ -33,13 +48,21 @@ const store = rootDiagnosticStore<TerminalReportDiagnostics>(value => {
   const sync = listed(safeOwnDiagnosticData(value, 'preflightSync'), PREFLIGHT_SYNC_REPORTS);
   const hidden = listed(safeOwnDiagnosticData(value, 'queueHidden'), QUEUE_HIDDEN_BUCKETS);
   const reap = listed(safeOwnDiagnosticData(value, 'reapStartRelation'), REAP_START_RELATIONS);
-  return queue || sighting || sync || hidden || reap
+  const approach = listed(safeOwnDiagnosticData(value, 'submitApproachHidden'), QUEUE_HIDDEN_BUCKETS);
+  const proofWindow = listed(safeOwnDiagnosticData(value, 'proofWindow'), PROOF_WINDOW_BUCKETS);
+  const submitHidden = listed(safeOwnDiagnosticData(value, 'submitHidden'), SUBMIT_HIDDEN_ANSWERS);
+  const submitLeg = listed(safeOwnDiagnosticData(value, 'submitLeg'), SUBMIT_LEG_BUCKETS);
+  return queue || sighting || sync || hidden || reap || approach || proofWindow || submitHidden || submitLeg
     ? {
         ...(queue ? { queueAdmissionObservation: queue } : {}),
         ...(sighting ? { queueSighting: sighting } : {}),
         ...(sync ? { preflightSync: sync } : {}),
         ...(hidden ? { queueHidden: hidden } : {}),
-        ...(reap ? { reapStartRelation: reap } : {})
+        ...(reap ? { reapStartRelation: reap } : {}),
+        ...(approach ? { submitApproachHidden: approach } : {}),
+        ...(proofWindow ? { proofWindow } : {}),
+        ...(submitHidden ? { submitHidden } : {}),
+        ...(submitLeg ? { submitLeg } : {})
       }
     : undefined;
 });
