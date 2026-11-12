@@ -22,7 +22,11 @@ export const DappOrigin: FC<DappOriginProps> = ({ origin, className, 'data-testi
   const asciiHost = idnAsciiHost(origin);
 
   return (
-    <span className={classNames('flex min-w-0 max-w-full', asciiHost && 'flex-wrap gap-x-1.5', className)} title={origin} data-testid={testId}>
+    <span
+      className={classNames('flex min-w-0 max-w-full', asciiHost && 'flex-wrap gap-x-1.5', className)}
+      title={origin}
+      data-testid={testId}
+    >
       {lead && (
         <span className="min-w-0 truncate" data-testid="dapp-origin-lead">
           {lead}
