@@ -833,7 +833,9 @@ describe('swap (site 8)', () => {
   it('cannot execute or submit a PSWAP before its actual request upload authorization', async () => {
     const harness = buildHarness();
     const refused = new Error('exact PSWAP authorization refused');
-    const gate = jest.fn(async () => { throw refused; });
+    const gate = jest.fn(async () => {
+      throw refused;
+    });
     jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
     const { client, withWasmClientLock } = await load(harness);
     await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toBe(refused);
@@ -845,12 +847,21 @@ describe('swap (site 8)', () => {
     const harness = buildHarness();
     const refused = new Error('original PSWAP authority expired during stage write');
     let expired = false;
-    const gate = jest.fn(async () => { if (expired) throw refused; });
+    const gate = jest.fn(async () => {
+      if (expired) throw refused;
+    });
     jest.doMock('./test-send-authorization', () => ({ awaitTestSendAuthorization: gate }));
     const { client, withWasmClientLock } = await load(harness);
-    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false), async stage => {
-      if (stage === 'executing') { await Promise.resolve(); expired = true; }
-    }))).rejects.toBe(refused);
+    await expect(
+      withWasmClientLock(async () =>
+        client.swapTransaction(swapTx(false), async stage => {
+          if (stage === 'executing') {
+            await Promise.resolve();
+            expired = true;
+          }
+        })
+      )
+    ).rejects.toBe(refused);
     expect(gate).toHaveBeenCalledTimes(1);
     expect(harness.executeRequest).not.toHaveBeenCalled();
     expect(harness.submitProven).not.toHaveBeenCalled();
