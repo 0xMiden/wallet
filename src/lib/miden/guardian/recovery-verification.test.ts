@@ -129,8 +129,15 @@ describe('recovery verification', () => {
   });
 
   describe('selectAdoptable', () => {
+    const servedState = (accountIdHex: string): ServedGuardianState => ({
+      bytes: new Uint8Array(),
+      accountIdHex,
+      nonce: 1n,
+      isNew: false,
+      commitment: 'ab'
+    });
     const entry = (accountIdHex: string, verdict: Exclude<ServedStateVerdict, 'undeployed'>, tag = verdict) => ({
-      state: { accountIdHex } as ServedGuardianState,
+      state: servedState(accountIdHex),
       verdict,
       tag
     });

@@ -3,6 +3,7 @@ import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/h
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
+import type { AccountChainState } from '../guardian/recovery-verification';
 import type { WasmLockHold } from './miden-client';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
@@ -2491,9 +2492,9 @@ describe('MidenClientInterface', () => {
       const events: string[] = [];
       const signerSlots: Record<number, string> = {};
       // The stub accounts all hash to 'feed', so the chain agrees with them unless a test says otherwise.
-      const chainRead = jest.fn(async (_id: string) => {
+      const chainRead = jest.fn(async (_id: string): Promise<AccountChainState> => {
         if (held.count > 0) throw new Error('chain read with the WASM lock held');
-        return { kind: 'deployed' as const, commitment: 'feed' };
+        return { kind: 'deployed', commitment: 'feed' };
       });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -2685,7 +2686,7 @@ describe('MidenClientInterface', () => {
     it('seed recovery refuses with the network copy when the chain cannot be read, adopting nothing', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
       const { insert, adopt, chainRead, recover } = await setupRecovery();
-      chainRead.mockResolvedValue({ kind: 'unknown' as never });
+      chainRead.mockResolvedValue({ kind: 'unknown' });
 
       await expect(recover()).rejects.toMatchObject({
         code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE',

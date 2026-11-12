@@ -66,7 +66,6 @@ export async function readServedStateFacts(acc: Account, bytes: Uint8Array): Pro
 export async function assertRecoverySignerMatches(acc: Account, coldCommitment: string): Promise<void> {
   const served = await readSlot(() => getSignerDetailsFromAccount(acc, true));
   if (served !== undefined && sameCommitment(served, coldCommitment)) return;
-  const { getMessage } = await import('lib/i18n');
   throw new GuardianRecoveryVerificationError(GUARDIAN_RECOVERY_UNVERIFIED, getMessage('guardianRecoveryUnverified'));
 }
 
