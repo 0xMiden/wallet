@@ -1,30 +1,14 @@
-name: Compile surfaces
-
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
-#
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+name: QA fresh-tracker capsule physical-input regressions
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
   pull-requests: read
 
 concurrency:
-  group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
+  group: capsule-fresh-tracker-red-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,12 +17,32 @@ jobs:
     runs-on: ubuntu-latest
     # Both linked-dependency injections build from source before yarn install: the
     # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
+    # platform build even starts - Android's own gradle step takes 4 minutes and was
     # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
     # The ceiling only binds while those markers are present.
     timeout-minutes: 60
+    env:
+      GRADLE_OPTS: -Dorg.gradle.workers.max=2
+      RESULTS: ${{ github.workspace }}/native-fresh-tracker-red
     steps:
       - uses: actions/checkout@v4
+      - name: Bind the exact test and unchanged native source
+        run: |
+          mkdir -p "$RESULTS"
+          python3 <<'PYBIND'
+          import json, os, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          expected = {'package.json': '7452638a89d169308c7d8bfb353927ed109e257b', 'yarn.lock': 'edab292553d3aca80fd174b6caeea28767c079a4', 'src': 'd49fa46177051e01c849de7341e40a9ce9d37e05', 'packages/dapp-browser/android/src/main': '2cf9267369d9c2f708d3d7af4472dc72a593ab79', 'packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java': 'a0bf64b52bbac372bed6be8e405592a4408c433a'}
+          actual = {name: git('rev-parse', 'HEAD:' + name) for name in expected}
+          source = {'head': git('rev-parse', 'HEAD'), 'tree': git('rev-parse', 'HEAD^{tree}'),
+                    'expected_test_base': '93a163013e8981170953ab14154f5d9c8206e37e',
+                    'native_base': 'a5f75ebe548463a655d1f9230aa9905d819fc543',
+                    'expected': expected, 'actual': actual}
+          pathlib.Path(os.environ['RESULTS'], 'source-binding.json').write_text(json.dumps(source, indent=2) + '\n')
+          assert source['head'] == os.environ['GITHUB_SHA']
+          assert actual == expected, (actual, expected)
+          PYBIND
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
@@ -68,150 +72,69 @@ jobs:
       # needs; assembleDebug is the same target the Android E2E job builds, so a
       # break here is a break there.
       - name: Build debug APK
-        run: yarn test:e2e:android:build
-      # The JVM logic tests (Play update classification, hot-key rules) run
-      # nowhere else: assembleDebug never compiles src/test.
-      - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
-
-  desktop:
-    name: Compile desktop (Tauri)
-    runs-on: ubuntu-latest
-    # Both linked-dependency injections build from source before yarn install: the
-    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
-    # platform build even starts — Android's own gradle step takes 4 minutes and was
-    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
-    # The ceiling only binds while those markers are present.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: Drop apt repositories this repo never installs from
-        uses: ./.github/actions/apt-drop-unused-repos
-      # Tauri's system deps on Linux. The desktop app ships for macOS, but the
-      # Rust in src-tauri is what this gate is checking and it compiles here far
-      # cheaper than on a macOS runner.
-      - name: Install Tauri system dependencies
-        # Same mirror hardening as the xvfb steps in the e2e workflows: the
-        # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget. Current runners also use a
-        # mirror+file source, so rewrite its mirror list as well as direct sources.
-        timeout-minutes: 8
         run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
-            /etc/apt/apt-mirrors.txt 2>/dev/null || true
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's
-      # `frontendDist` (../dist/desktop) at COMPILE time and fails the build if the
-      # directory is absent. `cargo check` alone is not runnable from a clean
-      # checkout — verified locally, where it failed with
-      # "The `frontendDist` configuration is set to `../dist/desktop` but this path doesn't exist".
-      - name: Build desktop frontend
-        run: yarn build:desktop
-      - name: Check Rust
-        working-directory: src-tauri
-        run: cargo check --locked --all-targets
-
-  ios:
-    name: Compile iOS
-    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
-    # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
-    # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
-    # `UIGlassEffect`, an iOS 26 API — so the build fails there with
-    # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
-    # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
-    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
-    # on the runner. That step finished in 73 minutes, and the 75 minute limit
-    # then cancelled yarn install. The other linked-SDK jobs already use 120.
-    # A run without the marker does not build the SDK, so the extra ceiling is idle.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      # These surfaces compile wallet code that imports unreleased APIs from
-      # both the web SDK and the guardian multisig client. Without the
-      # injections they build against the published packages and fail on the
-      # missing exports, which reads as a wallet bug rather than an unshipped
-      # dependency. Both are no-ops when the PR body carries no marker.
-      - name: Inject linked web-sdk PR
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        uses: ./.github/actions/inject-linked-guardian-pr
-      # Plain `yarn install` via the shared action: the injections above
-      # rewrite package.json to `file:` deps, which the committed lockfile
-      # cannot match, so `--frozen-lockfile` would fail by construction.
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-      - name: Sync Capacitor
-        run: yarn mobile:sync
-      # -project, not -workspace: this app resolves its native deps through Swift
-      # Package Manager, not CocoaPods. Unsigned and for a generic device, because
-      # this gate is about whether the code COMPILES — signing belongs to release.
-      - name: Build App scheme
+          set -o pipefail
+          yarn test:e2e:android:build 2>&1 | tee "$RESULTS/build-debug.log"
+      - name: Prove both physical-input regressions fail
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      # The XCTest logic tests (App Store version comparison, receipt trust) run
-      # nowhere else: `build` never compiles the AppTests target. The simulator
-      # is chosen by id so a runner image that renames its devices still works.
-      - name: Run iOS unit tests
+          set +e
+          cd android
+          ./gradlew :miden-dapp-browser:testDebugUnitTest --tests ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest.capsuleReturnToScreenStartCancelsAfterItsParentTransforms --tests ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest.capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms --max-workers=2 --console=plain > "$RESULTS/gradle.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$RESULTS/gradle-exit.txt"
+          cat "$RESULTS/gradle.log"
+          exit "$status"
+      - name: Classify exactly two executed functional failures
+        if: always()
         run: |
-          node --test scripts/ios-test-screenshots.test.cjs
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          xcrun simctl bootstatus "$UDID" -b
-          mkdir -p artifacts
-          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -destination "id=$UDID" \
-            -parallel-testing-enabled NO \
-            -only-testing:AppTests \
-            -resultBundlePath artifacts/ios-unit-tests.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test
-      - name: Upload iOS test results
+          python3 <<'PYCLASSIFY'
+          import json, os, pathlib, shutil, sys, xml.etree.ElementTree as ET
+          output = pathlib.Path(os.environ['RESULTS'])
+          output.mkdir(parents=True, exist_ok=True)
+          junit = output / 'junit'
+          junit.mkdir(exist_ok=True)
+          cases = []
+          for source in pathlib.Path('packages/dapp-browser/android/build/test-results/testDebugUnitTest').glob('*.xml'):
+              shutil.copy2(source, junit / source.name)
+              cases.extend(ET.parse(source).getroot().iter('testcase'))
+          expected = {
+              'capsuleReturnToScreenStartCancelsAfterItsParentTransforms': (
+                  'the page follows the contact back to its original screen position',
+                  "a physical return to the contact's start cancels the collapse"),
+              'capsuleVelocityKeepsBatchedPhysicalSamplesWhenParentTransforms': (
+                  'capsule velocity must match raw physical event history',)}
+          failures = [(case, failure) for case in cases for failure in case.findall('failure')]
+          errors = sum(len(case.findall('error')) for case in cases)
+          messages = {case.attrib.get('name'): [failure.attrib.get('message', '')
+                      for failure in case.findall('failure')] for case in cases}
+          exit_path = output / 'gradle-exit.txt'
+          gradle_exit = int(exit_path.read_text().strip()) if exit_path.exists() else None
+          def predicted_message(name, message):
+              return message.removeprefix('java.lang.AssertionError: ').startswith(expected[name])
+          return_case, velocity_case = expected
+          assert predicted_message(return_case, 'java.lang.AssertionError: the page follows the contact back to its original screen position expected:<1.0> but was:<0.1>')
+          assert predicted_message(velocity_case, 'java.lang.AssertionError: capsule velocity must match raw physical event history expected:<1.0> but was:<0.1>')
+          assert not predicted_message(return_case, 'java.lang.AssertionError: raw screen coordinates differ')
+          assert not predicted_message(velocity_case, 'java.lang.AssertionError: the page follows the contact back to its original screen position')
+          functional = (gradle_exit not in (None, 0) and len(cases) == 2 and errors == 0
+                        and len(failures) == 2 and set(messages) == set(expected)
+                        and all(case.attrib.get('classname') == 'ee.forgr.capacitor_inappbrowser.BreadPresentationControllerTest'
+                                for case in cases)
+                        and all(len(messages[name]) == 1 and predicted_message(name, messages[name][0])
+                                for name in expected))
+          result = {'source': os.environ['GITHUB_SHA'], 'selectors': list(expected), 'executed': len(cases),
+                    'failures': len(failures), 'errors': errors, 'gradle_exit': gradle_exit,
+                    'messages': messages, 'functional_red': functional}
+          (output / 'classification.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result))
+          if not functional:
+              sys.exit('Not functional red: require both exact selectors and their predicted return/velocity assertion failures')
+          PYCLASSIFY
+      - name: Upload exact-source red evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unit-test-results
-          path: |
-            artifacts/ios-unit-tests.xcresult
-            artifacts/ios-screenshot-helper.log
-          if-no-files-found: ignore
+          name: capsule-fresh-tracker-red-${{ github.run_id }}
+          path: native-fresh-tracker-red/
+          retention-days: 7
+          if-no-files-found: error
