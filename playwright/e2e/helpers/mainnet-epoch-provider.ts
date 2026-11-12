@@ -5,7 +5,19 @@ import type { EpochIntentSDKConfig } from '@epoch-protocol/epoch-intents-sdk';
 import { createWalletClient, custom, getAddress } from 'viem';
 import { arbitrum, mainnet } from 'viem/chains';
 
+import type { MainnetEpochCheckpoint, EpochEvmSnapshot } from './mainnet-epoch-checkpoint';
+
 type ReadOnlySdk = typeof import('../../../scripts/helpers/mainnet-epoch-readonly-sdk');
+export type EpochPrepareInput = Pick<MainnetEpochCheckpoint,
+  'account' | 'accountHex' | 'sourceRunId' | 'native' | 'allocatorUrl' | 'principal' |
+  'reverseMinimum' | 'lossBudgetUsdMicros' | 'feeBudget' | 'evmFeeBudget' | 'pricedAt'> & {
+  evm: Omit<EpochEvmSnapshot, 'compact' | 'allocator'>;
+  currentBlock: number;
+};
+
+export async function prepareEpochRoundTrip(_input: EpochPrepareInput): Promise<MainnetEpochCheckpoint> {
+  throw new Error('Readonly Epoch route preparation is not implemented');
+}
 
 export function epochReadOnlyProvider(serviceUrl: string, chainId: number, actor: string): {
   config: EpochIntentSDKConfig;
