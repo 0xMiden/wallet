@@ -8,7 +8,7 @@ import { createMainnetOneClickOriginFetcher } from './mainnet-one-click-origin';
 
 export const MAINNET_WALLET_CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/mainnet.json';
 
-function mainnetConfigSource(): string {
+export function mainnetConfigSource(): string {
   const override = process.env.MIDEN_REMOTE_CONFIG_URL;
   if (!override) return MAINNET_WALLET_CONFIG_URL;
   const url = new URL(override);

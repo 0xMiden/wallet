@@ -38,3 +38,5 @@ jobs:
           node --test --test-concurrency=2 scripts/mainnet-epoch-request.test.mjs scripts/mainnet-loop-config-cli.test.mjs scripts/mainnet-epoch-evm.test.mjs scripts/mainnet-epoch-provider.test.mjs
           node scripts/consume-request-equivalence.mjs
           yarn ts
+      - name: Check public mainnet SDK reads without keys or writes
+        run: node scripts/mainnet-sdk-readonly.mjs
