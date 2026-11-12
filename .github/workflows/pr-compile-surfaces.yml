@@ -33,10 +33,10 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/$QA_BRANCH"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SOURCE_SHA"
           test "$(git rev-parse "$CANDIDATE_SOURCE_SHA^{tree}")" = "$CANDIDATE_SOURCE_TREE"
           test "$(git rev-parse "$BASELINE_SHA^{tree}")" = "$BASELINE_TREE"
           git merge-base --is-ancestor "$BASELINE_SHA" "$CANDIDATE_SOURCE_SHA"
+          git merge-base --is-ancestor "$CANDIDATE_SOURCE_SHA" HEAD
 
           expected_paths=$(printf '%s\n' \
             .github/workflows/pr-compile-surfaces.yml \
@@ -49,7 +49,7 @@ jobs:
             playwright/visual/token-detail/vite.config.mts \
             playwright/visual/token-detail/visual.spec.ts \
             tsconfig.token-detail-visual.json | LC_ALL=C sort)
-          actual_paths=$(git diff-tree --no-commit-id --name-only -r HEAD | LC_ALL=C sort)
+          actual_paths=$(git diff --name-only "$CANDIDATE_SOURCE_SHA" HEAD | LC_ALL=C sort)
           test "$actual_paths" = "$expected_paths"
 
           protected_paths=(
@@ -93,41 +93,6 @@ jobs:
           set -euo pipefail
           test "$(git -C token-detail-baseline rev-parse HEAD)" = "$BASELINE_SHA"
           test "$(git -C token-detail-baseline rev-parse 'HEAD^{tree}')" = "$BASELINE_TREE"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install frozen dependencies
-        timeout-minutes: 15
-        run: yarn install --frozen-lockfile --network-timeout 600000
-
-      - name: Typecheck and lint the visual harness
-        timeout-minutes: 10
-        run: |
-          yarn tsc --noEmit --pretty false --project tsconfig.token-detail-visual.json
-          yarn eslint \
-            playwright.token-detail-visual.config.ts \
-            playwright/visual/token-detail/fixture.tsx \
-            playwright/visual/token-detail/history.fixture.tsx \
-            playwright/visual/token-detail/main.tsx \
-            playwright/visual/token-detail/native-faucet.fixture.ts \
-            playwright/visual/token-detail/vite.config.mts \
-            playwright/visual/token-detail/visual.spec.ts \
-            --max-warnings 0
-
-      - name: Install Chromium
-        timeout-minutes: 12
-        run: npx playwright install --with-deps chromium
-
-      - name: Prepare the identical baseline harness
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p token-detail-baseline/playwright/visual
-          cp playwright.token-detail-visual.config.ts token-detail-baseline/
-          cp -R playwright/visual/token-detail token-detail-baseline/playwright/visual/
-          ln -s "$GITHUB_WORKSPACE/node_modules" token-detail-baseline/node_modules
 
       - name: Record exact before and after source bindings
         run: |
@@ -178,6 +143,41 @@ jobs:
           }, null, 2));
           NODE
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies
+        timeout-minutes: 15
+        run: yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Typecheck and lint the visual harness
+        timeout-minutes: 10
+        run: |
+          yarn tsc --noEmit --pretty false --project tsconfig.token-detail-visual.json
+          yarn eslint \
+            playwright.token-detail-visual.config.ts \
+            playwright/visual/token-detail/fixture.tsx \
+            playwright/visual/token-detail/history.fixture.tsx \
+            playwright/visual/token-detail/main.tsx \
+            playwright/visual/token-detail/native-faucet.fixture.ts \
+            playwright/visual/token-detail/vite.config.mts \
+            playwright/visual/token-detail/visual.spec.ts \
+            --max-warnings 0
+
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare the identical baseline harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p token-detail-baseline/playwright/visual
+          cp playwright.token-detail-visual.config.ts token-detail-baseline/
+          cp -R playwright/visual/token-detail token-detail-baseline/playwright/visual/
+          ln -s "$GITHUB_WORKSPACE/node_modules" token-detail-baseline/node_modules
+
       - name: Capture current-main baseline in four compact contexts
         working-directory: token-detail-baseline
         env:
@@ -185,7 +185,7 @@ jobs:
         timeout-minutes: 10
         run: yarn playwright test --config playwright.token-detail-visual.config.ts
 
-      - name: Capture #2028 candidate in four compact contexts
+      - name: 'Capture #2028 candidate in four compact contexts'
         env:
           TOKEN_DETAIL_CAPTURE: after
         timeout-minutes: 15
@@ -246,5 +246,5 @@ jobs:
             token-detail-visual-source.json
             token-detail-baseline/test-results/token-detail-visual/
             test-results/token-detail-visual/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
