@@ -1,0 +1,85 @@
+name: Authorize an exact mainnet loop request
+description: Upload and download an immutable checkpoint before acknowledging the held request.
+inputs:
+  checkpoint:
+    required: true
+    description: Validated public checkpoint file.
+  gate:
+    required: true
+    description: Exact live request gate prefix.
+  artifact-name:
+    required: true
+    description: Provider and stage scoped artifact name.
+  process-id:
+    required: true
+    description: File containing the live runner process ID.
+  snapshot-directory:
+    required: true
+    description: Exclusive job-local snapshot directory.
+  skip-after-deposit:
+    default: 'false'
+    description: Skip an unused later EVM envelope after the only deposit was signed.
+  alternative-gates:
+    default: ''
+    description: Newline separated gates proving that recovery took another authorization path.
+outputs:
+  skipped:
+    value: ${{ steps.snapshot.outputs.skipped }}
+    description: Whether this stage was unused.
+runs:
+  using: composite
+  steps:
+    - id: snapshot
+      shell: bash
+      env:
+        CHECKPOINT: ${{ inputs.checkpoint }}
+        GATE: ${{ inputs.gate }}
+        PID_FILE: ${{ inputs.process-id }}
+        SNAPSHOT_DIRECTORY: ${{ inputs.snapshot-directory }}
+        SKIP_AFTER_DEPOSIT: ${{ inputs.skip-after-deposit }}
+        ALTERNATIVE_GATES: ${{ inputs.alternative-gates }}
+      run: |
+        set -euo pipefail
+        deadline=$((SECONDS + 330))
+        while [ ! -f "${GATE}.ready" ]; do
+          if [ "$SKIP_AFTER_DEPOSIT" = true ] && [ -f "$CHECKPOINT" ]; then
+            kind="$(node -e 'const fs=require("node:fs");const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(s.transactions?.at(-1)?.kind??"")' "$CHECKPOINT")"
+            if [ "$kind" = deposit ]; then echo 'skipped=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+          fi
+          while IFS= read -r alternative; do
+            if [ -n "$alternative" ] && [ -f "${alternative}.ready" ]; then
+              echo 'skipped=true' >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done <<< "$ALTERNATIVE_GATES"
+          read -r pid < "$PID_FILE"
+          [[ "$pid" =~ ^[1-9][0-9]*$ ]]
+          kill -0 "$pid" 2>/dev/null
+          if [ "$SECONDS" -ge "$deadline" ]; then echo 'Mainnet request did not become ready'; exit 1; fi
+          sleep 1
+        done
+        node scripts/mainnet-loop-upload.mjs snapshot "$CHECKPOINT" "$GATE" "$SNAPSHOT_DIRECTORY"
+    - id: upload
+      if: steps.snapshot.outputs.skipped != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.snapshot.outputs.snapshot }}
+        if-no-files-found: error
+        retention-days: 90
+    - if: steps.snapshot.outputs.skipped != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        CHECKPOINT: ${{ inputs.checkpoint }}
+        GATE: ${{ inputs.gate }}
+        SNAPSHOT: ${{ steps.snapshot.outputs.snapshot }}
+        SNAPSHOT_DIRECTORY: ${{ inputs.snapshot-directory }}
+      run: |
+        set -euo pipefail
+        [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+        timeout 30s gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}" > "$SNAPSHOT_DIRECTORY/artifact.json" 2> "$SNAPSHOT_DIRECTORY/download-errors"
+        timeout 30s gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$SNAPSHOT_DIRECTORY/artifact.zip" 2> "$SNAPSHOT_DIRECTORY/download-errors"
+        unzip -p "$SNAPSHOT_DIRECTORY/artifact.zip" roundtrip.json | head -c 65537 > "$SNAPSHOT_DIRECTORY/downloaded.json"
+        node scripts/mainnet-loop-upload.mjs release "$CHECKPOINT" "$GATE" "$SNAPSHOT" "$SNAPSHOT_DIRECTORY/downloaded.json" "$SNAPSHOT_DIRECTORY/artifact.json" "$ARTIFACT_ID" "$ARTIFACT_NAME"

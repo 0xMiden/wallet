@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 function boundedFile(path) {
   const stat = lstatSync(path);
@@ -44,4 +44,25 @@ export function releaseMainnetLoopUpload(input) {
       throw new Error('Mainnet uploaded, snapshot or live authorization bytes differ');
   }
   writeFileSync(input.gate, ready, { flag: 'wx', mode: 0o600 });
+}
+
+if (basename(process.argv[1] ?? '') === 'mainnet-loop-upload.mjs') {
+  try {
+    const args = process.argv.slice(2);
+    if (args[0] === 'snapshot' && args.length === 4) {
+      if (!process.env.GITHUB_OUTPUT) throw new Error('Missing workflow output');
+      const path = snapshotMainnetLoopAuthorization(args[1], args[2], args[3]);
+      if (/[\r\n]/.test(path)) throw new Error('Invalid snapshot path');
+      appendFileSync(process.env.GITHUB_OUTPUT, `snapshot=${path}\n`);
+    } else if (args[0] === 'release' && args.length === 8) {
+      if (!/^[1-9]\d*$/.test(args[6]) || !/^[1-9]\d*$/.test(process.env.GITHUB_RUN_ID ?? ''))
+        throw new Error('Invalid workflow artifact identity');
+      releaseMainnetLoopUpload({ checkpoint: args[1], gate: args[2], snapshot: args[3], downloaded: args[4],
+        artifact: JSON.parse(boundedFile(args[5]).toString('utf8')), artifactId: Number(args[6]),
+        artifactName: args[7], runId: Number(process.env.GITHUB_RUN_ID), headSha: process.env.GITHUB_SHA });
+    } else throw new Error('Invalid mainnet upload command');
+  } catch {
+    console.error('Mainnet loop upload verification failed; request remains blocked.');
+    process.exitCode = 1;
+  }
 }

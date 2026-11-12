@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import YAML from 'yaml';
+import { isRecord } from '../src/lib/update/guards';
 import { snapshotMainnetLoopAuthorization, releaseMainnetLoopUpload } from './mainnet-loop-upload.mjs';
 
 let directory: string;
@@ -20,6 +22,48 @@ function fixture() {
     artifactName: 'mainnet-epoch-reverse-signed-1-200', artifact: { id: 9, name: 'mainnet-epoch-reverse-signed-1-200',
       expired: false, size_in_bytes: 512, workflow_run: { id: 200, head_sha: 'a'.repeat(40) } } };
 }
+function actionScript(): string {
+  const document: unknown = YAML.parse(readFileSync(join(process.cwd(), '.github/actions/mainnet-loop-upload/action.yml'), 'utf8'));
+  const runs = isRecord(document) ? document.runs : undefined;
+  const steps = isRecord(runs) ? runs.steps : undefined;
+  const snapshot = Array.isArray(steps) ? steps.find(step => isRecord(step) && step.id === 'snapshot') : undefined;
+  if (!isRecord(snapshot) || typeof snapshot.run !== 'string') throw new Error('Missing executable snapshot step');
+  return snapshot.run;
+}
+function runAction(input: ReturnType<typeof fixture>, extra: NodeJS.ProcessEnv = {}) {
+  const output = join(directory, 'action-outputs'); const pid = join(directory, 'runner.pid');
+  writeFileSync(pid, `${process.pid}\n`);
+  const result = spawnSync('bash', ['-c', actionScript()], { encoding: 'utf8', timeout: 10_000,
+    env: { ...process.env, CHECKPOINT: input.checkpoint, GATE: input.gate, PID_FILE: pid,
+      SNAPSHOT_DIRECTORY: join(directory, 'action-snapshot'), GITHUB_OUTPUT: output,
+      SKIP_AFTER_DEPOSIT: 'false', ALTERNATIVE_GATES: '', ...extra } });
+  return { ...result, output };
+}
+it('executes the real composite snapshot script against the held request', () => {
+  const input = fixture(); const result = runAction(input);
+  expect(result.status).toBe(0); expect(existsSync(result.output)).toBe(true);
+  expect(readFileSync(join(directory, 'action-snapshot/roundtrip.json'))).toEqual(readFileSync(input.checkpoint));
+  expect(existsSync(input.gate)).toBe(false);
+});
+it('skips a later EVM envelope only after the one deposit was signed', () => {
+  const input = fixture(); rmSync(`${input.gate}.ready`);
+  writeFileSync(input.checkpoint, JSON.stringify({ transactions: [{ kind: 'deposit' }] }));
+  const result = runAction(input, { SKIP_AFTER_DEPOSIT: 'true' });
+  expect(result.status).toBe(0); expect(readFileSync(result.output, 'utf8')).toBe('skipped=true\n');
+  expect(existsSync(input.gate)).toBe(false); expect(existsSync(join(directory, 'action-snapshot'))).toBe(false);
+});
+it('skips an unused recovery branch when its other exact gate is ready', () => {
+  const input = fixture(); rmSync(`${input.gate}.ready`); const alternate = join(directory, 'refund');
+  writeFileSync(`${alternate}.ready`, `${'a'.repeat(64)}\n`);
+  const result = runAction(input, { ALTERNATIVE_GATES: alternate });
+  expect(result.status).toBe(0); expect(readFileSync(result.output, 'utf8')).toBe('skipped=true\n');
+  expect(existsSync(input.gate)).toBe(false);
+});
+it('does not wait or release when the held request process is already gone', () => {
+  const input = fixture(); rmSync(`${input.gate}.ready`); const pid = join(directory, 'dead.pid');
+  writeFileSync(pid, '2147483647\n'); const result = runAction(input, { PID_FILE: pid });
+  expect(result.status).not.toBe(0); expect(existsSync(input.gate)).toBe(false);
+});
 function cli(args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [join(process.cwd(), 'scripts/mainnet-loop-upload.mjs'), ...args], {
     encoding: 'utf8', env: { ...process.env, ...env }, timeout: 10_000
