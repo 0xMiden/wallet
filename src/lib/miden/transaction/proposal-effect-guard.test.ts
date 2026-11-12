@@ -253,9 +253,9 @@ describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', 
     expect(refusalOf(approved(), summary({ unlisted: 1 }))).toContain('vault change(s) the summary does not list');
   });
 
-  it('does not sign a row missing its persisted amount or faucet', async () => {
-    givenSummary(sends(fa('fA', 1n)));
-    for (const missing of [{ amount: undefined }, { faucetId: undefined }]) {
+  it('does not sign a row with invalid persisted amount or faucet', async () => {
+    givenSummary(sends());
+    for (const missing of [{ amount: undefined }, { faucetId: undefined }, { amount: -1n }, { faucetId: '' }]) {
       await expect(assertProposalEffectApproved({ ...approved(), ...missing }, 'sum')).rejects.toThrow(
         ProposalEffectRefusedError
       );
@@ -346,12 +346,13 @@ describe('execute', () => {
 
 describe('assertProposalEffectApproved', () => {
   it.each([
-    ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])],
-    ...(['send', 'swap', 'earn-deposit'] as const).map(
-      type => [type, row({ type, faucetId: 'bech32:fA', amount: 100n })] as const
-    )
-  ])('refuses a %s proposal with no summary to check', async (_type, transaction) => {
+    { type: 'consume', transaction: claim },
+    { type: 'execute', transaction: execute([{ faucetId: 'bech32:fA', amount: 100n }]) },
+    ...(['send', 'swap', 'earn-deposit'] as const).map(type => ({
+      type,
+      transaction: row({ type, faucetId: 'bech32:fA', amount: 100n })
+    }))
+  ])('refuses a $type proposal with no summary to check', async ({ transaction }) => {
     givenSummary(summary({}));
     await expect(assertProposalEffectApproved(transaction, undefined)).rejects.toThrow(ProposalEffectRefusedError);
     await expect(assertProposalEffectApproved(transaction, '')).rejects.toThrow('carries no transaction summary');
@@ -359,12 +360,13 @@ describe('assertProposalEffectApproved', () => {
   });
 
   it.each([
-    ['consume', claim],
-    ['execute', execute([{ faucetId: 'bech32:fA', amount: 100n }])],
-    ...(['send', 'swap', 'earn-deposit'] as const).map(
-      type => [type, row({ type, faucetId: 'bech32:fA', amount: 100n })] as const
-    )
-  ])('refuses a %s proposal whose summary does not decode, a trap included', async (_type, transaction) => {
+    { type: 'consume', transaction: claim },
+    { type: 'execute', transaction: execute([{ faucetId: 'bech32:fA', amount: 100n }]) },
+    ...(['send', 'swap', 'earn-deposit'] as const).map(type => ({
+      type,
+      transaction: row({ type, faucetId: 'bech32:fA', amount: 100n })
+    }))
+  ])('refuses a $type proposal whose summary does not decode, a trap included', async ({ transaction }) => {
     jest.mocked(TransactionSummary.deserialize).mockImplementation(() => {
       throw new Error('unexpected end of input');
     });
