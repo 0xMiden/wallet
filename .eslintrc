@@ -75,6 +75,10 @@
       {
         "selector": "CallExpression[callee.property.name='outputNotes']",
         "message": "The kernel's TX_FEE note is an output note too, so a raw outputNotes() read hands you the fee note alongside the user's -- and indexing or counting that array silently picks or over-counts on any fee-charging chain while staying green at fee 0. Read output notes only via splitExecutedOutputNotes() in lib/miden/activity/fee-notes.ts."
+      },
+      {
+        "selector": "CallExpression[callee.property.name=/^(executeRequest|executeTransaction|newTransaction|submitNewTransaction|submitProvenTransaction)$/]",
+        "message": "Value-moving writes go through midenClientProxy inside withEffectCheckedSigner (transaction/index.ts); add the file to the allowlist only with a signing-time effect check."
       }
     ],
     "no-restricted-imports": [
@@ -306,6 +310,26 @@
       ],
       "rules": {
         "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": [
+        "src/lib/miden/sdk/miden-client-interface.ts",
+        "src/lib/miden/back/miden-client-proxy.ts",
+        "src/offscreen/main.ts",
+        "src/lib/miden/sdk/dry-run-request.ts",
+        "src/lib/miden/sdk/custom-dry-run.ts",
+        "src/lib/miden/back/simulate-custom-tx.ts",
+        "src/lib/miden/transaction/index.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='outputNotes']",
+            "message": "The kernel's TX_FEE note is an output note too, so a raw outputNotes() read hands you the fee note alongside the user's -- and indexing or counting that array silently picks or over-counts on any fee-charging chain while staying green at fee 0. Read output notes only via splitExecutedOutputNotes() in lib/miden/activity/fee-notes.ts."
+          }
+        ]
       }
     },
     {
