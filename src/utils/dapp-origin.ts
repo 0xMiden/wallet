@@ -34,3 +34,18 @@ export function splitDappOrigin(origin: string): { lead: string; domain: string 
   const cut = origin.length - tail.length;
   return { lead: origin.slice(0, cut), domain: origin.slice(cut) };
 }
+
+/**
+ * The ASCII (punycode) host of an origin that carries a character above U+007F, port kept, so an
+ * approval surface can name an internationalized host together with the form that cannot be read as
+ * another script. Null for an ASCII origin (an `xn--` host included, which already is its own ASCII
+ * form) and for a value the URL API cannot parse.
+ */
+export function idnAsciiHost(origin: string): string | null {
+  if (!Array.from(origin).some(char => char.charCodeAt(0) > 0x7f)) return null;
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null;
+  }
+}

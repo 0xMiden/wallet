@@ -5,6 +5,8 @@ import { render, screen, within } from '@testing-library/react';
 import { DappOrigin } from './DappOrigin';
 
 describe('DappOrigin', () => {
+  const A = String.fromCharCode(0x430);
+
   it('elides only the lead: the registrable domain never truncates and wraps when it alone is too wide', () => {
     render(<DappOrigin origin="https://login.wallet.example.co.uk" data-testid="origin" />);
 
@@ -43,5 +45,24 @@ describe('DappOrigin', () => {
     const { container } = render(<DappOrigin origin={origin} data-testid="origin" />);
 
     expect(container.textContent).toBe(origin);
+  });
+
+  it('shows the ASCII form beside a non-ASCII host', () => {
+    render(<DappOrigin origin={`https://${A}pple.example`} data-testid="origin" />);
+
+    const root = screen.getByTestId('origin');
+    expect(root).toHaveClass('flex-wrap', 'gap-x-1.5');
+    const ascii = within(root).getByTestId('dapp-origin-ascii');
+    expect(ascii).toHaveTextContent(/^xn--pple-43d\.example$/);
+    expect(ascii).toHaveClass('text-muted', 'font-normal', 'shrink-0', 'break-all');
+  });
+
+  it('renders an xn-- origin exactly as today', () => {
+    const origin = 'https://xn--pple-43d.example';
+    const { container } = render(<DappOrigin origin={origin} data-testid="origin" />);
+
+    expect(container.textContent).toBe(origin);
+    expect(screen.queryByTestId('dapp-origin-ascii')).not.toBeInTheDocument();
+    expect(screen.getByTestId('origin')).not.toHaveClass('flex-wrap');
   });
 });
