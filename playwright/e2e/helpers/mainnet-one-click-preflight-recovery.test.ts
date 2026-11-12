@@ -31,6 +31,7 @@ const environmentKeys = [
   'E2E_MAINNET_EVM_KEY',
   'MAINNET_ONE_CLICK_MODE',
   'MAINNET_NEAR_MODE',
+  'MAINNET_NEAR_FORWARD_ATTEMPTED',
   'GITHUB_RUN_ATTEMPT',
   'GITHUB_RUN_ID'
 ];
@@ -139,6 +140,25 @@ describe('mainnet 1Click checkpoint recovery', () => {
     mockNativeCheckpoint = { phase: 'forward-settled', sourceRunId: '100', authorizationRunId: '100', evmNonceBefore: 0 };
     const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
     await expect(runRegisteredLoop({ walletB })).rejects.toThrow(/original.*reverse.*(used|unresolved)|never.*(refresh|renew)/i);
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
+  });
+  it('closes only a provably read-only original native preflight without renewing its run, budget or actor', async () => {
+    process.env.MAINNET_NEAR_MODE = 'recover'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'false';
+    mockNativeCheckpoint = { phase: 'forward-authorized', sourceRunId: '99', authorizationRunId: '99', account: 'original-actor',
+      lossBudgetUsdMicros: '1800000', paidMidenFees: '0', paidEvmFees: '0' };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).resolves.toBeUndefined();
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled();
+    expect(mockSavedCheckpoints).toEqual([expect.objectContaining({ phase: 'unspent', sourceRunId: '99', authorizationRunId: '99',
+      account: 'original-actor', lossBudgetUsdMicros: '1800000' })]);
+  });
+  it('never calls a missing native send fingerprint unspent when the original forward stage was attempted', async () => {
+    process.env.MAINNET_NEAR_MODE = 'recover'; process.env.GITHUB_RUN_ID = '100'; process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    mockNativeCheckpoint = { phase: 'forward-authorized', sourceRunId: '99', paidMidenFees: '0', paidEvmFees: '0' };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB })).rejects.toThrow();
     expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled(); expect(mockSavedCheckpoints).toHaveLength(0);
   });
   it('blocks an unknown original native claim outcome before restoration, funding or renewed authority', async () => {

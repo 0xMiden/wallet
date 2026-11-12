@@ -66,7 +66,7 @@ it('persists only exact actual note identity and fingerprints before uploading, 
   data[KEY] = waitingPolicy(); const promise = release();
   expect(await Promise.race([uploaded.then(() => true), promise.then(() => false, () => false)])).toBe(true);
   expect(JSON.parse(readFileSync(options().checkpointPath, 'utf8'))).toEqual({ sendAuthority: authority });
-  expect(data[KEY]).toMatchObject({ status: 'waiting' }); finish(); await promise;
+  expect(data[KEY]).toMatchObject({ status: 'waiting' }); finish(); expect(await promise).toEqual(authority);
   expect(events).toEqual(['persist', 'upload', 'release']); expect(data[KEY]).toEqual({ ...waitingPolicy(), status: 'released' });
 });
 it('rejects changed SDK route scope before persisting any authority', async () => {
