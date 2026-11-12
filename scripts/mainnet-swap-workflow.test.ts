@@ -92,6 +92,29 @@ describe('funded nightly swap workflow', () => {
     expect(object(step('Upload mainnet near signed EVM 1').with).gate).toContain('.evm-1');
     expect(object(step('Upload mainnet near native return claim').with).gate).toContain('.claim');
   });
+  it.each([
+    ['Upload swap SDK forward authority', 'Wait for mainnet swap forward', 'forward-sdk-authorized'],
+    ['Upload swap SDK reverse authority', 'Wait for mainnet swap return', 'reverse-sdk-authorized'],
+    ['Upload recovered swap SDK return authority', 'Wait for recovered swap return', 'reverse-sdk-authorized']
+  ])('uploads and verifies the actual held PSWAP snapshot through %s before waiting for execution', (upload, wait, artifact) => {
+    const entry = step(upload);
+    expect(entry.uses).toBe('./.github/actions/mainnet-loop-upload');
+    const inputs = object(entry.with);
+    expect(inputs.checkpoint).toBe('test-results/mainnet-swap-state/roundtrip.json');
+    expect(inputs['artifact-name']).toBe(`mainnet-swap-${artifact}-${'${{ github.run_id }}'}`);
+    for (const name of ['gate', 'process-id', 'snapshot-directory']) expect(inputs[name]).toEqual(expect.any(String));
+    expect(index(wait)).toBeGreaterThan(index(upload));
+    if (upload.includes('recovered')) expect(index(wait)).toBeLessThan(index('Clear all-provider recovery barrier'));
+    else expect(index(wait)).toBeLessThan(index('Prepare mainnet Epoch loop'));
+    expect(String(step(wait).run)).not.toMatch(/playwright test/);
+  });
+  it('connects the reviewed UI minimum to the actual SDK hold and durable exact order identity', () => {
+    const runner = readFileSync(resolve(__dirname, '../playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts'), 'utf8');
+    for (const value of ['armMainnetSendAuthorization', 'releaseMainnetSendAuthorization', 'forwardRequestAuthority', 'reverseRequestAuthority', 'MAINNET_SWAP_SDK_GATE'])
+      expect(runner).toContain(value);
+    const ui = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-swap-ui.ts'), 'utf8');
+    expect(ui).toContain('minimumReceive: actualMinimum.toString()');
+  });
   it('reports the actual snapshot envelope and recovery gate, rather than guessing from a newer live file', () => {
     const action = object(
       YAML.parse(readFileSync(resolve(__dirname, '../.github/actions/mainnet-loop-upload/action.yml'), 'utf8'))

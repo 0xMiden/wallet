@@ -81,6 +81,62 @@ describe('durable nightly swap authorization', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFileSync(path, 'utf8')).not.toContain('key');
   });
+  const withRequest = () => ({
+    ...checkpoint(), forwardOrderId: '42',
+    forwardRequestAuthority: {
+      nonce: '11111111-1111-4111-8111-111111111111', noteId: `0x${'a'.repeat(64)}`,
+      sha256: 'b'.repeat(64), canonicalSha256: 'c'.repeat(64), orderId: '42', minimumReceive: '33650',
+      expiresAt: Date.parse(checkpoint().pricedAt) + 60_000
+    }
+  });
+  it('durably binds the exact live PSWAP request, original deadline and actual reviewed minimum', () => {
+    const state = withRequest();
+    const path = join(dir, 'state.json');
+    saveMainnetSwapCheckpoint(path, state);
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject(state);
+    expect(mainnetSwapNextAction(state)).toBe('reconcile-forward');
+  });
+  it('preserves both distinct original SDK identities through return authorization', () => {
+    const state = withRequest();
+    state.phase = 'reverse-authorized';
+    state.forwardReceived = '33650';
+    state.returnAmount = '33650';
+    state.returnBaseline = { offer: '8990000', request: '33773', native: '8989999' };
+    const returned = { ...state, reverseOrderId: '43', reverseRequestAuthority: {
+      ...state.forwardRequestAuthority, nonce: '22222222-2222-4222-8222-222222222222', orderId: '43', minimumReceive: '1007001'
+    } };
+    const path = join(dir, 'state.json');
+    saveMainnetSwapCheckpoint(path, returned);
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject(returned);
+  });
+  it('matches the actual SDK order and exact reviewed request floor, never merely the older budget floor', () => {
+    const state = withRequest();
+    expect(matchAuthorizedSwap(state, [{ ...row(), orderId: '42' }], 'forward')).toBeUndefined();
+    expect(matchAuthorizedSwap(state, [{ ...row(), orderId: '42', minimumReceive: '33650' }], 'forward')?.orderId).toBe('42');
+  });
+  const corruptRequest: Array<[string, (state: ReturnType<typeof withRequest>) => void]> = [
+    ['nonce', state => { state.forwardRequestAuthority.nonce = ''; }],
+    ['note identity', state => { state.forwardRequestAuthority.noteId = '0x12'; }],
+    ['actual fingerprint', state => { state.forwardRequestAuthority.sha256 = ''; }],
+    ['canonical fingerprint', state => { state.forwardRequestAuthority.canonicalSha256 = ''; }],
+    ['another actual order', state => { state.forwardRequestAuthority.orderId = '43'; }],
+    ['weaker minimum', state => { state.forwardRequestAuthority.minimumReceive = '33648'; }],
+    ['renewed original price deadline', state => { state.forwardRequestAuthority.expiresAt += 600_000; }],
+    ['pre-price deadline', state => { state.forwardRequestAuthority.expiresAt = Date.parse(state.pricedAt); }],
+    ['pre-existing order', state => { state.knownOrderIds.push('42'); }],
+    ['unspent downgrade', state => { state.phase = 'unspent'; }]
+  ];
+  it.each(corruptRequest)('rejects a request authority with %s', (_name, change) => {
+    const state = withRequest(); change(state);
+    const path = join(dir, 'state.json'); writeFileSync(path, JSON.stringify(state));
+    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+  });
+  it('rejects private bytes hidden inside an otherwise valid SDK identity', () => {
+    const state = withRequest();
+    const path = join(dir, 'state.json');
+    writeFileSync(path, JSON.stringify({ ...state, forwardRequestAuthority: { ...state.forwardRequestAuthority, request: 'unit-private-bytes' } }));
+    expect(() => loadMainnetSwapCheckpoint(path)).toThrow();
+  });
   it('accepts the routing suffix emitted by the mainnet SDK address formatter', () => {
     const c = checkpoint();
     c.account = 'mm1dedicatedaccount_qr7qqq9wr6w';
