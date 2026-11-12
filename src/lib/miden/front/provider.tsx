@@ -12,6 +12,7 @@ import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { BackgroundLockManager } from 'lib/lock-up/BackgroundLockManager';
 import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
@@ -216,6 +217,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}
             <OrphanedTransactionRecovery />
+            <BackgroundLockManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

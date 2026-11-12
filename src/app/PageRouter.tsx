@@ -20,6 +20,7 @@ import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
 import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
@@ -541,13 +542,17 @@ const PageRouter: FC = () => {
   // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
   // onboarding to finish) and stays off the onboarding and recovery routes.
   const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
-  const layered = !walletOpen ? (
-    page
-  ) : (
-    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-      {page}
-    </MobilePageLayers>
-  );
+  const lockPending = backgroundLockPending.useValue();
+  const layered =
+    lockPending && ctx.ready ? (
+      <RootSuspenseFallback data-testid="wallet-locking" />
+    ) : !walletOpen ? (
+      page
+    ) : (
+      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+        {page}
+      </MobilePageLayers>
+    );
 
   // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
   // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height
