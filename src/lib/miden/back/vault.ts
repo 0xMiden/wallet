@@ -2455,28 +2455,23 @@ export class Vault {
     if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
 
     // Decoded before the key is loaded, so a refused payload never deserializes it.
-    const inputs = signBytesInputs(b64ToU8(data), signKind);
+    const word = signBytesInputs(b64ToU8(data), signKind);
     try {
       const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKey, 'hex')));
       try {
-        // signData signs inputs.toCommitment(); the word is returned so a verifier checks exactly what was signed.
-        const commitment = inputs.toCommitment();
+        // signBytesInputs returns the word both key paths sign, so a verifier checks exactly that word.
+        const signature = wasmSecretKey.sign(word);
         try {
-          const signature = wasmSecretKey.signData(inputs);
-          try {
-            return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(commitment.serialize()) };
-          } finally {
-            signature.free();
-          }
+          return { signature: u8ToB64(signature.serialize()), signedCommitment: u8ToB64(word.serialize()) };
         } finally {
-          commitment.free();
+          signature.free();
         }
       } finally {
         wasmSecretKey.free();
       }
     } finally {
-      inputs.free();
+      word.free();
     }
   }
 
@@ -2501,22 +2496,16 @@ export class Vault {
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
       );
     }
-    // Same inputs as the single-key path, and signData(inputs) is sign(inputs.toCommitment()), so signing that word
-    // with the hot key gives the signature and signed word a single-key account returns. The native hot-key plugins
-    // sign only 32-byte words.
-    const inputs = signBytesInputs(b64ToU8(data), signKind);
+    // Same word the single-key path signs, so the hot key returns that signature and signed word. The native hot-key
+    // plugins sign only 32-byte words.
+    const word = signBytesInputs(b64ToU8(data), signKind);
     let wordHex: string;
     let signedCommitment: string;
     try {
-      const commitment = inputs.toCommitment();
-      try {
-        wordHex = commitment.toHex();
-        signedCommitment = u8ToB64(commitment.serialize());
-      } finally {
-        commitment.free();
-      }
+      wordHex = word.toHex();
+      signedCommitment = u8ToB64(word.serialize());
     } finally {
-      inputs.free();
+      word.free();
     }
     const sigHex = await this.signWord(account.hotPublicKey, wordHex);
     // `signWord` strips the ECDSA scheme tag; `signBytes` returns the full serialized Signature, as the default

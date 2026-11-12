@@ -37,11 +37,7 @@ before(async () => {
   domain = await import(dataModule(compiled.outputText));
 });
 
-const commitmentHex = (data, kind) => {
-  const inputs = domain.signBytesInputs(fromBase64(data), kind);
-  const commitment = inputs.toCommitment();
-  return commitment.toHex();
-};
+const commitmentHex = (data, kind) => domain.signBytesInputs(fromBase64(data), kind).toHex();
 
 test('the tag is Poseidon2 of the domain string, one element per byte', () => {
   const bytes = new TextEncoder().encode(domain.SIGN_BYTES_DOMAIN);
@@ -59,12 +55,12 @@ test('matches the pinned vectors', () => {
   );
 });
 
-test('a signature over the inputs verifies against their commitment and not against the raw word', () => {
+test('a signature over the returned word verifies against it and not against the raw word', () => {
   const key = sdk.AuthSecretKey.ecdsaWithRNG();
-  const inputs = domain.signBytesInputs(fromBase64(wordOneToFour), 'word');
-  const signature = key.signData(inputs);
+  const word = domain.signBytesInputs(fromBase64(wordOneToFour), 'word');
+  const signature = key.sign(word);
   const publicKey = key.publicKey();
-  assert.equal(publicKey.verify(inputs.toCommitment(), signature), true);
+  assert.equal(publicKey.verify(word, signature), true);
   const raw = sdk.Word.deserialize(fromBase64(wordOneToFour));
   assert.equal(publicKey.verify(raw, signature), false);
 });

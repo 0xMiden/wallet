@@ -122,7 +122,10 @@ jest.mock('lib/i18n', () => ({
   })
 }));
 
-const mockSign = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])) }));
+const mockSign = jest.fn(() => ({
+  serialize: jest.fn(() => new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])),
+  free: jest.fn()
+}));
 const mockPublicKey = jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([0xff, 0x11, 0x22, 0x33])) }));
 const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   sign: mockSign,
@@ -131,19 +134,15 @@ const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   free: jest.fn()
 }));
 const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
-// The domain inputs' commitment is the same word on both key paths; the discriminant byte of the request stands in
-// for the variant so each one yields a different word.
-// A signingInputs request with a non-zero discriminant (Arbitrary 1, Blind 2) is re-wrapped under the domain tag, so
-// it commits to DOMAIN_FILL; discriminant 0 is a TransactionSummary, returned as decoded (its own commitment).
+// The domain module returns the word both key paths sign. The discriminant byte stands in for the variant: a
+// signingInputs request with a non-zero discriminant (Arbitrary 1, Blind 2) is the domain word DOMAIN_FILL, and
+// discriminant 0 is a TransactionSummary, whose word is that byte.
 const DOMAIN_FILL = 0xd0;
 const mockSignBytesInputs = jest.fn((bytes: Uint8Array, kind: string) => {
   const fill = kind === 'signingInputs' && (bytes[0] ?? 0) !== 0 ? DOMAIN_FILL : (bytes[0] ?? 0);
   return {
-    toCommitment: () => ({
-      toHex: () => `0x${fill.toString(16).padStart(2, '0').repeat(32)}`,
-      serialize: () => new Uint8Array(32).fill(fill),
-      free: jest.fn()
-    }),
+    toHex: () => `0x${fill.toString(16).padStart(2, '0').repeat(32)}`,
+    serialize: () => new Uint8Array(32).fill(fill),
     free: jest.fn()
   };
 });
@@ -350,10 +349,14 @@ describe('Vault instance signData - Guardian account', () => {
 
     const data = u8ToB64(new Uint8Array(32).fill(0x11));
     const sig = await vault.signData(commitment, data, 'word', addr);
+    const word = mockSignBytesInputs.mock.results.at(-1)!.value;
+    const key = mockAuthSecretKeyDeserialize.mock.results.at(-1)!.value;
 
-    // Default path signs the domain inputs with the key's signData and returns the full serialized signature.
-    expect(sig.signature).toBe(u8ToB64(new Uint8Array([1, 2, 3])));
-    expect(mockSign).not.toHaveBeenCalled();
+    // Default path signs that word with the key's sign and returns the full serialized signature.
+    expect(mockSign).toHaveBeenCalledWith(word);
+    expect(key.signData).not.toHaveBeenCalled();
+    expect(Array.from(b64ToU8(sig.signature))).toEqual([0xff, 0xaa, 0xbb, 0xcc]);
+    expect(mockWordFromHex).not.toHaveBeenCalled();
   });
 
   it.each([

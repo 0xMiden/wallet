@@ -327,13 +327,14 @@ jest.mock('lib/miden/sign-bytes/domain', () => ({
   signBytesInputs: (data: Uint8Array, kind: string) => mockSignBytesInputs(data, kind)
 }));
 const fakeInputs = (commitmentBytes: number[]) => ({
-  toCommitment: jest.fn(() => ({ serialize: () => new Uint8Array(commitmentBytes), free: jest.fn() })),
+  serialize: () => new Uint8Array(commitmentBytes),
+  toHex: () => `0x${Buffer.from(commitmentBytes).toString('hex')}`,
   free: jest.fn()
 });
 let mockDeserializedCommitment = 'a1b2';
 let mockBuiltAccountIdMarker = 'imported-account-id';
 const defaultDeserializedSecret = () => ({
-  sign: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
+  sign: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])), free: jest.fn() })),
   signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])), free: jest.fn() })),
   publicKey: jest.fn(() => ({
     toCommitment: jest.fn(() => ({ toHex: jest.fn(() => `0x${mockDeserializedCommitment}`) }))
@@ -788,41 +789,40 @@ describe('Vault (instance)', () => {
     }
 
     it.each(['word', 'signingInputs'] as const)(
-      'signData signs the domain inputs for kind %s and returns their commitment',
+      'signData signs the domain word for kind %s and returns it',
       async kind => {
         const vault = await seedVault('pw');
         await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
-        const inputs = fakeInputs([5, 6, 7]);
-        mockSignBytesInputs.mockReturnValueOnce(inputs);
+        const word = fakeInputs([5, 6, 7]);
+        mockSignBytesInputs.mockReturnValueOnce(word);
         const key = defaultDeserializedSecret();
         mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
 
         const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), kind);
 
         expect(mockSignBytesInputs).toHaveBeenCalledWith(new Uint8Array(Buffer.from('hello')), kind);
-        expect(key.signData).toHaveBeenCalledWith(inputs);
-        expect(key.sign).not.toHaveBeenCalled();
+        expect(key.sign).toHaveBeenCalledWith(word);
+        expect(key.signData).not.toHaveBeenCalled();
         expect(res).toEqual({
           signature: Buffer.from([9, 9, 9]).toString('base64'),
           signedCommitment: Buffer.from([5, 6, 7]).toString('base64')
         });
-        expect(inputs.free).toHaveBeenCalled();
+        expect(word.free).toHaveBeenCalled();
       }
     );
 
-    it('signData passes a TransactionSummary to the key exactly as decoded', async () => {
+    it('signData signs the summary word the domain module returned', async () => {
       const vault = await seedVault('pw');
       await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
-      // signBytesInputs returns the decoded summary object itself for that variant.
-      const summary = fakeInputs([1, 2, 3]);
-      mockSignBytesInputs.mockReturnValueOnce(summary);
+      const word = fakeInputs([1, 2, 3]);
+      mockSignBytesInputs.mockReturnValueOnce(word);
       const key = defaultDeserializedSecret();
       mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
 
       const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs');
 
-      expect(key.signData).toHaveBeenCalledTimes(1);
-      expect(key.signData.mock.calls[0]![0]).toBe(summary);
+      expect(key.sign).toHaveBeenCalledWith(word);
+      expect(key.signData).not.toHaveBeenCalled();
       expect(res.signedCommitment).toBe(Buffer.from([1, 2, 3]).toString('base64'));
     });
 

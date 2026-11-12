@@ -2,6 +2,7 @@ import { SIGN_BYTES_DOMAIN_TAG, signBytesInputs } from './domain';
 
 // The stand-in SDK marks a Felt consumed once it is passed on, as the browser binding does, and throws on reuse.
 const mockArbitraryCalls: bigint[][] = [];
+const mockArbitraryHandles: { free: jest.Mock; word: { free: jest.Mock } }[] = [];
 const mockFreed: object[] = [];
 let mockDecoded: Record<string, unknown>;
 let mockArbitraryAsArray = false;
@@ -49,7 +50,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
         felts.forEach(f => {
           f.consumed = true;
         });
-        return { created: true, free: jest.fn() };
+        const word = { free: jest.fn() };
+        const handle = { created: true, free: jest.fn(), toCommitment: () => word };
+        mockArbitraryHandles.push({ free: handle.free, word });
+        return handle;
       }
     }
   };
@@ -72,9 +76,17 @@ function decoded(variantType: number, extra: Record<string, unknown>) {
 
 beforeEach(() => {
   mockArbitraryCalls.length = 0;
+  mockArbitraryHandles.length = 0;
   mockFreed.length = 0;
   mockArbitraryAsArray = false;
 });
+
+function expectKeptWord(signed: object) {
+  const handle = mockArbitraryHandles[mockArbitraryHandles.length - 1]!;
+  expect(handle.free).toHaveBeenCalledTimes(1);
+  expect(signed).toBe(handle.word);
+  expect(handle.word.free).not.toHaveBeenCalled();
+}
 
 const arbitrary = (...values: bigint[]) =>
   decoded(1, {
@@ -86,34 +98,40 @@ const arbitrary = (...values: bigint[]) =>
 
 describe('signBytesInputs', () => {
   it('word: signs the tag then the word, never the word', () => {
-    signBytesInputs(words(1n, 2n, 3n, 4n), 'word');
+    const signed = signBytesInputs(words(1n, 2n, 3n, 4n), 'word');
     expect(mockArbitraryCalls).toEqual([[...SIGN_BYTES_DOMAIN_TAG, 1n, 2n, 3n, 4n]]);
+    expectKeptWord(signed);
   });
 
   it('Blind: signs the tag then the blind word', () => {
     decoded(2, { blindPayload: () => ({ toFelts: () => [1n, 2n, 3n, 4n].map(mockFelt), free: jest.fn() }) });
-    signBytesInputs(new Uint8Array(), 'signingInputs');
+    const signed = signBytesInputs(new Uint8Array(), 'signingInputs');
     expect(mockArbitraryCalls).toEqual([[...SIGN_BYTES_DOMAIN_TAG, 1n, 2n, 3n, 4n]]);
+    expectKeptWord(signed);
   });
 
   it.each([false, true])('Arbitrary: signs the tag then every element in order (plain array: %s)', asArray => {
     mockArbitraryAsArray = asArray;
     arbitrary(5n, 6n, 7n);
-    signBytesInputs(new Uint8Array(), 'signingInputs');
+    const signed = signBytesInputs(new Uint8Array(), 'signingInputs');
     expect(mockArbitraryCalls).toEqual([[...SIGN_BYTES_DOMAIN_TAG, 5n, 6n, 7n]]);
+    expectKeptWord(signed);
   });
 
   it('Arbitrary: an empty payload signs exactly the tag', () => {
     arbitrary();
-    signBytesInputs(new Uint8Array(), 'signingInputs');
+    const signed = signBytesInputs(new Uint8Array(), 'signingInputs');
     expect(mockArbitraryCalls).toEqual([[...SIGN_BYTES_DOMAIN_TAG]]);
+    expectKeptWord(signed);
   });
 
-  it('TransactionSummary: returns the decoded inputs unchanged', () => {
-    const { free } = decoded(0, {});
-    expect(signBytesInputs(new Uint8Array(), 'signingInputs')).toBe(mockDecoded);
+  it('TransactionSummary: returns the decoded inputs commitment and frees the inputs', () => {
+    const word = { free: jest.fn() };
+    const { free } = decoded(0, { toCommitment: () => word });
+    expect(signBytesInputs(new Uint8Array(), 'signingInputs')).toBe(word);
     expect(mockArbitraryCalls).toEqual([]);
-    expect(free).not.toHaveBeenCalled();
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(word.free).not.toHaveBeenCalled();
   });
 
   it('refuses an unknown kind and an unknown variant', () => {
@@ -125,18 +143,26 @@ describe('signBytesInputs', () => {
 
   it('builds fresh felts on every call', () => {
     const data = words(1n, 2n, 3n, 4n);
-    signBytesInputs(data, 'word');
-    expect(() => signBytesInputs(data, 'word')).not.toThrow();
+    const first = signBytesInputs(data, 'word');
+    const second = signBytesInputs(data, 'word');
     expect(mockArbitraryCalls).toHaveLength(2);
+    expect(first).toBe(mockArbitraryHandles[0]!.word);
+    expect(second).toBe(mockArbitraryHandles[1]!.word);
+    for (const handle of mockArbitraryHandles) {
+      expect(handle.free).toHaveBeenCalledTimes(1);
+      expect(handle.word.free).not.toHaveBeenCalled();
+    }
   });
 
   it('frees what it decodes, not what it returns', () => {
     const { free } = arbitrary(5n);
-    signBytesInputs(new Uint8Array(), 'signingInputs');
+    const signed = signBytesInputs(new Uint8Array(), 'signingInputs');
     expect(free).toHaveBeenCalledTimes(1);
+    expectKeptWord(signed);
     mockFreed.length = 0;
-    signBytesInputs(words(1n, 2n, 3n, 4n), 'word');
+    const wordSigned = signBytesInputs(words(1n, 2n, 3n, 4n), 'word');
     expect(mockFreed.length).toBeGreaterThan(0);
+    expectKeptWord(wordSigned);
   });
 
   it('the tag cannot open a transaction summary preimage', () => {

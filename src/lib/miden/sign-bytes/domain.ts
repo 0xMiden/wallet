@@ -16,8 +16,14 @@ export const SIGN_BYTES_DOMAIN_TAG: readonly bigint[] = [
 ];
 
 // The browser binding consumes the felts handed to it and the Node binding does not, so every call builds its own.
-function domainInputs(payload: readonly bigint[]): SigningInputs {
-  return SigningInputs.newArbitrary([...SIGN_BYTES_DOMAIN_TAG, ...payload].map(value => new Felt(value)));
+// The caller receives the commitment word and frees it; this frees only the inputs handle that built it.
+function domainInputs(payload: readonly bigint[]): Word {
+  const inputs = SigningInputs.newArbitrary([...SIGN_BYTES_DOMAIN_TAG, ...payload].map(value => new Felt(value)));
+  try {
+    return inputs.toCommitment();
+  } finally {
+    release(inputs);
+  }
 }
 
 // The Node binding's objects have no free().
@@ -55,11 +61,11 @@ function arbitraryValues(inputs: SigningInputs): bigint[] {
 }
 
 /**
- * The inputs the wallet signs for a dApp's `signBytes(data, kind)`. A transaction summary is returned as decoded, since
- * only that is what the executor asks for; everything else is signed under the domain tag so the signature cannot be
- * replayed as a transaction authorization. The caller frees the result.
+ * The word both key paths sign for a dApp's `signBytes(data, kind)`. A transaction summary is its own commitment and
+ * is not wrapped in the domain tag; a word, Blind, or Arbitrary payload is the commitment of the domain tag plus that
+ * payload, so the signature cannot authorize a transaction. The caller frees the result.
  */
-export function signBytesInputs(data: Uint8Array, kind: SignKind): SigningInputs {
+export function signBytesInputs(data: Uint8Array, kind: SignKind): Word {
   if (kind === 'word') {
     const word = Word.deserialize(data);
     try {
@@ -71,9 +77,10 @@ export function signBytesInputs(data: Uint8Array, kind: SignKind): SigningInputs
   if (kind !== 'signingInputs') throw new Error('unsupported sign kind');
 
   const inputs = SigningInputs.deserialize(data);
-  if (inputs.variantType === SigningInputsType.TransactionSummary) return inputs;
   try {
     switch (inputs.variantType) {
+      case SigningInputsType.TransactionSummary:
+        return inputs.toCommitment();
       case SigningInputsType.Blind: {
         const word = inputs.blindPayload();
         try {
